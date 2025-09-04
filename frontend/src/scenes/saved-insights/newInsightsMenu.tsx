@@ -16,7 +16,6 @@ export function OverlayForNewInsightMenu({ dataAttr }: { dataAttr: string }): JS
         ([insightType]) =>
             insightType !== InsightType.JSON &&
             (featureFlags[FEATURE_FLAGS.HOG] || insightType !== InsightType.HOG) &&
-            (featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT] || insightType !== InsightType.CALENDAR_HEATMAP) &&
             (featureFlags[FEATURE_FLAGS.PATHS_V2] || insightType !== InsightType.PATHS_V2)
     )
 

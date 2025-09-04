@@ -702,11 +702,9 @@ class DashboardsViewSet(
         dashboard.last_accessed_at = now()
         dashboard.save(update_fields=["last_accessed_at"])
 
-        # Prepare metadata
+        # Prepare metadata with initial tiles
         metadata_serializer = DashboardMetadataSerializer(dashboard, context=self.get_serializer_context())
         metadata_data = metadata_serializer.data
-        # Ensure tiles field is present (empty array for streaming)
-        metadata_data["tiles"] = []
 
         # Create serializer context for tiles
         context = self.get_serializer_context()
@@ -736,16 +734,39 @@ class DashboardsViewSet(
             renderer = SafeJSONRenderer()
 
             try:
-                # Stream metadata first
+                # Serialize the first 2 tiles (or fewer if dashboard has less) for inclusion in metadata
+                initial_tiles = []
+                initial_tile_count = min(2, len(sorted_tiles))
+
+                for order in range(initial_tile_count):
+                    tile = sorted_tiles[order]
+                    try:
+                        order_result, tile_data = await sync_to_async(
+                            serialize_tile_with_context, thread_sensitive=True
+                        )(tile, order, context)
+                        initial_tiles.append(tile_data)
+                    except Exception as e:
+                        logger.exception(f"Error serializing initial tile {tile.id}: {e}")
+                        # Add error tile to initial tiles
+                        initial_tiles.append(
+                            {
+                                "id": tile.id,
+                                "error": {"type": type(e).__name__, "message": str(e)},
+                            }
+                        )
+
+                metadata_data["tiles"] = initial_tiles
+
                 metadata_json = renderer.render({"type": "metadata", "dashboard": metadata_data}).decode()
                 yield f"data: {metadata_json}\n\n".encode()
 
-                # Serialize and stream tiles one at a time
-                for order, tile in enumerate(sorted_tiles):
+                # Stream remaining tiles (starting from tile 2 if we have more than 2 tiles)
+                for order in range(initial_tile_count, len(sorted_tiles)):
+                    tile = sorted_tiles[order]
                     try:
-                        order, tile_data = await sync_to_async(serialize_tile_with_context, thread_sensitive=True)(
-                            tile, order, context
-                        )
+                        order_result, tile_data = await sync_to_async(
+                            serialize_tile_with_context, thread_sensitive=True
+                        )(tile, order, context)
                         tile_json = renderer.render({"type": "tile", "order": order, "tile": tile_data}).decode()
                         yield f"data: {tile_json}\n\n".encode()
                     except Exception as e:

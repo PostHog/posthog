@@ -7,7 +7,7 @@ import api from 'lib/api'
 import { AlertType } from 'lib/components/Alerts/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isEmptyObject } from 'lib/utils'
+import { isEmptyObject, isObject } from 'lib/utils'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -248,13 +248,25 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             },
         ],
         maxContext: [
-            (s) => [s.insight],
-            (insight: Partial<QueryBasedInsightModel>): MaxContextInput[] => {
+            (s) => [s.insight, s.filtersOverride, s.variablesOverride],
+            (insight: Partial<QueryBasedInsightModel>, filtersOverride, variablesOverride): MaxContextInput[] => {
                 if (!insight || !insight.short_id || !insight.query) {
                     return []
                 }
-                return [createMaxContextHelpers.insight(insight)]
+                return [
+                    createMaxContextHelpers.insight(
+                        insight,
+                        filtersOverride ?? undefined,
+                        variablesOverride ?? undefined
+                    ),
+                ]
             },
+        ],
+        hasOverrides: [
+            (s) => [s.filtersOverride, s.variablesOverride],
+            (filtersOverride, variablesOverride) =>
+                (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
+                (isObject(variablesOverride) && !isEmptyObject(variablesOverride)),
         ],
     })),
     sharedListeners(({ actions, values }) => ({

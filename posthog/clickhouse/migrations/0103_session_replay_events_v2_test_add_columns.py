@@ -26,7 +26,7 @@ operations = [
     # Also run on coordinator node without the cluster clause
     run_sql_with_exceptions(
         ADD_MISSING_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL(on_cluster=False),
-        node_role=NodeRole.COORDINATOR,
+        node_roles=[NodeRole.COORDINATOR],
     ),
     # Finally, recreate the Kafka table and materialized view with the updated schema
     run_sql_with_exceptions(SESSION_REPLAY_EVENTS_V2_TEST_KAFKA_TABLE_SQL(on_cluster=False)),

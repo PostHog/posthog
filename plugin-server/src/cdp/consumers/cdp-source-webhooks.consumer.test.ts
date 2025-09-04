@@ -1,5 +1,5 @@
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
-import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
 import { DateTime, Settings } from 'luxon'
@@ -111,7 +111,7 @@ describe('SourceWebhooksConsumer', () => {
                 })
             })
 
-            it('should process a webhook and emit a capture event', async () => {
+            it('should capture an event using internal capture', async () => {
                 const res = await doRequest({
                     body: {
                         event: 'my-event',
@@ -125,31 +125,16 @@ describe('SourceWebhooksConsumer', () => {
                 })
 
                 await waitForBackgroundTasks()
+                expect(mockInternalFetch).toHaveBeenCalledTimes(1)
+                const internalEvents = mockInternalFetch.mock.calls[0][1]
 
-                const events = mockProducerObserver.getProducedKafkaMessagesForTopic(
-                    hub.HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC
-                )
-
-                expect(events).toHaveLength(1)
-
-                expect(forSnapshot(events[0])).toMatchInlineSnapshot(`
-                    {
-                      "headers": {
-                        "distinct_id": "test-distinct-id",
-                        "token": "THIS IS NOT A TOKEN FOR TEAM 2",
-                      },
-                      "key": "THIS IS NOT A TOKEN FOR TEAM 2:test-distinct-id",
-                      "topic": "events_plugin_ingestion_test",
-                      "value": {
-                        "data": "{"event":"my-event","distinct_id":"test-distinct-id","properties":{"$ip":"0000:0000:0000:0000:0000:ffff:7f00:0001","$lib":"posthog-webhook","$source_url":"/project/2/functions/<REPLACED-UUID-1>","$hog_function_execution_count":1},"timestamp":"2025-01-01T00:00:00.000Z"}",
-                        "distinct_id": "test-distinct-id",
-                        "now": "2025-01-01T00:00:00.000Z",
-                        "sent_at": "2025-01-01T00:00:00.000Z",
-                        "token": "THIS IS NOT A TOKEN FOR TEAM 2",
-                        "uuid": "<REPLACED-UUID-0>",
-                      },
-                    }
-                `)
+                expect(forSnapshot(internalEvents)).toEqual({
+                    body: `{"api_key":"THIS IS NOT A TOKEN FOR TEAM 2","timestamp":"2025-01-01T00:00:00.000Z","distinct_id":"test-distinct-id","sent_at":"2025-01-01T00:00:00.000Z","event":"my-event","properties":{"$ip":"0000:0000:0000:0000:0000:ffff:7f00:0001","$lib":"posthog-webhook","$source_url":"/project/2/functions/<REPLACED-UUID-0>","$hog_function_execution_count":1,"capture_internal":true}}`,
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    method: 'POST',
+                })
             })
 
             it('should log custom errors', async () => {

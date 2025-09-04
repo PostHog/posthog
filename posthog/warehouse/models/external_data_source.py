@@ -8,6 +8,7 @@ import temporalio
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
@@ -47,9 +48,18 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     job_inputs = EncryptedJSONField(null=True, blank=True)
     are_tables_created = models.BooleanField(default=False)
     prefix = models.CharField(max_length=100, null=True, blank=True)
+
+    # DEPRECATED: Check inside `revenue_analytics_config` instead
     revenue_analytics_enabled = models.BooleanField(default=False, blank=True, null=True)
 
     __repr__ = sane_repr("id", "source_id", "connection_id", "destination_id", "team_id")
+
+    @cached_property
+    def revenue_analytics_config(self):
+        from .revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
+
+        config, _ = ExternalDataSourceRevenueAnalyticsConfig.objects.get_or_create(external_data_source=self)
+        return config
 
     def soft_delete(self):
         self.deleted = True

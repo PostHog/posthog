@@ -12,13 +12,13 @@ import { MetricTitle } from './MetricTitle'
 import { getMetricTag } from './utils'
 
 export const MetricHeader = ({
-    metricIndex,
+    displayOrder,
     metric,
     metricType,
     isPrimaryMetric,
     onDuplicateMetricClick,
 }: {
-    metricIndex: number
+    displayOrder?: number
     metric: any
     metricType: any
     isPrimaryMetric: boolean
@@ -45,7 +45,7 @@ export const MetricHeader = ({
             <div className="deprecated-space-y-1">
                 <div className="flex items-start justify-between gap-2 min-w-0">
                     <div className="text-xs font-semibold flex items-start min-w-0 flex-1">
-                        <span className="mr-1 flex-shrink-0">{metricIndex + 1}.</span>
+                        {displayOrder !== undefined && <span className="mr-1 flex-shrink-0">{displayOrder + 1}.</span>}
                         <div className="min-w-0 flex-1">
                             <MetricTitle metric={metric} metricType={metricType} />
                         </div>
@@ -59,15 +59,19 @@ export const MetricHeader = ({
                                 icon={<IconPencil fontSize="12" />}
                                 tooltip="Edit"
                                 onClick={() => {
-                                    const openModal = isPrimaryMetric
-                                        ? metric.isSharedMetric
+                                    if (metric.isSharedMetric) {
+                                        const openSharedModal = isPrimaryMetric
                                             ? openPrimarySharedMetricModal
-                                            : openPrimaryMetricModal
-                                        : metric.isSharedMetric
-                                          ? openSecondarySharedMetricModal
-                                          : openSecondaryMetricModal
-
-                                    openModal(metric.isSharedMetric ? metric.sharedMetricId : metricIndex)
+                                            : openSecondarySharedMetricModal
+                                        openSharedModal(metric.sharedMetricId)
+                                    } else {
+                                        const openMetricModal = isPrimaryMetric
+                                            ? openPrimaryMetricModal
+                                            : openSecondaryMetricModal
+                                        if (metric.uuid) {
+                                            openMetricModal(metric.uuid)
+                                        }
+                                    }
                                 }}
                             />
                             <LemonButton

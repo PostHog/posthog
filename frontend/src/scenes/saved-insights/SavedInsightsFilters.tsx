@@ -4,7 +4,6 @@ import { IconCalendar } from '@posthog/icons'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -26,16 +25,12 @@ export function SavedInsightsFilters({
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const calendarHeatmapInsightEnabled = !!featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     const showPathsV2 = !!featureFlags[FEATURE_FLAGS.PATHS_V2]
 
     const { tab, createdBy, insightType, dateFrom, dateTo, dashboardId, search } = filters
 
     const insightTypeOptions = INSIGHT_TYPE_OPTIONS.filter((option) => {
-        if (option.value === InsightType.CALENDAR_HEATMAP && !calendarHeatmapInsightEnabled) {
-            return false
-        }
         if (option.value === InsightType.PATHS_V2 && !showPathsV2) {
             return false
         }

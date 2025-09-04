@@ -47,7 +47,7 @@ import { ChartDisplayType } from '~/types'
 import { PathsV2MaxRowsPerStepPicker } from './PathsV2MaxRowsPerStepPicker'
 
 export function InsightDisplayConfig(): JSX.Element {
-    const { insightProps, canEditInsight } = useValues(insightLogic)
+    const { insightProps, canEditInsight, editingDisabledReason } = useValues(insightLogic)
 
     const {
         querySource,
@@ -79,7 +79,9 @@ export function InsightDisplayConfig(): JSX.Element {
         funnelDataLogic(insightProps)
     )
 
-    const showCompare = (isTrends && display !== ChartDisplayType.ActionsAreaGraph) || isStickiness
+    const showCompare =
+        (isTrends && display !== ChartDisplayType.ActionsAreaGraph && display !== ChartDisplayType.CalendarHeatmap) ||
+        isStickiness
     const showInterval =
         isTrendsFunnel ||
         isLifecycle ||
@@ -96,7 +98,7 @@ export function InsightDisplayConfig(): JSX.Element {
     )
 
     const advancedOptions: LemonMenuItems = [
-        ...(isTrends || isRetention
+        ...((isTrends || isRetention) && display !== ChartDisplayType.CalendarHeatmap
             ? [
                   {
                       title: 'Display',
@@ -130,7 +132,7 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
-        ...(!showPercentStackView && isTrends
+        ...(!showPercentStackView && isTrends && display !== ChartDisplayType.CalendarHeatmap
             ? [
                   {
                       title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
@@ -138,7 +140,7 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
-        ...(!isNonTimeSeriesDisplay && isTrends
+        ...(!isNonTimeSeriesDisplay && isTrends && display !== ChartDisplayType.CalendarHeatmap
             ? [
                   {
                       title: 'Y-axis scale',
@@ -219,7 +221,7 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
-        ...(mightContainFractionalNumbers && isTrends
+        ...(mightContainFractionalNumbers && isTrends && display !== ChartDisplayType.CalendarHeatmap
             ? [
                   {
                       title: 'Decimal places',
@@ -292,6 +294,7 @@ export function InsightDisplayConfig(): JSX.Element {
                             compareFilter={compareFilter}
                             updateCompareFilter={updateCompareFilter}
                             disabled={!canEditInsight || !supportsCompare}
+                            disableReason={editingDisabledReason}
                         />
                     </ConfigFilter>
                 )}
@@ -299,7 +302,7 @@ export function InsightDisplayConfig(): JSX.Element {
             <div className="flex items-center gap-x-2 flex-wrap">
                 {advancedOptions.length > 0 && (
                     <LemonMenu items={advancedOptions} closeOnClickInside={false}>
-                        <LemonButton size="small">
+                        <LemonButton size="small" disabledReason={editingDisabledReason}>
                             <span className="font-medium whitespace-nowrap">
                                 Options
                                 {advancedOptionsCount ? (

@@ -77,7 +77,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -110,6 +109,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
@@ -163,7 +163,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('middle_session',
                                                      'new_session',
@@ -538,7 +539,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -571,6 +571,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -626,7 +627,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -659,6 +659,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -793,7 +794,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('session1',
                                                      'session2')
@@ -916,7 +918,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -949,6 +950,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
@@ -1204,7 +1206,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -1237,6 +1238,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -1378,7 +1380,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('session_with_duration')
          AND "posthog_sessionrecording"."team_id" = 99999)
@@ -1464,7 +1467,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -1497,6 +1499,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
@@ -1778,7 +1781,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -1811,6 +1813,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -1866,7 +1869,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -1899,6 +1901,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -1954,7 +1957,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -1987,6 +1989,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -2042,7 +2045,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -2075,6 +2077,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -2163,7 +2166,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -2196,6 +2198,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
@@ -2451,7 +2454,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -2484,6 +2486,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -2618,7 +2621,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('session_many_ids')
          AND "posthog_sessionrecording"."team_id" = 99999)
@@ -2704,7 +2708,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -2737,6 +2740,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -2792,7 +2796,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -2825,6 +2828,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -2880,7 +2884,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -2913,6 +2916,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -2968,7 +2972,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -3001,6 +3004,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -3056,7 +3060,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -3089,6 +3092,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -3144,7 +3148,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -3177,6 +3180,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -3232,7 +3236,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -3265,6 +3268,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -3353,7 +3357,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -3386,6 +3389,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
@@ -3439,7 +3443,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('at_base_time',
                                                      'at_base_time_plus_20')
@@ -3469,6 +3474,30 @@
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.14
+  '''
+  SELECT "posthog_persondistinctid"."id",
+         "posthog_persondistinctid"."team_id",
+         "posthog_persondistinctid"."person_id",
+         "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."version",
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
+  FROM "posthog_persondistinctid"
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
+  WHERE ("posthog_persondistinctid"."distinct_id" IN ('user2',
+                                                      'user_one_0')
+         AND "posthog_persondistinctid"."team_id" = 99999)
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.15
   '''
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
@@ -3843,7 +3872,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -3876,6 +3904,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
@@ -3929,7 +3958,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('at_base_time',
                                                      'at_base_time_plus_20')
@@ -3959,6 +3989,30 @@
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.14
+  '''
+  SELECT "posthog_persondistinctid"."id",
+         "posthog_persondistinctid"."team_id",
+         "posthog_persondistinctid"."person_id",
+         "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."version",
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
+  FROM "posthog_persondistinctid"
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
+  WHERE ("posthog_persondistinctid"."distinct_id" IN ('user2',
+                                                      'user_one_0')
+         AND "posthog_persondistinctid"."team_id" = 99999)
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.15
   '''
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
@@ -4333,7 +4387,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -4366,6 +4419,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
@@ -4419,7 +4473,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('at_base_time',
                                                      'at_base_time_plus_20')
@@ -4449,6 +4504,30 @@
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.14
+  '''
+  SELECT "posthog_persondistinctid"."id",
+         "posthog_persondistinctid"."team_id",
+         "posthog_persondistinctid"."person_id",
+         "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."version",
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
+  FROM "posthog_persondistinctid"
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
+  WHERE ("posthog_persondistinctid"."distinct_id" IN ('user2',
+                                                      'user_one_0')
+         AND "posthog_persondistinctid"."team_id" = 99999)
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.15
   '''
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
@@ -4823,7 +4902,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -4856,6 +4934,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
@@ -5003,7 +5082,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
                                                      '2',
@@ -5109,7 +5189,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -5142,6 +5221,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -5230,7 +5310,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -5263,6 +5342,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
@@ -5311,7 +5391,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -5344,6 +5423,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -5685,7 +5765,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
                                                      '2',
@@ -5828,7 +5909,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -5861,6 +5941,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -5949,7 +6030,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -5982,6 +6062,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
@@ -6174,7 +6255,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -6207,6 +6287,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
@@ -6397,7 +6478,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
                                                      '2',
@@ -6511,7 +6593,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -6544,6 +6625,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -6674,7 +6756,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -6707,6 +6788,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
@@ -7087,7 +7169,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
                                                      '2',
@@ -7205,7 +7288,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -7238,6 +7320,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -7326,7 +7409,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -7359,6 +7441,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
@@ -7733,7 +7816,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
                                                      '10',
@@ -8055,7 +8139,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1')
          AND "posthog_sessionrecording"."team_id" = 99999)
@@ -8141,7 +8226,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -8174,6 +8258,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -8262,7 +8347,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -8295,6 +8379,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
@@ -8675,7 +8760,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
                                                      '2')
@@ -8805,7 +8891,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -8838,6 +8923,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -8926,7 +9012,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -8959,6 +9044,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
@@ -9309,7 +9395,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
                                                      '2',
@@ -9403,7 +9490,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -9436,6 +9522,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -9540,7 +9627,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -9573,6 +9659,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
@@ -9954,7 +10041,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
                                                      '2',
@@ -10052,7 +10140,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -10085,6 +10172,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -10173,7 +10261,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -10206,6 +10293,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
@@ -10566,7 +10654,8 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version"
+         "posthog_sessionrecording"."storage_version",
+         "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
                                                      '2',
@@ -10716,7 +10805,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -10749,6 +10837,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."plugins_opt_in",
          "posthog_team"."opt_out_capture",
          "posthog_team"."event_names",
@@ -10837,7 +10926,6 @@
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -10870,6 +10958,7 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."session_recording_retention_period",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",

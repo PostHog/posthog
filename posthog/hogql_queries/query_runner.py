@@ -13,6 +13,7 @@ from posthog.schema import (
     ActorsQuery,
     CacheMissResponse,
     CalendarHeatmapQuery,
+    ChartDisplayType,
     DashboardFilter,
     DateRange,
     EventsQuery,
@@ -181,10 +182,26 @@ def get_query_runner(
         raise ValueError(f"Can't get a runner for an unknown query type: {query}")
 
     if kind == "TrendsQuery":
+        # Check if this should use calendar heatmap runner instead
+        query_obj = cast(TrendsQuery | dict[str, Any], query)
+        trends_filter = get_from_dict_or_attr(query_obj, "trendsFilter") or {}
+        display_type = get_from_dict_or_attr(trends_filter, "display") if trends_filter else None
+
+        if display_type == ChartDisplayType.CALENDAR_HEATMAP:
+            from .insights.trends.calendar_heatmap_trends_query_runner import CalendarHeatmapTrendsQueryRunner
+
+            return CalendarHeatmapTrendsQueryRunner(
+                query=query_obj,
+                team=team,
+                timings=timings,
+                limit_context=limit_context,
+                modifiers=modifiers,
+            )
+
         from .insights.trends.trends_query_runner import TrendsQueryRunner
 
         return TrendsQueryRunner(
-            query=cast(TrendsQuery | dict[str, Any], query),
+            query=query_obj,
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -444,19 +461,6 @@ def get_query_runner(
         )
 
         return RevenueAnalyticsGrossRevenueQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-        )
-
-    if kind == "RevenueAnalyticsGrowthRateQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_growth_rate_query_runner import (
-            RevenueAnalyticsGrowthRateQueryRunner,
-        )
-
-        return RevenueAnalyticsGrowthRateQueryRunner(
             query=query,
             team=team,
             timings=timings,

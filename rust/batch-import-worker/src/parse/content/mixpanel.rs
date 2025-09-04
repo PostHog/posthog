@@ -94,18 +94,23 @@ impl MixpanelEvent {
                 return Ok(None);
             };
 
-            let inner = CapturedEvent {
-                uuid: event_uuid,
-                distinct_id,
-                ip: "127.0.0.1".to_string(),
-                data: serde_json::to_string(&raw_event)?,
-                now: Utc::now().to_rfc3339(),
-                sent_at: None,
-                token,
-                is_cookieless_mode: false,
-            };
+            // Only return the event if import_events is enabled
+            if context.import_events {
+                let inner = CapturedEvent {
+                    uuid: event_uuid,
+                    distinct_id,
+                    ip: "127.0.0.1".to_string(),
+                    data: serde_json::to_string(&raw_event)?,
+                    now: Utc::now().to_rfc3339(),
+                    sent_at: None,
+                    token,
+                    is_cookieless_mode: false,
+                };
 
-            Ok(Some(InternallyCapturedEvent { team_id, inner }))
+                Ok(Some(InternallyCapturedEvent { team_id, inner }))
+            } else {
+                Ok(None)
+            }
         }
     }
 }

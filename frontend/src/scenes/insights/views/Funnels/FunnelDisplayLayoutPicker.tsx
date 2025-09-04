@@ -8,7 +8,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function FunnelDisplayLayoutPicker(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { funnelsFilter } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
@@ -38,6 +38,7 @@ export function FunnelDisplayLayoutPicker(): JSX.Element {
             data-attr="funnel-bar-layout-selector"
             options={options}
             size="small"
+            disabledReason={editingDisabledReason}
         />
     )
 }

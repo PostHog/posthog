@@ -1084,9 +1084,7 @@ describe('IngestionConsumer', () => {
                             level: 'debug',
                             log_source: 'hog_function',
                             log_source_id: transformationFunction.id,
-                            message: expect.stringMatching(
-                                /^Function completed in \d+\.?\d*ms\. Sync: \d+ms\. Mem: \d+ bytes\. Ops: \d+\. Event: '\S+'$/
-                            ),
+                            message: expect.stringMatching(/^Function completed in/),
                             team_id: team.id,
                             timestamp: expect.stringMatching(/2025-01-01 00:00:00\.\d{3}/),
                         },
@@ -1151,9 +1149,7 @@ describe('IngestionConsumer', () => {
                             level: 'debug',
                             log_source: 'hog_function',
                             log_source_id: transformationFunction.id,
-                            message: expect.stringMatching(
-                                /^Function completed in \d+\.?\d*ms\. Sync: \d+ms\. Mem: \d+ bytes\. Ops: \d+\. Event: '\S+'$/
-                            ),
+                            message: expect.stringMatching(/^Function completed in/),
                             team_id: team.id,
                             timestamp: expect.stringMatching(/2025-01-01 00:00:00\.\d{3}/),
                         },

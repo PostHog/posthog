@@ -5,9 +5,7 @@ import {
     IconApp,
     IconApps,
     IconBook,
-    IconCalendar,
     IconChevronRight,
-    IconCode,
     IconCursor,
     IconDatabase,
     IconFunnels,
@@ -46,10 +44,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     ai: {
         icon: <IconAI />,
         iconColor: ['var(--color-product-max-ai-light)'],
-    },
-    code: {
-        icon: <IconCode />,
-        iconColor: ['var(--color-product-mcp-server-light)', 'var(--color-product-mcp-server-dark)'],
     },
     cursor: {
         icon: <IconCursor />,
@@ -133,10 +127,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     insightHogQL: {
         icon: <IconHogQL />,
         iconColor: ['var(--color-insight-sql-light)'],
-    },
-    insightCalendarHeatmap: {
-        icon: <IconCalendar className="mt-[2px]" />,
-        iconColor: ['var(--color-insight-calendar-heatmap-light)', 'var(--color-insight-calendar-heatmap-dark)'],
     },
     cohort: {
         icon: <IconCohort />,
@@ -331,12 +321,6 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             type: 'notebook',
             href: urls.notebooks(),
         },
-        {
-            path: 'MCP Server',
-            category: 'Tools',
-            iconType: 'code',
-            href: 'https://posthog.com/docs/model-context-protocol',
-        } as FileSystemImport,
         {
             path: `Data pipelines`,
             category: 'Tools',

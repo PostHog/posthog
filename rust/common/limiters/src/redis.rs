@@ -37,7 +37,7 @@ use tokio::time::interval;
 pub const QUOTA_LIMITER_CACHE_KEY: &str = "@posthog/quota-limits/";
 pub const OVERFLOW_LIMITER_CACHE_KEY: &str = "@posthog/capture-overflow/";
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum QuotaResource {
     Events,
     Exceptions,
@@ -45,6 +45,7 @@ pub enum QuotaResource {
     Replay,
     FeatureFlags,
     Surveys,
+    LLMEvents,
 }
 
 impl QuotaResource {
@@ -56,6 +57,7 @@ impl QuotaResource {
             Self::Replay => "replay",
             Self::FeatureFlags => "feature_flag_requests",
             Self::Surveys => "surveys",
+            Self::LLMEvents => "llm_events",
         }
     }
 }

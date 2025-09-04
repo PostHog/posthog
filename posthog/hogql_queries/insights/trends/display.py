@@ -20,6 +20,7 @@ class TrendsDisplay:
             or self.display_type == ChartDisplayType.ACTIONS_PIE
             or self.display_type == ChartDisplayType.ACTIONS_BAR_VALUE
             or self.display_type == ChartDisplayType.WORLD_MAP
+            or self.display_type == ChartDisplayType.CALENDAR_HEATMAP
             or self.display_type == ChartDisplayType.ACTIONS_TABLE
         )
 

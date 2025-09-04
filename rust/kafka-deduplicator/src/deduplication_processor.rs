@@ -12,6 +12,7 @@ use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
 use crate::kafka::message::{AckableMessage, MessageProcessor};
+use crate::kafka::types::Partition;
 use crate::rocksdb::deduplication_store::{DeduplicationStore, DeduplicationStoreConfig};
 
 /// Context for a Kafka message being processed
@@ -29,6 +30,7 @@ pub struct DeduplicationConfig {
     pub producer_config: ClientConfig,
     pub store_config: DeduplicationStoreConfig,
     pub producer_send_timeout: Duration,
+    pub flush_interval: Duration,
 }
 
 /// Processor that handles deduplication of events using per-partition stores
@@ -40,14 +42,17 @@ pub struct DeduplicationProcessor {
     /// Kafka producer for publishing non-duplicate events
     producer: Option<FutureProducer>,
 
-    /// Per-partition deduplication stores using DashMap for better concurrent performance
+    /// Reference to per-partition deduplication stores (shared across all processors)
     /// Key: (topic, partition)
-    stores: Arc<DashMap<(String, i32), Arc<DeduplicationStore>>>,
+    stores: Arc<DashMap<Partition, DeduplicationStore>>,
 }
 
 impl DeduplicationProcessor {
-    /// Create a new deduplication processor
-    pub fn new(config: DeduplicationConfig) -> Result<Self> {
+    /// Create a new deduplication processor with a reference to shared stores
+    pub fn new(
+        config: DeduplicationConfig,
+        stores: Arc<DashMap<Partition, DeduplicationStore>>,
+    ) -> Result<Self> {
         let producer: Option<FutureProducer> = match &config.output_topic {
             Some(topic) => Some(config.producer_config.create().with_context(|| {
                 format!("Failed to create Kafka producer for output topic '{topic}'")
@@ -58,22 +63,18 @@ impl DeduplicationProcessor {
         Ok(Self {
             config,
             producer,
-            stores: Arc::new(DashMap::new()),
+            stores,
         })
     }
 
     /// Get or create a deduplication store for a specific partition
-    async fn get_or_create_store(
-        &self,
-        topic: &str,
-        partition: i32,
-    ) -> Result<Arc<DeduplicationStore>> {
-        let partition_key = (topic.to_string(), partition);
+    async fn get_or_create_store(&self, topic: &str, partition: i32) -> Result<DeduplicationStore> {
+        let partition_key = Partition::new(topic.to_string(), partition);
 
         // Use DashMap's entry API for atomic get-or-create operation
         let store = self
             .stores
-            .entry(partition_key.clone())
+            .entry(partition_key)
             .or_try_insert_with(|| {
                 // Create new store for this partition
                 let store_path = format!(
@@ -94,7 +95,6 @@ impl DeduplicationProcessor {
 
                 DeduplicationStore::new(partition_config, topic.to_string(), partition)
                     .with_context(|| format!("Failed to create deduplication store for {topic}:{partition} at path {store_path_str}"))
-                    .map(Arc::new)
             })?
             .clone();
 
@@ -209,7 +209,7 @@ impl MessageProcessor for DeduplicationProcessor {
         let partition = message.kafka_message().partition();
         let offset = message.kafka_message().offset();
 
-        debug!(
+        info!(
             "Processing message from topic {} partition {} offset {}",
             topic, partition, offset
         );
@@ -252,21 +252,32 @@ impl MessageProcessor for DeduplicationProcessor {
                 }
             }
             Err(e) => {
-                error!(
-                    "Failed to parse CapturedEvent from {}:{} offset {}: {}",
+                // TODO: When DLQ is implemented, send unparseable messages there
+                // For now, we just log and skip messages we can't parse (e.g., those with null ip field)
+                warn!(
+                    "Failed to parse CapturedEvent from {}:{} offset {}: {}. Skipping message.",
                     topic, partition, offset, e
                 );
-                // Nack the message so it can be handled by error recovery/DLQ
-                message
-                    .nack(format!("Failed to parse CapturedEvent JSON: {e}"))
-                    .await;
-                return Err(anyhow::anyhow!(
-                    "Failed to parse CapturedEvent from {}:{} offset {}: {}",
-                    topic,
-                    partition,
-                    offset,
-                    e
-                ));
+                // Ack the message to continue processing
+                message.ack().await;
+                return Ok(());
+
+                // Original error handling - keeping for reference when DLQ is implemented:
+                // error!(
+                //     "Failed to parse CapturedEvent from {}:{} offset {}: {}",
+                //     topic, partition, offset, e
+                // );
+                // // Nack the message so it can be handled by error recovery/DLQ
+                // message
+                //     .nack(format!("Failed to parse CapturedEvent JSON: {e}"))
+                //     .await;
+                // return Err(anyhow::anyhow!(
+                //     "Failed to parse CapturedEvent from {}:{} offset {}: {}",
+                //     topic,
+                //     partition,
+                //     offset,
+                //     e
+                // ));
             }
         };
 
@@ -342,20 +353,6 @@ impl DeduplicationProcessor {
     pub async fn get_active_store_count(&self) -> usize {
         self.stores.len()
     }
-
-    /// Clean up stores for revoked partitions
-    pub async fn cleanup_stores(&self, revoked_partitions: &[(String, i32)]) {
-        for (topic, partition) in revoked_partitions {
-            let partition_key = (topic.clone(), *partition);
-            if let Some(_store) = self.stores.remove(&partition_key) {
-                info!(
-                    "Cleaned up deduplication store for revoked partition {}:{}",
-                    topic, partition
-                );
-                // Store will be dropped when Arc goes out of scope
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -382,6 +379,7 @@ mod tests {
             producer_config,
             store_config,
             producer_send_timeout: Duration::from_secs(5),
+            flush_interval: Duration::from_secs(120),
         };
 
         (config, temp_dir)
@@ -416,15 +414,15 @@ mod tests {
 
         // We can't easily test the full processor without Kafka running,
         // but we can test the store management logic separately
-        let stores: Arc<DashMap<(String, i32), Arc<DeduplicationStore>>> = Arc::new(DashMap::new());
+        let stores: Arc<DashMap<Partition, DeduplicationStore>> = Arc::new(DashMap::new());
 
         // Test that stores map starts empty
         assert_eq!(stores.len(), 0);
 
         // Test cleanup with empty stores
-        let revoked = vec![("test-topic".to_string(), 0)];
-        for (topic, partition) in &revoked {
-            stores.remove(&(topic.clone(), *partition));
+        let revoked = vec![Partition::new("test-topic".to_string(), 0)];
+        for partition in &revoked {
+            stores.remove(partition);
         }
 
         assert_eq!(stores.len(), 0);

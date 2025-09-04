@@ -67,9 +67,9 @@ export function RevenueAnalyticsTopCustomersNode(props: {
         return {
             id: idx + 1, // Make them start at 1, for good measure
 
-            // Name is in first column, grab from any result
-            // Fallback to second column if first is undefined, that's the customer_id
-            label: results[key][0] ?? results[key][1],
+            // Name is in the second column, grab from any result
+            // Fallback to first column if second is undefined, that's the customer_id
+            label: results[key][1] ?? results[key][0],
 
             // In the same order as the labels get the revenue
             // assuming it was 0 if not present in the dataset

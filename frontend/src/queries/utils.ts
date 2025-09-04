@@ -7,7 +7,6 @@ import {
     ActionsNode,
     ActorsQuery,
     BreakdownFilter,
-    CalendarHeatmapQuery,
     CompareFilter,
     DataTableNode,
     DataVisualizationNode,
@@ -46,7 +45,6 @@ import {
     ResultCustomizationByValue,
     RetentionQuery,
     RevenueAnalyticsGrossRevenueQuery,
-    RevenueAnalyticsGrowthRateQuery,
     RevenueAnalyticsMRRQuery,
     RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsOverviewQuery,
@@ -164,12 +162,6 @@ export function isRevenueAnalyticsGrossRevenueQuery(
     return node?.kind === NodeKind.RevenueAnalyticsGrossRevenueQuery
 }
 
-export function isRevenueAnalyticsGrowthRateQuery(
-    node?: Record<string, any> | null
-): node is RevenueAnalyticsGrowthRateQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsGrowthRateQuery
-}
-
 export function isRevenueAnalyticsMetricsQuery(
     node?: Record<string, any> | null
 ): node is RevenueAnalyticsMetricsQuery {
@@ -267,10 +259,6 @@ export function isTrendsQuery(node?: Record<string, any> | null): node is Trends
     return node?.kind === NodeKind.TrendsQuery
 }
 
-export function isCalendarHeatmapQuery(node?: Record<string, any> | null): node is CalendarHeatmapQuery {
-    return node?.kind === NodeKind.CalendarHeatmapQuery
-}
-
 export function isFunnelsQuery(node?: Record<string, any> | null): node is FunnelsQuery {
     return node?.kind === NodeKind.FunnelsQuery
 }
@@ -347,8 +335,7 @@ export function isInsightQueryNode(node?: Record<string, any> | null): node is I
         isPathsQuery(node) ||
         isPathsV2Query(node) ||
         isStickinessQuery(node) ||
-        isLifecycleQuery(node) ||
-        isCalendarHeatmapQuery(node)
+        isLifecycleQuery(node)
     )
 }
 
@@ -545,7 +532,6 @@ export const nodeKindToFilterProperty: Record<InsightNodeKind, InsightFilterProp
     [NodeKind.PathsV2Query]: 'pathsV2Filter',
     [NodeKind.StickinessQuery]: 'stickinessFilter',
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
-    [NodeKind.CalendarHeatmapQuery]: 'calendarHeatmapFilter',
 }
 
 export function filterKeyForQuery(node: InsightQueryNode): InsightFilterProperty {
