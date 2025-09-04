@@ -177,7 +177,9 @@ class VercelIntegration:
             account=account,
         )
 
-        logger.info("Starting Vercel installation upsert process", installation_id=installation_id)
+        logger.info(
+            "Starting Vercel installation upsert process", installation_id=installation_id, integration="vercel"
+        )
 
         # Check if there's already an OrganizationIntegration for this installation_id
         # If there is, we don't need to do update anything besides OrganizationIntegration's config.
@@ -191,7 +193,7 @@ class VercelIntegration:
                 kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
                 integration_id=installation_id,
             ).update(config=asdict(config))
-            logger.info("Vercel installation updated", installation_id=installation_id)
+            logger.info("Vercel installation updated", installation_id=installation_id, integration="vercel")
             return
 
         # It's possible that there's already a user with this email signed up to PostHog,
@@ -229,10 +231,12 @@ class VercelIntegration:
                     },
                 )
 
-                logger.info("Created new Vercel installation", installation_id=installation_id)
+                logger.info("Created new Vercel installation", installation_id=installation_id, integration="vercel")
             except IntegrityError as e:
                 capture_exception(e)
-                logger.exception("Failed to create Vercel installation", installation_id=installation_id)
+                logger.exception(
+                    "Failed to create Vercel installation", installation_id=installation_id, integration="vercel"
+                )
                 raise exceptions.ValidationError(
                     {"validation_error": "Something went wrong."},
                     code="unique",
@@ -251,7 +255,10 @@ class VercelIntegration:
             )
 
         logger.info(
-            "Successfully created Vercel installation", installation_id=installation_id, organization_id=organization.id
+            "Successfully created Vercel installation",
+            installation_id=installation_id,
+            organization_id=organization.id,
+            integration="vercel",
         )
 
     @staticmethod
@@ -268,15 +275,15 @@ class VercelIntegration:
 
     @staticmethod
     def update_installation(installation_id: str, billing_plan_id: str) -> None:
-        logger.info("Starting Vercel installation update", installation_id=installation_id)
+        logger.info("Starting Vercel installation update", installation_id=installation_id, integration="vercel")
 
         # TODO: Implement billing plan update logic here, awaiting billing service implementation.
 
-        logger.info("Successfully updated Vercel installation", installation_id=installation_id)
+        logger.info("Successfully updated Vercel installation", installation_id=installation_id, integration="vercel")
 
     @staticmethod
     def delete_installation(installation_id: str) -> dict[str, Any]:
-        logger.info("Starting Vercel installation deletion", installation_id=installation_id)
+        logger.info("Starting Vercel installation deletion", installation_id=installation_id, integration="vercel")
         installation = VercelIntegration._get_installation(installation_id)
         installation.delete()
         is_dev = settings.DEBUG
@@ -284,6 +291,7 @@ class VercelIntegration:
             "Successfully deleted Vercel installation",
             installation_id=installation_id,
             finalized=is_dev,
+            integration="vercel",
         )
         return {"finalized": is_dev}  # Immediately finalize in dev mode for testing purposes
 
@@ -300,6 +308,7 @@ class VercelIntegration:
             "Starting Vercel resource creation",
             installation_id=installation_id,
             resource_name=resource_data.get("name"),
+            integration="vercel",
         )
 
         if not resource_data.get("name"):
@@ -347,6 +356,7 @@ class VercelIntegration:
             installation_id=installation_id,
             resource_id=resource.pk,
             team_id=team.pk,
+            integration="vercel",
         )
 
         return VercelIntegration._build_resource_response(resource, installation)
@@ -358,7 +368,7 @@ class VercelIntegration:
 
     @staticmethod
     def update_resource(resource_id: str, resource_data: dict[str, Any]) -> dict[str, Any]:
-        logger.info("Starting Vercel resource update", resource_id=resource_id)
+        logger.info("Starting Vercel resource update", resource_id=resource_id, integration="vercel")
         resource, installation = VercelIntegration._get_resource_with_installation(resource_id)
 
         updated_config = copy.deepcopy(resource.config)
@@ -368,15 +378,15 @@ class VercelIntegration:
         resource.config = asdict(validated_config)
         resource.save(update_fields=["config"])
 
-        logger.info("Successfully updated Vercel resource", resource_id=resource_id)
+        logger.info("Successfully updated Vercel resource", resource_id=resource_id, integration="vercel")
         return VercelIntegration._build_resource_response(resource, installation)
 
     @staticmethod
     def delete_resource(resource_id: str) -> None:
-        logger.info("Starting Vercel resource deletion", resource_id=resource_id)
+        logger.info("Starting Vercel resource deletion", resource_id=resource_id, integration="vercel")
         resource, _ = VercelIntegration._get_resource_with_installation(resource_id)
         resource.delete()
-        logger.info("Successfully deleted Vercel resource", resource_id=resource_id)
+        logger.info("Successfully deleted Vercel resource", resource_id=resource_id, integration="vercel")
 
     @staticmethod
     def _build_resource_response(resource: Integration, installation: OrganizationIntegration) -> dict[str, Any]:
@@ -428,7 +438,9 @@ class VercelIntegration:
         access_token = installation.config.get("credentials", {}).get("access_token")
         if not access_token:
             logger.exception(
-                "Missing access token for Vercel installation", installation_id=installation.integration_id
+                "Missing access token for Vercel installation",
+                installation_id=installation.integration_id,
+                integration="vercel",
             )
         return access_token
 
@@ -437,7 +449,7 @@ class VercelIntegration:
         try:
             return VercelAPIClient(bearer_token=access_token)
         except ValueError as e:
-            logger.exception("Failed to create Vercel API client")
+            logger.exception("Failed to create Vercel API client", integration="vercel")
             capture_exception(e)
             return None
 
@@ -445,7 +457,7 @@ class VercelIntegration:
     def _setup_vercel_client_for_team(team: Team) -> VercelSetupResult | None:
         resource = VercelIntegration._get_vercel_resource_for_team(team)
         if not resource:
-            logger.debug("Vercel resource not found for team", team_id=team.id)
+            logger.debug("Vercel resource not found for team", team_id=team.id, integration="vercel")
             return None
 
         installation = VercelIntegration._get_installation_for_organization(team.organization)
@@ -454,6 +466,7 @@ class VercelIntegration:
                 "Vercel installation not found for organization",
                 team_id=team.pk,
                 organization_id=team.organization.pk,
+                integration="vercel",
             )
             return None
 
@@ -463,6 +476,7 @@ class VercelIntegration:
                 "Failed to get access token for Vercel installation",
                 installation_id=installation.integration_id,
                 team_id=team.pk,
+                integration="vercel",
             )
             return None
 
@@ -472,6 +486,7 @@ class VercelIntegration:
                 "Failed to create Vercel API client",
                 installation_id=installation.integration_id,
                 team_id=team.pk,
+                integration="vercel",
             )
             return None
 
@@ -481,6 +496,7 @@ class VercelIntegration:
                 "Missing integration_id in installation",
                 installation_id=installation.pk,
                 team_id=team.pk,
+                integration="vercel",
             )
             return None
 
@@ -491,6 +507,7 @@ class VercelIntegration:
             team_id=team.pk,
             integration_config_id=integration_config_id,
             resource_id=resource_id,
+            integration="vercel",
         )
         return VercelSetupResult(
             client=client,
@@ -526,12 +543,14 @@ class VercelIntegration:
                     item_id=item_id,
                     integration_config_id=setup_result.integration_config_id,
                     resource_id=setup_result.resource_id,
+                    integration="vercel",
                 )
             else:
                 logger.exception(
                     f"Failed to create {item_type} in Vercel",
                     item_id=item_id,
                     error=result.error,
+                    integration="vercel",
                 )
         else:
             update_data = {k: v for k, v in vercel_item.items() if k not in ("id", "createdAt")}
@@ -547,12 +566,14 @@ class VercelIntegration:
                     item_id=item_id,
                     integration_config_id=setup_result.integration_config_id,
                     resource_id=setup_result.resource_id,
+                    integration="vercel",
                 )
             else:
                 logger.exception(
                     f"Failed to update {item_type} in Vercel",
                     item_id=item_id,
                     error=result.error,
+                    integration="vercel",
                 )
 
     @staticmethod
@@ -572,7 +593,7 @@ class VercelIntegration:
         if not setup_result:
             return
 
-        logger.debug(f"Starting Vercel {item_type} deletion", item_id=item_id)
+        logger.debug(f"Starting Vercel {item_type} deletion", item_id=item_id, integration="vercel")
         result = setup_result.client.delete_experimentation_item(
             integration_config_id=setup_result.integration_config_id,
             resource_id=setup_result.resource_id,
@@ -584,6 +605,7 @@ class VercelIntegration:
                 item_id=item_id,
                 integration_config_id=setup_result.integration_config_id,
                 resource_id=setup_result.resource_id,
+                integration="vercel",
             )
         else:
             logger.exception(
@@ -592,6 +614,7 @@ class VercelIntegration:
                 integration_config_id=setup_result.integration_config_id,
                 resource_id=setup_result.resource_id,
                 error=result.error,
+                integration="vercel",
             )
 
     @staticmethod
@@ -668,6 +691,7 @@ def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_
         logger.exception(
             f"Failed to {operation_name}",
             item_id=item_id,
+            integration="vercel",
         )
         capture_exception(e)
 

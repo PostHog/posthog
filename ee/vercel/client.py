@@ -85,7 +85,7 @@ class VercelAPIClient:
             response.raise_for_status()
             return response, {}
         except Timeout:
-            logger.exception(f"Timeout occurred during {operation_name}", method=method, url=url)
+            logger.exception(f"Timeout occurred during {operation_name}", method=method, url=url, integration="vercel")
             return None, {"error": "Request timed out", "error_detail": "The request exceeded the configured timeout"}
         except HTTPError as e:
             status_code = self._get_status_code_from_exception(e)
@@ -95,6 +95,7 @@ class VercelAPIClient:
                 method=method,
                 url=url,
                 status_code=status_code,
+                integration="vercel",
             )
             result = {
                 "error": "HTTP error",
@@ -104,10 +105,14 @@ class VercelAPIClient:
                 result["status_code"] = status_code
             return None, result
         except RequestException as e:
-            logger.exception(f"Network error occurred during {operation_name}", method=method, url=url)
+            logger.exception(
+                f"Network error occurred during {operation_name}", method=method, url=url, integration="vercel"
+            )
             return None, {"error": "Network error", "error_detail": str(e)[:200]}
         except Exception as e:
-            logger.exception(f"Unexpected error occurred during {operation_name}", method=method, url=url)
+            logger.exception(
+                f"Unexpected error occurred during {operation_name}", method=method, url=url, integration="vercel"
+            )
             return None, {"error": "Unexpected error", "error_detail": str(e)[:200]}
 
     def create_experimentation_items(
@@ -128,6 +133,7 @@ class VercelAPIClient:
                 integration_config_id=integration_config_id,
                 resource_id=resource_id,
                 item_count=len(items),
+                integration="vercel",
             )
             return ExperimentationResult(success=True, item_count=len(items))
 
@@ -154,6 +160,7 @@ class VercelAPIClient:
                 integration_config_id=integration_config_id,
                 resource_id=resource_id,
                 item_id=item_id,
+                integration="vercel",
             )
             return ExperimentationResult(success=True, item_id=item_id)
 
@@ -177,6 +184,7 @@ class VercelAPIClient:
                 integration_config_id=integration_config_id,
                 resource_id=resource_id,
                 item_id=item_id,
+                integration="vercel",
             )
             return ExperimentationResult(success=True, item_id=item_id)
 
@@ -219,7 +227,7 @@ class VercelAPIClient:
         )
 
         if response:
-            logger.info("Successfully exchanged Vercel SSO token", has_state=state is not None)
+            logger.info("Successfully exchanged Vercel SSO token", has_state=state is not None, integration="vercel")
             try:
                 json_data = response.json()
                 return SSOTokenResponse(
@@ -233,6 +241,6 @@ class VercelAPIClient:
                     error_description=json_data.get("error_description"),
                 )
             except (json.JSONDecodeError, KeyError):
-                logger.exception("Failed to parse JSON response during Vercel SSO token exchange")
+                logger.exception("Failed to parse JSON response during Vercel SSO token exchange", integration="vercel")
 
         return None
