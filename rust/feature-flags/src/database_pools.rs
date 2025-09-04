@@ -22,7 +22,7 @@ impl DatabasePools {
                 .await
                 .map_err(|e| {
                     FlagError::DatabaseError(format!(
-                        "Failed to create flag matching reader pool: {e}"
+                        "Failed to create non-persons reader pool: {e}"
                     ))
                 })?,
         );
