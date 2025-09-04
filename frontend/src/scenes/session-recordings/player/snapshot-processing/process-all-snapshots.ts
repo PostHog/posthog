@@ -29,7 +29,7 @@ import { PostHogEE } from '../../../../../@posthog/ee/types'
 
 export type ProcessingCache = Record<SourceKey, RecordingSnapshot[]>
 /**
- * NB this both mutates and returns snapshotsBySource
+ * NB this mutates processingCache and returns the processed snapshots
  *
  * there are several steps to processing snapshots as received from the API
  * before they are playable, vanilla rrweb data

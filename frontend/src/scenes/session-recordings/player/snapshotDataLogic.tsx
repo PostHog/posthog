@@ -23,8 +23,6 @@ import {
 
 import type { snapshotDataLogicType } from './snapshotDataLogicType'
 
-// +- before and after start and end of a recording to query for session linked events.
-// +- before and after start and end of a recording to query for events related by person.
 const DEFAULT_REALTIME_POLLING_MILLIS = 3000
 const DEFAULT_V2_POLLING_INTERVAL_MS = 10000
 
@@ -180,7 +178,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         cache.snapshotsBySource[k].sourceLoaded = true
                     })
 
-                    return { sources: sources }
+                    return { sources }
                 },
             },
         ],
