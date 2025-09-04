@@ -184,7 +184,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "summarize sessions from the last 7 days with test accounts filtered out",
                         "should_use_current_filters": True,  # Matches current filters exactly
-                        "summary_name": "All sessions (last 7 days)",
+                        "summary_name": "All sessions, no test accounts (last 7 days)",
                     },
                 ),
             ),
