@@ -13,8 +13,7 @@ import { MetricsTable } from './MetricsTable'
 import { ResultDetails } from './ResultDetails'
 
 export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
-    const { experiment, primaryMetricsState, secondaryMetricsState, hasMinimumExposureForResults } =
-        useValues(experimentLogic)
+    const { experiment, primaryMetrics, secondaryMetrics, hasMinimumExposureForResults } = useValues(experimentLogic)
 
     const { openPrimaryMetricsReorderModal, openSecondaryMetricsReorderModal } = useActions(modalsLogic)
 
@@ -23,7 +22,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
         return <></>
     }
 
-    const metrics = isSecondary ? secondaryMetricsState : primaryMetricsState
+    const metrics = isSecondary ? secondaryMetrics : primaryMetrics
 
     const showResultDetails =
         metrics.length === 1 && metrics[0].result !== null && hasMinimumExposureForResults && !isSecondary

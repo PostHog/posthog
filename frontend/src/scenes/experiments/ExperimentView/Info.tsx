@@ -34,7 +34,7 @@ export const ExperimentLastRefresh = ({
     onClick,
 }: {
     isRefreshing: boolean
-    lastRefresh: string
+    lastRefresh: string | null | undefined
     onClick: () => void
 }): JSX.Element => {
     usePeriodicRerender(15000) // Re-render every 15 seconds for up-to-date last refresh time
@@ -107,7 +107,7 @@ export function Info(): JSX.Element {
         ...Array.from(primaryMetricsResults.values()),
         ...Array.from(secondaryMetricsResults.values()),
     ]
-    const timestamps = allResults.map((r) => r?.last_refresh).filter(Boolean)
+    const timestamps = allResults.map((r) => r?.last_refresh).filter(Boolean) as string[]
     const lastRefresh = timestamps.length > 0 ? timestamps.sort()[0] : null
 
     const status = getExperimentStatus(experiment)

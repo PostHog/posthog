@@ -71,7 +71,7 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
     const isOpen = isSecondary ? isSecondaryMetricsReorderModalOpen : isPrimaryMetricsReorderModalOpen
     const closeModal = isSecondary ? closeSecondaryMetricsReorderModal : closePrimaryMetricsReorderModal
 
-    const { experiment, primaryMetricsState, secondaryMetricsState } = useValues(experimentLogic)
+    const { experiment, primaryMetrics, secondaryMetrics } = useValues(experimentLogic)
     const { updateExperiment } = useActions(experimentLogic)
 
     const [orderedUuids, setOrderedUuids] = useState<string[]>([])
@@ -98,10 +98,10 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
             return []
         }
 
-        const metricsState = isSecondary ? secondaryMetricsState : primaryMetricsState
+        const metricsResults = isSecondary ? secondaryMetrics : primaryMetrics
 
         // Create a map for quick lookup by UUID
-        const metricsMap = new Map(metricsState.map((metricState) => [metricState.uuid, metricState.definition]))
+        const metricsMap = new Map(metricsResults.map((metricResult) => [metricResult.uuid, metricResult.definition]))
 
         // Return metrics in the order specified by orderedUuids
         return orderedUuids

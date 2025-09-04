@@ -1,7 +1,7 @@
 import { CachedNewExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
 
-export interface MetricState {
+export interface MetricResult {
     uuid: string
     definition: ExperimentMetric
     order: number
@@ -10,14 +10,14 @@ export interface MetricState {
     isLoading: boolean
 }
 
-// Helper to process and order metrics into MetricState array
+// Helper to process and order metrics into MetricResult array
 export function processMetrics(
     experiment: Experiment | null,
     isSecondary: boolean,
     resultsMap: Map<string, CachedNewExperimentQueryResponse>,
     errorsMap: Map<string, any>,
     isGroupLoading: boolean
-): MetricState[] {
+): MetricResult[] {
     if (!experiment) {
         return []
     }
@@ -74,5 +74,5 @@ export function processMetrics(
                 isLoading,
             }
         })
-        .filter((state): state is MetricState => state !== null)
+        .filter((state): state is MetricResult => state !== null)
 }

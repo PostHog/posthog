@@ -71,7 +71,7 @@ import {
     TrendExperimentVariant,
 } from '~/types'
 
-import { MetricState, processMetrics } from './MetricsView/shared/metricsState'
+import { MetricResult, processMetrics } from './MetricsView/shared/metricsState'
 import { getDefaultMetricTitle } from './MetricsView/shared/utils'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
@@ -2012,7 +2012,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 return experiment.stats_config?.method || ExperimentStatsMethod.Bayesian
             },
         ],
-        primaryMetricsState: [
+        primaryMetrics: [
             (s) => [
                 s.experiment,
                 s.primaryMetricsResults,
@@ -2024,7 +2024,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 primaryMetricsResults,
                 primaryMetricsResultsErrors,
                 primaryMetricsResultsLoading
-            ): MetricState[] => {
+            ): MetricResult[] => {
                 return processMetrics(
                     experiment,
                     false, // isSecondary
@@ -2034,7 +2034,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 )
             },
         ],
-        secondaryMetricsState: [
+        secondaryMetrics: [
             (s) => [
                 s.experiment,
                 s.secondaryMetricsResults,
@@ -2046,7 +2046,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 secondaryMetricsResults,
                 secondaryMetricsResultsErrors,
                 secondaryMetricsResultsLoading
-            ): MetricState[] => {
+            ): MetricResult[] => {
                 return processMetrics(
                     experiment,
                     true, // isSecondary

@@ -4,13 +4,13 @@ import { InsightType } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'
 import { insertMetricIntoOrderingArray } from '../../utils'
-import { MetricState } from '../shared/metricsState'
+import { MetricResult } from '../shared/metricsState'
 import { type ExperimentVariantResult, getVariantInterval } from '../shared/utils'
 import { MetricRowGroup } from './MetricRowGroup'
 import { TableHeader } from './TableHeader'
 
 interface MetricsTableProps {
-    metrics: MetricState[]
+    metrics: MetricResult[]
     isSecondary: boolean
     showDetailsModal?: boolean
 }
@@ -21,8 +21,8 @@ export function MetricsTable({ metrics, isSecondary, showDetailsModal = true }: 
 
     // Calculate shared axisRange across all metrics
     const maxAbsValue = Math.max(
-        ...metrics.flatMap((metricState: MetricState) => {
-            const variantResults = metricState.result?.variant_results || []
+        ...metrics.flatMap((metricResult: MetricResult) => {
+            const variantResults = metricResult.result?.variant_results || []
             return variantResults.flatMap((variant: ExperimentVariantResult) => {
                 const interval = getVariantInterval(variant)
                 return interval ? [Math.abs(interval[0]), Math.abs(interval[1])] : []
@@ -54,21 +54,21 @@ export function MetricsTable({ metrics, isSecondary, showDetailsModal = true }: 
                 </colgroup>
                 <TableHeader axisRange={axisRange} />
                 <tbody>
-                    {metrics.map((metricState, index) => {
+                    {metrics.map((metricResult, index) => {
                         return (
                             <MetricRowGroup
-                                key={metricState.uuid}
-                                metric={metricState.definition}
-                                result={metricState.result}
+                                key={metricResult.uuid}
+                                metric={metricResult.definition}
+                                result={metricResult.result}
                                 experiment={experiment}
-                                metricType={getInsightType(metricState.definition) as InsightType}
+                                metricType={getInsightType(metricResult.definition) as InsightType}
                                 displayOrder={index}
                                 axisRange={axisRange}
                                 isSecondary={isSecondary}
                                 isLastMetric={index === metrics.length - 1}
                                 isAlternatingRow={index % 2 === 1}
                                 onDuplicateMetric={() => {
-                                    const uuid = metricState.uuid
+                                    const uuid = metricResult.uuid
                                     if (!uuid || !experiment) {
                                         return
                                     }
@@ -91,8 +91,8 @@ export function MetricsTable({ metrics, isSecondary, showDetailsModal = true }: 
 
                                     updateExperimentMetrics()
                                 }}
-                                error={metricState.error}
-                                isLoading={metricState.isLoading}
+                                error={metricResult.error}
+                                isLoading={metricResult.isLoading}
                                 hasMinimumExposureForResults={hasMinimumExposureForResults}
                                 showDetailsModal={showDetailsModal}
                             />
