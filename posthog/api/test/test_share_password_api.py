@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
+from posthog.api.test.test_sharing import mock_exporter_template
 from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, SharePassword, SharingConfiguration
 
@@ -173,6 +174,7 @@ class TestSharePasswordAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertIn("Incorrect password", response.json()["error"])
 
+    @mock_exporter_template
     def test_jwt_token_invalidation_on_password_deletion(self):
         """Test that JWT tokens are invalidated when their associated password is deleted, but remain valid when other passwords are deleted."""
         # Create two passwords

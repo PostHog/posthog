@@ -1,4 +1,5 @@
 from datetime import timedelta
+from functools import wraps
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
@@ -18,6 +19,55 @@ from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
+
+
+def mock_exporter_template(test_func):
+    """
+    Decorator to mock render_template for sharing tests.
+
+    This provides a simplified version of the exporter template that always includes
+    the exported_data in both window.POSTHOG_EXPORTED_DATA and the response body,
+    simulating what the actual built exporter.html template would do.
+    """
+
+    @wraps(test_func)
+    @patch("posthog.utils.render_template")
+    def wrapper(self, mock_render_template, *args, **kwargs):
+        def mock_render_side_effect(template_name, request, context, **kwargs):
+            from django.http import HttpResponse
+
+            if template_name == "exporter.html" and context.get("exported_data"):
+                exported_data_str = context["exported_data"]
+                # Create a simplified version of the exporter template
+                html_content = f"""<!doctype html>
+<html>
+    <head>
+        <script id="posthog-exported-data" type="application/json">{exported_data_str}</script>
+        <script>
+            try {{
+                window.POSTHOG_EXPORTED_DATA = JSON.parse(
+                    JSON.parse(document.getElementById('posthog-exported-data').textContent)
+                );
+            }} catch (e) {{
+                console.error('Failed to parse exported data:', e);
+                window.POSTHOG_EXPORTED_DATA = {{}};
+            }}
+        </script>
+    </head>
+    <body>
+        <div>{exported_data_str}</div>
+        <div id="root"></div>
+    </body>
+</html>"""
+                return HttpResponse(html_content)
+            else:
+                # For non-exporter templates, return a simple response
+                return HttpResponse('<html><body>{"dashboard": "content"}</body></html>')
+
+        mock_render_template.side_effect = mock_render_side_effect
+        return test_func(self, *args, **kwargs)
+
+    return wrapper
 
 
 @parameterized.expand(
