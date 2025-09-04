@@ -110,7 +110,6 @@ export function CampaignsTable(): JSX.Element {
                 )
             },
         },
-
         {
             title: 'Status',
             width: 0,

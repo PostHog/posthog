@@ -60,7 +60,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ],
         actions: [
             campaignLogic(props),
-            ['setCampaignInfo', 'setCampaignActionConfig', 'setCampaignAction', 'setCampaignActionEdges'],
+            [
+                'setCampaignInfo',
+                'setCampaignActionConfig',
+                'setCampaignAction',
+                'setCampaignActionEdges',
+                'loadCampaignSuccess',
+            ],
             optOutCategoriesLogic(),
             ['loadCategories'],
         ],
@@ -85,6 +91,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
         loadActionMetricsById: (params: AppMetricsTotalsRequest, timezone: string) => ({ params, timezone }),
+        fitView: true,
     }),
     reducers(() => ({
         mode: [
@@ -467,6 +474,23 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             }
             // We can clear the dropzones now
             actions.setDropzoneNodes([])
+        },
+        setReactFlowInstance: () => actions.fitView(),
+        setSelectedNodeId: ({ selectedNodeId }) => {
+            if (selectedNodeId) {
+                actions.fitView()
+            }
+        },
+        fitView: () => {
+            const selectedNode = values.nodes.find((node) => node.id === values.selectedNodeId)
+
+            values.reactFlowInstance?.fitView({
+                padding: {
+                    right: '500px',
+                },
+                nodes: selectedNode ? [selectedNode] : [],
+                duration: 100,
+            })
         },
     })),
 
