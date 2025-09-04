@@ -11,11 +11,11 @@ export interface ReleaseTagProps {
 }
 
 export function ReleaseTag({ title, overlay }: ReleaseTagProps): JSX.Element {
-    const [, setIsOpen] = useState(false)
+    const [isOpen, setIsOpen] = useState(false)
 
     return (
         <Popover
-            visible={true}
+            visible={isOpen}
             overlay={overlay}
             placement="right"
             padded={false}
@@ -34,7 +34,7 @@ export function ReleaseTag({ title, overlay }: ReleaseTagProps): JSX.Element {
                     onMouseLeave={() => setIsOpen(false)}
                 >
                     <IconCommit className="text-sm text-secondary" />
-                    <span className="capitalize">{title}</span>
+                    <span>{title}</span>
                 </LemonTag>
             </span>
         </Popover>

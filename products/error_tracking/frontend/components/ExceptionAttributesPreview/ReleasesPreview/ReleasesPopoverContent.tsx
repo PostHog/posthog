@@ -50,7 +50,7 @@ function ReleaseListItem({ release }: { release: ExceptionRelease }): JSX.Elemen
                         size="xsmall"
                         icon={<IconCopy />}
                         tooltip="Copy full commit SHA"
-                        onClick={() => copyToClipboard(release.commitSha, 'Copied full commit SHA to clipboard')}
+                        onClick={() => copyToClipboard(release.commitSha, 'full commit SHA')}
                     />
                 </div>
             </div>
