@@ -529,8 +529,16 @@ def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppre
 def personal_api_key_saved(sender, instance: "PersonalAPIKey", created, **kwargs):
     """
     Handle PersonalAPIKey save for team access cache invalidation.
+
+    Skip cache updates for last_used_at field updates to avoid unnecessary cache warming
+    during authentication requests.
     """
     from posthog.storage.team_access_cache_signal_handlers import update_personal_api_key_authentication_cache
+
+    # Skip cache updates if only last_used_at is being updated
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and set(update_fields) == {"last_used_at"}:
+        return
 
     transaction.on_commit(lambda: update_personal_api_key_authentication_cache(instance))
 

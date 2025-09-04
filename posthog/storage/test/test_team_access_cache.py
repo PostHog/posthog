@@ -1189,6 +1189,62 @@ class TestUpdateUserAuthenticationCache(TestCase):
         # Verify warning was logged for the failure
         assert any(f"Failed to warm cache for team {team1.api_token}" in record for record in log_context.output)
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("posthog.storage.team_access_cache_signal_handlers.warm_team_token_cache")
+    def test_personal_api_key_last_used_at_update_skips_cache_warming(self, mock_warm_cache, mock_on_commit):
+        """Test that updating only last_used_at field doesn't trigger cache warming."""
+
+        from django.utils import timezone
+
+        from posthog.models.organization import Organization, OrganizationMembership
+        from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+        from posthog.models.team.team import Team
+        from posthog.models.user import User
+        from posthog.models.utils import generate_random_token_personal, mask_key_value
+
+        # Create test data
+        org = Organization.objects.create(name="Test Org")
+        Team.objects.create(organization=org, name="Team 1")  # Team is created to ensure proper org setup
+        user = User.objects.create(email="test@example.com", is_active=True)
+        OrganizationMembership.objects.create(organization=org, user=user)
+
+        # Create personal API key
+        token = generate_random_token_personal()
+        personal_key = PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=user,
+            secure_value=hash_key_value(token),
+            mask_value=mask_key_value(token),
+        )
+
+        # Clear any calls from the initial creation
+        mock_warm_cache.reset_mock()
+
+        # Update only the last_used_at field (simulating authentication)
+        now = timezone.now()
+        personal_key.last_used_at = now
+        personal_key.save(update_fields=["last_used_at"])
+
+        # Verify that cache update was NOT called
+        mock_warm_cache.assert_not_called()
+
+        # Now update a different field
+        mock_warm_cache.reset_mock()
+        personal_key.label = "Updated Label"
+        personal_key.save(update_fields=["label"])
+
+        # Verify that cache update WAS called for non-last_used_at update
+        # It should be called once per team the user has access to
+        assert mock_warm_cache.call_count > 0, "Cache warming should be called for non-last_used_at updates"
+
+        # Reset and test updating without specifying update_fields
+        mock_warm_cache.reset_mock()
+        personal_key.label = "Another Label"
+        personal_key.save()
+
+        # Should trigger cache update when update_fields is not specified
+        assert mock_warm_cache.call_count > 0, "Cache warming should be called when update_fields is not specified"
+
 
 class TestSignalHandlerCacheWarming(TestCase):
     """Test that signal handlers properly warm caches instead of just invalidating."""
