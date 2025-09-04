@@ -91,7 +91,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
         loadActionMetricsById: (params: AppMetricsTotalsRequest, timezone: string) => ({ params, timezone }),
-        fitView: (duration?: number) => ({ duration }),
+        fitView: (options: { duration?: number; noZoom?: boolean } = {}) => options,
     }),
     reducers(() => ({
         mode: [
@@ -478,19 +478,21 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setReactFlowInstance: () => {
             // TRICKY: Slight race condition here where the react flow instance is not set yet
             setTimeout(() => {
-                actions.fitView(0)
+                actions.fitView({ duration: 0 })
             }, 100)
         },
         setSelectedNodeId: ({ selectedNodeId }) => {
             if (selectedNodeId) {
-                actions.fitView()
+                actions.fitView({ noZoom: true })
             }
         },
-        fitView: ({ duration }) => {
+        fitView: ({ duration, noZoom }) => {
             values.reactFlowInstance?.fitView({
                 padding: {
                     right: '500px',
                 },
+                maxZoom: noZoom ? values.reactFlowInstance?.getZoom() : undefined,
+                minZoom: noZoom ? values.reactFlowInstance?.getZoom() : undefined,
                 nodes: values.selectedNode ? [values.selectedNode] : values.nodes,
                 duration: duration ?? 100,
             })
