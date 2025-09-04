@@ -504,7 +504,16 @@ pub async fn set_feature_flag_hash_key_overrides(
     const RETRY_DELAY: Duration = Duration::from_millis(100);
 
     for retry in 0..MAX_RETRIES {
+        let labels = [
+            ("pool".to_string(), "writer".to_string()),
+            (
+                "operation".to_string(),
+                "set_feature_flag_hash_key_overrides".to_string(),
+            ),
+        ];
+        let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
         let mut conn = writer.get_connection().await?;
+        conn_timer.fin();
         let mut transaction = conn.begin().await?;
 
         // Query 1: Get all person data - person_ids + existing overrides + validation (person pool)
@@ -542,11 +551,24 @@ pub async fn set_feature_flag_hash_key_overrides(
 
         let result: Result<u64, sqlx::Error> = async {
             // Step 1: Get all person data (person_ids + existing overrides + validation)
+            let person_query_labels = [
+                (
+                    "query".to_string(),
+                    "person_data_with_overrides".to_string(),
+                ),
+                (
+                    "operation".to_string(),
+                    "set_hash_key_overrides".to_string(),
+                ),
+            ];
+            let person_query_timer =
+                common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &person_query_labels);
             let person_data_rows = sqlx::query(person_data_query)
                 .bind(team_id)
                 .bind(&distinct_ids)
                 .fetch_all(&mut *transaction)
                 .await?;
+            person_query_timer.fin();
 
             if person_data_rows.is_empty() {
                 return Ok(0); // No persons found, nothing to insert
@@ -569,10 +591,23 @@ pub async fn set_feature_flag_hash_key_overrides(
             let person_ids_vec: Vec<i64> = person_ids.into_iter().collect();
 
             // Step 2: Get active feature flags (from non-person pool)
+            let flags_labels = [
+                (
+                    "query".to_string(),
+                    "active_flags_with_continuity".to_string(),
+                ),
+                (
+                    "operation".to_string(),
+                    "set_hash_key_overrides".to_string(),
+                ),
+            ];
+            let flags_query_timer =
+                common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &flags_labels);
             let flag_rows = sqlx::query(flags_query)
                 .bind(project_id)
                 .fetch_all(&mut *transaction)
                 .await?;
+            flags_query_timer.fin();
 
             let flag_keys: Vec<String> = flag_rows
                 .iter()
@@ -603,6 +638,14 @@ pub async fn set_feature_flag_hash_key_overrides(
                 values_to_insert.into_iter().unzip();
 
             // Step 4: Bulk insert (person pool)
+            let insert_labels = [
+                ("query".to_string(), "bulk_insert_overrides".to_string()),
+                (
+                    "operation".to_string(),
+                    "set_hash_key_overrides".to_string(),
+                ),
+            ];
+            let insert_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &insert_labels);
             let result = sqlx::query(bulk_insert_query)
                 .bind(team_id)
                 .bind(&hash_key_override)
@@ -610,6 +653,7 @@ pub async fn set_feature_flag_hash_key_overrides(
                 .bind(&flag_keys_to_insert)
                 .execute(&mut *transaction)
                 .await?;
+            insert_timer.fin();
 
             Ok(result.rows_affected())
         }
@@ -706,6 +750,15 @@ pub async fn should_write_hash_key_override(
             conn_timer.fin();
 
             // Step 1: Get person data and existing overrides
+            let person_query_labels = [
+                (
+                    "query".to_string(),
+                    "person_data_with_overrides".to_string(),
+                ),
+                ("operation".to_string(), "should_write_check".to_string()),
+            ];
+            let person_query_timer =
+                common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &person_query_labels);
             let person_data_rows = sqlx::query(person_data_query)
                 .bind(team_id)
                 .bind(&distinct_ids)
@@ -714,6 +767,7 @@ pub async fn should_write_hash_key_override(
                 .map_err(|e| {
                     FlagError::DatabaseError(format!("Failed to fetch person data: {e}"))
                 })?;
+            person_query_timer.fin();
 
             // If no person_ids found, there's nothing to check
             if person_data_rows.is_empty() {
@@ -727,11 +781,21 @@ pub async fn should_write_hash_key_override(
                 .collect();
 
             // Step 2: Get active feature flags with experience continuity
+            let flags_labels = [
+                (
+                    "query".to_string(),
+                    "active_flags_with_continuity".to_string(),
+                ),
+                ("operation".to_string(), "should_write_check".to_string()),
+            ];
+            let flags_query_timer =
+                common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &flags_labels);
             let flag_rows = sqlx::query(flags_query)
                 .bind(project_id)
                 .fetch_all(&mut *conn)
                 .await
                 .map_err(|e| FlagError::DatabaseError(format!("Failed to fetch flags: {e}")))?;
+            flags_query_timer.fin();
 
             // Check if there are any flags that don't have overrides
             for row in flag_rows {
@@ -1154,6 +1218,283 @@ mod tests {
         assert_eq!(
             count, 6,
             "Should have 6 total overrides (2 existing + 4 new)"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_set_overrides_filters_inactive_and_deleted_flags() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(reader.clone(), None)
+            .await
+            .expect("Failed to insert team");
+
+        // Create a person
+        insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "filter_test_user".to_string(),
+            Some(json!({"email": "filter@example.com"})),
+        )
+        .await
+        .expect("Failed to insert person");
+
+        // Create various flags with different states
+        let active_flag = FeatureFlagRow {
+            id: 50001,
+            team_id: team.id,
+            name: Some("Active Flag".to_string()),
+            key: "active_flag".to_string(),
+            filters: json!({"groups": [{"rollout_percentage": 50}]}),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: Some(true),
+            version: Some(1),
+            evaluation_runtime: None,
+        };
+
+        let inactive_flag = FeatureFlagRow {
+            id: 50002,
+            team_id: team.id,
+            name: Some("Inactive Flag".to_string()),
+            key: "inactive_flag".to_string(),
+            filters: json!({"groups": [{"rollout_percentage": 50}]}),
+            deleted: false,
+            active: false, // NOT active
+            ensure_experience_continuity: Some(true),
+            version: Some(1),
+            evaluation_runtime: None,
+        };
+
+        let deleted_flag = FeatureFlagRow {
+            id: 50003,
+            team_id: team.id,
+            name: Some("Deleted Flag".to_string()),
+            key: "deleted_flag".to_string(),
+            filters: json!({"groups": [{"rollout_percentage": 50}]}),
+            deleted: true, // Deleted
+            active: true,
+            ensure_experience_continuity: Some(true),
+            version: Some(1),
+            evaluation_runtime: None,
+        };
+
+        let no_continuity_flag = FeatureFlagRow {
+            id: 50004,
+            team_id: team.id,
+            name: Some("No Continuity Flag".to_string()),
+            key: "no_continuity_flag".to_string(),
+            filters: json!({"groups": [{"rollout_percentage": 50}]}),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: Some(false), // No experience continuity
+            version: Some(1),
+            evaluation_runtime: None,
+        };
+
+        insert_flag_for_team_in_pg(writer.clone(), team.id, Some(active_flag))
+            .await
+            .expect("Failed to insert active flag");
+        insert_flag_for_team_in_pg(writer.clone(), team.id, Some(inactive_flag))
+            .await
+            .expect("Failed to insert inactive flag");
+        insert_flag_for_team_in_pg(writer.clone(), team.id, Some(deleted_flag))
+            .await
+            .expect("Failed to insert deleted flag");
+        insert_flag_for_team_in_pg(writer.clone(), team.id, Some(no_continuity_flag))
+            .await
+            .expect("Failed to insert no continuity flag");
+
+        // Set overrides
+        let result = set_feature_flag_hash_key_overrides(
+            writer.clone(),
+            team.id,
+            vec!["filter_test_user".to_string()],
+            team.project_id,
+            "filter_hash".to_string(),
+        )
+        .await
+        .expect("Should not error");
+
+        assert!(result, "Should have written override for active flag");
+
+        // Verify only the active flag with experience continuity got an override
+        let overrides = get_feature_flag_hash_key_overrides(
+            reader.clone(),
+            team.id,
+            vec!["filter_test_user".to_string()],
+        )
+        .await
+        .expect("Failed to get overrides");
+
+        assert_eq!(overrides.len(), 1, "Should have exactly 1 override");
+        assert_eq!(
+            overrides.get("active_flag"),
+            Some(&"filter_hash".to_string())
+        );
+        assert_eq!(
+            overrides.get("inactive_flag"),
+            None,
+            "Inactive flag should not have override"
+        );
+        assert_eq!(
+            overrides.get("deleted_flag"),
+            None,
+            "Deleted flag should not have override"
+        );
+        assert_eq!(
+            overrides.get("no_continuity_flag"),
+            None,
+            "No continuity flag should not have override"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_should_write_hash_key_override() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(reader.clone(), None)
+            .await
+            .expect("Failed to insert team");
+
+        // Create a person
+        insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "should_write_user".to_string(),
+            Some(json!({"email": "should_write@example.com"})),
+        )
+        .await
+        .expect("Failed to insert person");
+
+        // Create a flag with experience continuity
+        let flag_row = FeatureFlagRow {
+            id: 60000,
+            team_id: team.id,
+            name: Some("Should Write Flag".to_string()),
+            key: "should_write_flag".to_string(),
+            filters: json!({"groups": [{"rollout_percentage": 50}]}),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: Some(true),
+            version: Some(1),
+            evaluation_runtime: None,
+        };
+        insert_flag_for_team_in_pg(writer.clone(), team.id, Some(flag_row))
+            .await
+            .expect("Failed to insert flag");
+
+        // Test 1: Should return true when no overrides exist
+        let should_write = should_write_hash_key_override(
+            reader.clone(),
+            team.id,
+            "should_write_user".to_string(),
+            team.project_id,
+            "hash_key_1".to_string(),
+        )
+        .await
+        .expect("Should not error");
+
+        assert!(should_write, "Should write when no overrides exist");
+
+        // Now set an override
+        set_feature_flag_hash_key_overrides(
+            writer.clone(),
+            team.id,
+            vec!["should_write_user".to_string()],
+            team.project_id,
+            "hash_key_1".to_string(),
+        )
+        .await
+        .expect("Failed to set override");
+
+        // Test 2: Should return false when override exists
+        let should_write = should_write_hash_key_override(
+            reader.clone(),
+            team.id,
+            "should_write_user".to_string(),
+            team.project_id,
+            "hash_key_1".to_string(),
+        )
+        .await
+        .expect("Should not error");
+
+        assert!(
+            !should_write,
+            "Should not write when override already exists"
+        );
+
+        // Test 3: Should return false for non-existent person
+        let should_write = should_write_hash_key_override(
+            reader.clone(),
+            team.id,
+            "non_existent_user".to_string(),
+            team.project_id,
+            "hash_key_2".to_string(),
+        )
+        .await
+        .expect("Should not error");
+
+        assert!(!should_write, "Should not write for non-existent person");
+    }
+
+    #[tokio::test]
+    async fn test_set_overrides_with_no_persons() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(reader.clone(), None)
+            .await
+            .expect("Failed to insert team");
+
+        // Create a flag but NO persons
+        let flag_row = FeatureFlagRow {
+            id: 70000,
+            team_id: team.id,
+            name: Some("No Person Flag".to_string()),
+            key: "no_person_flag".to_string(),
+            filters: json!({"groups": [{"rollout_percentage": 50}]}),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: Some(true),
+            version: Some(1),
+            evaluation_runtime: None,
+        };
+        insert_flag_for_team_in_pg(writer.clone(), team.id, Some(flag_row))
+            .await
+            .expect("Failed to insert flag");
+
+        // Try to set overrides for non-existent distinct_ids
+        let result = set_feature_flag_hash_key_overrides(
+            writer.clone(),
+            team.id,
+            vec![
+                "nonexistent_user1".to_string(),
+                "nonexistent_user2".to_string(),
+            ],
+            team.project_id,
+            "some_hash".to_string(),
+        )
+        .await
+        .expect("Should not error even with non-existent users");
+
+        assert!(!result, "Should return false when no persons found");
+
+        // Verify no overrides were created
+        let mut conn = reader
+            .get_connection()
+            .await
+            .expect("Failed to get connection");
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM posthog_featureflaghashkeyoverride WHERE team_id = $1",
+        )
+        .bind(team.id)
+        .fetch_one(&mut *conn)
+        .await
+        .expect("Failed to count overrides");
+
+        assert_eq!(
+            count, 0,
+            "Should have no overrides when persons don't exist"
         );
     }
 
