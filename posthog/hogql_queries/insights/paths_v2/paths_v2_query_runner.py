@@ -2,7 +2,7 @@ from datetime import datetime
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import apply_path_cleaning, property_to_expr
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.paths_v2.utils import interval_unit_to_sql
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
@@ -171,7 +171,7 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
         """,
             placeholders={
                 "filters": ast.And(exprs=event_filters),
-                "path_item": apply_path_cleaning(ast.Field(chain=["properties", "$pathname"]), self.team),
+                "path_item": ast.Field(chain=["properties", "$pathname"]),
             },
         )
 
