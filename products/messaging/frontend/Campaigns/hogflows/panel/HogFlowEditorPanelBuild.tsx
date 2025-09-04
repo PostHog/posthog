@@ -1,7 +1,10 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useEffect, useMemo, useState } from 'react'
 
 import { IconDrag } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonDropdown, LemonInput, SpinnerOverlay } from '@posthog/lemon-ui'
+
+import { hogFunctionTemplateListLogic } from 'scenes/hog-functions/list/hogFunctionTemplateListLogic'
 
 import { CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
@@ -120,13 +123,27 @@ export const POSTHOG_NODES_TO_SHOW: CreateActionType[] = [
     },
 ]
 
-function HogFlowEditorToolbarNode({ action }: { action: CreateActionType }): JSX.Element | null {
+const TEMPLATE_IDS_AT_TOP_LEVEL: string[] = [
+    ...ACTION_NODES_TO_SHOW.map((action) => (action.config as any).template_id),
+    ...DELAY_NODES_TO_SHOW.map((action) => (action.config as any).template_id),
+    ...LOGIC_NODES_TO_SHOW.map((action) => (action.config as any).template_id),
+    ...POSTHOG_NODES_TO_SHOW.map((action) => (action.config as any).template_id),
+].filter((t) => !!t)
+
+function HogFlowEditorToolbarNode({
+    action,
+    onDragStart: onDragStartProp,
+}: {
+    action: CreateActionType
+    onDragStart?: (event: React.DragEvent) => void
+}): JSX.Element | null {
     const { setNewDraggingNode } = useActions(hogFlowEditorLogic)
 
     const onDragStart = (event: React.DragEvent): void => {
         setNewDraggingNode(action)
         event.dataTransfer.setData('application/reactflow', action.type)
         event.dataTransfer.effectAllowed = 'move'
+        onDragStartProp?.(event)
     }
 
     const step = useHogFlowStep(action as HogFlowAction)
@@ -148,6 +165,70 @@ function HogFlowEditorToolbarNode({ action }: { action: CreateActionType }): JSX
     )
 }
 
+function HogFunctionTemplatesChooser(): JSX.Element {
+    const logic = hogFunctionTemplateListLogic({ type: 'destination' })
+    const { loading, filteredTemplates, filters } = useValues(logic)
+    const { loadHogFunctionTemplates, setFilters } = useActions(logic)
+
+    const [popoverOpen, setPopoverOpen] = useState(false)
+
+    useEffect(() => {
+        loadHogFunctionTemplates()
+    }, [loadHogFunctionTemplates])
+
+    const actions = useMemo(
+        () =>
+            filteredTemplates
+                .filter(
+                    (template) => template.type === 'destination' && !TEMPLATE_IDS_AT_TOP_LEVEL.includes(template.id)
+                )
+                .map(
+                    (template): CreateActionType => ({
+                        type: 'function',
+                        name: template.name,
+                        description: typeof template.description === 'string' ? template.description : '',
+                        config: { template_id: template.id, inputs: {} },
+                    })
+                ),
+        [filteredTemplates]
+    )
+
+    return (
+        <div>
+            <LemonDropdown
+                closeOnClickInside={false}
+                visible={popoverOpen}
+                onClickOutside={() => setPopoverOpen(false)}
+                placement="left"
+                overlay={
+                    <div className="flex flex-col min-h-100 w-120 max-h-[vh50]">
+                        <LemonInput value={filters.search ?? ''} onChange={(e) => setFilters({ search: e })} />
+
+                        {loading ? (
+                            <SpinnerOverlay />
+                        ) : (
+                            <ul>
+                                {actions.map((template) => (
+                                    <li key={template.type}>
+                                        <HogFlowEditorToolbarNode
+                                            action={template}
+                                            onDragStart={() => setPopoverOpen(false)}
+                                        />
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                    </div>
+                }
+            >
+                <LemonButton fullWidth onClick={() => setPopoverOpen(!popoverOpen)}>
+                    More actions
+                </LemonButton>
+            </LemonDropdown>
+        </div>
+    )
+}
+
 export function HogFlowEditorPanelBuild(): JSX.Element {
     return (
         <div className="flex overflow-y-auto flex-col gap-px p-2">
@@ -157,6 +238,7 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
             {ACTION_NODES_TO_SHOW.map((node, index) => (
                 <HogFlowEditorToolbarNode key={`${node.type}-${index}`} action={node} />
             ))}
+            <HogFunctionTemplatesChooser />
 
             <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
                 Delays <LemonDivider className="flex-1" />
