@@ -115,8 +115,8 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
                         type="primary"
                         placeholder="Split"
                         options={[
-                            { value: false, label: 'Split into a single issue' },
-                            { value: true, label: 'Split into multiple issues' },
+                            { value: false, label: 'Split fingerprints into a single issue' },
+                            { value: true, label: 'Split fingerprints into individual issues' },
                         ]}
                         onSelect={(value) => split(value)}
                         disabledReason={disabledReason}
