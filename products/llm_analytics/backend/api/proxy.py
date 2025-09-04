@@ -30,6 +30,7 @@ from posthog.settings import SERVER_GATEWAY_INTERFACE
 
 from products.llm_analytics.backend.providers.anthropic import AnthropicConfig, AnthropicProvider
 from products.llm_analytics.backend.providers.codestral import CodestralConfig, CodestralProvider
+from products.llm_analytics.backend.providers.formatters.tools_handler import LLMToolsHandler
 from products.llm_analytics.backend.providers.gemini import GeminiConfig, GeminiProvider
 from products.llm_analytics.backend.providers.inkeep import InkeepConfig, InkeepProvider
 from products.llm_analytics.backend.providers.openai import OpenAIConfig, OpenAIProvider
@@ -160,9 +161,20 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 messages = serializer.validated_data.get("messages")
                 if not self.validate_messages(messages):
                     return Response({"error": "Invalid messages"}, status=400)
-                # Convert tools dict to array of entries, otherwise use as-is
+                # Process tools using LLMToolsHandler
                 tools_data = serializer.validated_data.get("tools")
-                processed_tools = list(tools_data.values()) if isinstance(tools_data, dict) else tools_data
+                tools_handler = LLMToolsHandler(tools_data)
+
+                # Convert tools to appropriate format based on provider type
+                if isinstance(provider, OpenAIProvider):
+                    processed_tools = tools_handler.convert_to("openai")
+                elif isinstance(provider, AnthropicProvider):
+                    processed_tools = tools_handler.convert_to("anthropic")
+                elif isinstance(provider, GeminiProvider):
+                    processed_tools = tools_handler.convert_to("gemini")
+                else:
+                    # For other providers (like Inkeep), use the raw tools data
+                    processed_tools = tools_handler.tools_data
 
                 # Build kwargs common to all providers
                 stream_kwargs: dict[str, Any] = {
