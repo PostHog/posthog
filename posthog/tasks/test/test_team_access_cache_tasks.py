@@ -52,8 +52,9 @@ class TestWarmAllTeamsCachesTask(TestCase):
         result = warm_all_team_access_caches_task()
 
         assert result["status"] == "success"
-        assert result["teams_refreshed"] == 0
-        assert result["message"] == "No teams needed refresh"
+        assert result["teams_found"] == 0
+        assert result["teams_scheduled"] == 0
+        assert result["failed_teams"] == 0
 
     @patch("posthog.tasks.team_access_cache_tasks.get_teams_needing_cache_refresh_paginated")
     @patch("posthog.tasks.team_access_cache_tasks.warm_team_cache_task.delay")
@@ -77,6 +78,8 @@ class TestWarmAllTeamsCachesTask(TestCase):
 
         assert result["status"] == "success"
         assert result["teams_scheduled"] == 4
+        assert result["teams_found"] == 4
+        assert result["failed_teams"] == 0
 
     @patch("posthog.tasks.team_access_cache_tasks.get_teams_needing_cache_refresh_paginated")
     @patch("posthog.tasks.team_access_cache_tasks.warm_team_cache_task.delay")
@@ -111,6 +114,7 @@ class TestWarmAllTeamsCachesTask(TestCase):
         assert result["status"] == "success"
         assert result["teams_scheduled"] == 2  # team2 failed to schedule
         assert result["failed_teams"] == 1
+        assert result["teams_found"] == 3
 
     @patch("posthog.tasks.team_access_cache_tasks.get_teams_needing_cache_refresh_paginated")
     def test_warm_all_team_access_caches_task_handles_systemic_failures(
@@ -156,6 +160,8 @@ class TestTaskIntegration(TestCase):
         # Verify both tasks succeeded
         assert batch_result["status"] == "success"
         assert batch_result["teams_scheduled"] == 1
+        assert batch_result["teams_found"] == 1
+        assert batch_result["failed_teams"] == 0
 
         assert individual_result["status"] == "success"
         assert individual_result["project_api_key"] == "phs_team1_123"

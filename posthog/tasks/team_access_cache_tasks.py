@@ -99,22 +99,10 @@ def warm_all_team_access_caches_task(self: "Task") -> dict:
 
                 logger.debug(f"Scheduled cache warming for batch of {len(batch)} teams")
 
-        # Check if we processed any teams at all
-        if teams_scheduled == 0 and failed_teams == 0:
-            logger.info("No teams need cache refresh")
-            return {"status": "success", "teams_refreshed": 0, "message": "No teams needed refresh"}
-
-        # Log results
-        if failed_teams > 0:
-            logger.warning(
-                f"Cache warming scheduled for {teams_scheduled} teams, {failed_teams} failed to schedule",
-                extra={"teams_scheduled": teams_scheduled, "failed_teams": failed_teams},
-            )
-        else:
-            logger.info(
-                f"Scheduled cache warming for {teams_scheduled} teams",
-                extra={"teams_scheduled": teams_scheduled, "failed_teams": failed_teams},
-            )
+        logger.info(
+            "Cache warming completed",
+            extra={"teams_found": total_teams_found, "teams_scheduled": teams_scheduled, "failed_teams": failed_teams},
+        )
 
         return {
             "status": "success",
