@@ -19,6 +19,7 @@ const Insight42 = '42' as InsightShortId
 
 describe('insightSceneLogic', () => {
     let logic: ReturnType<typeof insightSceneLogic.build>
+    let tabId: string = ''
     beforeEach(async () => {
         useMocks({
             get: {
@@ -35,13 +36,13 @@ describe('insightSceneLogic', () => {
         })
         initKeaTests()
         sceneLogic.mount()
-        const tabId = sceneLogic.values.activeTabId
-        logic = insightSceneLogic({ tabId })
-        logic.mount()
+        tabId = sceneLogic.values.activeTabId
     })
 
     it('keeps url /insight/new', async () => {
         router.actions.push(urls.insightNew())
+        logic = insightSceneLogic({ tabId })
+        logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         await expectLogic(router)
             .delay(1)
@@ -52,6 +53,8 @@ describe('insightSceneLogic', () => {
 
     it('redirects maintaining url params when opening /insight/new with insight type in theurl', async () => {
         router.actions.push(urls.insightNew({ type: InsightType.FUNNELS }))
+        logic = insightSceneLogic({ tabId })
+        logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
         expect((logic.values.insightLogicRef?.logic.values.insight.query as InsightVizNode).source?.kind).toEqual(
@@ -68,10 +71,14 @@ describe('insightSceneLogic', () => {
                 } as InsightVizNode,
             })
         )
+        logic = insightSceneLogic({ tabId })
+        logic.mount()
         await expectLogic(logic).toDispatchActions(['upgradeQuery']).toFinishAllListeners()
     })
 
     it('persists edit mode in the url', async () => {
+        logic = insightSceneLogic({ tabId })
+        logic.mount()
         const viewUrl = combineUrl(urls.insightView(Insight42))
         const editUrl = combineUrl(urls.insightEdit(Insight42))
 
