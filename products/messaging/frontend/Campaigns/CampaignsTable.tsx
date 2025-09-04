@@ -74,9 +74,7 @@ export function CampaignsTable(): JSX.Element {
             key: 'name',
             sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
             render: (_, item) => {
-                return (
-                    <LemonTableLink to={urls.messagingCampaign(item.id)} title={item.name} description={item.status} />
-                )
+                return <LemonTableLink to={urls.messagingCampaign(item.id)} title={item.name} />
             },
         },
 
