@@ -104,7 +104,6 @@ class DashboardCreatorNode(AssistantNode):
             )
 
             insight_search_node = InsightSearchNode(team=self._team, user=self._user)
-            insight_search_node._stream_writer = self._stream_writer
             search_result = await insight_search_node.arun(search_state, {})
 
             insight_ids = search_result.insight_ids if search_result and search_result.insight_ids else []
