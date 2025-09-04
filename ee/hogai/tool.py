@@ -99,7 +99,7 @@ class session_summarization(BaseModel):
             - query: "I want to watch all the sessions of user `user@example.com` in the last 30 days no matter how long" -> name: "Sessions of the user user@example.com (last 30 days)"
             - query: "summarize my last 100 session recordings" -> name: "Last 100 sessions"
             - and similar
-          * If `should_use_current_filters` is `false`, then the `summary_name` should be generated based on the current filters in the context (if present):
+          * If `should_use_current_filters` is `true`, then the `summary_name` should be generated based on the current filters in the context (if present):
             - filters: "{"key":"$os","value":["Mac OS X"],"operator":"exact","type":"event"}" -> name: "MacOS users"
             - filters: "{"date_from": "-7d", "filter_test_accounts": True}" -> name: "All sessions (last 7 days)"
             - and similar
