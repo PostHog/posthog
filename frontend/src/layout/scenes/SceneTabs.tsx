@@ -3,7 +3,7 @@ import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dn
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 
-import { IconCopy, IconPlus, IconSearch, IconX } from '@posthog/icons'
+import { IconPlus, IconSearch, IconShare, IconX } from '@posthog/icons'
 
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -133,37 +133,29 @@ function SortableSceneTab({ tab }: { tab: SceneTab }): JSX.Element {
                     </SceneTabContextMenu>
                 </HoverCardTrigger>
                 <HoverCardContent
-                    className="break-all"
+                    className="break-words"
                     onPointerDown={(e) => e.stopPropagation()}
                     onMouseDown={(e) => e.stopPropagation()}
                 >
-                    <div className="flex flex-col gap-1">
-                        <span className="text-primary text-sm font-semibold">{tab.title}</span>
-                        <span className="text-secondary text-xs flex items-center gap-1">
-                            <span>
-                                {window.location.origin}
-                                {tab.pathname}
-                            </span>
-                            <ButtonPrimitive
-                                iconOnly
-                                size="xs"
-                                tooltip="Copy tab URL with pathname, search, and hash"
-                                className="text-primary"
-                                onClick={() => {
-                                    try {
-                                        navigator.clipboard.writeText(
-                                            `${window.location.origin}${tab.pathname}${tab.search}${tab.hash}`
-                                        )
-                                        lemonToast.success('URL copied to clipboard')
-                                    } catch (error) {
-                                        lemonToast.error(`Failed to copy URL to clipboard ${error}`)
-                                    }
-                                }}
-                            >
-                                <IconCopy />
-                            </ButtonPrimitive>
-                        </span>
-                    </div>
+                    <ButtonPrimitive
+                        iconOnly
+                        size="xs"
+                        tooltip="Copy tab URL for sharing"
+                        className="text-primary float-right"
+                        onClick={() => {
+                            try {
+                                navigator.clipboard.writeText(
+                                    `${window.location.origin}${tab.pathname}${tab.search}${tab.hash}`
+                                )
+                                lemonToast.success('URL copied to clipboard')
+                            } catch (error) {
+                                lemonToast.error(`Failed to copy URL to clipboard ${error}`)
+                            }
+                        }}
+                    >
+                        <IconShare />
+                    </ButtonPrimitive>
+                    <span className="text-primary text-sm font-semibold">{tab.title}</span>
                 </HoverCardContent>
             </HoverCard>
         </div>
