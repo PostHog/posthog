@@ -11,6 +11,7 @@ import {
     IconShortcut,
 } from '@posthog/icons'
 
+import { linkToLogic } from 'lib/components/FileSystem/LinkTo/linkToLogic'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -129,6 +130,7 @@ export function ProjectTree({
         setSearchTerm,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
     const { openMoveToModal } = useActions(moveToLogic)
+    const { openLinkToModal } = useActions(linkToLogic)
 
     const { setPanelTreeRef, resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
@@ -386,6 +388,26 @@ export function ProjectTree({
                         }}
                     >
                         <ButtonPrimitive menuItem>Move to...</ButtonPrimitive>
+                    </MenuItem>
+                ) : null}
+
+                {(item.id.startsWith('project/') || item.id.startsWith('project://')) &&
+                item.record?.type !== 'folder' ? (
+                    <MenuItem
+                        asChild
+                        onClick={(e: any) => {
+                            e.stopPropagation()
+                            if (
+                                checkedItemsArray.length > 0 &&
+                                checkedItemsArray.find(({ id }) => id === item.record?.id)
+                            ) {
+                                openLinkToModal(checkedItemsArray)
+                            } else {
+                                openLinkToModal([item.record as unknown as FileSystemEntry])
+                            }
+                        }}
+                    >
+                        <ButtonPrimitive menuItem>Create shortcut in...</ButtonPrimitive>
                     </MenuItem>
                 ) : null}
 
