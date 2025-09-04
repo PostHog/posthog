@@ -78,6 +78,7 @@ from posthog.clickhouse.client.limit import (
     get_org_app_concurrency_limit,
 )
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_cache import count_query_cache_hit
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
@@ -804,10 +805,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "insight_id": cache_manager.insight_id,
                 "dashboard_id": cache_manager.dashboard_id,
                 "refresh_requested": refresh_requested,
-                "team_id": self.team.pk,
-                "organization_id": self.team.organization_id,
                 "user_id": user.id if user else None,
             },
+            groups=(groups(self.team.organization, self.team)),
         )
 
         return enqueue_process_query_task(
@@ -983,8 +983,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         properties={
                             "insight_id": insight_id,
                             "dashboard_id": dashboard_id,
-                            "team_id": self.team.id,
-                            "organization_id": self.team.organization_id,
                             "execution_mode": execution_mode.value,
                             "query_type": getattr(self.query, "kind", "Other"),
                             "cache_key": cache_key,
@@ -992,6 +990,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
                             **cache_tracking_props,
                         },
+                        groups=(groups(self.team.organization, self.team)),
                     )
 
                     return results
@@ -1083,8 +1082,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 properties={
                     "insight_id": insight_id,
                     "dashboard_id": dashboard_id,
-                    "team_id": self.team.id,
-                    "organization_id": self.team.organization_id,
                     "cache_hit": False,
                     "cache_key": cache_key,
                     "calculation_trigger": trigger,
@@ -1094,6 +1091,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     "query_duration_ms": query_duration_ms,
                     "has_error": has_error is not None and len(has_error) > 0,
                 },
+                groups=(groups(self.team.organization, self.team)),
             )
 
             return fresh_response
