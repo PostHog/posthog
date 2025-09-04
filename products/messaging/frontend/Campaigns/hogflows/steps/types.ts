@@ -1,4 +1,4 @@
-import { Handle, Node, NodeProps } from '@xyflow/react'
+import { Handle, NodeProps } from '@xyflow/react'
 import { z } from 'zod'
 
 import { Optional } from '~/types'
@@ -11,22 +11,6 @@ export type HogFlowStepNodeProps = NodeProps & {
 }
 
 export type StepViewNodeHandle = Omit<Optional<Handle, 'width' | 'height'>, 'nodeId'> & { label?: string }
-
-export type HogFlowStep<T extends HogFlowAction['type']> = {
-    type: T
-    name: string
-    description: string
-    icon: JSX.Element
-    color?: string
-    renderNode?: (props: HogFlowStepNodeProps) => JSX.Element
-    renderConfiguration: (node: Node<Extract<HogFlowAction, { type: T }>>) => JSX.Element
-    create: () => {
-        action: Omit<Pick<Extract<HogFlowAction, { type: T }>, 'config' | 'name' | 'description'>, 'config'> & {
-            config: Omit<Extract<HogFlowAction, { type: T }>['config'], 'inputs'>
-        }
-        branchEdges?: number
-    }
-}
 
 const _commonActionFields = {
     id: z.string(),
@@ -170,35 +154,6 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-webhook'),
-            inputs: z.record(CyclotronInputSchema),
-        }),
-    }),
-
-    // CDP functions (Posthog)
-    z.object({
-        ..._commonActionFields,
-        type: z.literal('function_posthog_capture'),
-        config: z.object({
-            template_uuid: z.string().uuid().optional(),
-            template_id: z.literal('template-posthog-capture'),
-            inputs: z.record(CyclotronInputSchema),
-        }),
-    }),
-    z.object({
-        ..._commonActionFields,
-        type: z.literal('function_posthog_group_identify'),
-        config: z.object({
-            template_uuid: z.string().uuid().optional(),
-            template_id: z.literal('template-posthog-group-identify'),
-            inputs: z.record(CyclotronInputSchema),
-        }),
-    }),
-    z.object({
-        ..._commonActionFields,
-        type: z.literal('function_posthog_update_person_properties'),
-        config: z.object({
-            template_uuid: z.string().uuid().optional(),
-            template_id: z.literal('template-posthog-update-person-properties'),
             inputs: z.record(CyclotronInputSchema),
         }),
     }),

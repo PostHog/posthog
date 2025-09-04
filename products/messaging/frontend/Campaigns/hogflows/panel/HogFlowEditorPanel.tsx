@@ -29,7 +29,7 @@ export function HogFlowEditorPanel(): JSX.Element | null {
 
     const width = mode !== 'build' ? '36rem' : selectedNode ? '36rem' : '22rem'
 
-    const Step = selectedNode ? getHogFlowStep(selectedNode.data.type) : null
+    const Step = selectedNode ? getHogFlowStep(selectedNode.data) : null
     const { actionValidationErrorsById } = useValues(campaignLogic)
     const validationResult = actionValidationErrorsById[selectedNode?.id ?? '']
 

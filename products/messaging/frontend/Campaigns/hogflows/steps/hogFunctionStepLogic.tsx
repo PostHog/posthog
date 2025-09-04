@@ -12,13 +12,11 @@ import type { hogFunctionStepLogicType } from './hogFunctionStepLogicType'
 export type StepFunctionNode = Node<
     Extract<
         HogFlowAction,
+        | { type: 'function' }
         | { type: 'function_email' }
         | { type: 'function_slack' }
         | { type: 'function_sms' }
         | { type: 'function_webhook' }
-        | { type: 'function_posthog_capture' }
-        | { type: 'function_posthog_group_identify' }
-        | { type: 'function_posthog_update_person_properties' }
     >
 >
 

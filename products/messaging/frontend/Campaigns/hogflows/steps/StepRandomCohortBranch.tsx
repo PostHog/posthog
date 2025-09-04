@@ -2,43 +2,15 @@ import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconPercentage, IconPlus, IconX } from '@posthog/icons'
+import { IconPlus, IconX } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
-import { HogFlowStep } from './types'
 
-export const StepRandomCohortBranch: HogFlowStep<'random_cohort_branch'> = {
-    type: 'random_cohort_branch',
-    name: 'Random cohort branch',
-    description: 'Randomly branch off to a different path based on cohort percentages.',
-    icon: <IconPercentage className="text-[#9a004d]" />,
-    color: '#9a004d',
-    renderConfiguration: (node) => <StepRandomCohortBranchConfiguration node={node} />,
-    create: () => {
-        return {
-            action: {
-                name: 'Random cohort',
-                description: '',
-                type: 'random_cohort_branch',
-                on_error: 'continue',
-                config: {
-                    cohorts: [
-                        {
-                            percentage: 50,
-                        },
-                    ],
-                },
-            },
-            branchEdges: 1,
-        }
-    },
-}
-
-function StepRandomCohortBranchConfiguration({
+export function StepRandomCohortBranchConfiguration({
     node,
 }: {
     node: Node<Extract<HogFlowAction, { type: 'random_cohort_branch' }>>

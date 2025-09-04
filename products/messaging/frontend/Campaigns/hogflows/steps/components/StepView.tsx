@@ -18,7 +18,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
     const height = mode === 'metrics' ? NODE_HEIGHT + 10 : NODE_HEIGHT
 
     const { selectedColor, colorLight, color, icon } = useMemo(() => {
-        const Step = getHogFlowStep(action.type)
+        const Step = getHogFlowStep(action)
 
         return {
             selectedColor: Step?.color
@@ -32,7 +32,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
             color: Step?.color || 'var(--text-secondary)',
             icon: Step?.icon,
         }
-    }, [action.type, isSelected])
+    }, [action, isSelected])
 
     const hasValidationError = actionValidationErrorsById[action.id]?.valid === false
 

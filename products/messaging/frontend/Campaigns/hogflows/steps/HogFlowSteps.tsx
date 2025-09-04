@@ -1,42 +1,133 @@
-import { HogFlowAction } from '../types'
-import { StepConditionalBranch } from './StepConditionalBranch'
-import { StepDelay } from './StepDelay'
-import { StepExit } from './StepExit'
-import { StepFunctionEmail } from './StepFunctionEmail'
-import {
-    StepFunctionPostHogCapture,
-    StepFunctionPostHogGroupIdentify,
-    StepFunctionPostHogUpdatePersonProperties,
-} from './StepFunctionPostHog'
-import { StepFunctionSlack } from './StepFunctionSlack'
-import { StepFunctionSms } from './StepFunctionSms'
-import { StepFunctionWebhook } from './StepFunctionWebhook'
-import { StepRandomCohortBranch } from './StepRandomCohortBranch'
-import { StepTrigger } from './StepTrigger'
-import { StepWaitUntilCondition } from './StepWaitUntilCondition'
-import { StepWaitUntilTimeWindow } from './StepWaitUntilTimeWindow'
-import { HogFlowStep } from './types'
+import { Node } from '@xyflow/react'
 
-export const HogFlowSteps: Partial<{
-    [K in HogFlowAction['type']]: HogFlowStep<K>
+import {
+    IconBolt,
+    IconClock,
+    IconDay,
+    IconDecisionTree,
+    IconHourglass,
+    IconLeave,
+    IconLetter,
+    IconPercentage,
+    IconWebhooks,
+} from '@posthog/icons'
+
+import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
+
+import { HogFlowAction } from '../types'
+import { StepConditionalBranchConfiguration } from './StepConditionalBranch'
+import { StepDelayConfiguration } from './StepDelay'
+import { StepExitConfiguration } from './StepExit'
+import { StepFunctionConfiguration } from './StepFunction'
+import { StepRandomCohortBranchConfiguration } from './StepRandomCohortBranch'
+import { StepTriggerConfiguration } from './StepTrigger'
+import { StepWaitUntilConditionConfiguration } from './StepWaitUntilCondition'
+import { StepWaitUntilTimeWindowConfiguration } from './StepWaitUntilTimeWindow'
+
+type HogFlowStepBuilder<T extends HogFlowAction['type']> = {
+    type: T
+    icon: (action: Extract<HogFlowAction, { type: T }>) => JSX.Element
+    color: (action: Extract<HogFlowAction, { type: T }>) => string
+    renderConfiguration: (node: Node<Extract<HogFlowAction, { type: T }>>) => JSX.Element
+}
+
+export type HogFlowStep<T extends HogFlowAction['type']> = {
+    type: T
+    icon: JSX.Element
+    color: string
+    renderConfiguration: (node: Node<Extract<HogFlowAction, { type: T }>>) => JSX.Element
+}
+
+export const HogFlowStepConfigs: Partial<{
+    [K in HogFlowAction['type']]: HogFlowStepBuilder<K>
 }> = {
-    trigger: StepTrigger,
-    conditional_branch: StepConditionalBranch,
-    exit: StepExit,
-    delay: StepDelay,
-    wait_until_condition: StepWaitUntilCondition,
-    wait_until_time_window: StepWaitUntilTimeWindow,
-    random_cohort_branch: StepRandomCohortBranch,
-    function_email: StepFunctionEmail,
-    function_webhook: StepFunctionWebhook,
-    function_sms: StepFunctionSms,
-    function_slack: StepFunctionSlack,
-    function_posthog_capture: StepFunctionPostHogCapture,
-    function_posthog_group_identify: StepFunctionPostHogGroupIdentify,
-    function_posthog_update_person_properties: StepFunctionPostHogUpdatePersonProperties,
+    conditional_branch: {
+        type: 'conditional_branch',
+        icon: () => <IconDecisionTree />,
+        color: () => '#005841',
+        renderConfiguration: (node) => <StepConditionalBranchConfiguration node={node} />,
+    },
+    delay: {
+        type: 'delay',
+        icon: () => <IconClock />,
+        color: () => '#a20031',
+        renderConfiguration: (node) => <StepDelayConfiguration node={node} />,
+    },
+    exit: {
+        type: 'exit',
+        icon: () => <IconLeave />,
+        color: () => '#4b4b4b',
+        renderConfiguration: (node) => <StepExitConfiguration node={node} />,
+    },
+    function: {
+        type: 'function',
+        icon: () => <IconBolt />,
+        color: () => '#005841',
+        renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
+    },
+    function_email: {
+        type: 'function_email',
+        icon: () => <IconLetter />,
+        color: () => '#005841',
+        renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
+    },
+    function_slack: {
+        type: 'function_slack',
+        icon: () => <IconSlack />,
+        color: () => '#4A154B',
+        renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
+    },
+    function_sms: {
+        type: 'function_sms',
+        icon: () => <IconTwilio />,
+        color: () => '#f22f46',
+        renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
+    },
+    function_webhook: {
+        type: 'function_webhook',
+        icon: () => <IconWebhooks />,
+        color: () => '#6500ae',
+        renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
+    },
+    random_cohort_branch: {
+        type: 'random_cohort_branch',
+        icon: () => <IconPercentage />,
+        color: () => '#9a004d',
+        renderConfiguration: (node) => <StepRandomCohortBranchConfiguration node={node} />,
+    },
+    trigger: {
+        type: 'trigger',
+        icon: () => <IconBolt />,
+        color: () => '#005841',
+        renderConfiguration: (node) => <StepTriggerConfiguration node={node} />,
+    },
+    wait_until_condition: {
+        type: 'wait_until_condition',
+        icon: () => <IconHourglass />,
+        color: () => '#ffaa00',
+        renderConfiguration: (node) => <StepWaitUntilConditionConfiguration node={node} />,
+    },
+    wait_until_time_window: {
+        type: 'wait_until_time_window',
+        icon: () => <IconDay />,
+        color: () => '#005841',
+        renderConfiguration: (node) => <StepWaitUntilTimeWindowConfiguration node={node} />,
+    },
 } as const
 
 // Type-safe accessor that preserves the key type
-export function getHogFlowStep<T extends HogFlowAction['type']>(type: T): HogFlowStep<T> | undefined {
-    return HogFlowSteps[type]
+export function getHogFlowStep<T extends HogFlowAction['type']>(
+    action: Extract<HogFlowAction, { type: T }>
+): HogFlowStep<T> | undefined {
+    const type = action.type
+    const builder = HogFlowStepConfigs[type]
+    if (!builder) {
+        return undefined
+    }
+    return {
+        type,
+        icon: builder.icon(action),
+        color: builder.color(action),
+        renderConfiguration: builder.renderConfiguration,
+    }
 }

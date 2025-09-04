@@ -1,7 +1,6 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 
-import { IconDay } from '@posthog/icons'
 import { LemonDivider, LemonInputSelect, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { timeZoneLabel } from 'lib/utils'
@@ -12,7 +11,6 @@ import { WeekdayType } from '~/types'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'
-import { HogFlowStep } from './types'
 
 type DayConfig = 'any' | 'weekday' | 'weekend' | WeekdayType[]
 type TimeConfig = 'any' | [string, string]
@@ -49,29 +47,6 @@ const TIME_RANGE_OPTIONS = Array.from({ length: 24 }, (_, i) => ({
     value: `${i.toString().padStart(2, '0')}:00`,
     label: `${i.toString().padStart(2, '0')}:00`,
 }))
-
-export const StepWaitUntilTimeWindow: HogFlowStep<'wait_until_time_window'> = {
-    type: 'wait_until_time_window',
-    name: 'Time window',
-    description: 'Wait until a specific time window is reached.',
-    icon: <IconDay className="text-[#005841]" />,
-    color: '#005841',
-    renderConfiguration: (node) => <StepWaitUntilTimeWindowConfiguration node={node} />,
-    create: () => ({
-        action: {
-            name: 'Time window',
-            description: '',
-            type: 'wait_until_time_window',
-            on_error: 'continue',
-            config: {
-                timezone: null,
-                day: 'any' as DayConfig,
-                time: 'any' as TimeConfig,
-            },
-        },
-        branchEdges: 1,
-    }),
-}
 
 // Configuration utility functions
 const isCustomDay = (day: DayConfig): day is WeekdayType[] => {
@@ -124,7 +99,7 @@ const getUpdatedTimeRangeConfig = (
     return { time: updatedTime }
 }
 
-function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<WaitUntilTimeWindowAction> }): JSX.Element {
+export function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<WaitUntilTimeWindowAction> }): JSX.Element {
     const action = node.data
     const { timezone, day, time } = action.config
 

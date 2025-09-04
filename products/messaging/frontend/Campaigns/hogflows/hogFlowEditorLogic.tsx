@@ -43,6 +43,8 @@ export type HogFlowEditorActionMetrics = {
     filtered: number
 }
 
+export type CreateActionType = Pick<HogFlowAction, 'type' | 'config' | 'name' | 'description'>
+
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as CampaignLogicProps),
     path((key) => ['scenes', 'hogflows', 'hogFlowEditorLogic', key]),
@@ -77,7 +79,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         onDragStart: true,
         onDragOver: (event: DragEvent) => ({ event }),
         onDrop: (event: DragEvent) => ({ event }),
-        setNewDraggingNode: (newDraggingNode: HogFlowAction['type'] | null) => ({ newDraggingNode }),
+        setNewDraggingNode: (newDraggingNode: CreateActionType | null) => ({ newDraggingNode }),
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
         loadActionMetricsById: (params: AppMetricsTotalsRequest, timezone: string) => ({ params, timezone }),
@@ -121,7 +123,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ],
 
         newDraggingNode: [
-            null as HogFlowAction['type'] | null,
+            null as CreateActionType | null,
             {
                 setNewDraggingNode: (_, { newDraggingNode }) => newDraggingNode,
             },
@@ -270,7 +272,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 })
 
                 const nodes: HogFlowActionNode[] = hogFlow.actions.map((action: HogFlowAction) => {
-                    const step = getHogFlowStep(action.type)
+                    const step = getHogFlowStep(action)
                     if (!step) {
                         console.error(`Step not found for action type: ${action.type}`)
                         throw new Error(`Step not found for action type: ${action.type}`)
@@ -390,21 +392,25 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
             if (values.newDraggingNode && dropzoneNode) {
                 const edgeToInsertNodeInto = dropzoneNode?.data.edge
-                const step = getHogFlowStep(values.newDraggingNode)
-
-                if (!step) {
-                    throw new Error(`Step not found for action type: ${values.newDraggingNode}`)
-                }
-
-                const { action: partialNewAction, branchEdges = 0 } = step.create()
+                const partialNewAction = values.newDraggingNode
 
                 const newAction = {
-                    id: `action_${step.type}_${uuid()}`,
-                    type: step.type,
+                    id: `action_${partialNewAction.type}_${uuid()}`,
+                    type: partialNewAction.type,
+                    name: partialNewAction.name,
+                    description: partialNewAction.description,
+                    config: partialNewAction.config,
                     created_at: Date.now(),
                     updated_at: Date.now(),
-                    ...partialNewAction,
                 } as HogFlowAction
+
+                const step = getHogFlowStep(newAction)
+
+                const branchEdges = 1 // TODO: FIX THIS
+
+                if (!step) {
+                    throw new Error(`Step not found for action type: ${newAction}`)
+                }
 
                 const edgeToBeReplacedIndex = values.campaign.edges.findIndex(
                     (edge) => getEdgeId(edge) === edgeToInsertNodeInto.id

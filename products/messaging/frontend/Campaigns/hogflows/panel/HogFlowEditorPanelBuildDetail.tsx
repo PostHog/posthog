@@ -26,7 +26,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     }
 
     const action = selectedNode.data
-    const Step = getHogFlowStep(action.type)
+    const Step = getHogFlowStep(action)
 
     return (
         <div className="flex flex-col h-full overflow-hidden">

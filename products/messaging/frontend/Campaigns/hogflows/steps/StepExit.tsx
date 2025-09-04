@@ -1,33 +1,9 @@
 import { Node } from '@xyflow/react'
 
-import { IconLeave } from '@posthog/icons'
-
 import { HogFlowAction } from '../types'
-import { HogFlowStep } from './types'
-
-export const StepExit: HogFlowStep<'exit'> = {
-    type: 'exit',
-    name: 'Exit',
-    description: 'Exit the campaign.',
-    icon: <IconLeave />,
-    color: '#4b4b4b',
-    renderConfiguration: (node) => <StepExitConfiguration node={node} />,
-    create: () => {
-        return {
-            action: {
-                name: 'Exit',
-                description: '',
-                type: 'exit',
-                config: {
-                    reason: 'user_exited',
-                },
-            },
-        }
-    },
-}
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-function StepExitConfiguration(_: { node: Node<Extract<HogFlowAction, { type: 'exit' }>> }): JSX.Element {
+export function StepExitConfiguration(_: { node: Node<Extract<HogFlowAction, { type: 'exit' }>> }): JSX.Element {
     return (
         <>
             <div className="flex flex-col">
