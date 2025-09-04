@@ -73,7 +73,7 @@ const buildGetHealth =
                 // If healthcheck throws, create an error result
                 return {
                     service,
-                    result: new HealthCheckResultError(error.message, {}),
+                    result: new HealthCheckResultError(error instanceof Error ? error.message : 'Unknown error', {}),
                 }
             }
         })

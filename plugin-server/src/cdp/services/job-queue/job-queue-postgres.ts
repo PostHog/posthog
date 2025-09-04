@@ -92,7 +92,9 @@ export class CyclotronJobQueuePostgres {
                 return new HealthCheckResultError('Cyclotron worker is not healthy', {})
             }
         } catch (error) {
-            return new HealthCheckResultError('Cyclotron worker not initialized', { error: error.message })
+            return new HealthCheckResultError('Cyclotron worker not initialized', {
+                error: error instanceof Error ? error.message : String(error),
+            })
         }
     }
 
