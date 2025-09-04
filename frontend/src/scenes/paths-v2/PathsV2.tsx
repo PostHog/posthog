@@ -16,47 +16,6 @@ import type { PathNodeData } from './pathUtils'
 import { pathsV2DataLogic } from './pathsV2DataLogic'
 import { renderPathsV2 } from './renderPathsV2'
 
-function DebugPathTable(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const { insightData } = useValues(pathsV2DataLogic(insightProps))
-
-    if (!insightData?.result) {
-        return null
-    }
-
-    return (
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead className="bg-gray-50 dark:bg-gray-800">
-                <tr>
-                    {Object.keys(insightData.result[0] || {}).map((key) => (
-                        <th
-                            key={key}
-                            scope="col"
-                            className="px-2 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider"
-                        >
-                            {key}
-                        </th>
-                    ))}
-                </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-                {insightData.result.map((item, index) => (
-                    <tr key={index}>
-                        {Object.values(item).map((value, idx) => (
-                            <td
-                                key={idx}
-                                className="px-2 py-1 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300"
-                            >
-                                {JSON.stringify(value)}
-                            </td>
-                        ))}
-                    </tr>
-                ))}
-            </tbody>
-        </table>
-    )
-}
-
 export function PathsV2(): JSX.Element {
     const canvasRef = useRef<HTMLDivElement>(null)
     const canvasContainerRef = useRef<HTMLDivElement>(null)
@@ -100,40 +59,35 @@ export function PathsV2(): JSX.Element {
     }
 
     return (
-        <>
-            <DebugPathTable />
-            <div className="h-full w-full overflow-auto" ref={canvasContainerRef}>
-                <div
-                    ref={canvasRef}
-                    className="PathsV2"
-                    data-attr="paths-viz"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={
-                        {
-                            // regular nodes
-                            '--paths-node': theme?.['preset-1'] || '#000000',
-                            '--paths-node--hover': lightenDarkenColor(theme?.['preset-1'] || '#000000', -20),
+        <div className="h-full w-full overflow-auto" ref={canvasContainerRef}>
+            <div
+                ref={canvasRef}
+                className="PathsV2"
+                data-attr="paths-viz"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={
+                    {
+                        // regular nodes
+                        '--paths-node': theme?.['preset-1'] || '#000000',
+                        '--paths-node--hover': lightenDarkenColor(theme?.['preset-1'] || '#000000', -20),
 
-                            // aggregated "other" nodes
-                            '--paths-node--other': theme?.['preset-2'] || '#000000',
-                            '--paths-node--other-hover': lightenDarkenColor(theme?.['preset-2'] || '#000000', -20),
+                        // aggregated "other" nodes
+                        '--paths-node--other': theme?.['preset-2'] || '#000000',
+                        '--paths-node--other-hover': lightenDarkenColor(theme?.['preset-2'] || '#000000', -20),
 
-                            // dropoff nodes
-                            '--paths-node--dropoff': '#db3707',
-                            '--paths-node--dropoff-hover': lightenDarkenColor('#db3707', -20),
+                        // dropoff nodes
+                        '--paths-node--dropoff': 'var(--color-lifecycle-dormant)',
+                        '--paths-node--dropoff-hover': 'var(--color-lifecycle-dormant-hover)',
 
-                            '--paths-link': theme?.['preset-1'] || '#000000',
-                        } as React.CSSProperties
-                    }
-                >
-                    {!insightDataLoading && paths && paths.nodes.length === 0 && !insightDataError && (
-                        <InsightEmptyState />
-                    )}
-                    {!insightDataError &&
-                        nodes &&
-                        nodes.map((node, idx) => <PathV2NodeLabel key={idx} node={node} insightProps={insightProps} />)}
-                </div>
+                        '--paths-link': theme?.['preset-1'] || '#000000',
+                    } as React.CSSProperties
+                }
+            >
+                {!insightDataLoading && paths && paths.nodes.length === 0 && !insightDataError && <InsightEmptyState />}
+                {!insightDataError &&
+                    nodes &&
+                    nodes.map((node, idx) => <PathV2NodeLabel key={idx} node={node} insightProps={insightProps} />)}
             </div>
-        </>
+        </div>
     )
 }
