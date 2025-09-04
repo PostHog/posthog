@@ -1,10 +1,10 @@
 import { connect, kea, path, props, selectors } from 'kea'
-import { loaders } from 'node_modules/kea-loaders/lib'
-import { subscriptions } from 'node_modules/kea-subscriptions/lib'
+import { loaders } from 'kea-loaders/lib'
+import { subscriptions } from 'kea-subscriptions/lib'
 
 import { ErrorPropertiesLogicProps, errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import 'lib/components/Errors/stackFrameLogic'
-import { ErrorTrackingStackFrame } from 'lib/components/Errors/types'
+import { ErrorTrackingStackFrame, ExceptionRelease } from 'lib/components/Errors/types'
 
 import type { releasePreviewLogicType } from './releasePreviewLogicType'
 
@@ -36,13 +36,29 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
         ],
     }),
 
-    loaders(({ values }) => ({
-        release: [
-            'release' as string | null,
+    loaders(() => ({
+        releasePreviewData: [
+            {
+                mostProbableRelease: {
+                    commitSha: 'unknown yet',
+                    repositoryUrl: 'unknown yet',
+                    repositoryName: 'unknown yet',
+                    branch: 'unknown yet',
+                },
+                otherReleases: [],
+            } as ReleasePreviewOutput,
             {
                 loadRelease: async () => {
                     await new Promise((resolve) => setTimeout(resolve, 1_000))
-                    return values.kaboomFrame?.raw_id ?? 'unDEfiNeD'
+                    return {
+                        mostProbableRelease: {
+                            commitSha: '941be080cc022f64c10cf16025714eca48c29854',
+                            repositoryUrl: 'http://example.com/first/second/third',
+                            repositoryName: 'posthog-cli-github-action',
+                            branch: 'main',
+                        },
+                        otherReleases: [],
+                    }
                 },
             },
         ],
@@ -54,3 +70,8 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
         },
     })),
 ])
+
+export interface ReleasePreviewOutput {
+    mostProbableRelease: ExceptionRelease
+    otherReleases: ExceptionRelease[]
+}

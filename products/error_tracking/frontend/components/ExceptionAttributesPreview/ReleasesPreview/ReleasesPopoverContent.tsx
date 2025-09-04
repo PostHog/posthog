@@ -7,58 +7,30 @@ import { ExceptionRelease } from 'lib/components/Errors/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { releasePreviewLogic } from './releasePreviewLogic'
+import { ReleasePreviewOutput, releasePreviewLogic } from './releasePreviewLogic'
 
 export interface ReleasesPopoverContentProps {
-    releases: ExceptionRelease[]
+    releasePreviewData: ReleasePreviewOutput
 }
 
-export function ReleasePopoverContent({ releases }: ReleasesPopoverContentProps): JSX.Element {
-    const title = releases.length === 1 ? 'Related release' : 'Related releases'
+export function ReleasePopoverContent({}: ReleasesPopoverContentProps): JSX.Element {
+    const { releasePreviewData } = useValues(releasePreviewLogic)
+
+    const title = 'Related release'
 
     return (
         <div className="min-w-[20rem] max-w-[20rem] overflow-hidden">
             <div className="border-b-1 p-2">
                 <h4 className="mb-0">{title}</h4>
             </div>
-            <ReleasesList releases={releases} />
-        </div>
-    )
-}
-
-function ReleasesList({ releases }: { releases: ExceptionRelease[] }): JSX.Element {
-    return (
-        <div className="p-2">
-            {releases.map((release, idx) => (
-                <div key={release.commitSha}>
-                    <ReleaseListItem release={release} />
-                    {idx < releases.length - 1 && <div className="border-t-1 my-2" />}
-                </div>
-            ))}
-        </div>
-    )
-}
-
-function SimplePropertyRow({ label, value }: { label: string; value?: string }): JSX.Element {
-    if (!value) {
-        return <></>
-    }
-
-    return (
-        <div className="flex items-center gap-2">
-            <div className="w-20 text-xs text-muted">{label}</div>
-            <div className="flex-1 min-w-0">
-                <span className="text-xs block truncate max-w-full" title={value}>
-                    {value}
-                </span>
+            <div className="p-2">
+                <MostProbableRelease release={releasePreviewData.mostProbableRelease} />
             </div>
         </div>
     )
 }
 
-function ReleaseListItem({ release }: { release: ExceptionRelease }): JSX.Element {
-    const { release: computedRelease } = useValues(releasePreviewLogic)
-
+function MostProbableRelease({ release }: { release: ExceptionRelease }): JSX.Element {
     return (
         <div className="space-y-2">
             <div className="flex items-center gap-2">
@@ -96,9 +68,22 @@ function ReleaseListItem({ release }: { release: ExceptionRelease }): JSX.Elemen
             )}
             <SimplePropertyRow label="Repository" value={release.repositoryName} />
             <SimplePropertyRow label="Branch" value={release.branch} />
-            <div>
-                <span>Release:</span>
-                <span>{computedRelease}</span>
+        </div>
+    )
+}
+
+function SimplePropertyRow({ label, value }: { label: string; value?: string }): JSX.Element {
+    if (!value) {
+        return <></>
+    }
+
+    return (
+        <div className="flex items-center gap-2">
+            <div className="w-20 text-xs text-muted">{label}</div>
+            <div className="flex-1 min-w-0">
+                <span className="text-xs block truncate max-w-full" title={value}>
+                    {value}
+                </span>
             </div>
         </div>
     )
