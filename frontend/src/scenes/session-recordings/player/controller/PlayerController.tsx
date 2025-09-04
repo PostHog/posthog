@@ -3,10 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconCamera, IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconFullScreen } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
 import { CommentOnRecordingButton } from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
 import {
@@ -121,7 +119,6 @@ function Screenshot(): JSX.Element {
 export function PlayerController(): JSX.Element {
     const { playlistLogic, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { isCinemaMode } = useValues(playerSettingsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
@@ -145,7 +142,7 @@ export function PlayerController(): JSX.Element {
                         <>
                             <CommentOnRecordingButton />
                             <Screenshot />
-                            {featureFlags[FEATURE_FLAGS.REPLAY_EXPORT_SHORT_VIDEO] && <ClipRecording />}
+                            <ClipRecording />
                             {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
                         </>
                     )}
