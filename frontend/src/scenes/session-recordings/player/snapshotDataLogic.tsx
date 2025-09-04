@@ -50,6 +50,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         sessionPlayerMetaData: null as SessionRecordingType | null,
     }),
     actions({
+        setSnapshots: (snapshots: RecordingSnapshot[]) => ({ snapshots }),
         loadSnapshots: true,
         loadSnapshotSources: (breakpointLength?: number) => ({ breakpointLength }),
         loadNextSnapshotSource: true,
@@ -190,6 +191,19 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         ],
     })),
     listeners(({ values, actions, cache, props }) => ({
+        setSnapshots: ({ snapshots }: { snapshots: RecordingSnapshot[] }) => {
+            cache.snapshotsBySource = {
+                'file-file': {
+                    snapshots: snapshots,
+                    source: { source: SnapshotSourceType.file },
+                },
+            }
+            actions.loadSnapshotsForSourceSuccess({
+                source: { source: SnapshotSourceType.file },
+            })
+            actions.loadSnapshotSourcesSuccess([{ source: SnapshotSourceType.file }])
+        },
+
         loadSnapshots: () => {
             // This kicks off the loading chain
             if (!values.snapshotSourcesLoading) {

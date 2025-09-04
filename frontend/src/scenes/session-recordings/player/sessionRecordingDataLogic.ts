@@ -62,10 +62,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             [
                 'loadSnapshots',
                 'loadSnapshotSources',
+                'loadSnapshotSourcesSuccess',
                 'loadSnapshotSourcesFailure',
                 'loadNextSnapshotSource',
                 'loadSnapshotsForSource',
+                'loadSnapshotsForSourceSuccess',
                 'loadSnapshotsForSourceFailure',
+                'setSnapshots',
             ],
         ],
         values: [
@@ -92,6 +95,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     actions({
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
         loadRecordingMeta: true,
+        loadRecordingFromFile: (recording: ExportedSessionRecordingFileV2['data']) => ({ recording }),
         maybeLoadRecordingMeta: true,
         loadRecordingComments: true,
         loadRecordingNotebookComments: true,
@@ -362,6 +366,21 @@ AND properties.$lib != 'web'`
             if (props.sessionRecordingId === recordingId) {
                 actions.loadRecordingComments()
             }
+        },
+
+        loadRecordingFromFile: ({ recording }: { recording: ExportedSessionRecordingFileV2['data'] }) => {
+            const { id, snapshots, person } = recording
+            actions.setSnapshots(snapshots)
+            actions.loadRecordingMetaSuccess({
+                id,
+                viewed: false,
+                viewers: [],
+                recording_duration: snapshots[snapshots.length - 1].timestamp - snapshots[0].timestamp,
+                person: person || undefined,
+                start_time: dayjs(snapshots[0].timestamp).toISOString(),
+                end_time: dayjs(snapshots[snapshots.length - 1].timestamp).toISOString(),
+                snapshot_source: 'unknown', // TODO: we should be able to detect this from the file
+            })
         },
 
         maybeLoadRecordingMeta: () => {
