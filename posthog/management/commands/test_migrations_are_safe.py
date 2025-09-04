@@ -48,12 +48,17 @@ def validate_migration_sql(sql) -> bool:
             # Ignore for brand-new tables
             and (table_being_altered not in tables_created_so_far or table_being_altered not in new_tables)
         ):
-            # Check if this is adding a column with a constant default (safe in PostgreSQL 11+)
-            if "ADD COLUMN" in operation_sql and "DEFAULT" in operation_sql:
+            # Check if this is adding/altering a column with a constant default (safe in PostgreSQL 11+)
+            if ("ADD COLUMN" in operation_sql and "DEFAULT" in operation_sql) or (
+                "ALTER COLUMN" in operation_sql and "SET DEFAULT" in operation_sql
+            ):
                 # Extract the default value to check if it's a constant
-                # Match DEFAULT followed by either a quoted string or unquoted value until NOT NULL or end of significant tokens
+                # Match DEFAULT followed by either a quoted string or unquoted value including typecast until NOT NULL or end of significant tokens
+                # regexr.com is your friend when trying to understand this regex
                 default_match = re.search(
-                    r"DEFAULT\s+((?:'[^']*')|(?:[^'\s]+(?:\s+[^'\s]+)*?))\s+(?:NOT\s+NULL|;|$)", operation_sql, re.I
+                    r"DEFAULT\s+((?:'[^']*')|(?:[^'\s]+(?:\s+[^'\s]+)*?))(\s+|::\w+\s+)(?:NOT\s+NULL|;|$)",
+                    operation_sql,
+                    re.I,
                 )
                 if default_match:
                     default_value = default_match.group(1).strip()
@@ -70,7 +75,8 @@ def validate_migration_sql(sql) -> bool:
                             "CURRENT_TIME",
                         ]  # Functions marked as stable in postgres
                     ):
-                        # This is safe - adding a column with a constant default doesn't require table rewrite in PostgreSQL 11+
+                        # This is safe - adding/altering a column with a constant default
+                        # doesn't require table rewrite in PostgreSQL 11+
                         continue
 
             print(

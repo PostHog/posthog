@@ -11,9 +11,12 @@ import {
     AssistantToolCallMessage,
     FailureMessage,
     HumanMessage,
+    MultiVisualizationMessage,
     NotebookUpdateMessage,
+    PlanningMessage,
     ReasoningMessage,
     RootAssistantMessage,
+    TaskExecutionMessage,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import {
@@ -40,6 +43,12 @@ export function isVisualizationMessage(
     return message?.type === AssistantMessageType.Visualization
 }
 
+export function isMultiVisualizationMessage(
+    message: RootAssistantMessage | undefined | null
+): message is MultiVisualizationMessage {
+    return message?.type === AssistantMessageType.MultiVisualization
+}
+
 export function isHumanMessage(message: RootAssistantMessage | undefined | null): message is HumanMessage {
     return message?.type === AssistantMessageType.Human
 }
@@ -64,8 +73,18 @@ export function isNotebookUpdateMessage(
     return message?.type === AssistantMessageType.Notebook
 }
 
+export function isPlanningMessage(message: RootAssistantMessage | undefined | null): message is PlanningMessage {
+    return message?.type === AssistantMessageType.Planning
+}
+
+export function isTaskExecutionMessage(
+    message: RootAssistantMessage | undefined | null
+): message is TaskExecutionMessage {
+    return message?.type === AssistantMessageType.TaskExecution
+}
+
 export function castAssistantQuery(
-    query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery
+    query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery | null
 ): TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery {
     if (isTrendsQuery(query)) {
         return query
@@ -76,7 +95,7 @@ export function castAssistantQuery(
     } else if (isHogQLQuery(query)) {
         return query
     }
-    throw new Error(`Unsupported query type: ${query.kind}`)
+    throw new Error(`Unsupported query type: ${query?.kind}`)
 }
 
 /**
