@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 
 import { IconBolt, IconPencil, IconPlus } from '@posthog/icons'
 
@@ -11,6 +11,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { colorForString } from 'lib/utils'
 
+import { featureFlagEvaluationTagsLogic } from './featureFlagEvaluationTagsLogic'
 import { featureFlagLogic } from './featureFlagLogic'
 
 interface FeatureFlagEvaluationTagsProps {
@@ -30,21 +31,26 @@ export function FeatureFlagEvaluationTags({
     staticOnly = false,
     className,
 }: FeatureFlagEvaluationTagsProps): JSX.Element {
-    const [editingTags, setEditingTags] = useState(false)
-    const [showEvaluationOptions, setShowEvaluationOptions] = useState(false)
-    const [selectedTags, setSelectedTags] = useState<string[]>(tags)
-    const [selectedEvaluationTags, setSelectedEvaluationTags] = useState<string[]>(evaluationTags)
+    const logic = featureFlagEvaluationTagsLogic({ tags, evaluationTags })
+    const { editingTags, showEvaluationOptions, selectedTags, selectedEvaluationTags } = useValues(logic)
+    const {
+        setEditingTags,
+        setShowEvaluationOptions,
+        setSelectedTags,
+        setSelectedEvaluationTags,
+        resetSelectionsToProps,
+    } = useActions(logic)
 
     const { saveFeatureFlag } = useActions(featureFlagLogic)
     const { featureFlagLoading } = useValues(featureFlagLogic)
 
-    // Hide evaluation options toggle if there are no tags
+    // Keep selections fresh when props change while not editing
     useEffect(() => {
-        if (selectedTags.length === 0 && showEvaluationOptions) {
-            setShowEvaluationOptions(false)
+        if (!editingTags) {
+            resetSelectionsToProps()
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedTags.length])
+    }, [tags.join(','), evaluationTags.join(','), editingTags])
 
     const handleSave = (): void => {
         if (onChange) {
@@ -61,7 +67,7 @@ export function FeatureFlagEvaluationTags({
 
     const toggleEvaluationTag = (tag: string): void => {
         if (selectedEvaluationTags.includes(tag)) {
-            setSelectedEvaluationTags(selectedEvaluationTags.filter((t) => t !== tag))
+            setSelectedEvaluationTags(selectedEvaluationTags.filter((t: string) => t !== tag))
         } else {
             setSelectedEvaluationTags([...selectedEvaluationTags, tag])
         }
@@ -75,7 +81,7 @@ export function FeatureFlagEvaluationTags({
                         mode="multiple"
                         allowCustomValues
                         value={selectedTags}
-                        options={tagsAvailable?.map((t) => ({ key: t, label: t }))}
+                        options={tagsAvailable?.map((t: string) => ({ key: t, label: t }))}
                         onChange={setSelectedTags}
                         loading={featureFlagLoading}
                         data-attr="feature-flag-tags-input"
@@ -99,7 +105,7 @@ export function FeatureFlagEvaluationTags({
                             only evaluate when the SDK provides matching environment tags.
                         </div>
                         <div className="flex flex-col gap-1">
-                            {selectedTags.map((tag) => (
+                            {selectedTags.map((tag: string) => (
                                 <LemonCheckbox
                                     key={tag}
                                     checked={selectedEvaluationTags.includes(tag)}
