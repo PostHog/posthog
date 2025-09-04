@@ -19,7 +19,13 @@ import { GraphDataset } from '~/types'
 
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 import { MRRBreakdownModal, mrrBreakdownModalLogic } from './modals'
-import { RevenueAnalyticsLineGraph, TileProps, TileWrapper, extractLabelAndDatasets } from './shared'
+import {
+    RevenueAnalyticsLineGraph,
+    TileProps,
+    TileWrapper,
+    extractLabelAndDatasets,
+    goalLinesFromRevenueGoals,
+} from './shared'
 
 const MODE_OPTIONS: LemonSegmentedButtonOption<'mrr' | 'arr'>[] = [
     { value: 'mrr', label: 'MRR' },
@@ -59,7 +65,7 @@ export function RevenueAnalyticsMRRNode(props: {
 }
 
 const Tile = ({ context }: TileProps): JSX.Element => {
-    const { baseCurrency, breakdownProperties, mrrMode } = useValues(revenueAnalyticsLogic)
+    const { baseCurrency, breakdownProperties, revenueGoals, mrrMode } = useValues(revenueAnalyticsLogic)
 
     const logic = useMountedLogic(dataNodeLogic)
     const { response, responseLoading } = useValues(logic)
@@ -134,6 +140,10 @@ const Tile = ({ context }: TileProps): JSX.Element => {
                         aggregationAxisFormat: 'numeric',
                         aggregationAxisPrefix: isPrefix ? currencySymbol : undefined,
                         aggregationAxisPostfix: isPrefix ? undefined : currencySymbol,
+                        goalLines: goalLinesFromRevenueGoals(revenueGoals, 'mrr').map((goalLine) => ({
+                            ...goalLine,
+                            value: mrrMode === 'mrr' ? goalLine.value : goalLine.value * 12,
+                        })),
                     }}
                 />
             )}

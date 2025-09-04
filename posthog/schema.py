@@ -2265,12 +2265,18 @@ class RevenueAnalyticsBreakdown(BaseModel):
     type: Literal["revenue_analytics"] = "revenue_analytics"
 
 
+class MrrOrGross(StrEnum):
+    MRR = "mrr"
+    GROSS = "gross"
+
+
 class RevenueAnalyticsGoal(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     due_date: str
     goal: float
+    mrrOrGross: Optional[MrrOrGross] = MrrOrGross.GROSS
     name: str
 
 

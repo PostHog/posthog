@@ -3505,6 +3505,11 @@ export interface RevenueAnalyticsGoal {
     name: string
     due_date: string
     goal: number
+
+    /**
+     * @default 'gross'
+     */
+    mrrOrGross: 'mrr' | 'gross'
 }
 
 export interface RevenueAnalyticsConfig {
