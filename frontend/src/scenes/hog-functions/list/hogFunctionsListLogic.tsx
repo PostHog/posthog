@@ -160,13 +160,13 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             },
         ],
         enabledHogFunctions: [
-            (s) => [s.hogFunctions],
+            (s) => [s.sortedHogFunctions],
             (hogFunctions): HogFunctionType[] => {
                 return hogFunctions.filter((hogFunction) => hogFunction.enabled)
             },
         ],
         hogFunctionsFuse: [
-            (s) => [s.hogFunctions],
+            (s) => [s.sortedHogFunctions],
             (hogFunctions): Fuse => {
                 return new FuseClass(hogFunctions || [], {
                     keys: ['name', 'description'],
