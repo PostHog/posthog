@@ -5,27 +5,16 @@ import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
-import { ExperimentMetric } from '~/queries/schema/schema-general'
-
 import { experimentLogic } from '../../experimentLogic'
 import { modalsLogic } from '../../modalsLogic'
 import { MetricsReorderModal } from '../MetricsReorderModal'
 import { AddPrimaryMetric, AddSecondaryMetric } from '../shared/AddMetric'
-import { getIsCachedForMetric, getResultForMetric } from '../shared/mapUtils'
 import { MetricsTable } from './MetricsTable'
 import { ResultDetails } from './ResultDetails'
 
 export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
-    const {
-        experiment,
-        getInsightType,
-        getOrderedMetrics,
-        primaryMetricsResults,
-        secondaryMetricsResults,
-        secondaryMetricsResultsErrors,
-        primaryMetricsResultsErrors,
-        hasMinimumExposureForResults,
-    } = useValues(experimentLogic)
+    const { experiment, primaryMetricsState, secondaryMetricsState, hasMinimumExposureForResults } =
+        useValues(experimentLogic)
 
     const { openPrimaryMetricsReorderModal, openSecondaryMetricsReorderModal } = useActions(modalsLogic)
 
@@ -34,17 +23,11 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
         return <></>
     }
 
-    const results = isSecondary ? secondaryMetricsResults : primaryMetricsResults
-    const errors = isSecondary ? secondaryMetricsResultsErrors : primaryMetricsResultsErrors
-
-    const metrics = getOrderedMetrics(!!isSecondary)
+    const metricsState = isSecondary ? secondaryMetricsState : primaryMetricsState
+    const metrics = metricsState.metrics
 
     const showResultDetails =
-        metrics.length === 1 &&
-        metrics[0].uuid != undefined &&
-        getResultForMetric(results, metrics[0]) !== null &&
-        hasMinimumExposureForResults &&
-        !isSecondary
+        metrics.length === 1 && metrics[0].result !== null && hasMinimumExposureForResults && !isSecondary
 
     return (
         <div className="mb-4 -mt-2">
@@ -99,22 +82,15 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
             </div>
             {metrics.length > 0 ? (
                 <>
-                    <MetricsTable
-                        metrics={metrics}
-                        results={results}
-                        errors={errors}
-                        isSecondary={!!isSecondary}
-                        getInsightType={getInsightType}
-                        showDetailsModal={!showResultDetails}
-                    />
+                    <MetricsTable metrics={metrics} isSecondary={!!isSecondary} showDetailsModal={!showResultDetails} />
                     {showResultDetails && (
                         <div className="mt-4">
                             <ResultDetails
-                                metric={metrics[0]}
+                                metric={metrics[0].definition}
                                 result={{
-                                    ...getResultForMetric(results, metrics[0])!,
-                                    metric: metrics[0] as ExperimentMetric,
-                                    is_cached: getIsCachedForMetric(results, metrics[0]),
+                                    ...metrics[0].result!,
+                                    metric: metrics[0].definition,
+                                    is_cached: metrics[0].result?.is_cached ?? false,
                                 }}
                                 experiment={experiment}
                                 isSecondary={!!isSecondary}
