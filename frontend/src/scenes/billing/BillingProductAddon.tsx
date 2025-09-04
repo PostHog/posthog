@@ -19,6 +19,7 @@ import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 import { billingLogic } from './billingLogic'
 import { billingProductAddonLogic } from './billingProductAddonLogic'
 import { billingProductLogic } from './billingProductLogic'
+import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
 
 export const formatFlatRate = (flatRate: number, unit: string | null): string | ReactNode => {
     if (!unit) {
@@ -36,9 +37,8 @@ export const formatFlatRate = (flatRate: number, unit: string | null): string | 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
     const { billing } = useValues(billingLogic)
-    const { isPricingModalOpen, currentAndUpgradePlans, surveyID, showTierBreakdown } = useValues(
-        billingProductLogic({ product: addon, productRef })
-    )
+    const { isPricingModalOpen, currentAndUpgradePlans, surveyID, showTierBreakdown, isDataPipelinesDeprecated } =
+        useValues(billingProductLogic({ product: addon, productRef }))
     const { toggleIsPricingModalOpen, setShowTierBreakdown } = useActions(billingProductLogic({ product: addon }))
     const logic = billingProductAddonLogic({ addon })
     const { gaugeItems } = useValues(logic)
@@ -101,6 +101,17 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                     <LemonTag type="highlight" icon={<IconInfo />}>
                                         Legacy add-on
                                     </LemonTag>
+                                </div>
+                            )}
+                            {isDataPipelinesDeprecated && (
+                                <div>
+                                    <Tooltip
+                                        title={`Data pipelines are migrating to standalone products with true usage-based pricing - realtime destinations and batch exports. You can no longer upgrade to the data pipelines add-on but you have access to new products with generous free allowance by default. You will only get billed for the data pipelines add-on based on events ingested until ${DATA_PIPELINES_CUTOFF_DATE}.`}
+                                    >
+                                        <LemonTag type="warning" icon={<IconInfo />}>
+                                            Deprecated
+                                        </LemonTag>
+                                    </Tooltip>
                                 </div>
                             )}
                         </div>

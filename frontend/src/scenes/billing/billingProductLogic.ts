@@ -6,6 +6,7 @@ import React from 'react'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import {
@@ -20,6 +21,7 @@ import {
 import { isAddonVisible } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
+import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 const DEFAULT_BILLING_LIMIT: number = 500
@@ -287,6 +289,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
         hasCustomLimitSet: [
             (s) => [s.customLimitUsd],
             (customLimitUsd) => (!!customLimitUsd || customLimitUsd === 0) && customLimitUsd >= 0,
+        ],
+        isDataPipelinesDeprecated: [
+            (_s, p) => [p.product],
+            (product: BillingProductV2Type | BillingProductV2AddonType): boolean => {
+                return product.type === 'data_pipelines' && dayjs().isAfter(dayjs(DATA_PIPELINES_CUTOFF_DATE))
+            },
         ],
         currentAndUpgradePlans: [
             (_s, p) => [p.product],
