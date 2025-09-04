@@ -1,4 +1,4 @@
-import { actions, beforeUnmount, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -18,7 +18,6 @@ import {
     SessionRecordingSnapshotParams,
     SessionRecordingSnapshotSource,
     SessionRecordingSnapshotSourceResponse,
-    SessionRecordingType,
     SnapshotSourceType,
 } from '~/types'
 
@@ -35,7 +34,6 @@ export interface SnapshotLogicProps {
     realTimePollingIntervalMilliseconds?: number
     // allows disabling polling for new sources in tests
     blobV2PollingDisabled?: boolean
-    playerKey?: string
     accessToken?: string
 }
 
@@ -46,9 +44,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
     })),
-    defaults({
-        sessionPlayerMetaData: null as SessionRecordingType | null,
-    }),
     actions({
         setSnapshots: (snapshots: RecordingSnapshot[]) => ({ snapshots }),
         loadSnapshots: true,

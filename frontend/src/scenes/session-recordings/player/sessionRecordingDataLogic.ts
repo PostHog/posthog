@@ -6,9 +6,9 @@ import posthog from 'posthog-js'
 import { EventType, customEvent, eventWithTime } from '@posthog/rrweb-types'
 
 import api from 'lib/api'
+import { ItemCache } from 'lib/components/SessionTimeline/timeline'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -25,7 +25,6 @@ import {
     RecordingSnapshot,
     SessionPlayerData,
     SessionRecordingId,
-    SessionRecordingSnapshotSourceResponse,
     SessionRecordingType,
     SessionRecordingUsageType,
     SnapshotSourceType,
@@ -56,41 +55,52 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'sessionRecordingDataLogic', key]),
     props({} as SessionRecordingDataLogicProps),
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
-    connect(({ sessionRecordingId }: SessionRecordingDataLogicProps) => ({
-        actions: [
-            sessionRecordingEventUsageLogic,
-            ['reportRecording'],
-            snapshotDataLogic({ sessionRecordingId }),
-            [
-                'loadSnapshots',
-                'loadSnapshotSources',
-                'loadSnapshotSourcesSuccess',
-                'loadSnapshotSourcesFailure',
-                'loadNextSnapshotSource',
-                'loadSnapshotsForSource',
-                'loadSnapshotsForSourceSuccess',
-                'loadSnapshotsForSourceFailure',
-                'setSnapshots',
-            ],
-        ],
-        values: [
-            featureFlagLogic,
-            ['featureFlags'],
-            teamLogic,
-            ['currentTeam'],
-            annotationsModel,
-            ['annotations', 'annotationsLoading'],
-            snapshotDataLogic({ sessionRecordingId }),
-            [
-                'snapshotSources',
-                'snapshotsBySources',
-                'snapshotsLoading',
-                'snapshotsLoaded',
-                'snapshotsBySourceSuccessCount',
-                'isRealtimePolling',
-            ],
-        ],
-    })),
+    connect(
+        ({
+            sessionRecordingId,
+            realTimePollingIntervalMilliseconds,
+            blobV2PollingDisabled,
+        }: SessionRecordingDataLogicProps) => {
+            const snapshotLogic = snapshotDataLogic({
+                sessionRecordingId,
+                realTimePollingIntervalMilliseconds,
+                blobV2PollingDisabled,
+            })
+            return {
+                actions: [
+                    sessionRecordingEventUsageLogic,
+                    ['reportRecording'],
+                    snapshotLogic,
+                    [
+                        'loadSnapshots',
+                        'loadSnapshotSources',
+                        'loadSnapshotSourcesSuccess',
+                        'loadSnapshotSourcesFailure',
+                        'loadNextSnapshotSource',
+                        'loadSnapshotsForSource',
+                        'loadSnapshotsForSourceSuccess',
+                        'loadSnapshotsForSourceFailure',
+                        'setSnapshots',
+                    ],
+                ],
+                values: [
+                    teamLogic,
+                    ['currentTeam'],
+                    annotationsModel,
+                    ['annotations', 'annotationsLoading'],
+                    snapshotLogic,
+                    [
+                        'snapshotSources',
+                        'snapshotsBySources',
+                        'snapshotsLoading',
+                        'snapshotsLoaded',
+                        'snapshotsBySourceSuccessCount',
+                        'isRealtimePolling',
+                    ],
+                ],
+            }
+        }
+    ),
     defaults({
         sessionPlayerMetaData: null as SessionRecordingType | null,
     }),
@@ -465,63 +475,44 @@ AND properties.$lib != 'web'`
                     return matchingWindowId
                 },
         ],
-        eventViewports: [
+        eventViewportsItems: [
             (s) => [s.sessionEventsData],
-            (sessionEventsData): (ViewportResolution & { timestamp: string | number })[] =>
-                (sessionEventsData || [])
-                    .filter((e) => e.properties.$viewport_width && e.properties.$viewport_height)
-                    .map((e) => ({
-                        width: e.properties.$viewport_width,
-                        height: e.properties.$viewport_height,
-                        href: e.properties.$current_url,
-                        timestamp: e.timestamp,
-                    })),
+            (
+                sessionEventsData
+            ): ItemCache<{
+                id: string
+                timestamp: Dayjs
+                payload: ViewportResolution
+            }> => {
+                const viewportEvents = new ItemCache()
+                viewportEvents.add(
+                    (sessionEventsData || [])
+                        .filter((e) => e.properties.$viewport_width && e.properties.$viewport_height)
+                        .map((e) => ({
+                            id: e.id,
+                            timestamp: dayjs(e.timestamp),
+                            payload: {
+                                width: e.properties.$viewport_width,
+                                height: e.properties.$viewport_height,
+                                href: e.properties.$current_url,
+                            },
+                        }))
+                )
+                return viewportEvents
+            },
         ],
         viewportForTimestamp: [
-            (s) => [s.eventViewports],
-            (eventViewports) =>
-                (timestamp: number): ViewportResolution | undefined => {
-                    // we do this as a function because in most recordings we don't need the data, so we don't need to run this every time
-
-                    cache.viewportForTimestamp = cache.viewportForTimestamp || {}
-                    if (cache.viewportForTimestamp[timestamp]) {
-                        return cache.viewportForTimestamp[timestamp]
+            (s) => [s.eventViewportsItems],
+            (eventViewportsItems) => {
+                return (timestamp: number) => {
+                    const closestItem =
+                        eventViewportsItems.next(dayjs(timestamp)) || eventViewportsItems.previous(dayjs(timestamp))
+                    if (!closestItem) {
+                        return undefined
                     }
-
-                    let result: ViewportResolution | undefined
-
-                    // First, try to find the first event after the timestamp that has viewport dimensions
-                    const nextEvent = eventViewports
-                        .filter((e) => dayjs(e.timestamp).isSameOrAfter(dayjs(timestamp)))
-                        .sort((a, b) => dayjs(a.timestamp).valueOf() - dayjs(b.timestamp).valueOf())[0]
-
-                    if (nextEvent) {
-                        result = {
-                            width: nextEvent.width,
-                            height: nextEvent.height,
-                            href: nextEvent.href,
-                        }
-                    } else {
-                        // If no event after timestamp, find the closest event before it
-                        const previousEvent = eventViewports
-                            .filter((e) => dayjs(e.timestamp).isBefore(dayjs(timestamp)))
-                            .sort((a, b) => dayjs(b.timestamp).valueOf() - dayjs(a.timestamp).valueOf())[0] // Sort descending to get closest
-
-                        if (previousEvent) {
-                            result = {
-                                width: previousEvent.width,
-                                height: previousEvent.height,
-                                href: previousEvent.href,
-                            }
-                        }
-                    }
-
-                    if (result) {
-                        cache.viewportForTimestamp[timestamp] = result
-                    }
-
-                    return result
-                },
+                    return closestItem.payload as ViewportResolution
+                }
+            },
         ],
         sessionPlayerData: [
             (s, p) => [
@@ -668,18 +659,15 @@ AND properties.$lib != 'web'`
                 // oxlint-disable-next-line @typescript-eslint/no-unused-vars
                 snapshotsBySources
             ): RecordingSnapshot[] => {
-                // TODO: Do not reprocess snapshots
-                const copiedSnapshotsBySources = { ...snapshotsBySources } as Record<
-                    SourceKey | 'processed',
-                    SessionRecordingSnapshotSourceResponse
-                >
-                const processedSnapshots = processAllSnapshots(
+                cache.processingCache = cache.processingCache || ({} as Record<SourceKey, RecordingSnapshot[]>)
+                const snapshots = processAllSnapshots(
                     sources,
-                    copiedSnapshotsBySources,
+                    snapshotsBySources,
+                    cache.processingCache,
                     viewportForTimestamp,
                     sessionRecordingId
                 )
-                return processedSnapshots['processed'].snapshots || []
+                return snapshots || []
             },
         ],
 
@@ -823,6 +811,6 @@ AND properties.$lib != 'web'`
 
         cache.windowIdForTimestamp = undefined
         cache.viewportForTimestamp = undefined
-        cache.snapshotsBySource = undefined
+        cache.processingCache = undefined
     }),
 ])

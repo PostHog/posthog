@@ -2,7 +2,7 @@ import { TimelineItem } from '.'
 
 import { Dayjs } from 'lib/dayjs'
 
-export class ItemCache<T extends TimelineItem> {
+export class ItemCache<T extends Omit<TimelineItem, 'category'>> {
     orderedIds: string[]
     queue: Record<string, T>
 
