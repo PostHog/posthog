@@ -158,6 +158,11 @@ export type Setting = {
     description?: JSX.Element | string
     component: JSX.Element
     /**
+     * String representation of the title for search purposes
+     * If not provided, will fallback to title if it's a string
+     */
+    stringValue?: string
+    /**
      * Feature flag to gate the setting being shown.
      * If prefixed with !, the condition is inverted - the setting will only be shown if the is flag false.
      * When an array is provided, the setting will be shown if ALL of the conditions are met.
@@ -179,4 +184,9 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
     level: SettingLevelId
     settings: Setting[]
     minimumAccessLevel?: EitherMembershipLevel
+    /**
+     * String representation of the title for search purposes
+     * If not provided, will fallback to title if it's a string
+     */
+    stringValue?: string
 }

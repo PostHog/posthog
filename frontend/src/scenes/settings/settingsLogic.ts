@@ -1,3 +1,4 @@
+import FuseClass from 'fuse.js'
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -12,6 +13,30 @@ import { Realm } from '~/types'
 import { SETTINGS_MAP } from './SettingsMap'
 import type { settingsLogicType } from './settingsLogicType'
 import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId, SettingsLogicProps } from './types'
+
+// Helping kea-typegen navigate the exported default class for Fuse
+export interface SettingsFuse extends FuseClass<Setting> {}
+export interface SectionsFuse extends FuseClass<SettingSection> {}
+
+const getSettingStringValue = (setting: Setting): string => {
+    if (setting.stringValue) {
+        return setting.stringValue
+    }
+    if (typeof setting.title === 'string') {
+        return setting.title
+    }
+    return setting.id
+}
+
+const getSectionStringValue = (section: SettingSection): string => {
+    if (section.stringValue) {
+        return section.stringValue
+    }
+    if (typeof section.title === 'string') {
+        return section.title
+    }
+    return section.id
+}
 
 export const settingsLogic = kea<settingsLogicType>([
     props({} as SettingsLogicProps),
@@ -244,94 +269,77 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
 
-        getTextFromTitle: [
-            () => [],
-            (): ((title: JSX.Element | string) => string) => {
-                return (title: JSX.Element | string): string => {
-                    if (typeof title === 'string') {
-                        return title
-                    }
-                    // For JSX elements, we'll extract text content or use a fallback
-                    const children = title?.props?.children
-                    if (typeof children === 'string') {
-                        return children
-                    }
-                    if (Array.isArray(children)) {
-                        // Handle cases where children is an array (e.g., multiple text nodes)
-                        return children.map((child) => (typeof child === 'string' ? child : '')).join('')
-                    }
-                    // Fallback for complex JSX or unexpected cases
-                    return ''
-                }
+        settingsFuse: [
+            (s) => [s.settings],
+            (settings: Setting[]): SettingsFuse => {
+                const settingsWithSearchValues = settings.map((setting) => ({
+                    ...setting,
+                    searchValue: getSettingStringValue(setting),
+                }))
+
+                return new FuseClass(settingsWithSearchValues || [], {
+                    keys: ['searchValue', 'id'],
+                    threshold: 0.3,
+                })
+            },
+        ],
+
+        sectionsFuse: [
+            (s) => [s.sections],
+            (sections: SettingSection[]): SectionsFuse => {
+                const sectionsWithSearchValues = sections.map((section) => ({
+                    ...section,
+                    searchValue: getSectionStringValue(section),
+                    settingsSearchValues: section.settings.map(getSettingStringValue).join(' '),
+                }))
+
+                return new FuseClass(sectionsWithSearchValues || [], {
+                    keys: ['searchValue', 'settingsSearchValues', 'id'],
+                    threshold: 0.3,
+                })
             },
         ],
 
         filteredLevels: [
-            (s) => [s.levels, s.sections, s.searchTerm, s.getTextFromTitle],
+            (s) => [s.levels, s.sections, s.searchTerm, s.sectionsFuse, s.settingsFuse],
             (
                 levels: SettingLevelId[],
                 sections: SettingSection[],
                 searchTerm: string,
-                getTextFromTitle: (title: JSX.Element | string) => string
+                sectionsFuse: SectionsFuse
             ): SettingLevelId[] => {
                 if (!searchTerm.trim()) {
                     return levels
                 }
 
-                const searchLower = searchTerm.toLowerCase()
-
                 return levels.filter((level: SettingLevelId) => {
                     // Check if level name matches
-                    if (level.toLowerCase().includes(searchLower)) {
+                    if (level.toLowerCase().includes(searchTerm.toLowerCase())) {
                         return true
                     }
 
-                    // Check if any section in this level matches
-                    return sections
-                        .filter((section: SettingSection) => section.level === level)
-                        .some((section: SettingSection) => {
-                            // Check section title
-                            const sectionTitle = getTextFromTitle(section.title)
-                            if (sectionTitle && sectionTitle.toLowerCase().includes(searchLower)) {
-                                return true
-                            }
+                    // Check if any section in this level matches using FuseJS
+                    const levelSections = sections.filter((section: SettingSection) => section.level === level)
+                    const matchingSections = sectionsFuse.search(searchTerm)
 
-                            // Check individual setting titles within this section
-                            return section.settings.some((setting: Setting) => {
-                                const settingTitle = getTextFromTitle(setting.title)
-                                return settingTitle && settingTitle.toLowerCase().includes(searchLower)
-                            })
-                        })
+                    return matchingSections.some((result) =>
+                        levelSections.some((section) => section.id === result.item.id)
+                    )
                 })
             },
         ],
 
         filteredSections: [
-            (s) => [s.sections, s.searchTerm, s.getTextFromTitle],
-            (
-                sections: SettingSection[],
-                searchTerm: string,
-                getTextFromTitle: (title: JSX.Element | string) => string
-            ): SettingSection[] => {
+            (s) => [s.sections, s.searchTerm, s.sectionsFuse],
+            (sections: SettingSection[], searchTerm: string, sectionsFuse: SectionsFuse): SettingSection[] => {
                 if (!searchTerm.trim()) {
                     return sections
                 }
 
-                const searchLower = searchTerm.toLowerCase()
+                const matchingResults = sectionsFuse.search(searchTerm)
+                const matchingIds = new Set(matchingResults.map((result) => result.item.id))
 
-                return sections.filter((section: SettingSection) => {
-                    // Check section title
-                    const sectionTitle = getTextFromTitle(section.title)
-                    if (sectionTitle && sectionTitle.toLowerCase().includes(searchLower)) {
-                        return true
-                    }
-
-                    // Check if any setting in this section matches
-                    return section.settings.some((setting: Setting) => {
-                        const settingTitle = getTextFromTitle(setting.title)
-                        return settingTitle && settingTitle.toLowerCase().includes(searchLower)
-                    })
-                })
+                return sections.filter((section) => matchingIds.has(section.id))
             },
         ],
     }),
