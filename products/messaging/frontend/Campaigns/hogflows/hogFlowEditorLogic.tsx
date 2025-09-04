@@ -274,6 +274,15 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 })
 
                 const nodes: HogFlowActionNode[] = hogFlow.actions.map((action: HogFlowAction) => {
+                    const step = getHogFlowStep(action, values.hogFunctionTemplatesById)
+
+                    if (!step) {
+                        // Migrate old function actions to the basic functon action type
+                        if (action.type.startsWith('function_')) {
+                            action.type = 'function'
+                        }
+                    }
+
                     return {
                         id: action.id,
                         type: 'action',

@@ -11,10 +11,12 @@ import {
     IconLeave,
     IconLetter,
     IconPercentage,
+    IconWebhooks,
 } from '@posthog/icons'
 
-import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
+import { IconTwilio } from 'lib/lemon-ui/icons'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { HogFunctionTemplateType } from '~/types'
 
 import { campaignLogic } from '../../campaignLogic'
@@ -34,10 +36,7 @@ type HogFlowStepBuilder<T extends HogFlowAction['type']> = {
         action: Extract<HogFlowAction, { type: T }>,
         hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
     ) => JSX.Element
-    color: (
-        action: Extract<HogFlowAction, { type: T }>,
-        hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
-    ) => string
+    color: (action: Extract<HogFlowAction, { type: T }>, isDarkModeOn: boolean) => string
     renderConfiguration: (node: Node<Extract<HogFlowAction, { type: T }>>) => JSX.Element
 }
 
@@ -54,7 +53,7 @@ const HogFlowStepConfigs: Partial<{
     conditional_branch: {
         type: 'conditional_branch',
         icon: () => <IconDecisionTree />,
-        color: () => '#005841',
+        color: (_, isDarkModeOn) => (isDarkModeOn ? '#35C46F' : '#005841'),
         renderConfiguration: (node) => <StepConditionalBranchConfiguration node={node} />,
     },
     delay: {
@@ -69,34 +68,11 @@ const HogFlowStepConfigs: Partial<{
         color: () => '#4b4b4b',
         renderConfiguration: (node) => <StepExitConfiguration node={node} />,
     },
-    function_email: {
-        type: 'function_email',
-        icon: () => <IconLetter />,
-        color: () => '#005841',
-        renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
-    },
-    function_slack: {
-        type: 'function_slack',
-        icon: () => <IconSlack />,
-        color: () => '#4A154B',
-        renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
-    },
-    function_sms: {
-        type: 'function_sms',
-        icon: () => <IconTwilio />,
-        color: () => '#f22f46',
-        renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
-    },
-    // function_webhook: {
-    //     type: 'function_webhook',
-    //     icon: () => <IconWebhooks />,
-    //     color: () => '#6500ae',
-    //     renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
-    // },
+
     random_cohort_branch: {
         type: 'random_cohort_branch',
         icon: () => <IconPercentage />,
-        color: () => '#9a004d',
+        color: (_, isDarkModeOn) => (isDarkModeOn ? '#D6247B' : '#9a004d'),
         renderConfiguration: (node) => <StepRandomCohortBranchConfiguration node={node} />,
     },
     trigger: {
@@ -114,15 +90,32 @@ const HogFlowStepConfigs: Partial<{
     wait_until_time_window: {
         type: 'wait_until_time_window',
         icon: () => <IconDay />,
-        color: () => '#005841',
+        color: () => '#FF653F',
         renderConfiguration: (node) => <StepWaitUntilTimeWindowConfiguration node={node} />,
     },
 
+    // We can remove these later
+    function_email: {
+        type: 'function_email',
+        icon: () => <IconLetter />,
+        color: () => '#005841',
+        renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
+    },
+    function_sms: {
+        type: 'function_sms',
+        icon: () => <IconTwilio />,
+        color: () => '#f22f46',
+        renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
+    },
     function: {
         type: 'function',
         icon: (action, hogFunctionTemplatesById) => {
             if (action.config.template_id === 'template-email') {
                 return <IconLetter />
+            }
+
+            if (action.config.template_id === 'template-webhook') {
+                return <IconWebhooks />
             }
 
             const template = hogFunctionTemplatesById[action.config.template_id]
@@ -132,7 +125,17 @@ const HogFlowStepConfigs: Partial<{
                 <IconBolt />
             )
         },
-        color: () => '#005841',
+        color: (action, isDarkModeOn) => {
+            if (action.config.template_id === 'template-email') {
+                return isDarkModeOn ? '#2F80FA' : '#2F80FA'
+            }
+
+            if (action.config.template_id === 'template-webhook') {
+                return isDarkModeOn ? '#B52AD9' : '#6500ae'
+            }
+
+            return isDarkModeOn ? '#005841' : '#005841'
+        },
         renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
     },
 } as const
@@ -140,7 +143,8 @@ const HogFlowStepConfigs: Partial<{
 // Type-safe accessor that preserves the key type
 export function getHogFlowStep<T extends HogFlowAction['type']>(
     action: Extract<HogFlowAction, { type: T }>,
-    hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
+    hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>,
+    isDarkModeOn = false
 ): HogFlowStep<T> | undefined {
     const type = action.type
     const builder = HogFlowStepConfigs[type]
@@ -150,7 +154,7 @@ export function getHogFlowStep<T extends HogFlowAction['type']>(
     return {
         type,
         icon: builder.icon(action, hogFunctionTemplatesById),
-        color: builder.color(action, hogFunctionTemplatesById),
+        color: builder.color(action, isDarkModeOn),
         renderConfiguration: builder.renderConfiguration,
     }
 }
@@ -159,11 +163,12 @@ export function useHogFlowStep<T extends HogFlowAction['type']>(
     action?: Extract<HogFlowAction, { type: T }>
 ): HogFlowStep<T> | undefined {
     const { hogFunctionTemplatesById } = useValues(campaignLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
 
     return useMemo(() => {
         if (!action) {
             return undefined
         }
-        return getHogFlowStep(action, hogFunctionTemplatesById)
-    }, [action, hogFunctionTemplatesById])
+        return getHogFlowStep(action, hogFunctionTemplatesById, isDarkModeOn)
+    }, [action, hogFunctionTemplatesById, isDarkModeOn])
 }
