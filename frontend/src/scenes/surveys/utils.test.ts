@@ -5,8 +5,10 @@ import {
     PropertyFilterType,
     Survey,
     SurveyAppearance,
+    SurveyDisplayConditions,
     SurveyQuestionType,
     SurveyType,
+    SurveyWidgetType,
 } from '~/types'
 
 import {
@@ -193,11 +195,12 @@ describe('survey utils', () => {
         })
 
         it('returns empty conditions object for external surveys with populated input', () => {
-            const input = {
+            const input: SurveyDisplayConditions = {
                 url: 'https://example.com',
-                actions: { values: [{ id: '123' }] },
+                actions: { values: [{ id: 123, name: 'test' }] },
                 deviceTypes: ['mobile'],
                 seenSurveyWaitPeriodInDays: 7,
+                events: { values: [{ name: 'test' }] },
             }
 
             const result = sanitizeSurveyDisplayConditions(input, SurveyType.ExternalSurvey)
@@ -215,16 +218,18 @@ describe('survey utils', () => {
         })
 
         it('preserves conditions for non-external surveys', () => {
-            const input = {
+            const input: SurveyDisplayConditions = {
                 url: 'https://example.com',
-                actions: { values: [{ id: '123' }] },
+                actions: { values: [{ id: 123, name: 'test' }] },
+                events: { values: [{ name: 'test' }] },
                 deviceTypes: ['mobile'],
             }
 
             const result = sanitizeSurveyDisplayConditions(input, SurveyType.Popover)
 
             expect(result?.url).toBe('https://example.com')
-            expect(result?.actions).toEqual({ values: [{ id: '123' }] })
+            expect(result?.actions).toEqual({ values: [{ id: 123, name: 'test' }] })
+            expect(result?.events).toEqual({ values: [{ name: 'test' }] })
             expect(result?.deviceTypes).toEqual(['mobile'])
         })
     })
@@ -234,12 +239,13 @@ describe('survey utils', () => {
             const inputSurvey = {
                 type: SurveyType.ExternalSurvey,
                 name: 'Test External Survey',
-                questions: [{ type: 'open', question: 'How are you?' }],
-                linked_flag_id: 'flag123',
+                questions: [],
+                linked_flag_id: 123,
                 targeting_flag_filters: { groups: [{ rollout_percentage: 50 }] },
                 conditions: {
                     url: 'https://example.com',
-                    actions: { values: [{ id: '123' }] },
+                    actions: { values: [{ id: 123, name: 'test' }] },
+                    events: { values: [{ name: 'test' }] },
                 },
                 appearance: {
                     backgroundColor: '#ffffff',
@@ -277,12 +283,13 @@ describe('survey utils', () => {
             const inputSurvey = {
                 type: SurveyType.Popover,
                 name: 'Test Popover Survey',
-                questions: [{ type: 'open', question: 'How are you?' }],
-                linked_flag_id: 'flag123',
+                questions: [],
+                linked_flag_id: 123,
                 targeting_flag_filters: { groups: [{ rollout_percentage: 50 }] },
                 conditions: {
                     url: 'https://example.com',
-                    actions: { values: [{ id: '123' }] },
+                    actions: { values: [{ id: 123, name: 'test' }] },
+                    events: { values: [{ name: 'test' }] },
                 },
                 appearance: {
                     backgroundColor: '#ffffff',
@@ -294,13 +301,14 @@ describe('survey utils', () => {
             const result = sanitizeSurvey(inputSurvey)
 
             // Should preserve all fields for non-external surveys
-            expect(result.linked_flag_id).toBe('flag123')
+            expect(result.linked_flag_id).toBe(123)
             expect(result.targeting_flag_filters).toEqual({ groups: [{ rollout_percentage: 50 }] })
             expect(result.remove_targeting_flag).toBeUndefined()
 
             // Should preserve conditions
             expect(result.conditions?.url).toBe('https://example.com')
-            expect(result.conditions?.actions).toEqual({ values: [{ id: '123' }] })
+            expect(result.conditions?.actions).toEqual({ values: [{ id: 123, name: 'test' }] })
+            expect(result.conditions?.events).toEqual({ values: [{ name: 'test' }] })
 
             // Should preserve surveyPopupDelaySeconds
             expect(result.appearance?.surveyPopupDelaySeconds).toBe(5)
@@ -309,13 +317,13 @@ describe('survey utils', () => {
         })
 
         it('removes widget-specific fields for non-widget surveys', () => {
-            const inputSurvey = {
+            const inputSurvey: Partial<Survey> = {
                 type: SurveyType.Popover,
                 name: 'Test Survey',
-                questions: [{ type: 'open', question: 'Test?' }],
+                questions: [],
                 appearance: {
                     backgroundColor: '#ffffff',
-                    widgetType: 'tab',
+                    widgetType: SurveyWidgetType.Tab,
                     widgetLabel: 'Feedback',
                     widgetColor: '#ff0000',
                 },
@@ -334,8 +342,11 @@ describe('survey utils', () => {
             const inputSurvey = {
                 type: SurveyType.ExternalSurvey,
                 name: 'Test Survey',
-                questions: [{ type: 'open', question: 'Test?' }],
-                conditions: {},
+                questions: [],
+                conditions: {
+                    actions: { values: [] },
+                    events: { values: [] },
+                },
             }
 
             const result = sanitizeSurvey(inputSurvey)
