@@ -3943,6 +3943,63 @@ class InsightThreshold(BaseModel):
     type: InsightThresholdType
 
 
+class DetectorType(StrEnum):
+    THRESHOLD = "threshold"
+    ZSCORE = "zscore"
+    MAD = "mad"
+
+
+class DetectionDirection(StrEnum):
+    UP = "up"
+    DOWN = "down"
+    BOTH = "both"
+
+
+class ValueType(StrEnum):
+    RAW = "raw"
+    DELTA = "delta"
+
+
+class ThresholdDetectorConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    bounds: Optional[InsightsThresholdBounds] = None
+    threshold_type: InsightThresholdType = InsightThresholdType.ABSOLUTE
+
+
+class ZScoreDetectorConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    threshold: float = Field(default=2.0, description="Z-score threshold for anomaly detection")
+    direction: DetectionDirection = DetectionDirection.BOTH
+    min_samples: int = Field(default=10, description="Minimum samples needed for detection")
+    window_size: int = Field(default=100, description="Rolling window size for historical data")
+
+
+class MADDetectorConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    threshold: float = Field(default=3.0, description="MAD score threshold for anomaly detection")
+    direction: DetectionDirection = DetectionDirection.BOTH
+    min_samples: int = Field(default=10, description="Minimum samples needed for detection")
+    window_size: int = Field(default=100, description="Rolling window size for historical data")
+
+
+class DetectorConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: DetectorType = DetectorType.THRESHOLD
+    value_type: ValueType = ValueType.RAW
+    config: Union[ThresholdDetectorConfig, ZScoreDetectorConfig, MADDetectorConfig]
+
+
+class DetectorResult(BaseModel):
+    """Result of running a detector on data - mirrors the dataclass in detectors.py"""
+
+    model_config = ConfigDict(extra="forbid")
+    value: Optional[float] = Field(None, description="The raw metric value")
+    detector_score: Optional[float] = Field(None, description="The detector-specific score (e.g., z-score)")
+    is_breach: bool = Field(False, description="Whether this constitutes a breach")
+    breach_messages: list[str] = Field(default_factory=list, description="Human-readable breach descriptions")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Additional detector-specific info")
+
+
 class LLMTrace(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

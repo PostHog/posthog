@@ -67,7 +67,7 @@ class Threshold(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
 
 class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
-    ALERTS_ALLOWED_ON_FREE_TIER = 2
+    ALERTS_ALLOWED_ON_FREE_TIER = 10
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
@@ -102,6 +102,9 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     threshold = models.ForeignKey(Threshold, on_delete=models.CASCADE, null=True, blank=True)
     condition = models.JSONField(default=dict)
 
+    # Detector configuration for advanced alert detection
+    detector_config = models.JSONField(default=dict, null=True, blank=True)
+
     state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
     enabled = models.BooleanField(default=True)
     is_calculating = models.BooleanField(default=False, null=True, blank=True)
@@ -117,6 +120,35 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     def __str__(self):
         return f"{self.name} (Team: {self.team})"
+
+    def get_detector(self):
+        """Get the detector instance for this alert configuration."""
+        from posthog.schema import DetectorConfig, ThresholdDetectorConfig
+
+        from posthog.alerts.detectors import DetectorType, create_detector
+
+        if self.detector_config:
+            try:
+                detector_config = DetectorConfig.model_validate(self.detector_config)
+                return create_detector(detector_config.type, detector_config.model_dump()["config"])
+            except Exception:
+                # Fall back to threshold detector if detector config is invalid
+                pass
+
+        # Default to threshold detector for backward compatibility
+        if self.threshold:
+            threshold_config = ThresholdDetectorConfig(
+                bounds=self.threshold.configuration.get("bounds"),
+                threshold_type=self.threshold.configuration.get("type", "absolute"),
+            )
+            config_dict = threshold_config.model_dump()
+            # Add threshold_type at root level for detector compatibility
+            config_dict["threshold_type"] = config_dict.get("threshold_type", "absolute")
+            return create_detector(DetectorType.THRESHOLD, config_dict)
+
+        # Default empty threshold detector
+        default_config = ThresholdDetectorConfig()
+        return create_detector(DetectorType.THRESHOLD, default_config.model_dump())
 
     def save(self, *args, **kwargs):
         if not self.enabled:
@@ -156,7 +188,21 @@ class AlertCheck(UUIDTModel):
     targets_notified = models.JSONField(default=dict)
     error = models.JSONField(null=True, blank=True)
 
+    # Complete detector result from running detection
+    detector_result = models.JSONField(null=True, blank=True)
+
     state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
+
+    def get_detector_result(self):
+        """Get typed detector result from the stored JSON."""
+        if self.detector_result:
+            try:
+                from posthog.schema import DetectorResult
+
+                return DetectorResult.model_validate(self.detector_result)
+            except Exception:
+                return None
+        return None
 
     def __str__(self):
         return f"AlertCheck for {self.alert_configuration.name} at {self.created_at}"
