@@ -199,7 +199,7 @@ export const campaignLogic = kea<campaignLogicType>([
                             if (!template) {
                                 result.valid = false
                                 result.errors = {
-                                    // This is a special case for the template_id field which might need to go to a geneirc error message
+                                    // This is a special case for the template_id field which might need to go to a generic error message
                                     _template_id: 'Template not found',
                                 }
                             } else {
