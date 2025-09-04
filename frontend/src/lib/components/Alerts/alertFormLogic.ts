@@ -8,9 +8,11 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import {
     AlertCalculationInterval,
     AlertConditionType,
+    DetectorType,
     GoalLine,
     InsightThresholdType,
     InsightsThresholdBounds,
+    ValueType,
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps, QueryBasedInsightModel } from '~/types'
 
@@ -30,6 +32,7 @@ export type AlertFormType = Pick<
     | 'checks'
     | 'config'
     | 'skip_weekend'
+    | 'detector_config'
 > & {
     id?: AlertType['id']
     created_by?: AlertType['created_by'] | null
@@ -101,6 +104,14 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     condition: {
                         type: AlertConditionType.ABSOLUTE_VALUE,
                     },
+                    detector_config: {
+                        type: DetectorType.THRESHOLD,
+                        value_type: ValueType.RAW,
+                        config: {
+                            bounds: getThresholdBounds(values.goalLines),
+                            threshold_type: 'absolute',
+                        },
+                    },
                     subscribed_users: [],
                     checks: [],
                     calculation_interval: AlertCalculationInterval.DAILY,
@@ -125,11 +136,27 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         ...alert.config,
                         check_ongoing_interval: canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
                     },
+                    // ensure detector_config is set properly
+                    detector_config: alert.detector_config || {
+                        type: DetectorType.THRESHOLD,
+                        value_type: ValueType.RAW,
+                        config: {
+                            bounds: alert.threshold.configuration.bounds,
+                            threshold_type:
+                                alert.threshold.configuration.type === InsightThresholdType.PERCENTAGE
+                                    ? 'percentage'
+                                    : 'absolute',
+                        },
+                    },
                 }
 
                 // absolute value alert can only have absolute threshold
                 if (payload.condition.type === AlertConditionType.ABSOLUTE_VALUE) {
                     payload.threshold.configuration.type = InsightThresholdType.ABSOLUTE
+                    // sync threshold detector config
+                    if (payload.detector_config?.type === DetectorType.THRESHOLD) {
+                        payload.detector_config.config.threshold_type = 'absolute'
+                    }
                 }
 
                 try {

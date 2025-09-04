@@ -10,11 +10,45 @@ import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
 import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { AlertState, InsightThresholdType } from '~/queries/schema/schema-general'
+import { AlertState, DetectionDirection, DetectorType, InsightThresholdType } from '~/queries/schema/schema-general'
 import { InsightShortId } from '~/types'
 
 import { InsightAlertsLogicProps, insightAlertsLogic } from '../insightAlertsLogic'
 import { AlertType } from '../types'
+
+export function formatDetectorParameters(alert: AlertType): string | null {
+    // Handle threshold detector (existing behavior)
+    const bounds = alert.threshold?.configuration?.bounds
+    const isPercentage = alert.threshold?.configuration.type === InsightThresholdType.PERCENTAGE
+
+    if (bounds && (bounds.lower != null || bounds.upper != null)) {
+        const parts: string[] = []
+        if (bounds.lower != null) {
+            parts.push(`Low ${isPercentage ? bounds.lower * 100 : bounds.lower}${isPercentage ? '%' : ''}`)
+        }
+        if (bounds.upper != null) {
+            parts.push(`High ${isPercentage ? bounds.upper * 100 : bounds.upper}${isPercentage ? '%' : ''}`)
+        }
+        return parts.join(' · ')
+    }
+
+    // Handle statistical detectors (Z-Score and MAD)
+    if (alert.detector_config?.type === DetectorType.ZSCORE || alert.detector_config?.type === DetectorType.MAD) {
+        const config = alert.detector_config.config as any
+        if (config) {
+            const detectorName = alert.detector_config.type === DetectorType.ZSCORE ? 'Z-Score' : 'MAD'
+            const threshold = config.threshold ?? (alert.detector_config.type === DetectorType.ZSCORE ? 2.0 : 3.0)
+            const direction = config.direction ?? DetectionDirection.BOTH
+            const valueType = alert.detector_config.value_type ?? 'raw'
+
+            const directionLabel =
+                direction === DetectionDirection.BOTH ? 'both' : direction === DetectionDirection.UP ? 'up' : 'down'
+            return `${detectorName} ${threshold} (${directionLabel}, ${valueType})`
+        }
+    }
+
+    return null
+}
 
 export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Element {
     switch (alert.state) {
@@ -35,8 +69,7 @@ interface AlertListItemProps {
 }
 
 export function AlertListItem({ alert, onClick }: AlertListItemProps): JSX.Element {
-    const bounds = alert.threshold?.configuration?.bounds
-    const isPercentage = alert.threshold?.configuration.type === InsightThresholdType.PERCENTAGE
+    const parametersText = formatDetectorParameters(alert)
 
     return (
         <LemonButton type="secondary" onClick={onClick} data-attr="alert-list-item" fullWidth>
@@ -46,13 +79,7 @@ export function AlertListItem({ alert, onClick }: AlertListItemProps): JSX.Eleme
                     <AlertStateIndicator alert={alert} />
 
                     {alert.enabled ? (
-                        <div className="text-secondary pl-3">
-                            {bounds?.lower != null &&
-                                `Low ${isPercentage ? bounds.lower * 100 : bounds.lower}${isPercentage ? '%' : ''}`}
-                            {bounds?.lower != null && bounds?.upper != null ? ' · ' : ''}
-                            {bounds?.upper != null &&
-                                `High ${isPercentage ? bounds.upper * 100 : bounds.upper}${isPercentage ? '%' : ''}`}
-                        </div>
+                        <div className="text-secondary pl-3">{parametersText || 'No parameters configured'}</div>
                     ) : (
                         <div className="text-secondary pl-3">Disabled</div>
                     )}
