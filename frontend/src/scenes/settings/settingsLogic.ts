@@ -37,6 +37,7 @@ export const settingsLogic = kea<settingsLogicType>([
         openCompactNavigation: true,
         closeCompactNavigation: true,
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        toggleLevelCollapse: (level: SettingLevelId) => ({ level }),
     }),
 
     reducers(({ props }) => ({
@@ -78,6 +79,26 @@ export const settingsLogic = kea<settingsLogicType>([
             '',
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+
+        collapsedLevels: [
+            {} as Record<SettingLevelId, boolean>,
+            {
+                toggleLevelCollapse: (state, { level }) => ({
+                    ...state,
+                    [level]: !state[level],
+                }),
+                // Auto-expand when selecting a level
+                selectLevel: (state, { level }) => ({
+                    ...state,
+                    [level]: false,
+                }),
+                // Auto-expand when selecting a section
+                selectSection: (state, { level }) => ({
+                    ...state,
+                    [level]: false,
+                }),
             },
         ],
     })),
