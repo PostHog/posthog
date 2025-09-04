@@ -9,5 +9,4 @@ serde_json = { workspace = true }
 tokio = { workspace = true, features = ["signal"] }
 
 [dev-dependencies]
-tokio-test = { workspace = true }
 serde_urlencoded = { workspace = true }

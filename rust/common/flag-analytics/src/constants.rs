@@ -1,5 +1,4 @@
 /// Constants for flag analytics
-
 /// Prefix for survey targeting flags (these are not billable)
 pub const SURVEY_TARGETING_FLAG_PREFIX: &str = "survey-targeting-";
 

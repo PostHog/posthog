@@ -16,9 +16,9 @@ pub enum FlagRequestType {
 /// Get the Redis key for tracking team requests
 pub fn get_team_request_key(team_id: i32, request_type: FlagRequestType) -> String {
     match request_type {
-        FlagRequestType::Decide => format!("posthog:decide_requests:{}", team_id),
+        FlagRequestType::Decide => format!("posthog:decide_requests:{team_id}"),
         FlagRequestType::LocalEvaluation => {
-            format!("posthog:local_evaluation_requests:{}", team_id)
+            format!("posthog:local_evaluation_requests:{team_id}")
         }
     }
 }

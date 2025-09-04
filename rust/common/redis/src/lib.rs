@@ -185,7 +185,7 @@ impl Client for RedisClient {
 
                 // Step 1: Decompress Zstandard data
                 let decompressed_bytes = zstd::decode_all(&raw_bytes[..]).map_err(|e| {
-                    CustomRedisError::ParseError(format!("Zstd decompression error: {}", e))
+                    CustomRedisError::ParseError(format!("Zstd decompression error: {e}"))
                 })?;
 
                 // Step 2: Deserialize the decompressed data using pickle format
@@ -214,7 +214,7 @@ impl Client for RedisClient {
             RedisValueFormat::Zstd => {
                 // Compress UTF-8 data with Zstandard
                 zstd::encode_all(v.as_bytes(), 1).map_err(|e| {
-                    CustomRedisError::ParseError(format!("Zstd compression error: {}", e))
+                    CustomRedisError::ParseError(format!("Zstd compression error: {e}"))
                 })?
             }
         };
@@ -247,7 +247,7 @@ impl Client for RedisClient {
             RedisValueFormat::Zstd => {
                 // Compress UTF-8 data with Zstandard
                 zstd::encode_all(v.as_bytes(), 1).map_err(|e| {
-                    CustomRedisError::ParseError(format!("Zstd compression error: {}", e))
+                    CustomRedisError::ParseError(format!("Zstd compression error: {e}"))
                 })?
             }
         };

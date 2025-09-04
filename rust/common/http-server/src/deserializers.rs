@@ -185,7 +185,7 @@ mod tests {
 
         for (query, expected) in tests {
             let result: TestQuery = serde_urlencoded::from_str(query).unwrap();
-            assert_eq!(result.flag, expected, "Failed for query: {}", query);
+            assert_eq!(result.flag, expected, "Failed for query: {query}");
         }
     }
 

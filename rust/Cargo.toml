@@ -128,4 +128,3 @@ fernet = "0.2"
 zstd = "0.13"
 
 # Dev dependencies
-tokio-test = "0.4"
