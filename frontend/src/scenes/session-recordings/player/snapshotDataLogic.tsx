@@ -9,7 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
-import { keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
+import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 
 import '~/queries/utils'
 import {
@@ -326,7 +326,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             (
                 // oxlint-disable-next-line @typescript-eslint/no-unused-vars
                 _snapshotsBySourceSuccessCount: number
-            ): Record<string, RecordingSnapshot[]> => {
+            ): Record<SourceKey, SessionRecordingSnapshotSourceResponse> => {
                 if (!cache.snapshotsBySource) {
                     return {}
                 }

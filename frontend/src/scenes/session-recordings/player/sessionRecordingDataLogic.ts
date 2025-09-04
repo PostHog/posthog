@@ -25,6 +25,7 @@ import {
     RecordingSnapshot,
     SessionPlayerData,
     SessionRecordingId,
+    SessionRecordingSnapshotSourceResponse,
     SessionRecordingType,
     SessionRecordingUsageType,
     SnapshotSourceType,
@@ -34,6 +35,7 @@ import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { ViewportResolution, getHrefFromSnapshot } from './snapshot-processing/patch-meta-event'
+import { SourceKey } from './snapshot-processing/source-key'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
@@ -99,7 +101,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         maybeLoadRecordingMeta: true,
         loadRecordingComments: true,
         loadRecordingNotebookComments: true,
-        loadNextSnapshotSource: true,
         loadEvents: true,
         loadFullEventData: (event: RecordingEventType | RecordingEventType[]) => ({ event }),
         reportUsageIfFullyLoaded: true,
@@ -668,7 +669,10 @@ AND properties.$lib != 'web'`
                 snapshotsBySources
             ): RecordingSnapshot[] => {
                 // TODO: Do not reprocess snapshots
-                const copiedSnapshotsBySources = { ...snapshotsBySources }
+                const copiedSnapshotsBySources = { ...snapshotsBySources } as Record<
+                    SourceKey | 'processed',
+                    SessionRecordingSnapshotSourceResponse
+                >
                 const processedSnapshots = processAllSnapshots(
                     sources,
                     copiedSnapshotsBySources,
