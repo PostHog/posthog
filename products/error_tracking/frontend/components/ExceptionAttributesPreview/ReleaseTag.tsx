@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { IconCode } from '@posthog/icons'
+import { IconCommit } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
@@ -33,7 +33,7 @@ export function ReleaseTag({ title, overlay }: ReleaseTagProps): JSX.Element {
                     onMouseEnter={() => setIsOpen(true)}
                     onMouseLeave={() => setIsOpen(false)}
                 >
-                    <IconCode className="text-sm text-secondary" />
+                    <IconCommit className="text-sm text-secondary" />
                     <span className="capitalize">{title}</span>
                 </LemonTag>
             </span>

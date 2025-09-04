@@ -10,10 +10,12 @@ export interface ReleasesPopoverContentProps {
 }
 
 export function ReleasesPopoverContent({ releases }: ReleasesPopoverContentProps): JSX.Element {
+    const title = releases.length === 1 ? 'Related release' : 'Related releases'
+
     return (
         <div className="min-w-[24rem] max-w-[40rem]">
             <div className="flex justify-between items-center border-b-1 p-2">
-                <h4 className="mb-0">Related releases</h4>
+                <h4 className="mb-0">{title}</h4>
             </div>
             <div className="p-2 space-y-3">
                 {releases.map((r, idx) => (
