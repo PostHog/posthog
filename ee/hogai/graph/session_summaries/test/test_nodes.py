@@ -627,7 +627,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         # but it's actually an event property that will be correctly handled by the conversion
         custom_filters = {
             "date_from": "2025-08-04T00:00:00",
-            "date_to": "2025-09-03T23:59:59",
+            "date_to": "2025-08-31T23:59:59",
             "duration": [{"key": "active_seconds", "operator": "gt", "type": "recording", "value": 6}],
             "filter_group": {
                 "type": "AND",

@@ -67,10 +67,25 @@ class TestVercelPermission(VercelTestBase):
 
     @parameterized.expand(
         [
-            ({"installation_id": "inst_123"}, {"installation_id": "inst_123"}, True, None),
-            ({"installation_id": "inst_123"}, {"installation_id": "inst_456"}, False, "Installation ID mismatch"),
-            ({}, {"installation_id": "inst_123"}, False, "Missing installation_id"),
-            ({"parent_lookup_installation_id": "inst_123"}, {"installation_id": "inst_123"}, True, None),
+            (
+                {"installation_id": VercelTestBase.TEST_INSTALLATION_ID},
+                {"installation_id": VercelTestBase.TEST_INSTALLATION_ID},
+                True,
+                None,
+            ),
+            (
+                {"installation_id": VercelTestBase.TEST_INSTALLATION_ID},
+                {"installation_id": VercelTestBase.OTHER_INSTALLATION_ID},
+                False,
+                "Installation ID mismatch",
+            ),
+            ({}, {"installation_id": VercelTestBase.TEST_INSTALLATION_ID}, False, "Missing installation_id"),
+            (
+                {"parent_lookup_installation_id": VercelTestBase.TEST_INSTALLATION_ID},
+                {"installation_id": VercelTestBase.TEST_INSTALLATION_ID},
+                True,
+                None,
+            ),
         ]
     )
     def test_installation_id_validation(self, view_kwargs, claims, should_pass, error_msg):
@@ -84,7 +99,7 @@ class TestVercelPermission(VercelTestBase):
             assert str(exc_info.value.detail) == error_msg
 
     def test_has_object_permission_no_jwt_auth(self):
-        self.mock_view.kwargs = {"installation_id": "inst_123"}
+        self.mock_view.kwargs = {"installation_id": VercelTestBase.TEST_INSTALLATION_ID}
         self.mock_get_claims.side_effect = AuthenticationFailed("Not authenticated with Vercel")
         self._assert_auth_failed(
             lambda: self.permission.has_object_permission(self.mock_request, self.mock_view, None),
@@ -184,8 +199,15 @@ class TestVercelPermissionIntegration(VercelTestBase):
 
     @parameterized.expand(
         [
-            ("patch", "inst_different", None, "user", {"billingPlanId": "pro200"}, status.HTTP_204_NO_CONTENT),
-            ("delete", "inst_different", None, "user", None, status.HTTP_200_OK),
+            (
+                "patch",
+                VercelTestBase.OTHER_INSTALLATION_ID,
+                None,
+                "user",
+                {"billingPlanId": "pro200"},
+                status.HTTP_204_NO_CONTENT,
+            ),
+            ("delete", VercelTestBase.OTHER_INSTALLATION_ID, None, "user", None, status.HTTP_200_OK),
             ("patch", None, None, "system", {"billingPlanId": "pro200"}, status.HTTP_403_FORBIDDEN),
             ("get", None, None, "user", None, status.HTTP_403_FORBIDDEN),
         ]
@@ -210,7 +232,7 @@ class TestVercelPermissionIntegration(VercelTestBase):
     def test_cross_organization_access_denied(self):
         other_org = Organization.objects.create(name="Other Org")
         Team.objects.create(organization=other_org, name="Other Team")
-        other_installation_id = "inst_987654321"
+        other_installation_id = VercelTestBase.OTHER_INSTALLATION_ID
         OrganizationIntegration.objects.create(
             organization=other_org,
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
