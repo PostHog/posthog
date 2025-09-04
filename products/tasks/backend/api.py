@@ -218,11 +218,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if status_change_events:
             for task_id, previous_status, new_status in status_change_events:
                 try:
-                    team_obj = task_by_id[str(task_id)].team
-                    team_pk = getattr(team_obj, "pk", None)
                     execute_task_processing_workflow(
                         task_id=str(task_id),
-                        team_id=cast(int, team_pk),
+                        team_id=task_by_id[str(task_id)].team.id,
                         previous_status=previous_status,
                         new_status=new_status,
                         user_id=getattr(self.request.user, "id", None),

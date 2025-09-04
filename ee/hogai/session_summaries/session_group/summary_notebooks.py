@@ -391,15 +391,6 @@ def _create_pattern_section(
     # Convert indicators to bullet list
     content.append(create_bullet_list(pattern.indicators))
 
-    # Examples section, collapsed to avoid overwhelming the user
-    content.append(create_heading_with_text("Examples", 3, collapsed=True))
-    # TODO: Decide if to limit examples (or create some sort of collapsible section in notebooks)
-    events_to_show = pattern.events
-    for event_data in events_to_show:
-        example_content = _create_example_section(event_data=event_data, team_id=team_id)
-        content.append(_create_line_separator())
-        content.extend(example_content)
-    content.append(_create_line_separator())
     if tasks_available:
         try:
             # Action: allow creating a task directly from this pattern in Notebooks (behind feature flag)
@@ -412,18 +403,63 @@ def _create_pattern_section(
             if getattr(pattern, "indicators", None):
                 indicators_text = "; ".join(str(x) for x in pattern.indicators[:5])
                 task_description_lines.append(f"Indicators: {indicators_text}")
+
+            # Include a succinct developer-oriented example from the first event
+            try:
+                first_event = next(iter(pattern.events))
+            except Exception:
+                first_event = None
+
+            if first_event is not None:
+                example_lines: list[str] = [
+                    "",
+                    "Example:",
+                    f"  Segment: {getattr(first_event, 'segment_name', 'Unknown')}",
+                    f"  What confirmed: {getattr(getattr(first_event, 'target_event', None), 'description', 'Unknown')}",
+                    f"  Where: {getattr(getattr(first_event, 'target_event', None), 'current_url', 'Unknown')}",
+                    f"  When: {getattr(getattr(first_event, 'target_event', None), 'milliseconds_since_start', 'Unknown')}ms into session",
+                ]
+
+                prev_list = [
+                    getattr(ev, "description", str(ev))
+                    for ev in getattr(first_event, "previous_events_in_segment", [])[:3]
+                ]
+                next_list = [
+                    getattr(ev, "description", str(ev)) for ev in getattr(first_event, "next_events_in_segment", [])[:3]
+                ]
+
+                if prev_list:
+                    example_lines.append(f"  Previous: {'; '.join(prev_list)}")
+                if next_list:
+                    example_lines.append(f"  Next: {'; '.join(next_list)}")
+
+                task_description_lines.extend(example_lines)
+
             content.append(
                 {
                     "type": "ph-task-create",
                     "attrs": {
                         "title": pattern.pattern_name,
                         "description": "\n".join(task_description_lines),
+                        "severity": (
+                            pattern.severity.value if hasattr(pattern.severity, "value") else pattern.severity
+                        ).title(),
                     },
                 }
             )
         except Exception:
             # Don't block notebook rendering
             pass
+
+    # Examples section, collapsed to avoid overwhelming the user
+    content.append(create_heading_with_text("Examples", 3, collapsed=True))
+    # TODO: Decide if to limit examples (or create some sort of collapsible section in notebooks)
+    events_to_show = pattern.events
+    for event_data in events_to_show:
+        example_content = _create_example_section(event_data=event_data, team_id=team_id)
+        content.append(_create_line_separator())
+        content.extend(example_content)
+    content.append(_create_line_separator())
     return content
 
 
