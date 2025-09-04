@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 
 import { objectsEqual } from 'lib/utils'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/utils'
@@ -192,7 +193,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         setInsight: ({ insight: { query, result }, options: { overrideQuery } }) => {
             // we don't want to override the query for example when updating the insight's name
             if (!overrideQuery) {
@@ -214,14 +215,31 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.setInsightData({ ...values.insightData, result: savedResult ? savedResult : null })
         },
         setQuery: ({ query }) => {
+            if (props.tabId && sceneLogic.values.activeTabId === props.tabId) {
+                const insightId = insightSceneLogic.findMounted({ tabId: props.tabId })?.values.insightId
+                const { pathname, searchParams, hashParams } = router.values.currentLocation
+                if (query && (values.queryChanged || insightId === 'new' || insightId?.startsWith('new-'))) {
+                    const { insight: _, ...hash } = hashParams // remove existing insight type hash param
+                    router.actions.replace(pathname, searchParams, {
+                        ...hash,
+                        q: query,
+                    })
+                } else {
+                    const { q: _, ...hash } = hashParams // remove existing insight query hash param
+                    router.actions.replace(pathname, searchParams, hash)
+                }
+            }
+
             // if the query is not changed, don't save it
             if (!query || !values.queryChanged) {
                 return
             }
+
             // only run on insight scene
             if (sceneLogic.values.activeSceneId !== Scene.Insight) {
                 return
             }
+
             // don't save for saved insights
             const tabId = sceneLogic.values.activeTabId
             const insightId = insightSceneLogic.findMounted({ tabId })?.values.insightId

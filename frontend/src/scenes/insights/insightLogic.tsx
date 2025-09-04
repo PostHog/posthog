@@ -333,11 +333,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         ],
     })),
     selectors({
+        insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         query: [
             (s) => [(state) => insightDataLogic.findMounted(s.insightProps(state))?.values.query || null],
             (node): Node | null => node,
         ],
-        insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         isInDashboardContext: [() => [(_, props) => props], ({ dashboardId }) => !!dashboardId],
         hasDashboardItemId: [
             () => [(_, props) => props],

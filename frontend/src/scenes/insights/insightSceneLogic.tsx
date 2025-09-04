@@ -1,7 +1,6 @@
 import { BuiltLogic, actions, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
 import { beforeUnload, router } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
-import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -206,20 +205,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             ],
             (insight) => insight,
         ],
-        querySelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.query],
-        query: [
-            (s) => [
-                (state, props) => {
-                    try {
-                        s.querySelector?.(state, props)?.(state, props)
-                    } catch {
-                        // Sometimes the insight logic hasn't mounted yet
-                        return null
-                    }
-                },
-            ],
-            (query) => query,
-        ],
         breadcrumbs: [
             (s) => [
                 s.insightLogicRef,
@@ -380,23 +365,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             )
         },
     })),
-    subscriptions(({ props }) => ({
-        query: (query) => {
-            if (query && props.tabId === sceneLogic.values.activeTabId) {
-                const hashQuery = router.values.currentLocation.hashParams['q']
-                if (!hashQuery || !objectsEqual(parseDraftQueryFromURL(hashQuery), query)) {
-                    // router.actions.replace(
-                    //     router.values.currentLocation.pathname,
-                    //     router.values.currentLocation.search,
-                    //     {
-                    //         ...router.values.currentLocation.hashParams,
-                    //         q: JSON.stringify(query),
-                    //     }
-                    // )
-                }
-            }
-        },
-    })),
     tabAwareUrlToAction(({ actions, values }) => ({
         '/insights/:shortId(/:mode)(/:itemId)': (
             { shortId, mode, itemId }, // url params
@@ -471,10 +439,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             let queryFromUrl: Node | null = null
             let validatingQuery = false
             if (q) {
-                const validQuery = parseDraftQueryFromURL(q)
+                const validQuery = typeof q === 'string' ? parseDraftQueryFromURL(q) : q
                 if (validQuery) {
                     validatingQuery = true
-                    actions.upgradeQuery(validQuery)
+                    if (initial) {
+                        actions.upgradeQuery(validQuery)
+                    }
                 } else {
                     console.error('Invalid query', q)
                 }
@@ -483,7 +453,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
 
             actions.setFreshQuery(false)
-
             // reset the insight's state if we have to
             if ((initial || queryFromUrl || method === 'PUSH') && !validatingQuery) {
                 if (insightId === 'new' || insightId.startsWith('new-')) {
@@ -521,13 +490,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             | [string, Record<string, any> | string | undefined, Record<string, any> | string | undefined]
             | undefined => {
             if (!insightId || insightId === 'new' || insightId.startsWith('new-')) {
-                return [urls.insightNew(), undefined, values.query ? { q: values.query } : undefined]
+                return [urls.insightNew(), undefined, undefined]
             }
 
             const baseUrl = insightMode === ItemMode.View ? urls.insightView(insightId) : urls.insightEdit(insightId)
-            const searchParams = window.location.search
-            // return [baseUrl, searchParams, values.query ? { q: values.query } : undefined]
-            return [baseUrl, searchParams, undefined]
+            return [baseUrl, window.location.search, window.location.hash]
         }
 
         return {
