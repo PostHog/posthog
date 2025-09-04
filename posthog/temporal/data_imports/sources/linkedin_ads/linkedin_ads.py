@@ -204,7 +204,6 @@ def _flatten_linkedin_record(
             # add date_start and date_end virtual columns from dateRange
             flattened["date_start"] = _convert_date_object_to_date(start_date_obj)
             flattened["date_end"] = _convert_date_object_to_date(end_date_obj)
-            continue
 
         elif field_name == "changeAuditStamps":
             change_audit_stamps = record.get("changeAuditStamps", {})
@@ -221,7 +220,6 @@ def _flatten_linkedin_record(
             # add created_time and last_modified_time virtual columns from changeAuditStamps
             flattened["created_time"] = created_time
             flattened["last_modified_time"] = last_modified_time
-            continue
 
         elif field_name in URN_COLUMNS:
             urn_value = record.get(field_name)
@@ -236,7 +234,6 @@ def _flatten_linkedin_record(
             # add id virtual column
             if virtual_column_name:
                 flattened[virtual_column_name] = extracted_id
-            continue
 
         # Handle virtual columns that derive from pivot values
         if field_name == "pivotValues":
@@ -250,7 +247,6 @@ def _flatten_linkedin_record(
                         # add each pivot_name virtual column from pivotValues
                         if pivot_name:
                             flattened[pivot_name] = pivot_extracted_id
-            continue
 
         value = record.get(field_name)
 
