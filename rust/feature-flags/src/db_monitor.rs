@@ -24,10 +24,7 @@ impl DatabasePoolMonitor {
         let mut ticker = interval(Duration::from_secs(30));
 
         // Check if persons DB routing is enabled
-        let persons_routing_enabled = !Arc::ptr_eq(
-            &self.database_pools.persons_reader,
-            &self.database_pools.non_persons_reader,
-        );
+        let persons_routing_enabled = self.database_pools.config.is_persons_db_routing_enabled();
 
         if persons_routing_enabled {
             tracing::info!(
