@@ -154,7 +154,7 @@ function SortableSceneTab({ tab }: { tab: SceneTab }): JSX.Element {
                                         navigator.clipboard.writeText(location.href)
                                         lemonToast.success('URL copied to clipboard')
                                     } catch (error) {
-                                        lemonToast.error('Failed to copy URL to clipboard', error)
+                                        lemonToast.error(`Failed to copy URL to clipboard ${error}`)
                                     }
                                 }}
                             >
