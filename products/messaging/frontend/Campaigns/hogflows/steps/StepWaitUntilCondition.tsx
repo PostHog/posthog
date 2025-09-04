@@ -8,8 +8,7 @@ import { HogFlowFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'
 import { HogFlowDuration } from './components/HogFlowDuration'
-import { StepView } from './components/StepView'
-import { HogFlowStep, HogFlowStepNodeProps } from './types'
+import { HogFlowStep } from './types'
 
 export const StepWaitUntilCondition: HogFlowStep<'wait_until_condition'> = {
     type: 'wait_until_condition',
@@ -17,7 +16,6 @@ export const StepWaitUntilCondition: HogFlowStep<'wait_until_condition'> = {
     description: 'Wait until a condition is met or a duration has passed.',
     icon: <IconHourglass className="text-[#ffaa00]" />,
     color: '#ffaa00',
-    renderNode: (props) => <StepWaitUntilConditionNode {...props} />,
     renderConfiguration: (node) => <StepWaitUntilConditionConfiguration node={node} />,
     create: () => {
         return {
@@ -34,10 +32,6 @@ export const StepWaitUntilCondition: HogFlowStep<'wait_until_condition'> = {
             branchEdges: 1,
         }
     },
-}
-
-function StepWaitUntilConditionNode({ data }: HogFlowStepNodeProps): JSX.Element {
-    return <StepView action={data} />
 }
 
 function StepWaitUntilConditionConfiguration({

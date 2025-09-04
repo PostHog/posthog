@@ -17,11 +17,13 @@ export type HogFlowStep<T extends HogFlowAction['type']> = {
     name: string
     description: string
     icon: JSX.Element
-    color: string
-    renderNode: (props: HogFlowStepNodeProps) => JSX.Element
+    color?: string
+    renderNode?: (props: HogFlowStepNodeProps) => JSX.Element
     renderConfiguration: (node: Node<Extract<HogFlowAction, { type: T }>>) => JSX.Element
     create: () => {
-        action: Pick<Extract<HogFlowAction, { type: T }>, 'config' | 'name' | 'description'>
+        action: Omit<Pick<Extract<HogFlowAction, { type: T }>, 'config' | 'name' | 'description'>, 'config'> & {
+            config: Omit<Extract<HogFlowAction, { type: T }>['config'], 'inputs'>
+        }
         branchEdges?: number
     }
 }
@@ -30,7 +32,7 @@ const _commonActionFields = {
     id: z.string(),
     name: z.string(),
     description: z.string(),
-    on_error: z.enum(['continue', 'abort', 'complete', 'branch']).optional(),
+    on_error: z.enum(['continue', 'abort', 'complete', 'branch']).optional().nullable(),
     created_at: z.number(),
     updated_at: z.number(),
     filters: z.any(), // TODO: Correct to the right type
@@ -43,6 +45,8 @@ const CyclotronInputSchema = z.object({
     bytecode: z.any().optional(),
     order: z.number().optional(),
 })
+
+export type CyclotronInputType = z.infer<typeof CyclotronInputSchema>
 
 export const HogFlowActionSchema = z.discriminatedUnion('type', [
     // Trigger
@@ -85,7 +89,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('delay'),
         config: z.object({
-            delay_duration: z.string(),
+            delay_duration: z.string().min(2),
         }),
     }),
     z.object({
@@ -213,4 +217,10 @@ export const isOptOutEligibleAction = (
     action: HogFlowAction
 ): action is Extract<HogFlowAction, { type: 'function_email' | 'function_sms' }> => {
     return ['function_email', 'function_sms'].includes(action.type)
+}
+
+export const isFunctionAction = (
+    action: HogFlowAction
+): action is Extract<HogFlowAction, { type: 'function' | 'function_sms' | 'function_slack' | 'function_webhook' }> => {
+    return ['function', 'function_sms', 'function_slack', 'function_webhook'].includes(action.type)
 }

@@ -1,11 +1,7 @@
-import { Node } from '@xyflow/react'
-
 import { IconTwilio } from 'lib/lemon-ui/icons'
 
-import { HogFlowAction } from '../types'
 import { StepFunctionConfiguration } from './StepFunction'
-import { StepView } from './components/StepView'
-import { HogFlowStep, HogFlowStepNodeProps } from './types'
+import { HogFlowStep } from './types'
 
 export const StepFunctionSms: HogFlowStep<'function_sms'> = {
     type: 'function_sms',
@@ -13,8 +9,7 @@ export const StepFunctionSms: HogFlowStep<'function_sms'> = {
     description: 'Send an SMS to the user.',
     icon: <IconTwilio className="text-[#f22f46]" />,
     color: '#f22f46',
-    renderNode: (props) => <StepFunctionSmsNode {...props} />,
-    renderConfiguration: (node) => <StepFunctionSmsConfiguration node={node} />,
+    renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
     create: () => {
         return {
             action: {
@@ -24,19 +19,8 @@ export const StepFunctionSms: HogFlowStep<'function_sms'> = {
                 on_error: 'continue',
                 config: {
                     template_id: 'template-twilio',
-                    inputs: {},
                 },
             },
         }
     },
-}
-
-function StepFunctionSmsNode({ data }: HogFlowStepNodeProps): JSX.Element {
-    return <StepView action={data} />
-}
-
-function StepFunctionSmsConfiguration(props: {
-    node: Node<Extract<HogFlowAction, { type: 'function_sms' }>>
-}): JSX.Element {
-    return <StepFunctionConfiguration {...props} />
 }

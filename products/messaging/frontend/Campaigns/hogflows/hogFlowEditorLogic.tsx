@@ -11,7 +11,7 @@ import {
     getOutgoers,
 } from '@xyflow/react'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { lazyLoaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import type { DragEvent } from 'react'
@@ -50,7 +50,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     connect((props: CampaignLogicProps) => ({
         values: [
             campaignLogic(props),
-            ['campaign', 'edgesByActionId'],
+            ['campaign', 'edgesByActionId', 'hogFunctionTemplatesById'],
             optOutCategoriesLogic(),
             ['categories', 'categoriesLoading'],
         ],
@@ -170,7 +170,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
     }),
-    loaders(() => ({
+    lazyLoaders(() => ({
         actionMetricsById: [
             null as Record<string, HogFlowEditorActionMetrics> | null,
             {

@@ -1,6 +1,9 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
+
+import { campaignLogic } from '../../../campaignLogic'
 import { NODE_HEIGHT, NODE_WIDTH } from '../../constants'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { HogFlowAction } from '../../types'
@@ -9,6 +12,7 @@ import { StepViewMetrics } from './StepViewMetrics'
 
 export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
     const { selectedNode, mode } = useValues(hogFlowEditorLogic)
+    const { actionValidationErrorsById } = useValues(campaignLogic)
     const isSelected = selectedNode?.id === action.id
 
     const height = mode === 'metrics' ? NODE_HEIGHT + 10 : NODE_HEIGHT
@@ -29,6 +33,8 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
             icon: Step?.icon,
         }
     }, [action.type, isSelected])
+
+    const hasValidationError = actionValidationErrorsById[action.id]?.valid === false
 
     return (
         <div
@@ -61,6 +67,11 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                     <div className="max-w-full text-[0.3rem]/1.5 text-muted text-ellipsis">{action.description}</div>
                 </div>
             </div>
+            {hasValidationError && (
+                <div className="absolute top-0 right-0 scale-75">
+                    <LemonBadge status="warning" size="small" content="!" position="top-right" />
+                </div>
+            )}
             {mode === 'metrics' && (
                 <div
                     style={{

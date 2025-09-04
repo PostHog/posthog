@@ -68,6 +68,7 @@ import type {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import { CyclotronInputType } from 'products/messaging/frontend/Campaigns/hogflows/steps/types'
 import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
 
 // Type alias for number to be reflected as integer in json-schema.
@@ -5253,13 +5254,6 @@ export type CyclotronJobInputSchemaType = {
     requiredScopes?: string
 }
 
-export type CyclotronJobInputType = {
-    value: any
-    templating?: 'hog' | 'liquid'
-    secret?: boolean
-    bytecode?: any
-}
-
 export type CyclotronJobMasking = {
     ttl: number | null
     threshold?: number | null
@@ -5302,11 +5296,13 @@ export interface CyclotronJobFiltersType {
     bytecode_error?: string
 }
 
+export type CyclotronJobInputType = CyclotronInputType
+
 export interface HogFunctionMappingType {
     name: string
     disabled?: boolean
     inputs_schema?: CyclotronJobInputSchemaType[]
-    inputs?: Record<string, CyclotronJobInputType> | null
+    inputs?: Record<string, CyclotronInputType> | null
     filters?: CyclotronJobFiltersType | null
 }
 export interface HogFunctionMappingTemplateType extends HogFunctionMappingType {
@@ -5336,7 +5332,7 @@ export type HogFunctionType = {
     hog: string
     execution_order?: number
     inputs_schema?: CyclotronJobInputSchemaType[]
-    inputs?: Record<string, CyclotronJobInputType> | null
+    inputs?: Record<string, CyclotronInputType> | null
     mappings?: HogFunctionMappingType[] | null
     masking?: CyclotronJobMasking | null
     filters?: CyclotronJobFiltersType | null

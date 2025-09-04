@@ -10,8 +10,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { HogFlowFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
-import { StepView } from './components/StepView'
-import { HogFlowStep, HogFlowStepNodeProps } from './types'
+import { HogFlowStep } from './types'
 
 export const StepConditionalBranch: HogFlowStep<'conditional_branch'> = {
     type: 'conditional_branch',
@@ -19,7 +18,6 @@ export const StepConditionalBranch: HogFlowStep<'conditional_branch'> = {
     description: 'Branch based on a condition such as the event trigger or a person property.',
     icon: <IconDecisionTree className="text-[#e5991e]" />,
     color: '#e5991e',
-    renderNode: (props) => <StepConditionalBranchNode {...props} />,
     renderConfiguration: (node) => <StepConditionalBranchConfiguration node={node} />,
     create: () => {
         return {
@@ -47,10 +45,6 @@ export const StepConditionalBranch: HogFlowStep<'conditional_branch'> = {
             branchEdges: 1,
         }
     },
-}
-
-function StepConditionalBranchNode({ data }: HogFlowStepNodeProps): JSX.Element {
-    return <StepView action={data} />
 }
 
 function StepConditionalBranchConfiguration({
