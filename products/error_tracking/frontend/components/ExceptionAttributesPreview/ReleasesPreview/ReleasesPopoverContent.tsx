@@ -1,5 +1,5 @@
 import { IconCopy, IconExternal } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { ExceptionRelease } from 'lib/components/Errors/types'
 import { Link } from 'lib/lemon-ui/Link'
@@ -41,13 +41,15 @@ function ReleaseListItem({ release }: { release: ExceptionRelease }): JSX.Elemen
             <div className="flex items-center gap-2">
                 <div className="w-20 text-xs text-muted">Commit SHA</div>
                 <div className="flex-1 flex items-center gap-2 min-w-0">
-                    <div className="font-mono text-xs" title={release.commitSha}>
-                        {release.commitSha.slice(0, 7)}...
-                    </div>
+                    <LemonTag className="bg-fill-primary font-mono text-xs flex-1 min-w-0">
+                        <span className="block truncate max-w-full" title={release.commitSha}>
+                            {release.commitSha}
+                        </span>
+                    </LemonTag>
                     <LemonButton
                         size="xsmall"
                         icon={<IconCopy />}
-                        tooltip="Copy commit SHA"
+                        tooltip="Copy full commit SHA"
                         onClick={() => copyToClipboard(release.commitSha, 'Copied full commit SHA to clipboard')}
                     />
                 </div>
