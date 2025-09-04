@@ -22,6 +22,7 @@ import { PlayerFrame } from './PlayerFrame'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { PlayerSidebar } from './PlayerSidebar'
 import { SessionRecordingNextConfirmation } from './SessionRecordingNextConfirmation'
+import { ClipOverlay } from './controller/ClipRecording'
 import { PlayerController } from './controller/PlayerController'
 import { PlayerMeta } from './player-meta/PlayerMeta'
 import { playerSettingsLogic } from './playerSettingsLogic'
@@ -309,6 +310,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                                     <>
                                                         <PlayerFrameOverlay />
                                                         <PlayerFrameCommentOverlay />
+                                                        <ClipOverlay />
                                                     </>
                                                 ) : null}
                                             </div>

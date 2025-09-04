@@ -1449,8 +1449,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.exportRecording(ExporterFormat.PNG, timestamp, SessionRecordingPlayerMode.Screenshot)
         },
         getClip: async ({ format, duration = 5 }) => {
-            // We need to subtract 1 second as the player starts immediately
-            const timestamp = Math.max(0, getCurrentPlayerTime(values.logicProps) - 1)
+            // Center the clip around current time, minus 1 second offset for player start
+            const timestamp = Math.max(
+                0,
+                Math.floor(getCurrentPlayerTime(values.logicProps) - 1 - Math.floor(duration / 2))
+            )
             actions.exportRecording(format, timestamp, SessionRecordingPlayerMode.Screenshot, duration)
         },
         exportRecordingToVideoFile: async () => {
