@@ -32,22 +32,11 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
     def to_query(self) -> ast.SelectQuery:
         view_names = self.database.get_views()
         all_views = [self.database.get_table(view_name) for view_name in view_names]
-        views = [view for view in all_views if isinstance(view, RevenueAnalyticsChargeView) and view.is_event_view()]
-        if not views:
-            return ast.SelectQuery.empty(
-                columns=[
-                    "event",
-                    "event_name",
-                    "original_amount",
-                    "currency_aware_amount",
-                    "original_currency",
-                    "amount",
-                    "currency",
-                    "person",
-                    "session_id",
-                    "timestamp",
-                ]
-            )
+        views = [
+            view
+            for view in all_views
+            if isinstance(view, RevenueAnalyticsChargeView) and view.is_event_view() and not view.union_all
+        ]
 
         queries: list[ast.SelectQuery] = []
         for view in views:
@@ -102,15 +91,30 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
                 )
             )
 
-        if len(queries) == 1:
+        if len(queries) == 0:
+            return ast.SelectQuery.empty(
+                columns=[
+                    "event",
+                    "event_name",
+                    "original_amount",
+                    "currency_aware_amount",
+                    "original_currency",
+                    "amount",
+                    "currency",
+                    "person",
+                    "session_id",
+                    "timestamp",
+                ]
+            )
+        elif len(queries) == 1:
             return queries[0]
-
-        # Reorder by timestamp to ensure the most recent events are at the top across all event views
-        return ast.SelectQuery(
-            select=[ast.Field(chain=["*"])],
-            select_from=ast.JoinExpr(table=ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")),
-            order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
-        )
+        else:
+            # Reorder by timestamp to ensure the most recent events are at the top across all event views
+            return ast.SelectQuery(
+                select=[ast.Field(chain=["*"])],
+                select_from=ast.JoinExpr(table=ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")),
+                order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+            )
 
     def _calculate(self):
         response = self.paginator.execute_hogql_query(

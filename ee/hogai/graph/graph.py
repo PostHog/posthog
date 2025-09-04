@@ -12,9 +12,9 @@ from ee.hogai.graph.billing.nodes import BillingNode
 from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
 from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
-from ee.hogai.utils.types import AssistantNodeName, AssistantState
+from ee.hogai.utils.types import AssistantNodeName, AssistantState, StateType
+from ee.hogai.utils.types.composed import MaxNodeName
 
-from .base import StateType
 from .funnels.nodes import FunnelGeneratorNode, FunnelGeneratorToolsNode
 from .inkeep_docs.nodes import InkeepDocsNode
 from .insights.nodes import InsightSearchNode
@@ -49,13 +49,13 @@ class BaseAssistantGraph(Generic[StateType]):
         self._graph = StateGraph(state_type)
         self._has_start_node = False
 
-    def add_edge(self, from_node: AssistantNodeName, to_node: AssistantNodeName):
+    def add_edge(self, from_node: MaxNodeName, to_node: MaxNodeName):
         if from_node == AssistantNodeName.START:
             self._has_start_node = True
         self._graph.add_edge(from_node, to_node)
         return self
 
-    def add_node(self, node: AssistantNodeName, action: RunnableLike):
+    def add_node(self, node: MaxNodeName, action: RunnableLike):
         self._graph.add_node(node, action)
         return self
 
@@ -64,6 +64,16 @@ class BaseAssistantGraph(Generic[StateType]):
             raise ValueError("Start node not added to the graph")
         # TRICKY: We check `is not None` because False has a special meaning of "no checkpointer", which we want to pass on
         return self._graph.compile(checkpointer=checkpointer if checkpointer is not None else global_checkpointer)
+
+    def add_title_generator(self, end_node: MaxNodeName = AssistantNodeName.END):
+        builder = self._graph
+        self._has_start_node = True
+
+        title_generator = TitleGeneratorNode(self._team, self._user)
+        builder.add_node(AssistantNodeName.TITLE_GENERATOR, title_generator)
+        builder.add_edge(AssistantNodeName.START, AssistantNodeName.TITLE_GENERATOR)
+        builder.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
+        return self
 
 
 class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
@@ -343,16 +353,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             inkeep_docs_node.router,
             path_map=cast(dict[Hashable, str], path_map),
         )
-        return self
-
-    def add_title_generator(self, end_node: AssistantNodeName = AssistantNodeName.END):
-        builder = self._graph
-        self._has_start_node = True
-
-        title_generator = TitleGeneratorNode(self._team, self._user)
-        builder.add_node(AssistantNodeName.TITLE_GENERATOR, title_generator)
-        builder.add_edge(AssistantNodeName.START, AssistantNodeName.TITLE_GENERATOR)
-        builder.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
         return self
 
     def add_billing(self):

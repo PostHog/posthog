@@ -24,6 +24,7 @@ class Conversation(UUIDTModel):
     class Type(models.TextChoices):
         ASSISTANT = "assistant", "Assistant"
         TOOL_CALL = "tool_call", "Tool call"
+        DEEP_RESEARCH = "deep_research", "Deep research"
 
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
