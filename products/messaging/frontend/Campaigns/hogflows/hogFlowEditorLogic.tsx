@@ -14,7 +14,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { lazyLoaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import type { DragEvent } from 'react'
+import type { DragEvent, RefObject } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -84,7 +84,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setReactFlowInstance: (reactFlowInstance: ReactFlowInstance<Node, Edge>) => ({
             reactFlowInstance,
         }),
-        setReactFlowWrapper: (reactFlowWrapper: React.RefObject<HTMLDivElement>) => ({ reactFlowWrapper }),
+        setReactFlowWrapper: (reactFlowWrapper: RefObject<HTMLDivElement>) => ({ reactFlowWrapper }),
         onDragStart: true,
         onDragOver: (event: DragEvent) => ({ event }),
         onDrop: (event: DragEvent) => ({ event }),
@@ -146,7 +146,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
         reactFlowWrapper: [
-            null as React.RefObject<HTMLDivElement> | null,
+            null as RefObject<HTMLDivElement> | null,
             {
                 setReactFlowWrapper: (_, { reactFlowWrapper }) => reactFlowWrapper,
             },
