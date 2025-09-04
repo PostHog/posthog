@@ -276,8 +276,13 @@ jobs:
         needs: [changes, build, test, linting, shear]
         runs-on: ubuntu-24.04
         if: |
+            always() &&
             needs.changes.outputs.rust == 'true' && 
-            github.ref != 'refs/heads/master'
+            github.ref != 'refs/heads/master' &&
+            needs.build.result == 'success' &&
+            needs.test.result == 'success' &&
+            needs.linting.result == 'success' &&
+            needs.shear.result == 'success'
         steps:
             - name: Tests passed
               run: echo "All tests passed, proceeding to Docker build"
