@@ -13,7 +13,7 @@ export type TraceMetadata = Required<Pick<DatasetItem, 'ref_trace_id' | 'ref_sou
 
 export interface DatasetItemModalLogicProps {
     datasetId: string
-    datasetItem?: DatasetItem | null
+    partialDatasetItem?: Partial<DatasetItem> | null
     traceMetadata?: TraceMetadata
     /**
      * @param refetchDatasetItems - Whether the action was taken.
@@ -44,9 +44,9 @@ const FORM_DEFAULT_VALUE: DatasetItemFormValues = {
 export const datasetItemModalLogic = kea<datasetItemModalLogicType>([
     path(['scenes', 'llm-analytics', 'datasetItemModalLogic']),
 
-    props({ datasetId: '', datasetItem: null, closeModal: () => {} } as DatasetItemModalLogicProps),
+    props({ datasetId: '', partialDatasetItem: null, closeModal: () => {} } as DatasetItemModalLogicProps),
 
-    key(({ datasetId, datasetItem }) => `dataset-item-${datasetId}-${datasetItem?.id || 'new'}`),
+    key(({ datasetId, partialDatasetItem }) => `dataset-item-${datasetId}-${partialDatasetItem?.id || 'new'}`),
 
     actions({
         setShouldCloseModal: (shouldCloseModal: boolean) => ({ shouldCloseModal }),
@@ -81,8 +81,9 @@ export const datasetItemModalLogic = kea<datasetItemModalLogicType>([
 
             submit: async (formValues) => {
                 try {
-                    if (!props.datasetItem) {
+                    if (!props.partialDatasetItem?.id) {
                         await api.datasetItems.create({
+                            ...props.partialDatasetItem,
                             dataset: props.datasetId,
                             input: coerceJsonToObject(formValues.input),
                             output: coerceJsonToObject(formValues.output),
@@ -99,7 +100,8 @@ export const datasetItemModalLogic = kea<datasetItemModalLogicType>([
                         }
                         actions.setShouldCloseModal(true)
                     } else {
-                        const updatedItem = await api.datasetItems.update(props.datasetItem.id, {
+                        const updatedItem = await api.datasetItems.update(props.partialDatasetItem.id, {
+                            ...props.partialDatasetItem,
                             input: coerceJsonToObject(formValues.input),
                             output: coerceJsonToObject(formValues.output),
                             metadata: coerceJsonToObject(formValues.metadata),
@@ -116,12 +118,16 @@ export const datasetItemModalLogic = kea<datasetItemModalLogicType>([
         },
     })),
 
-    defaults(({ props }): { datasetItemForm: DatasetItemFormValues } => ({
-        datasetItemForm: props.datasetItem ? getDatasetItemFormDefaults(props.datasetItem) : FORM_DEFAULT_VALUE,
-    })),
+    defaults(({ props }): { datasetItemForm: DatasetItemFormValues } => {
+        return {
+            datasetItemForm: props.partialDatasetItem
+                ? getDatasetItemFormDefaults(props.partialDatasetItem)
+                : FORM_DEFAULT_VALUE,
+        }
+    }),
 
     propsChanged(({ props, actions }) => {
-        if (!props.datasetItem && props.isModalOpen) {
+        if (!props.partialDatasetItem && props.isModalOpen) {
             actions.resetDatasetItemForm()
         }
 
@@ -131,10 +137,10 @@ export const datasetItemModalLogic = kea<datasetItemModalLogicType>([
     }),
 ])
 
-export function getDatasetItemFormDefaults(datasetItem: DatasetItem): DatasetItemFormValues {
+export function getDatasetItemFormDefaults(partialDatasetItem: Partial<DatasetItem>): DatasetItemFormValues {
     return {
-        input: prettifyJson(datasetItem.input) || EMPTY_JSON,
-        output: prettifyJson(datasetItem.output) || EMPTY_JSON,
-        metadata: prettifyJson(datasetItem.metadata) || EMPTY_JSON,
+        input: prettifyJson(partialDatasetItem.input) || EMPTY_JSON,
+        output: prettifyJson(partialDatasetItem.output) || EMPTY_JSON,
+        metadata: prettifyJson(partialDatasetItem.metadata) || EMPTY_JSON,
     }
 }

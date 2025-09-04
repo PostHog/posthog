@@ -75,8 +75,17 @@ export function LLMAnalyticsTraceScene(): JSX.Element {
 
 function TraceSceneWrapper(): JSX.Element {
     const { eventId } = useValues(llmAnalyticsTraceLogic)
-    const { enrichedTree, trace, event, responseLoading, responseError, feedbackEvents, metricEvents, searchQuery } =
-        useValues(llmAnalyticsTraceDataLogic)
+    const {
+        enrichedTree,
+        trace,
+        event,
+        responseLoading,
+        responseError,
+        feedbackEvents,
+        metricEvents,
+        searchQuery,
+        eventMetadata,
+    } = useValues(llmAnalyticsTraceDataLogic)
 
     return (
         <>
@@ -101,7 +110,13 @@ function TraceSceneWrapper(): JSX.Element {
                     </div>
                     <div className="flex flex-1 min-h-0 gap-4 flex-col md:flex-row">
                         <TraceSidebar trace={trace} eventId={eventId} tree={enrichedTree} />
-                        <EventContent event={event} tree={enrichedTree} searchQuery={searchQuery} />
+                        <EventContent
+                            trace={trace}
+                            event={event}
+                            tree={enrichedTree}
+                            searchQuery={searchQuery}
+                            eventMetadata={eventMetadata}
+                        />
                     </div>
                 </div>
             )}
@@ -500,13 +515,17 @@ function findNodeForEvent(tree: EnrichedTraceTreeNode[], eventId: string): Enric
 
 const EventContent = React.memo(
     ({
+        trace,
         event,
+        eventMetadata,
         tree,
         searchQuery,
     }: {
+        trace: LLMTrace
         event: LLMTrace | LLMTraceEvent | null
         tree: EnrichedTraceTreeNode[]
         searchQuery?: string
+        eventMetadata?: Record<string, unknown>
     }): JSX.Element => {
         const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
         const { featureFlags } = useValues(featureFlagLogic)
@@ -608,7 +627,27 @@ const EventContent = React.memo(
                                             Try in Playground
                                         </LemonButton>
                                     )}
-                                    {showAddDatasetItemButton && <AddDatasetItemButton />}
+                                    {showAddDatasetItemButton && (
+                                        <AddDatasetItemButton
+                                            traceId={trace.id}
+                                            timestamp={trace.createdAt}
+                                            sourceId={event.id}
+                                            input={
+                                                isLLMTraceEvent(event)
+                                                    ? (event.properties.$ai_input ?? event.properties.$ai_input_state)
+                                                    : event.inputState
+                                            }
+                                            output={
+                                                isLLMTraceEvent(event)
+                                                    ? (event.properties.$ai_output_choices ??
+                                                      event.properties.$ai_output ??
+                                                      event.properties.$ai_output_state ??
+                                                      event.properties.$ai_error)
+                                                    : event.outputState
+                                            }
+                                            metadata={eventMetadata}
+                                        />
+                                    )}
                                     {hasSessionID(event) && (
                                         <ViewRecordingButton
                                             inModal

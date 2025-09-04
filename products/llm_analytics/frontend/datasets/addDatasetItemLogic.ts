@@ -1,17 +1,18 @@
 import { actions, afterMount, beforeUnmount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { encodeParams } from 'kea-router'
+import { encodeParams, router } from 'kea-router'
+
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { urls } from 'scenes/urls'
 
 import api from '~/lib/api'
-import { Dataset } from '~/types'
+import { Dataset, DatasetItem } from '~/types'
 
 import type { addDatasetItemLogicType } from './addDatasetItemLogicType'
 
 export interface AddDatasetItemLogicProps {
-    traceId: string
-    traceTimestamp: string
-    traceSpanId: string
+    partialDatasetItem: Partial<DatasetItem> | null
 }
 
 export const DATASETS_PER_PAGE = 100
@@ -24,12 +25,13 @@ export interface SearchFormValues {
 export const addDatasetItemLogic = kea<addDatasetItemLogicType>([
     path(['scenes', 'llm-analytics', 'addDatasetItemLogic']),
 
-    props({ traceId: '', traceTimestamp: '', traceSpanId: '' } as AddDatasetItemLogicProps),
+    props({ partialDatasetItem: null } as AddDatasetItemLogicProps),
 
     actions({
         setIsModalOpen: (isModalOpen: boolean) => ({ isModalOpen }),
-        setEditMode: (editMode: 'add' | 'edit') => ({ editMode }),
+        setEditMode: (editMode: 'create' | 'edit') => ({ editMode }),
         setDropdownVisible: (dropdownVisible: boolean) => ({ dropdownVisible }),
+        setSelectedDataset: (dataset: Dataset | null) => ({ dataset }),
     }),
 
     reducers(() => ({
@@ -40,10 +42,18 @@ export const addDatasetItemLogic = kea<addDatasetItemLogicType>([
             },
         ],
 
+        selectedDataset: [
+            null as Dataset | null,
+            {
+                setSelectedDataset: (_, { dataset }) => dataset,
+            },
+        ],
+
         editMode: [
-            'add' as 'add' | 'edit',
+            'create' as 'create' | 'edit',
             {
                 setEditMode: (_, { editMode }) => editMode,
+                setIsModalOpen: (state, { isModalOpen }) => (isModalOpen ? state : 'create'),
             },
         ],
 
@@ -80,15 +90,64 @@ export const addDatasetItemLogic = kea<addDatasetItemLogicType>([
         ],
     })),
 
-    forms(({ asyncActions }) => ({
+    forms(({ asyncActions, actions, values, props }) => ({
         searchForm: {
             defaults: { search: '', datasetId: null } as SearchFormValues,
 
             submit: async ({ datasetId }) => {
-                if (datasetId) {
-                } else {
+                // Dataset is not selected. Submit from the search input.
+                if (!datasetId) {
                     await asyncActions.loadDatasets(true)
+                    return
                 }
+
+                // Close the dropdown.
+                actions.setDropdownVisible(false)
+                actions.resetSearchForm()
+
+                // Find the selected dataset. Practically, this should always be found.
+                const dataset = values.datasets?.find((dataset) => dataset.id === datasetId)
+                if (!dataset) {
+                    return
+                }
+
+                if (values.editMode === 'edit') {
+                    // Open the modal.
+                    actions.setSelectedDataset(dataset)
+                    actions.setIsModalOpen(true)
+                    return
+                }
+
+                async function createDatasetItem(datasetId: string, recursionCount: number = 0): Promise<void> {
+                    try {
+                        await api.datasetItems.create({
+                            ...props.partialDatasetItem,
+                            dataset: datasetId,
+                        })
+                        lemonToast.success('Dataset item has been created successfully', {
+                            button: {
+                                label: 'View',
+                                action: () => {
+                                    router.actions.push(urls.llmAnalyticsDataset(datasetId))
+                                },
+                            },
+                        })
+                    } catch {
+                        lemonToast.error('Failed to create dataset item', {
+                            button:
+                                recursionCount < 3
+                                    ? {
+                                          label: 'Retry',
+                                          action: () => {
+                                              createDatasetItem(datasetId, recursionCount + 1)
+                                          },
+                                      }
+                                    : undefined,
+                        })
+                    }
+                }
+
+                await createDatasetItem(datasetId)
             },
         },
     })),
@@ -106,6 +165,13 @@ export const addDatasetItemLogic = kea<addDatasetItemLogicType>([
             (s) => [s.datasets, s.datasetStoreLoading],
             (datasets, datasetStoreLoading): boolean => {
                 return !datasets && datasetStoreLoading
+            },
+        ],
+
+        isModalMounted: [
+            (s) => [s.editMode],
+            (editMode): boolean => {
+                return editMode === 'edit'
             },
         ],
     }),
