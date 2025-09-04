@@ -179,7 +179,10 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
             ScopeLookupResult::Unknown => None,
         };
 
-        let source = token.file().and_then(|f| f.name()).map(|s| s.to_string());
+        let source = token
+            .file()
+            .and_then(|f| f.name())
+            .map(|s| sanitize_string(s.to_string()));
 
         let in_app = source
             .as_ref()
