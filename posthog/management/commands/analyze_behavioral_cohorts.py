@@ -168,18 +168,21 @@ class Command(BaseCommand):
                 condition=condition_hash[:16] + "...",
             )
 
-            query = f"""
+            query = """
                 SELECT
                     person_id
                 FROM behavioral_cohorts_matches
                 WHERE
-                    team_id = {team_id}
-                    AND cohort_id = {cohort_id}
-                    AND condition = '{condition_hash}'
-                    AND date >= now() - INTERVAL {days} DAY
-                    AND matches >= {min_matches}
+                    team_id = %s
+                    AND cohort_id = %s
+                    AND condition = %s
+                    AND date >= now() - INTERVAL %s DAY
+                    AND matches >= %s
                 LIMIT 100000
             """
+            
+            try:
+                results = sync_execute(query, [team_id, cohort_id, condition_hash, days, min_matches])
 
             try:
                 results = sync_execute(query)
