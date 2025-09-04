@@ -3,7 +3,7 @@ import { combineUrl } from 'kea-router'
 import { IconGraph } from '@posthog/icons'
 
 import { AlertType } from 'lib/components/Alerts/types'
-import { INSIGHT_VISUAL_ORDER } from 'lib/constants'
+import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { DashboardFilter, HogQLFilters, HogQLVariable, Node, NodeKind } from '~/queries/schema/schema-general'
@@ -118,6 +118,7 @@ export const manifest: ProductManifest = {
             href: urls.insightNew({ type: InsightType.PATHS_V2 }),
             iconType: 'insightPathsV2',
             visualOrder: INSIGHT_VISUAL_ORDER.pathsV2,
+            flag: FEATURE_FLAGS.PATHS_V2,
         },
         {
             path: `Insight/Stickiness`,
