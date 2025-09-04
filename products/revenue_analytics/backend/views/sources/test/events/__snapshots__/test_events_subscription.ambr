@@ -1,5 +1,5 @@
 # serializer version: 1
-# name: TestSubscriptionEventsBuilder.test_build_subscription_queries_only_for_events_with_subscription_property
+# name: TestSubscriptionEventsBuilder.test_build_subscription_queries_even_for_events_without_subscription_property
   '''
   SELECT subscription_id AS id,
          'revenue_analytics.events.subscription_charge' AS source_label,
@@ -22,6 +22,20 @@
      GROUP BY subscription_id,
               person_id)
   ORDER BY started_at DESC
+  '''
+# ---
+# name: TestSubscriptionEventsBuilder.test_build_subscription_queries_even_for_events_without_subscription_property.1
+  '''
+  SELECT NULL AS id,
+         NULL AS source_label,
+         NULL AS plan_id,
+         NULL AS product_id,
+         NULL AS customer_id,
+         NULL AS status,
+         NULL AS started_at,
+         NULL AS ended_at,
+         NULL AS metadata
+  WHERE false
   '''
 # ---
 # name: TestSubscriptionEventsBuilder.test_query_structure_contains_required_fields

@@ -196,11 +196,15 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
             date_start=date_start,
             date_end=date_end,
             team_ids=[self.team.pk],
+            table_name="web_pre_aggregated_bounces",
+            granularity="hourly",
         )
         stats_insert = WEB_STATS_INSERT_SQL(
             date_start=date_start,
             date_end=date_end,
             team_ids=[self.team.pk],
+            table_name="web_pre_aggregated_stats",
+            granularity="hourly",
         )
         sync_execute(stats_insert)
         sync_execute(bounces_insert)

@@ -21,7 +21,8 @@ import {
     OrganizationMembershipLevel,
     PROPERTY_MATCH_TYPE,
     PluginsAccessLevel,
-    RETENTION_FIRST_TIME,
+    RETENTION_FIRST_EVER_OCCURRENCE,
+    RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
     RETENTION_MEAN_NONE,
     RETENTION_RECURRING,
     ShownAsValue,
@@ -234,7 +235,6 @@ export enum ProductKey {
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     LINKS = 'links',
-    MCP_SERVER = 'mcp_server',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -337,6 +337,7 @@ export interface UserType extends UserBaseType {
     anonymize_data: boolean
     toolbar_mode: 'disabled' | 'toolbar'
     has_password: boolean
+    id: number
     is_staff: boolean
     is_impersonated: boolean
     is_impersonated_until?: string
@@ -349,6 +350,7 @@ export interface UserType extends UserBaseType {
     pending_email?: string | null
     is_2fa_enabled: boolean
     has_social_auth: boolean
+    has_sso_enforcement: boolean
     has_seen_product_intro_for?: Record<string, boolean>
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
@@ -2431,6 +2433,7 @@ export type BreakdownType =
     | 'hogql'
     | 'data_warehouse'
     | 'data_warehouse_person_property'
+    | 'revenue_analytics'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 export type SimpleIntervalType = 'day' | 'month'
 export type SmoothingType = number
@@ -2466,7 +2469,10 @@ export enum FunnelVizType {
     Trends = 'trends',
 }
 
-export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_TIME
+export type RetentionType =
+    | typeof RETENTION_RECURRING
+    | typeof RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS
+    | typeof RETENTION_FIRST_EVER_OCCURRENCE
 
 export enum RetentionPeriod {
     Hour = 'Hour',
@@ -4181,6 +4187,11 @@ export enum ExperimentMetricMathType {
     HogQL = 'hogql',
 }
 
+export enum ExperimentMetricGoal {
+    Increase = 'increase',
+    Decrease = 'decrease',
+}
+
 export enum ActorGroupType {
     Person = 'person',
     GroupPrefix = 'group',
@@ -4706,6 +4717,11 @@ export const manualLinkSources = ['aws', 'google-cloud', 'cloudflare-r2', 'azure
 
 export type ManualLinkSourceType = (typeof manualLinkSources)[number]
 
+export interface ExternalDataSourceRevenueAnalyticsConfig {
+    enabled: boolean
+    include_invoiceless_charges: boolean
+}
+
 export interface ExternalDataSourceCreatePayload {
     source_type: ExternalDataSourceType
     prefix: string
@@ -4720,10 +4736,10 @@ export interface ExternalDataSource {
     prefix: string
     latest_error: string | null
     last_run_at?: Dayjs
-    revenue_analytics_enabled: boolean
     schemas: ExternalDataSourceSchema[]
     sync_frequency: DataWarehouseSyncInterval
     job_inputs: Record<string, any>
+    revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig
 }
 
 export interface DataModelingJob {
@@ -5544,12 +5560,19 @@ export enum ConversationStatus {
     Canceling = 'canceling',
 }
 
+export enum ConversationType {
+    Assistant = 'assistant',
+    ToolCall = 'tool_call',
+    DeepResearch = 'deep_research',
+}
+
 export interface Conversation {
     id: string
     status: ConversationStatus
     title: string | null
     created_at: string | null
     updated_at: string | null
+    type: ConversationType
 }
 
 export interface ConversationDetail extends Conversation {
@@ -5717,4 +5740,32 @@ export enum OnboardingStepKey {
     AUTHORIZED_DOMAINS = 'authorized_domains',
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
+}
+
+export interface Dataset {
+    id: string
+    name: string
+    description: string | null
+    metadata: Record<string, any> | null
+    team: number
+    created_at: string
+    updated_at: string
+    created_by: UserBasicType
+    deleted: boolean
+}
+
+export interface DatasetItem {
+    id: string
+    dataset: string
+    team: number
+    input: Record<string, any> | null
+    output: Record<string, any> | null
+    metadata: Record<string, any> | null
+    ref_trace_id: string | null
+    ref_timestamp: string | null
+    ref_source_id: string | null
+    created_by: UserBasicType
+    updated_at: string
+    created_at: string
+    deleted: boolean
 }

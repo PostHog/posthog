@@ -18,6 +18,8 @@ import { PlayerFrameCommentOverlay } from 'scenes/session-recordings/player/comm
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 
+import { ExporterFormat } from '~/types'
+
 import { PlayerFrame } from './PlayerFrame'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { PlayerSidebar } from './PlayerSidebar'
@@ -99,10 +101,15 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     } = useActions(sessionRecordingPlayerLogic(logicProps))
     const { isNotFound, isRecentAndInvalid, isLikelyPastTTL } = useValues(sessionRecordingDataLogic(logicProps))
     const { loadSnapshots } = useActions(sessionRecordingDataLogic(logicProps))
-    const { isFullScreen, explorerMode, isBuffering, isCommenting } = useValues(sessionRecordingPlayerLogic(logicProps))
-    const { setPlayNextAnimationInterrupted, setIsCommenting } = useActions(sessionRecordingPlayerLogic(logicProps))
+    const { isFullScreen, explorerMode, isBuffering, isCommenting, quickEmojiIsOpen } = useValues(
+        sessionRecordingPlayerLogic(logicProps)
+    )
+    const { setPlayNextAnimationInterrupted, setIsCommenting, takeScreenshot, setQuickEmojiIsOpen } = useActions(
+        sessionRecordingPlayerLogic(logicProps)
+    )
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
-    const { isVerticallyStacked, sidebarOpen } = useValues(playerSettingsLogic)
+    const { isVerticallyStacked, sidebarOpen, isCinemaMode } = useValues(playerSettingsLogic)
+    const { setIsCinemaMode } = useActions(playerSettingsLogic)
 
     // For export modes, we don't want to show the player elements
     const hidePlayerElements =
@@ -156,6 +163,18 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             },
             c: {
                 action: () => setIsCommenting(!isCommenting),
+            },
+            e: {
+                action: () => setQuickEmojiIsOpen(!quickEmojiIsOpen),
+            },
+            s: {
+                action: () => takeScreenshot(ExporterFormat.PNG),
+            },
+            x: {
+                action: () => takeScreenshot(ExporterFormat.GIF),
+            },
+            t: {
+                action: () => setIsCinemaMode(!isCinemaMode),
             },
             space: {
                 action: () => togglePlayPause(),

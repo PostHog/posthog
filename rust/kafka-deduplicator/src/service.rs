@@ -17,6 +17,7 @@ use crate::{
     rocksdb::deduplication_store::DeduplicationStoreConfig,
     store_manager::StoreManager,
 };
+use dashmap::DashMap;
 
 /// The main Kafka Deduplicator service that encapsulates all components
 pub struct KafkaDeduplicatorService {

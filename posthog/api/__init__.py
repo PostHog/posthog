@@ -28,9 +28,11 @@ import products.tasks.backend.api as tasks
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
-from products.llm_analytics.backend.api import LLMProxyViewSet
+from products.llm_analytics.backend.api import DatasetItemViewSet, DatasetViewSet, LLMProxyViewSet
 from products.messaging.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
+
+from ee.api.vercel import vercel_installation, vercel_product, vercel_resource
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
@@ -544,6 +546,23 @@ if EE_AVAILABLE:
         r"persons", EnterprisePersonViewSet, "environment_persons", ["team_id"]
     )
     router.register(r"person", LegacyEnterprisePersonViewSet, "persons")
+    vercel_installations_router = router.register(
+        r"vercel/v1/installations",
+        vercel_installation.VercelInstallationViewSet,
+        "vercel_installations",
+    )
+    vercel_installations_router.register(
+        r"resources",
+        vercel_resource.VercelResourceViewSet,
+        "vercel_installation_resources",
+        ["installation_id"],
+    )
+    router.register(
+        r"vercel/v1/products",
+        vercel_product.VercelProductViewSet,
+        "vercel_products",
+    )
+
 else:
     environment_insights_router, legacy_project_insights_router = register_grandfathered_environment_nested_viewset(
         r"insights", InsightViewSet, "environment_insights", ["team_id"]
@@ -806,4 +825,18 @@ projects_router.register(
     flag_value.FlagValueViewSet,
     "project_flag_value",
     ["project_id"],
+)
+
+environments_router.register(
+    r"datasets",
+    DatasetViewSet,
+    "environment_datasets",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"dataset_items",
+    DatasetItemViewSet,
+    "environment_dataset_items",
+    ["team_id"],
 )

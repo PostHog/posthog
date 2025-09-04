@@ -50,12 +50,6 @@ from posthog.utils import get_from_dict_or_attr
 from posthog.warehouse.models import DataWarehouseJoin
 from posthog.warehouse.models.util import get_view_or_table_by_name
 
-from products.revenue_analytics.backend.views import (
-    RevenueAnalyticsCustomerView,
-    RevenueAnalyticsProductView,
-    RevenueAnalyticsRevenueItemView,
-)
-
 
 def has_aggregation(expr: AST) -> bool:
     finder = AggregationFinder()
@@ -459,6 +453,8 @@ def property_to_expr(
             chain = []
         elif property.type == "log":
             chain = ["attributes"]
+        elif property.type == "revenue_analytics":
+            *chain, property.key = property.key.split(".")
         else:
             chain = ["properties"]
 
@@ -472,9 +468,6 @@ def property_to_expr(
 
         if property.type == "recording" and property.key == "snapshot_source":
             expr = ast.Call(name="argMinMerge", args=[field])
-
-        if property.type == "revenue_analytics":
-            expr = create_expr_for_revenue_analytics_property(cast(RevenueAnalyticsPropertyFilter, property))
 
         is_exception_string_array_property = property.type == "event" and property.key in [
             "$exception_types",
@@ -667,29 +660,6 @@ def map_virtual_properties(e: ast.Expr):
         # we pretend virtual properties are regular properties, but they should map to the same field directly on the parent table
         return ast.Field(chain=e.chain[:-2] + [e.chain[-1]])
     return e
-
-
-def create_expr_for_revenue_analytics_property(property: RevenueAnalyticsPropertyFilter) -> ast.Expr:
-    if property.key == "amount":
-        return ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"])
-    elif property.key == "country":
-        return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "country"])
-    elif property.key == "cohort":
-        return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "cohort"])
-    elif property.key == "coupon":
-        return ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "coupon"])
-    elif property.key == "coupon_id":
-        return ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "coupon_id"])
-    elif property.key == "initial_coupon":
-        return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "initial_coupon"])
-    elif property.key == "initial_coupon_id":
-        return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "initial_coupon_id"])
-    elif property.key == "product":
-        return ast.Field(chain=[RevenueAnalyticsProductView.get_generic_view_alias(), "name"])
-    elif property.key == "source":
-        return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "source_label"])
-    else:
-        raise QueryError(f"Revenue analytics property filter key {property.key} not implemented")
 
 
 def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Expr:
