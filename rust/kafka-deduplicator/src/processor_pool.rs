@@ -97,10 +97,7 @@ impl<P: MessageProcessor + Clone + 'static> ProcessorPool<P> {
                     );
 
                     // Don't try to recover - fail fast and let the system restart
-                    panic!(
-                        "Worker {} died unexpectedly while processing messages",
-                        worker_id
-                    );
+                    panic!("Worker {worker_id} died unexpectedly while processing messages");
                 }
             }
 
@@ -303,8 +300,7 @@ mod tests {
         );
         assert!(
             max_concurrent > 1,
-            "Expected concurrent processing, max was {}",
-            max_concurrent
+            "Expected concurrent processing, max was {max_concurrent}"
         );
 
         let total_processed: usize = worker_counts.values().sum();
@@ -340,14 +336,13 @@ mod tests {
 
         for key in keys {
             let orders = key_orders
-                .get(&key.to_vec())
+                .get(key.as_slice())
                 .expect("Key should have been processed");
             let mut sorted_orders = orders.clone();
             sorted_orders.sort();
             assert_eq!(
                 orders, &sorted_orders,
-                "Messages for key {:?} were not processed in order: {:?}",
-                key, orders
+                "Messages for key {key:?} were not processed in order: {orders:?}"
             );
         }
 
@@ -485,8 +480,7 @@ mod tests {
                     if offset <= last_offset {
                         self.ordering_violations.fetch_add(1, Ordering::SeqCst);
                         eprintln!(
-                            "Order violation: key {:?} processed offset {} after {}",
-                            key, offset, last_offset
+                            "Order violation: key {key:?} processed offset {offset} after {last_offset}"
                         );
                     }
                 }
@@ -522,7 +516,7 @@ mod tests {
             sender.send(msg).unwrap();
 
             // Fast messages with different keys
-            let fast_key = format!("fast_{}", i).into_bytes();
+            let fast_key = format!("fast_{i}").into_bytes();
             let msg = create_test_message(Some(&fast_key), i * 2 + 1).await;
             sender.send(msg).unwrap();
         }
@@ -575,7 +569,7 @@ mod tests {
         let handles = pool.start();
 
         // Send many messages with overlapping keys
-        let keys = vec![b"key_a", b"key_b", b"key_c", b"key_d"];
+        let keys = [b"key_a", b"key_b", b"key_c", b"key_d"];
         for offset in 0..100 {
             let key = keys[offset % keys.len()];
             let msg = create_test_message(Some(key), offset as i64).await;
@@ -589,8 +583,7 @@ mod tests {
         let violations = processor.ordering_violations.load(Ordering::SeqCst);
         assert_eq!(
             violations, 0,
-            "Found {} ordering violations - same key messages processed out of order",
-            violations
+            "Found {violations} ordering violations - same key messages processed out of order"
         );
 
         drop(sender);

@@ -201,7 +201,7 @@ impl StatefulKafkaConsumer {
             .await;
 
         // Send to processor pool - they handle the actual processing
-        if let Err(_) = self.message_sender.send(ackable_msg) {
+        if self.message_sender.send(ackable_msg).is_err() {
             error!("Processor pool channel closed, cannot send message");
             return Err(anyhow::anyhow!("Processor pool is dead"));
         }

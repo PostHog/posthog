@@ -40,9 +40,13 @@ impl KafkaDeduplicatorService {
         let stores = Arc::new(DashMap::new());
 
         // Create checkpoint manager
-        let mut checkpoint_manager = CheckpointManager::new(stores.clone(), config.flush_interval());
+        let mut checkpoint_manager =
+            CheckpointManager::new(stores.clone(), config.flush_interval());
         checkpoint_manager.start();
-        info!("Started checkpoint manager with flush interval: {:?}", config.flush_interval());
+        info!(
+            "Started checkpoint manager with flush interval: {:?}",
+            config.flush_interval()
+        );
 
         Ok(Self {
             config,
@@ -56,7 +60,6 @@ impl KafkaDeduplicatorService {
         })
     }
 
-
     /// Initialize the Kafka consumer and prepare for running
     pub async fn initialize(&mut self) -> Result<()> {
         if self.consumer.is_some() {
@@ -66,7 +69,8 @@ impl KafkaDeduplicatorService {
         // Create deduplication config
         let store_config = DeduplicationStoreConfig {
             path: self.config.store_path_buf(),
-            max_capacity: self.config
+            max_capacity: self
+                .config
                 .parse_storage_capacity()
                 .context("Failed to parse max_store_capacity")?,
         };
@@ -81,7 +85,7 @@ impl KafkaDeduplicatorService {
 
         // Create a processor with reference to the shared stores
         let processor = DeduplicationProcessor::new(dedup_config, self.stores.clone())
-            .with_context(|| format!("Failed to create deduplication processor"))?;
+            .with_context(|| "Failed to create deduplication processor".to_string())?;
 
         // Create rebalance handler with stores reference
         let rebalance_handler = Arc::new(ProcessorRebalanceHandler::new(self.stores.clone()));
@@ -100,7 +104,7 @@ impl KafkaDeduplicatorService {
         // Create processor pool with one worker per CPU
         let num_workers = num_cpus::get();
         let (message_sender, processor_pool) = ProcessorPool::new(processor, num_workers);
-        
+
         // Start the processor pool workers
         let pool_handles = processor_pool.start();
         self.processor_pool_handles = Some(pool_handles);
@@ -192,7 +196,7 @@ impl KafkaDeduplicatorService {
         if let Some(mut checkpoint_manager) = self.checkpoint_manager.take() {
             checkpoint_manager.stop().await;
         }
-        
+
         // Wait for processor pool workers to finish
         if let Some(handles) = self.processor_pool_handles.take() {
             for handle in handles {
@@ -260,7 +264,7 @@ impl KafkaDeduplicatorService {
         if let Some(mut checkpoint_manager) = self.checkpoint_manager.take() {
             checkpoint_manager.stop().await;
         }
-        
+
         // Wait for processor pool workers to finish
         if let Some(handles) = self.processor_pool_handles.take() {
             for handle in handles {
@@ -295,7 +299,6 @@ impl KafkaDeduplicatorService {
 
         Ok(())
     }
-
 }
 
 /// Builder for easier service configuration in tests
