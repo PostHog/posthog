@@ -23,7 +23,8 @@ const MetricItem = ({
     metric: ExperimentMetric & { sharedMetricId?: number; isSharedMetric?: boolean }
     order: number
 }): JSX.Element => {
-    const uuid = metric.uuid || (metric as any).query?.uuid
+    // UUID should always be present since we get metrics from MetricState
+    const uuid = metric.uuid!
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
         id: uuid,
     })
@@ -99,12 +100,13 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
 
         const metricsState = isSecondary ? secondaryMetricsState : primaryMetricsState
 
-        const metricsMap = new Map()
-        metricsState.forEach((metricState) => {
-            metricsMap.set(metricState.uuid, metricState.definition)
-        })
+        // Create a map for quick lookup by UUID
+        const metricsMap = new Map(metricsState.map((metricState) => [metricState.uuid, metricState.definition]))
 
-        return orderedUuids.map((uuid) => metricsMap.get(uuid)).filter(Boolean)
+        // Return metrics in the order specified by orderedUuids
+        return orderedUuids
+            .map((uuid) => metricsMap.get(uuid))
+            .filter((metric): metric is ExperimentMetric => metric !== undefined)
     })()
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
@@ -167,11 +169,7 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
                             </div>
                         )}
                         {displayMetrics.map((metric, index) => (
-                            <MetricItem
-                                key={metric.uuid || (metric as any).query?.uuid}
-                                metric={metric}
-                                order={index}
-                            />
+                            <MetricItem key={metric.uuid} metric={metric} order={index} />
                         ))}
                     </SortableContext>
                 </DndContext>
