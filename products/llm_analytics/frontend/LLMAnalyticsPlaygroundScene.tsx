@@ -85,7 +85,7 @@ function ConversationPanel(): JSX.Element {
                                 onClick={() => setTools([])}
                                 tooltip="Add tools block"
                             >
-                                Add Tools
+                                Add tools
                             </LemonButton>
                         )}
                         <LemonSwitch
@@ -183,7 +183,7 @@ function ToolsDisplay({ expandTextAreas }: { expandTextAreas: boolean }): JSX.El
             <LemonModal
                 isOpen={showEditModal}
                 onClose={() => setShowEditModal(false)}
-                title="Edit Tools"
+                title="Edit tools"
                 width="90vw"
                 maxWidth="1200px"
             >
@@ -244,7 +244,7 @@ function SystemMessageDisplay({ expandTextAreas }: { expandTextAreas: boolean })
             <LemonModal
                 isOpen={showEditModal}
                 onClose={() => setShowEditModal(false)}
-                title="Edit System Prompt"
+                title="Edit system prompt"
                 width="90vw"
                 maxWidth="1200px"
             >
@@ -361,7 +361,7 @@ function MessageDisplay({
             <LemonModal
                 isOpen={showEditModal}
                 onClose={() => setShowEditModal(false)}
-                title="Edit Message"
+                title="Edit message"
                 width="max(44vw)"
             >
                 <div className="space-y-4">
@@ -410,7 +410,7 @@ function OutputSection(): JSX.Element {
                             size="small"
                             onClick={() => addResponseToHistory(currentResponse)}
                         >
-                            Add to Chat History
+                            Add to chat history
                         </LemonButton>
                     )}
                     {!submitting && lastRunDetails && !responseHasError && (
@@ -420,7 +420,7 @@ function OutputSection(): JSX.Element {
                             onClick={addCurrentRunToComparison}
                             tooltip="Add this run to comparison table"
                         >
-                            Add to Compare
+                            Add to compare
                         </LemonButton>
                     )}
                 </div>
@@ -598,7 +598,7 @@ function ComparisonTablePanel(): JSX.Element {
                     onClick={clearComparison}
                     tooltip="Clear all comparison items"
                 >
-                    Clear All
+                    Clear all
                 </LemonButton>
             </div>
             <div className="flex-1 overflow-hidden">
@@ -642,7 +642,7 @@ function StickyActionBar(): JSX.Element {
                             }}
                             disabled={submitting}
                         >
-                            Add Message
+                            Add message
                         </LemonButton>
                         <LemonButton
                             type="secondary"
@@ -652,7 +652,7 @@ function StickyActionBar(): JSX.Element {
                             disabled={submitting || messages.length === 0}
                             tooltip="Clear all messages"
                         >
-                            Clear All
+                            Clear all
                         </LemonButton>
                         {messages.length > 3 && (
                             <>
