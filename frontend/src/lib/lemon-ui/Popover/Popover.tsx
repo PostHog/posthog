@@ -32,7 +32,7 @@ export interface PopoverProps {
     onMouseEnterInside?: MouseEventHandler<HTMLDivElement>
     onMouseLeaveInside?: MouseEventHandler<HTMLDivElement>
     /** Popover trigger element. If you pass one <Component/> child, it will get the `ref` prop automatically. */
-    children?: React.ReactChild
+    children?: React.ReactNode
     /** External reference element not passed as a direct child */
     referenceElement?: HTMLElement | null
     /** Content of the overlay. */

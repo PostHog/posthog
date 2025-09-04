@@ -17,7 +17,7 @@ from posthog.hogql.database.models import (
 QUERY_LOG_ARCHIVE_FIELDS: dict[str, FieldOrTable] = {
     "event_date": DateDatabaseField(name="event_date", nullable=False),
     "event_time": DateTimeDatabaseField(name="event_time", nullable=False),
-    "query_id": StringDatabaseField(name="query_id", nullable=False),
+    "query_id": StringDatabaseField(name="lc_client_query_id", nullable=False),
     "endpoint": StringDatabaseField(name="lc_id", nullable=False),
     "query": StringDatabaseField(name="lc_query__query", nullable=False),
     "query_start_time": DateTimeDatabaseField(name="query_start_time", nullable=False),
@@ -119,6 +119,7 @@ class RawQueryLogArchiveTable(Table):
         "event_time": DateTimeDatabaseField(name="event_time", nullable=False),
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
         "query_id": StringDatabaseField(name="query_id", nullable=False),
+        "lc_client_query_id": StringDatabaseField(name="lc_client_query_id", nullable=False),
         "lc_id": StringDatabaseField(name="lc_id", nullable=False),
         "lc_query__query": StringDatabaseField(name="lc_query__query", nullable=False),
         "query_start_time": DateTimeDatabaseField(name="query_start_time", nullable=False),
