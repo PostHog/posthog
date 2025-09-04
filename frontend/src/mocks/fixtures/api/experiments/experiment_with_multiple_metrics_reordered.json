@@ -1,15 +1,15 @@
 {
-    "id": 17,
-    "name": "experiment-multiple-metrics",
+    "id": 101,
+    "name": "experiment-multiple-metrics-reordered",
     "description": null,
     "start_date": "2025-06-03T14:48:37.594000Z",
     "end_date": null,
-    "feature_flag_key": "experiment-multiple-metrics",
+    "feature_flag_key": "experiment-multiple-metrics-reordered",
     "feature_flag": {
         "id": 142,
         "team_id": 1,
-        "name": "Feature Flag for Experiment experiment-multiple-metrics",
-        "key": "experiment-multiple-metrics",
+        "name": "Feature Flag for Experiment experiment-multiple-metrics-reordered",
+        "key": "experiment-multiple-metrics-reordered",
         "filters": {
             "groups": [
                 {
@@ -89,6 +89,7 @@
     },
     "metrics": [
         {
+            "name": "This should be 2nd",
             "kind": "ExperimentMetric",
             "source": {
                 "kind": "EventsNode",
@@ -99,6 +100,7 @@
             "uuid": "09a40e22-8190-49f0-9f9c-8f70458b58da"
         },
         {
+            "name": "This should be 3rd",
             "kind": "ExperimentMetric",
             "series": [
                 {
@@ -110,6 +112,7 @@
             "uuid": "f10233ac-56d9-42d7-b686-78502dd909c9"
         },
         {
+            "name": "This should be 1st",
             "goal": "increase",
             "kind": "ExperimentMetric",
             "uuid": "d70371c9-c078-4234-a4b3-aaa19316d602",
@@ -129,7 +132,11 @@
         }
     ],
     "metrics_secondary": [],
-    "primary_metrics_ordered_uuids": null,
+    "primary_metrics_ordered_uuids": [
+        "d70371c9-c078-4234-a4b3-aaa19316d602",
+        "09a40e22-8190-49f0-9f9c-8f70458b58da",
+        "f10233ac-56d9-42d7-b686-78502dd909c9"
+    ],
     "secondary_metrics_ordered_uuids": null,
     "conclusion": null,
     "conclusion_comment": null

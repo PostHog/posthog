@@ -1,15 +1,15 @@
 {
-    "id": 17,
-    "name": "experiment-multiple-metrics",
+    "id": 100,
+    "name": "experiment-with-ratio-metric",
     "description": null,
-    "start_date": "2025-06-03T14:48:37.594000Z",
+    "start_date": "2025-05-20T14:25:00Z",
     "end_date": null,
-    "feature_flag_key": "experiment-multiple-metrics",
+    "feature_flag_key": "experiment-with-ratio-metric",
     "feature_flag": {
-        "id": 142,
+        "id": 239,
         "team_id": 1,
-        "name": "Feature Flag for Experiment experiment-multiple-metrics",
-        "key": "experiment-multiple-metrics",
+        "name": "Feature Flag for Experiment experiment-with-ratio-metric",
+        "key": "experiment-with-ratio-metric",
         "filters": {
             "groups": [
                 {
@@ -81,34 +81,13 @@
         "hedgehog_config": null,
         "role_at_organization": "engineering"
     },
-    "created_at": "2025-06-03T14:48:11.882465Z",
-    "updated_at": "2025-06-03T14:48:50.754962Z",
+    "created_at": "2025-06-03T14:24:53.181636Z",
+    "updated_at": "2025-06-03T14:26:41.299279Z",
     "type": "product",
     "exposure_criteria": {
         "filterTestAccounts": true
     },
     "metrics": [
-        {
-            "kind": "ExperimentMetric",
-            "source": {
-                "kind": "EventsNode",
-                "math": "total",
-                "event": "$pageview"
-            },
-            "metric_type": "mean",
-            "uuid": "09a40e22-8190-49f0-9f9c-8f70458b58da"
-        },
-        {
-            "kind": "ExperimentMetric",
-            "series": [
-                {
-                    "kind": "EventsNode",
-                    "event": "signup completed"
-                }
-            ],
-            "metric_type": "funnel",
-            "uuid": "f10233ac-56d9-42d7-b686-78502dd909c9"
-        },
         {
             "goal": "increase",
             "kind": "ExperimentMetric",
@@ -129,8 +108,8 @@
         }
     ],
     "metrics_secondary": [],
-    "primary_metrics_ordered_uuids": null,
-    "secondary_metrics_ordered_uuids": null,
+    "primary_metrics_ordered_uuids": ["d70371c9-c078-4234-a4b3-aaa19316d602"],
+    "secondary_metrics_ordered_uuids": [],
     "conclusion": null,
     "conclusion_comment": null
 }

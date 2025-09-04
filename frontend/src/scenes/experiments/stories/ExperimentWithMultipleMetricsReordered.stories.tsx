@@ -5,7 +5,7 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-import EXPERIMENT_WITH_MULTIPLE_METRICS from '~/mocks/fixtures/api/experiments/experiment_with_multiple_metrics.json'
+import EXPERIMENT_WITH_MULTIPLE_METRICS_REORDERED from '~/mocks/fixtures/api/experiments/experiment_with_multiple_metrics_reordered.json'
 import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_query_result.json'
 import FUNNEL_METRIC_RESULT from '~/mocks/fixtures/api/experiments/funnel_metric_result.json'
 import MEAN_METRIC_RESULT from '~/mocks/fixtures/api/experiments/mean_metric_result.json'
@@ -24,17 +24,18 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2025-01-27',
-        pageUrl: urls.experiment(EXPERIMENT_WITH_MULTIPLE_METRICS.id),
+        pageUrl: urls.experiment(EXPERIMENT_WITH_MULTIPLE_METRICS_REORDERED.id),
     },
     decorators: [
         mswDecorator({
             get: {
-                [`/api/projects/:team_id/experiments/${EXPERIMENT_WITH_MULTIPLE_METRICS.id}/`]:
-                    EXPERIMENT_WITH_MULTIPLE_METRICS,
+                [`/api/projects/:team_id/experiments/${EXPERIMENT_WITH_MULTIPLE_METRICS_REORDERED.id}/`]:
+                    EXPERIMENT_WITH_MULTIPLE_METRICS_REORDERED,
                 [`/api/projects/:team_id/experiment_holdouts`]: [],
                 [`/api/projects/:team_id/experiment_saved_metrics/`]: [],
-                [`/api/projects/:team_id/feature_flags/${EXPERIMENT_WITH_MULTIPLE_METRICS.feature_flag.id}/`]: {},
-                [`/api/projects/:team_id/feature_flags/${EXPERIMENT_WITH_MULTIPLE_METRICS.feature_flag.id}/status/`]:
+                [`/api/projects/:team_id/feature_flags/${EXPERIMENT_WITH_MULTIPLE_METRICS_REORDERED.feature_flag.id}/`]:
+                    {},
+                [`/api/projects/:team_id/feature_flags/${EXPERIMENT_WITH_MULTIPLE_METRICS_REORDERED.feature_flag.id}/status/`]:
                     {},
             },
             post: {
@@ -62,4 +63,4 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 // Small delay to ensure charts render completely
-export const ExperimentWithMultipleMetrics: Story = { play: makeDelay(500) }
+export const ExperimentWithMultipleMetricsReordered: Story = { play: makeDelay(500) }
