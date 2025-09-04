@@ -20,6 +20,16 @@ import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 const ALWAYS_EXTRA_TABS = [SidePanelTab.Settings, SidePanelTab.Activity, SidePanelTab.Status, SidePanelTab.Exports]
 
+const TABS_REQUIRING_A_TEAM = [
+    SidePanelTab.Max,
+    SidePanelTab.Notebooks,
+    SidePanelTab.Activity,
+    SidePanelTab.Activation,
+    SidePanelTab.Discussion,
+    SidePanelTab.AccessControl,
+    SidePanelTab.Exports,
+]
+
 export const sidePanelLogic = kea<sidePanelLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelLogic']),
     connect(() => ({
@@ -60,23 +70,16 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             (selectedTab, sidePanelOpen, isCloudOrDev, featureFlags, sceneSidePanelContext, currentTeam) => {
                 const tabs: SidePanelTab[] = []
 
-                if (
-                    currentTeam &&
-                    (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] || (sidePanelOpen && selectedTab === SidePanelTab.Max))
-                ) {
+                if (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] || (sidePanelOpen && selectedTab === SidePanelTab.Max)) {
                     // Show Max if user is already enrolled into beta OR they got a link to Max (even if they haven't enrolled)
                     tabs.push(SidePanelTab.Max)
                 }
-                if (currentTeam) {
-                    tabs.push(SidePanelTab.Notebooks)
-                }
+                tabs.push(SidePanelTab.Notebooks)
                 tabs.push(SidePanelTab.Docs)
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Support)
                 }
-                if (currentTeam) {
-                    tabs.push(SidePanelTab.Activity)
-                }
+                tabs.push(SidePanelTab.Activity)
 
                 if (currentTeam?.created_at) {
                     const teamCreatedAt = dayjs(currentTeam.created_at)
@@ -86,26 +89,23 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     }
                 }
 
-                if (currentTeam && featureFlags[FEATURE_FLAGS.DISCUSSIONS]) {
+                if (featureFlags[FEATURE_FLAGS.DISCUSSIONS]) {
                     tabs.push(SidePanelTab.Discussion)
                 }
 
-                if (
-                    currentTeam &&
-                    sceneSidePanelContext.access_control_resource &&
-                    sceneSidePanelContext.access_control_resource_id
-                ) {
+                if (sceneSidePanelContext.access_control_resource && sceneSidePanelContext.access_control_resource_id) {
                     tabs.push(SidePanelTab.AccessControl)
                 }
-                if (currentTeam) {
-                    tabs.push(SidePanelTab.Exports)
-                }
+                tabs.push(SidePanelTab.Exports)
                 tabs.push(SidePanelTab.Settings)
 
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Status)
                 }
 
+                if (!currentTeam) {
+                    return tabs.filter((tab) => !TABS_REQUIRING_A_TEAM.includes(tab))
+                }
                 return tabs
             },
         ],

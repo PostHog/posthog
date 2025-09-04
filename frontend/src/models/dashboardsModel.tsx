@@ -96,7 +96,6 @@ export const dashboardsModel = kea<dashboardsModelType>([
                     }
 
                     if (!teamLogic.values.currentTeam) {
-                        // Don't load dashboards when the current team is unavailable to prevent toast errors.
                         return { count: 0, next: null, previous: null, results: [] }
                     }
 
