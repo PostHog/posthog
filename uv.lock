@@ -1243,6 +1243,39 @@ wheels = [
 ]
 
 [[package]]
+name = "databricks-sdk"
+version = "0.65.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-auth" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/95/8f/5428287241727605be298cf952d6282d814cbf256ec73ddb96751ac0f476/databricks_sdk-0.65.0.tar.gz", hash = "sha256:be744c844d1e1e9bf1a4ad2982ef2c8b88f2ef8ad36b6ea8b77591fd3b1f1bbb", size = 749239, upload-time = "2025-09-02T10:50:42.476Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0e/70/4bd71d09b7d7f7bc9b4d0ceb20a020fd4f667d82aafc43e4d115bd41989e/databricks_sdk-0.65.0-py3-none-any.whl", hash = "sha256:594e61138071d7ae830412cfd3fbc5bd16aba9b67a423f44f4c13ca70c493a9f", size = 705907, upload-time = "2025-09-02T10:50:40.619Z" },
+]
+
+[[package]]
+name = "databricks-sql-connector"
+version = "4.1.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "lz4" },
+    { name = "oauthlib" },
+    { name = "openpyxl" },
+    { name = "pandas" },
+    { name = "pyjwt" },
+    { name = "python-dateutil" },
+    { name = "requests" },
+    { name = "thrift" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/68/75/2587e876e545849cc89e64d1aee2d021126bd92ab46f7eec5194a6f6a395/databricks_sql_connector-4.1.2.tar.gz", hash = "sha256:7a4eee6c773e0415731530dd812cc4bae04067e73521e5f6161c05d25233e5e7", size = 175173, upload-time = "2025-08-22T12:10:45.058Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/25/ea/322be8c8b845f8fb3e7f879164c1c73bb269671460f1f031391ae800cea8/databricks_sql_connector-4.1.2-py3-none-any.whl", hash = "sha256:b2d05bde9eb48226a6ca56b2e862150445a323e93504379605568371c4c0af19", size = 198429, upload-time = "2025-08-22T12:10:43.232Z" },
+]
+
+[[package]]
 name = "dataclasses-json"
 version = "0.6.7"
 source = { registry = "https://pypi.org/simple" }
@@ -4067,6 +4100,8 @@ dependencies = [
     { name = "dagster-postgres" },
     { name = "dagster-slack" },
     { name = "dagster-webserver" },
+    { name = "databricks-sdk" },
+    { name = "databricks-sql-connector" },
     { name = "deltalake" },
     { name = "dj-database-url" },
     { name = "django" },
@@ -4296,6 +4331,8 @@ requires-dist = [
     { name = "dagster-postgres", specifier = "==0.26.18" },
     { name = "dagster-slack", specifier = "==0.26.18" },
     { name = "dagster-webserver", specifier = "==1.10.18" },
+    { name = "databricks-sdk", specifier = ">=0.65.0" },
+    { name = "databricks-sql-connector", specifier = ">=4.1.2" },
     { name = "deltalake", specifier = "==0.25.2" },
     { name = "dj-database-url", specifier = "==0.5.0" },
     { name = "django", specifier = "~=4.2.17" },
@@ -6111,6 +6148,15 @@ sdist = { url = "https://files.pythonhosted.org/packages/b7/4d/08c89e34946fce2ae
 wheels = [
     { url = "https://files.pythonhosted.org/packages/32/d5/f9a850d79b0851d1d4ef6456097579a9005b31fea68726a4ae5f2d82ddd9/threadpoolctl-3.6.0-py3-none-any.whl", hash = "sha256:43a0b8fd5a2928500110039e43a5eed8480b918967083ea48dc3ab9f13c4a7fb", size = 18638, upload-time = "2025-03-13T13:49:21.846Z" },
 ]
+
+[[package]]
+name = "thrift"
+version = "0.20.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3c/2d/8946864f716ac82dcc88d290ed613cba7a80ec75df4f553ec3ff275f486e/thrift-0.20.0.tar.gz", hash = "sha256:4dd662eadf6b8aebe8a41729527bd69adf6ceaa2a8681cbef64d1273b3e8feba", size = 62295, upload-time = "2024-03-22T22:53:08.228Z" }
 
 [[package]]
 name = "tiktoken"
