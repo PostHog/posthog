@@ -43,7 +43,7 @@ export function SceneExportDropdownMenu({ dropdownMenuItems }: SceneExportDropdo
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" matchTriggerWidth>
-                {dropdownMenuItems.map((item) => {
+                {dropdownMenuItems.map((item, index) => {
                     const exportFormatExtension = Object.keys(ExporterFormat)
                         .find((key) => ExporterFormat[key as keyof typeof ExporterFormat] === item.format)
                         ?.toLowerCase()
@@ -63,7 +63,7 @@ export function SceneExportDropdownMenu({ dropdownMenuItems }: SceneExportDropdo
 
                     return (
                         <DropdownMenuItem
-                            key={item.label}
+                            key={index}
                             onClick={() =>
                                 void onExportClick({
                                     export_format: item.format,
