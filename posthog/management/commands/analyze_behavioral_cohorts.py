@@ -103,14 +103,18 @@ class Command(BaseCommand):
     ) -> list[dict[str, Any]]:
         """Get unique condition hashes from ClickHouse with optional limit"""
 
-        where_clauses = [f"date >= now() - INTERVAL {days} DAY"]
+        where_clauses = ["date >= now() - INTERVAL %s DAY"]
+        params = [days]
 
         if team_id:
-            where_clauses.append(f"team_id = {team_id}")
+            where_clauses.append("team_id = %s")
+            params.append(team_id)
         if cohort_id:
-            where_clauses.append(f"cohort_id = {cohort_id}")
+            where_clauses.append("cohort_id = %s")
+            params.append(cohort_id)
         if condition:
-            where_clauses.append(f"condition = '{condition}'")
+            where_clauses.append("condition = %s")
+            params.append(condition)
 
         where_clause = " AND ".join(where_clauses)
 
