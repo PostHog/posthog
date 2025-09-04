@@ -12916,6 +12916,10 @@
                     "description": "Customizations for the appearance of result datasets.",
                     "type": "object"
                 },
+                "showValuesOnSeries": {
+                    "default": false,
+                    "type": "boolean"
+                },
                 "useUdf": {
                     "type": "boolean"
                 }

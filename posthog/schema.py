@@ -11511,6 +11511,7 @@ class FunnelsFilter(BaseModel):
     resultCustomizations: Optional[dict[str, ResultCustomizationByValue]] = Field(
         default=None, description="Customizations for the appearance of result datasets."
     )
+    showValuesOnSeries: Optional[bool] = False
     useUdf: Optional[bool] = None
 
 
