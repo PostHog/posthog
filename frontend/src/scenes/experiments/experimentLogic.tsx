@@ -1377,10 +1377,10 @@ export const experimentLogic = kea<experimentLogicType>([
                             }
                         }
 
-                        initializeMetricOrdering(response)
+                        const responseWithMetricsOrdering = initializeMetricOrdering(response)
 
-                        actions.setUnmodifiedExperiment(structuredClone(response))
-                        return response
+                        actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
+                        return responseWithMetricsOrdering
                     } catch (error: any) {
                         if (error.status === 404) {
                             actions.setExperimentMissing()
@@ -1396,10 +1396,10 @@ export const experimentLogic = kea<experimentLogicType>([
                     `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                     update
                 )
-                initializeMetricOrdering(response)
+                const responseWithMetricsOrdering = initializeMetricOrdering(response)
                 refreshTreeItem('experiment', String(values.experimentId))
-                actions.setUnmodifiedExperiment(structuredClone(response))
-                return response
+                actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
+                return responseWithMetricsOrdering
             },
         },
         exposureCohort: [

@@ -774,31 +774,36 @@ export function insertMetricIntoOrderingArray(
 
 /**
  * Initialize ordering arrays for metrics if they're null
+ * Returns a new experiment object with initialized ordering arrays
  */
-export function initializeMetricOrdering(experiment: Experiment): void {
+export function initializeMetricOrdering(experiment: Experiment): Experiment {
+    const newExperiment = { ...experiment }
+
     // Initialize primary_metrics_ordered_uuids if it's null
-    if (experiment.primary_metrics_ordered_uuids === null) {
-        const primaryMetrics = experiment.metrics || []
-        const sharedPrimaryMetrics = (experiment.saved_metrics || []).filter(
+    if (newExperiment.primary_metrics_ordered_uuids === null) {
+        const primaryMetrics = newExperiment.metrics || []
+        const sharedPrimaryMetrics = (newExperiment.saved_metrics || []).filter(
             (sharedMetric: any) => sharedMetric.metadata.type === 'primary'
         )
 
         const allMetrics = [...primaryMetrics, ...sharedPrimaryMetrics]
-        experiment.primary_metrics_ordered_uuids = allMetrics
+        newExperiment.primary_metrics_ordered_uuids = allMetrics
             .map((metric: any) => metric.uuid || metric.query?.uuid)
             .filter(Boolean)
     }
 
     // Initialize secondary_metrics_ordered_uuids if it's null
-    if (experiment.secondary_metrics_ordered_uuids === null) {
-        const secondaryMetrics = experiment.metrics_secondary || []
-        const sharedSecondaryMetrics = (experiment.saved_metrics || []).filter(
+    if (newExperiment.secondary_metrics_ordered_uuids === null) {
+        const secondaryMetrics = newExperiment.metrics_secondary || []
+        const sharedSecondaryMetrics = (newExperiment.saved_metrics || []).filter(
             (sharedMetric: any) => sharedMetric.metadata.type === 'secondary'
         )
 
         const allMetrics = [...secondaryMetrics, ...sharedSecondaryMetrics]
-        experiment.secondary_metrics_ordered_uuids = allMetrics
+        newExperiment.secondary_metrics_ordered_uuids = allMetrics
             .map((metric: any) => metric.uuid || metric.query?.uuid)
             .filter(Boolean)
     }
+
+    return newExperiment
 }
