@@ -11,11 +11,11 @@ export interface ReleaseTagProps {
 }
 
 export function ReleaseTag({ title, overlay }: ReleaseTagProps): JSX.Element {
-    const [isOpen, setIsOpen] = useState(false)
+    const [, setIsOpen] = useState(false)
 
     return (
         <Popover
-            visible={isOpen}
+            visible={true}
             overlay={overlay}
             placement="right"
             padded={false}

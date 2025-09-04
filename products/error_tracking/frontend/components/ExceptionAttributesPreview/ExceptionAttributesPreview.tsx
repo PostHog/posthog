@@ -7,7 +7,7 @@ import { LemonTag, Spinner } from '@posthog/lemon-ui'
 import { ExceptionAttributes } from 'lib/components/Errors/types'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 
-import { ReleasesPreview } from './ReleasesPreview'
+import { ReleasesPreview } from './ReleasesPreview/ReleasesPreview'
 
 export interface ExceptionAttributesPreviewProps {
     attributes: ExceptionAttributes | null

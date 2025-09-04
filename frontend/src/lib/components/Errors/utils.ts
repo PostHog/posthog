@@ -117,7 +117,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
 
     const releases: ExceptionRelease[] | undefined = exceptionReleases
         ? Object.keys(exceptionReleases).map((hashId) => {
-              return { commitSha: hashId, url: 'https://example.com' }
+              return { commitSha: hashId, url: 'https://example-ab.com/first/second/third' }
           })
         : undefined
 
