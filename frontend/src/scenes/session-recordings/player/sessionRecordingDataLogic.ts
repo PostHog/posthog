@@ -12,7 +12,10 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { processAllSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
+import {
+    ProcessingCache,
+    processAllSnapshots,
+} from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { annotationsModel } from '~/models/annotationsModel'
@@ -34,7 +37,6 @@ import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { ViewportResolution, getHrefFromSnapshot } from './snapshot-processing/patch-meta-event'
-import { SourceKey } from './snapshot-processing/source-key'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
@@ -659,7 +661,7 @@ AND properties.$lib != 'web'`
                 // oxlint-disable-next-line @typescript-eslint/no-unused-vars
                 snapshotsBySources
             ): RecordingSnapshot[] => {
-                cache.processingCache = cache.processingCache || ({} as Record<SourceKey, RecordingSnapshot[]>)
+                cache.processingCache = cache.processingCache || ({} as ProcessingCache)
                 const snapshots = processAllSnapshots(
                     sources,
                     snapshotsBySources,

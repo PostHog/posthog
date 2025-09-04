@@ -27,7 +27,7 @@ import {
 
 import { PostHogEE } from '../../../../../@posthog/ee/types'
 
-type ProcessingResult = Record<SourceKey, RecordingSnapshot[]>
+export type ProcessingCache = Record<SourceKey, RecordingSnapshot[]>
 /**
  * NB this both mutates and returns snapshotsBySource
  *
@@ -37,7 +37,7 @@ type ProcessingResult = Record<SourceKey, RecordingSnapshot[]>
 export function processAllSnapshots(
     sources: SessionRecordingSnapshotSource[] | null,
     snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
-    processingCache: ProcessingResult,
+    processingCache: ProcessingCache,
     viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
     sessionRecordingId: string
 ): RecordingSnapshot[] {
