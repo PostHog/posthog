@@ -1,3 +1,4 @@
+import time
 import logging
 from typing import Any
 
@@ -76,13 +77,15 @@ class Command(BaseCommand):
         logger.info(f"Found {len(condition_hashes)} unique condition hashes")
 
         # Step 2: Get cohort memberships (team_id, person_id, cohort_id)
+        start_time = time.time()
         memberships = self.get_cohort_memberships(
             condition_hashes,
             min_matches,
             days,
         )
+        total_time = time.time() - start_time
 
-        logger.info(f"Total cohort memberships found: {len(memberships)}")
+        logger.info(f"Total cohort memberships found: {len(memberships)}, completed in {total_time:.2f} seconds")
 
         self.stdout.write("team_id,person_id,cohort_id")
 
@@ -179,7 +182,9 @@ class Command(BaseCommand):
                 LIMIT 100000
             """
             try:
+                start_time = time.time()
                 results = sync_execute(query, [team_id, cohort_id, condition_hash, days, min_matches])
+                query_time = time.time() - start_time
 
                 for row in results:
                     person_id = row[0]
@@ -189,6 +194,7 @@ class Command(BaseCommand):
                     "Processed condition",
                     condition=condition_hash[:16] + "...",
                     persons_found=len(results),
+                    query_time_seconds=f"{query_time:.2f}",
                 )
 
             except Exception as e:
