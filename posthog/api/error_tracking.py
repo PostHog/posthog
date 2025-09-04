@@ -7,6 +7,7 @@ from django.db import transaction
 from django.http import JsonResponse
 
 import structlog
+import posthoganalytics
 from loginas.utils import is_impersonated_session
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
@@ -239,6 +240,14 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         # Make sure we don't delete the issue being merged into (defensive of frontend bugs)
         ids = [x for x in ids if x != str(issue.id)]
         issue.merge(issue_ids=ids)
+        return Response({"success": True})
+
+    @action(methods=["POST"], detail=True)
+    def split(self, request, **kwargs):
+        issue: ErrorTrackingIssue = self.get_object()
+        fingerprints: list[str] = request.data.get("fingerprints", [])
+        exclusive: bool = request.data.get("exclusive", True)
+        issue.split(fingerprints=fingerprints, exclusive=exclusive)
         return Response({"success": True})
 
     @action(methods=["PATCH"], detail=True)
@@ -563,11 +572,18 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
+    # DEPRECATED: newer versions of the CLI use bulk uploads
     def create(self, request, *args, **kwargs) -> Response:
         # pull the symbol set reference from the query params
         chunk_id = request.query_params.get("chunk_id", None)
         multipart = request.query_params.get("multipart", False)
         release_id = request.query_params.get("release_id", None)
+
+        posthoganalytics.capture(
+            "error_tracking_symbol_set_deprecated_endpoint",
+            distinct_id=request.user.pk,
+            properties={"team_id": self.team.id, "endpoint": "create"},
+        )
 
         if not chunk_id:
             return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -581,15 +597,22 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             # file added to the request data by the FileUploadParser
             data = request.data["file"].read()
 
-        (_, content_hash) = upload_content(bytearray(data))
-        bulk_create_symbol_sets([chunk_id], self.team, release_id, content_hash)
+        (storage_ptr, content_hash) = upload_content(bytearray(data))
+        create_symbol_set(chunk_id, self.team, release_id, storage_ptr, content_hash)
 
         return Response({"ok": True}, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=False)
+    # DEPRECATED: we should eventually remove this once everyone is using a new enough version of the CLI
     def start_upload(self, request, **kwargs):
         chunk_id = request.query_params.get("chunk_id", None)
         release_id = request.query_params.get("release_id", None)
+
+        posthoganalytics.capture(
+            "error_tracking_symbol_set_deprecated_endpoint",
+            distinct_id=request.user.pk,
+            properties={"team_id": self.team.id, "endpoint": "start_upload"},
+        )
 
         if not settings.OBJECT_STORAGE_ENABLED:
             raise ValidationError(
@@ -600,10 +623,18 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         if not chunk_id:
             return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        chunk_id_url_map = bulk_create_symbol_sets([chunk_id], self.team, release_id)
-        response = chunk_id_url_map.get(chunk_id)
+        file_key = generate_symbol_set_file_key()
+        presigned_url = object_storage.get_presigned_post(
+            file_key=file_key,
+            conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
+            expiration=PRESIGNED_SINGLE_UPLOAD_TIMEOUT,
+        )
 
-        return Response(response, status=status.HTTP_201_CREATED)
+        symbol_set = create_symbol_set(chunk_id, self.team, release_id, file_key)
+
+        return Response(
+            {"presigned_url": presigned_url, "symbol_set_id": str(symbol_set.pk)}, status=status.HTTP_201_CREATED
+        )
 
     @action(methods=["PUT"], detail=True, parser_classes=[JSONParser])
     def finish_upload(self, request, **kwargs):
@@ -705,8 +736,8 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                         detail="No file has been uploaded for the symbol set.",
                     )
 
-                if not symbol_set.content_hash:
-                    symbol_set.content_hash = content_hashes[str(symbol_set.id)]
+                content_hash = content_hashes[str(symbol_set.id)]
+                symbol_set.content_hash = content_hash
             ErrorTrackingSymbolSet.objects.bulk_update(symbol_sets, ["content_hash"])
         except Exception:
             for id in content_hashes.keys():
@@ -924,11 +955,47 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
+def create_symbol_set(
+    chunk_id: str, team: Team, release_id: str | None, storage_ptr: str, content_hash: Optional[str] = None
+):
+    if release_id:
+        objects = ErrorTrackingRelease.objects.all().filter(team=team, id=release_id)
+        if len(objects) < 1:
+            raise ValueError(f"Unknown release: {release_id}")
+        release = objects[0]
+    else:
+        release = None
+
+    with transaction.atomic():
+        try:
+            symbol_set = ErrorTrackingSymbolSet.objects.get(team=team, ref=chunk_id)
+            if symbol_set.release is None:
+                symbol_set.release = release
+            elif symbol_set.release != release:
+                raise ValidationError(f"Symbol set has already been uploaded for a different release")
+            symbol_set.storage_ptr = storage_ptr
+            symbol_set.content_hash = content_hash
+            symbol_set.save()
+
+        except ErrorTrackingSymbolSet.DoesNotExist:
+            symbol_set = ErrorTrackingSymbolSet.objects.create(
+                team=team,
+                ref=chunk_id,
+                release=release,
+                storage_ptr=storage_ptr,
+                content_hash=content_hash,
+            )
+
+        # Delete any existing frames associated with this symbol set
+        ErrorTrackingStackFrame.objects.filter(team=team, symbol_set=symbol_set).delete()
+
+        return symbol_set
+
+
 def bulk_create_symbol_sets(
     chunk_ids: list[str],
     team: Team,
     release_id: str | None,
-    content_hash: Optional[str] = None,
 ) -> dict[str, dict[str, str]]:
     release = create_release(team, release_id) if release_id else None
 
@@ -950,15 +1017,14 @@ def bulk_create_symbol_sets(
                     ref=chunk_id,
                     release=release,
                     storage_ptr=storage_ptr,
-                    content_hash=content_hash,
                 )
             )
 
         # create missing symbol sets
-        ErrorTrackingSymbolSet.objects.bulk_create(symbol_sets_to_be_created)
+        created_symbol_sets = ErrorTrackingSymbolSet.objects.bulk_create(symbol_sets_to_be_created)
 
-        for symbol_set in symbol_sets_to_be_created:
-            id_url_map[symbol_set.ref]["symbol_set_id"] = str(symbol_set.id)
+        for symbol_set in created_symbol_sets:
+            id_url_map[symbol_set.ref]["symbol_set_id"] = str(symbol_set.pk)
 
         # update existing symbol sets
         for symbol_set in existing_symbol_sets:
@@ -971,7 +1037,7 @@ def bulk_create_symbol_sets(
             presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
             id_url_map[symbol_set.ref] = {"presigned_url": presigned_url, "symbol_set_id": str(symbol_set.id)}
             symbol_set.storage_ptr = storage_ptr
-            symbol_set.content_hash = content_hash
+            symbol_set.content_hash = None
         ErrorTrackingSymbolSet.objects.bulk_update(existing_symbol_sets, ["release", "storage_ptr", "content_hash"])
 
         # Delete any existing frames associated with this symbol set
