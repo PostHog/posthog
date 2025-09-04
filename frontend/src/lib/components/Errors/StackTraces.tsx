@@ -76,7 +76,7 @@ export function ChainedStackTraces({
     }, [exceptionList, loadFromRawIds])
 
     return (
-        <div className="flex flex-col gap-y-2">
+        <div className="flex flex-col gap-y-2 bg-red-500">
             {exceptionList.map(({ stacktrace, value, type, id }, index) => {
                 const displayTrace = shouldDisplayTrace(stacktrace, showAllFrames)
                 const part = getExceptionFingerprint(id)
