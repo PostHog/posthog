@@ -18,6 +18,7 @@ export const DATASETS_PER_PAGE = 100
 
 export interface SearchFormValues {
     search: string
+    datasetId: string | null
 }
 
 export const addDatasetItemLogic = kea<addDatasetItemLogicType>([
@@ -28,6 +29,7 @@ export const addDatasetItemLogic = kea<addDatasetItemLogicType>([
     actions({
         setIsModalOpen: (isModalOpen: boolean) => ({ isModalOpen }),
         setEditMode: (editMode: 'add' | 'edit') => ({ editMode }),
+        setDropdownVisible: (dropdownVisible: boolean) => ({ dropdownVisible }),
     }),
 
     reducers(() => ({
@@ -44,17 +46,14 @@ export const addDatasetItemLogic = kea<addDatasetItemLogicType>([
                 setEditMode: (_, { editMode }) => editMode,
             },
         ],
-    })),
 
-    selectors({
-        datasets: [
-            (s) => [s.datasetStore, s.searchForm],
-            (datasetStore, searchForm): Dataset[] => {
-                const storageKey = getStorageKey(searchForm.search)
-                return datasetStore[storageKey] ?? []
+        dropdownVisible: [
+            false as boolean,
+            {
+                setDropdownVisible: (_, { dropdownVisible }) => dropdownVisible,
             },
         ],
-    }),
+    })),
 
     loaders(({ values }) => ({
         datasetStore: [
@@ -83,30 +82,54 @@ export const addDatasetItemLogic = kea<addDatasetItemLogicType>([
 
     forms(({ asyncActions }) => ({
         searchForm: {
-            defaults: {
-                search: '',
-            } as SearchFormValues,
+            defaults: { search: '', datasetId: null } as SearchFormValues,
 
-            submit: async () => {
-                await asyncActions.loadDatasets(true)
+            submit: async ({ datasetId }) => {
+                if (datasetId) {
+                } else {
+                    await asyncActions.loadDatasets(true)
+                }
             },
         },
     })),
 
-    listeners(({ actions }) => ({
+    selectors({
+        datasets: [
+            (s) => [s.datasetStore, s.searchForm],
+            (datasetStore, searchForm): Dataset[] | null => {
+                const storageKey = getStorageKey(searchForm.search)
+                return datasetStore[storageKey] ?? null
+            },
+        ],
+
+        isLoadingDatasets: [
+            (s) => [s.datasets, s.datasetStoreLoading],
+            (datasets, datasetStoreLoading): boolean => {
+                return !datasets && datasetStoreLoading
+            },
+        ],
+    }),
+
+    listeners(({ actions, asyncActions }) => ({
         setIsModalOpen: () => {
             actions.setSearchFormValue('search', '')
         },
 
         setSearchFormValue: ({ name }) => {
-            if (name === 'search') {
-                actions.loadDatasets(true)
+            if (name[0] === 'search') {
+                asyncActions.loadDatasets(true)
+            }
+        },
+
+        setDropdownVisible: ({ dropdownVisible }) => {
+            if (dropdownVisible) {
+                asyncActions.loadDatasets(true)
             }
         },
     })),
 
     afterMount(({ actions, values }) => {
-        if (!values.datasets.length) {
+        if (!values.datasets?.length) {
             actions.loadDatasets(false)
         }
     }),
