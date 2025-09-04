@@ -71,6 +71,7 @@ import {
     TrendExperimentVariant,
 } from '~/types'
 
+import { MetricsGroupState, processMetricsGroup } from './MetricsView/shared/metricsState'
 import { getDefaultMetricTitle } from './MetricsView/shared/utils'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
@@ -2048,6 +2049,56 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [s.experiment],
             (experiment: Experiment): ExperimentStatsMethod => {
                 return experiment.stats_config?.method || ExperimentStatsMethod.Bayesian
+            },
+        ],
+        primaryMetricsState: [
+            (s) => [
+                s.getOrderedMetrics,
+                s.primaryMetricsResults,
+                s.primaryMetricsResultsErrors,
+                s.primaryMetricsResultsLoading,
+                s.experiment,
+            ],
+            (
+                getOrderedMetrics,
+                primaryMetricsResults,
+                primaryMetricsResultsErrors,
+                primaryMetricsResultsLoading,
+                experiment
+            ): MetricsGroupState => {
+                const primaryMetrics = getOrderedMetrics(false)
+                return processMetricsGroup(
+                    primaryMetrics,
+                    primaryMetricsResults,
+                    primaryMetricsResultsErrors,
+                    primaryMetricsResultsLoading,
+                    experiment
+                )
+            },
+        ],
+        secondaryMetricsState: [
+            (s) => [
+                s.getOrderedMetrics,
+                s.secondaryMetricsResults,
+                s.secondaryMetricsResultsErrors,
+                s.secondaryMetricsResultsLoading,
+                s.experiment,
+            ],
+            (
+                getOrderedMetrics,
+                secondaryMetricsResults,
+                secondaryMetricsResultsErrors,
+                secondaryMetricsResultsLoading,
+                experiment
+            ): MetricsGroupState => {
+                const secondaryMetrics = getOrderedMetrics(true)
+                return processMetricsGroup(
+                    secondaryMetrics,
+                    secondaryMetricsResults,
+                    secondaryMetricsResultsErrors,
+                    secondaryMetricsResultsLoading,
+                    experiment
+                )
             },
         ],
     }),
