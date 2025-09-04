@@ -38,6 +38,8 @@ import { pluralize } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -646,6 +648,32 @@ const Visualization = React.memo(function Visualization({
     )
 })
 
+function InsightSuggestionButton({ tabId }: { tabId: string }): JSX.Element {
+    const { insight } = useValues(insightSceneLogic({ tabId }))
+    const insightProps = { dashboardItemId: insight?.short_id }
+    const { suggestedQuery, previousQuery } = useValues(insightLogic(insightProps))
+    const { onRejectSuggestedInsight, onReapplySuggestedInsight } = useActions(insightLogic(insightProps))
+
+    return (
+        <>
+            {suggestedQuery && (
+                <LemonButton
+                    onClick={() => {
+                        if (previousQuery) {
+                            onRejectSuggestedInsight()
+                        } else {
+                            onReapplySuggestedInsight()
+                        }
+                    }}
+                    sideIcon={previousQuery ? <IconX /> : <IconRefresh />}
+                    size="xsmall"
+                    tooltip={previousQuery ? "Reject Max's changes" : "Reapply Max's changes"}
+                />
+            )}
+        </>
+    )
+}
+
 const VisualizationAnswer = React.memo(function VisualizationAnswer({
     message,
     status,
@@ -655,14 +683,9 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
     status?: MessageStatus
     isEditingInsight: boolean
 }): JSX.Element | null {
-    const { insight } = useValues(insightSceneLogic)
     const [isSummaryShown, setIsSummaryShown] = useState(false)
     const [isCollapsed, setIsCollapsed] = useState(isEditingInsight)
-    // Get insight props for the logic
-    const insightProps = { dashboardItemId: insight?.short_id }
-
-    const { suggestedQuery, previousQuery } = useValues(insightLogic(insightProps))
-    const { onRejectSuggestedInsight, onReapplySuggestedInsight } = useActions(insightLogic(insightProps))
+    const { activeTabId, activeSceneId } = useValues(sceneLogic)
 
     useEffect(() => {
         setIsCollapsed(isEditingInsight)
@@ -695,19 +718,8 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                               </LemonButton>
                           </div>
                           <div className="flex items-center gap-1.5">
-                              {isEditingInsight && suggestedQuery && (
-                                  <LemonButton
-                                      onClick={() => {
-                                          if (previousQuery) {
-                                              onRejectSuggestedInsight()
-                                          } else {
-                                              onReapplySuggestedInsight()
-                                          }
-                                      }}
-                                      sideIcon={previousQuery ? <IconX /> : <IconRefresh />}
-                                      size="xsmall"
-                                      tooltip={previousQuery ? "Reject Max's changes" : "Reapply Max's changes"}
-                                  />
+                              {isEditingInsight && activeTabId && activeSceneId === Scene.Insight && (
+                                  <InsightSuggestionButton tabId={activeTabId} />
                               )}
                               {!isEditingInsight && (
                                   <LemonButton
