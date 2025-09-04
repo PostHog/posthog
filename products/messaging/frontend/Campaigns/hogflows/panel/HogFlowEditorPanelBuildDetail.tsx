@@ -11,7 +11,7 @@ import { CategorySelect } from 'products/messaging/frontend/OptOuts/CategorySele
 import { campaignLogic } from '../../campaignLogic'
 import { HogFlowFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
-import { getHogFlowStep } from '../steps/HogFlowSteps'
+import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { isOptOutEligibleAction } from '../steps/types'
 import { HogFlowAction } from '../types'
 
@@ -21,12 +21,13 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     const { actionValidationErrorsById } = useValues(campaignLogic)
     const validationResult = actionValidationErrorsById[selectedNode?.id ?? '']
 
+    const Step = useHogFlowStep(selectedNode?.data)
+
     if (!selectedNode) {
         return null
     }
 
     const action = selectedNode.data
-    const Step = getHogFlowStep(action)
 
     return (
         <div className="flex flex-col h-full overflow-hidden">

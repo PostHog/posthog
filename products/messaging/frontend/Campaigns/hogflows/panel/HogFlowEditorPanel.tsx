@@ -9,7 +9,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 
 import { campaignLogic } from '../../campaignLogic'
 import { HOG_FLOW_EDITOR_MODES, HogFlowEditorMode, hogFlowEditorLogic } from '../hogFlowEditorLogic'
-import { getHogFlowStep } from '../steps/HogFlowSteps'
+import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { HogFlowEditorPanelBuild } from './HogFlowEditorPanelBuild'
 import { HogFlowEditorPanelBuildDetail } from './HogFlowEditorPanelBuildDetail'
 import { HogFlowEditorPanelLogs } from './HogFlowEditorPanelLogs'
@@ -29,7 +29,7 @@ export function HogFlowEditorPanel(): JSX.Element | null {
 
     const width = mode !== 'build' ? '36rem' : selectedNode ? '36rem' : '22rem'
 
-    const Step = selectedNode ? getHogFlowStep(selectedNode.data) : null
+    const Step = useHogFlowStep(selectedNode?.data)
     const { actionValidationErrorsById } = useValues(campaignLogic)
     const validationResult = actionValidationErrorsById[selectedNode?.id ?? '']
 

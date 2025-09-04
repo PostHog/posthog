@@ -36,7 +36,7 @@ export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
         },
     })
 
-    const { campaign } = useValues(campaignLogic({ id }))
+    const { campaign, hogFunctionTemplatesById } = useValues(campaignLogic({ id }))
 
     const { appMetricsTrendsLoading, getSingleTrendSeries, appMetricsTrends, params } = useValues(logic)
     const { setParams } = useActions(logic)
@@ -60,7 +60,7 @@ export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
                             {
                                 title: 'Workflow steps',
                                 options: campaign.actions.map((action) => {
-                                    const Step = getHogFlowStep(action)
+                                    const Step = getHogFlowStep(action, hogFunctionTemplatesById)
                                     return {
                                         label: (
                                             <span className="flex items-center gap-1">

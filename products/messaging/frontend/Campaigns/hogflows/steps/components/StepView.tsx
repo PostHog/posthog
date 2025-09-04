@@ -7,7 +7,7 @@ import { campaignLogic } from '../../../campaignLogic'
 import { NODE_HEIGHT, NODE_WIDTH } from '../../constants'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { HogFlowAction } from '../../types'
-import { getHogFlowStep } from '../HogFlowSteps'
+import { useHogFlowStep } from '../HogFlowSteps'
 import { StepViewMetrics } from './StepViewMetrics'
 
 export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
@@ -17,9 +17,8 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
 
     const height = mode === 'metrics' ? NODE_HEIGHT + 10 : NODE_HEIGHT
 
+    const Step = useHogFlowStep(action)
     const { selectedColor, colorLight, color, icon } = useMemo(() => {
-        const Step = getHogFlowStep(action)
-
         return {
             selectedColor: Step?.color
                 ? isSelected
@@ -32,7 +31,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
             color: Step?.color || 'var(--text-secondary)',
             icon: Step?.icon,
         }
-    }, [action, isSelected])
+    }, [action, isSelected, Step.icon, Step.color])
 
     const hasValidationError = actionValidationErrorsById[action.id]?.valid === false
 

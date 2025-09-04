@@ -4,7 +4,7 @@ import { IconDrag } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
-import { getHogFlowStep } from '../steps/HogFlowSteps'
+import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { HogFlowAction } from '../types'
 
 export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
@@ -21,13 +21,13 @@ export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
         config: { template_id: 'template-sms', inputs: {} },
     },
     {
-        type: 'function_slack',
+        type: 'function',
         name: 'Slack',
         description: 'Send a Slack message to the user.',
         config: { template_id: 'template-slack', inputs: {} },
     },
     {
-        type: 'function_webhook',
+        type: 'function',
         name: 'Webhook',
         description: 'Send a Webhook to the user.',
         config: { template_id: 'template-webhook', inputs: {} },
@@ -40,6 +40,7 @@ export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
         type: 'wait_until_time_window',
         name: 'Wait until time window',
         description: 'Wait until a specified time window.',
+        branchEdges: 1,
         config: {
             timezone: null,
             day: 'any',
@@ -50,6 +51,7 @@ export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
         type: 'wait_until_condition',
         name: 'Wait until condition',
         description: 'Wait until a condition is met or a duration has passed.',
+        branchEdges: 1,
         config: {
             condition: { filters: null },
             max_wait_duration: '5m',
@@ -62,6 +64,7 @@ export const LOGIC_NODES_TO_SHOW: CreateActionType[] = [
         type: 'conditional_branch',
         name: 'Conditional branch',
         description: 'Branch based on a condition such as the event trigger or a person property.',
+        branchEdges: 1,
         config: {
             conditions: [
                 {
@@ -82,6 +85,7 @@ export const LOGIC_NODES_TO_SHOW: CreateActionType[] = [
         type: 'random_cohort_branch',
         name: 'Random cohort branch',
         description: 'Randomly branch off to a different path based on cohort percentages.',
+        branchEdges: 1,
         config: {
             cohorts: [
                 {
@@ -125,7 +129,7 @@ function HogFlowEditorToolbarNode({ action }: { action: CreateActionType }): JSX
         event.dataTransfer.effectAllowed = 'move'
     }
 
-    const step = getHogFlowStep(action as HogFlowAction)
+    const step = useHogFlowStep(action as HogFlowAction)
 
     if (!step) {
         return null

@@ -1,4 +1,6 @@
 import { Node } from '@xyflow/react'
+import { useValues } from 'kea'
+import { useMemo } from 'react'
 
 import {
     IconBolt,
@@ -9,11 +11,13 @@ import {
     IconLeave,
     IconLetter,
     IconPercentage,
-    IconWebhooks,
 } from '@posthog/icons'
 
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
 
+import { HogFunctionTemplateType } from '~/types'
+
+import { campaignLogic } from '../../campaignLogic'
 import { HogFlowAction } from '../types'
 import { StepConditionalBranchConfiguration } from './StepConditionalBranch'
 import { StepDelayConfiguration } from './StepDelay'
@@ -26,19 +30,25 @@ import { StepWaitUntilTimeWindowConfiguration } from './StepWaitUntilTimeWindow'
 
 type HogFlowStepBuilder<T extends HogFlowAction['type']> = {
     type: T
-    icon: (action: Extract<HogFlowAction, { type: T }>) => JSX.Element
-    color: (action: Extract<HogFlowAction, { type: T }>) => string
+    icon: (
+        action: Extract<HogFlowAction, { type: T }>,
+        hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
+    ) => JSX.Element
+    color: (
+        action: Extract<HogFlowAction, { type: T }>,
+        hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
+    ) => string
     renderConfiguration: (node: Node<Extract<HogFlowAction, { type: T }>>) => JSX.Element
 }
 
-export type HogFlowStep<T extends HogFlowAction['type']> = {
+type HogFlowStep<T extends HogFlowAction['type']> = {
     type: T
     icon: JSX.Element
     color: string
     renderConfiguration: (node: Node<Extract<HogFlowAction, { type: T }>>) => JSX.Element
 }
 
-export const HogFlowStepConfigs: Partial<{
+const HogFlowStepConfigs: Partial<{
     [K in HogFlowAction['type']]: HogFlowStepBuilder<K>
 }> = {
     conditional_branch: {
@@ -59,12 +69,6 @@ export const HogFlowStepConfigs: Partial<{
         color: () => '#4b4b4b',
         renderConfiguration: (node) => <StepExitConfiguration node={node} />,
     },
-    function: {
-        type: 'function',
-        icon: () => <IconBolt />,
-        color: () => '#005841',
-        renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
-    },
     function_email: {
         type: 'function_email',
         icon: () => <IconLetter />,
@@ -83,12 +87,12 @@ export const HogFlowStepConfigs: Partial<{
         color: () => '#f22f46',
         renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
     },
-    function_webhook: {
-        type: 'function_webhook',
-        icon: () => <IconWebhooks />,
-        color: () => '#6500ae',
-        renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
-    },
+    // function_webhook: {
+    //     type: 'function_webhook',
+    //     icon: () => <IconWebhooks />,
+    //     color: () => '#6500ae',
+    //     renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
+    // },
     random_cohort_branch: {
         type: 'random_cohort_branch',
         icon: () => <IconPercentage />,
@@ -113,11 +117,30 @@ export const HogFlowStepConfigs: Partial<{
         color: () => '#005841',
         renderConfiguration: (node) => <StepWaitUntilTimeWindowConfiguration node={node} />,
     },
+
+    function: {
+        type: 'function',
+        icon: (action, hogFunctionTemplatesById) => {
+            if (action.config.template_id === 'template-email') {
+                return <IconLetter />
+            }
+
+            const template = hogFunctionTemplatesById[action.config.template_id]
+            return template?.icon_url ? (
+                <img className="LemonIcon" src={template.icon_url} alt={template.name} />
+            ) : (
+                <IconBolt />
+            )
+        },
+        color: () => '#005841',
+        renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
+    },
 } as const
 
 // Type-safe accessor that preserves the key type
 export function getHogFlowStep<T extends HogFlowAction['type']>(
-    action: Extract<HogFlowAction, { type: T }>
+    action: Extract<HogFlowAction, { type: T }>,
+    hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
 ): HogFlowStep<T> | undefined {
     const type = action.type
     const builder = HogFlowStepConfigs[type]
@@ -126,8 +149,21 @@ export function getHogFlowStep<T extends HogFlowAction['type']>(
     }
     return {
         type,
-        icon: builder.icon(action),
-        color: builder.color(action),
+        icon: builder.icon(action, hogFunctionTemplatesById),
+        color: builder.color(action, hogFunctionTemplatesById),
         renderConfiguration: builder.renderConfiguration,
     }
+}
+
+export function useHogFlowStep<T extends HogFlowAction['type']>(
+    action?: Extract<HogFlowAction, { type: T }>
+): HogFlowStep<T> | undefined {
+    const { hogFunctionTemplatesById } = useValues(campaignLogic)
+
+    return useMemo(() => {
+        if (!action) {
+            return undefined
+        }
+        return getHogFlowStep(action, hogFunctionTemplatesById)
+    }, [action, hogFunctionTemplatesById])
 }

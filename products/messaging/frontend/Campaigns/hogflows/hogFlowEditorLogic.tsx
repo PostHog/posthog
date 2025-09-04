@@ -43,7 +43,9 @@ export type HogFlowEditorActionMetrics = {
     filtered: number
 }
 
-export type CreateActionType = Pick<HogFlowAction, 'type' | 'config' | 'name' | 'description'>
+export type CreateActionType = Pick<HogFlowAction, 'type' | 'config' | 'name' | 'description'> & {
+    branchEdges?: number
+}
 
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as CampaignLogicProps),
@@ -272,12 +274,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 })
 
                 const nodes: HogFlowActionNode[] = hogFlow.actions.map((action: HogFlowAction) => {
-                    const step = getHogFlowStep(action)
-                    if (!step) {
-                        console.error(`Step not found for action type: ${action.type}`)
-                        throw new Error(`Step not found for action type: ${action.type}`)
-                    }
-
                     return {
                         id: action.id,
                         type: 'action',
@@ -404,9 +400,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     updated_at: Date.now(),
                 } as HogFlowAction
 
-                const step = getHogFlowStep(newAction)
+                const step = getHogFlowStep(newAction, values.hogFunctionTemplatesById)
 
-                const branchEdges = 1 // TODO: FIX THIS
+                const branchEdges = partialNewAction.branchEdges ?? 0
 
                 if (!step) {
                     throw new Error(`Step not found for action type: ${newAction}`)
