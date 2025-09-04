@@ -182,8 +182,8 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
         - Aggregates the timestamps and path items for each actor into arrays.
 
         Example:
-        ┌─actor_id─────────────────────────────┬─timestamp_array─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┬─path_item_array──────────────────────────────────────────────────────────────┐ series_entities_flags_array
-        │ 6c012bb7-f3f6-5f0f-f72a-473ee658fdec │ ['2023-03-13 09:00:00.000000']                                                                                                                                                  │ ['Landing Page']                                                             │ [(..., ..., ...)]
+        ┌─actor_id─────────────────────────────┬─timestamp_array─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┬─path_item_array──────────────────────────────────────────────────────────────┐
+        │ 6c012bb7-f3f6-5f0f-f72a-473ee658fdec │ ['2023-03-13 09:00:00.000000']                                                                                                                                                  │ ['Landing Page']                                                             │
         │ be012a47-61e6-43d7-fa0a-8f0a1d229610 │ ['2023-03-10 12:00:00.000000','2023-03-10 12:05:00.000000','2023-03-10 12:10:00.000000','2023-03-10 12:15:00.000000','2023-03-10 12:20:00.000000']                              │ ['Landing Page','Product View','Add to Cart','Checkout','Purchase']          │
         │ 30b444d4-6fb7-8f08-67f1-3f70d30c5746 │ ['2023-03-12 10:00:00.000000','2023-03-12 10:02:00.000000','2023-03-12 10:05:00.000000']                                                                                        │ ['Landing Page','Product View','Add to Cart']                                │
         │ 631e1988-3971-79a2-02ae-b09da769be2e │ ['2023-03-11 11:30:00.000000','2023-03-11 11:32:00.000000','2023-03-11 11:35:00.000000','2023-03-11 11:38:00.000000','2023-03-11 11:42:00.000000','2023-03-11 11:45:00.000000'] │ ['Landing Page','Search','Product View','Add to Cart','Checkout','Purchase'] │
@@ -194,8 +194,7 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
             SELECT
                 actor_id,
                 groupArray(timestamp) as timestamp_array,
-                groupArray(path_item) as path_item_array,
-                groupArray(series_entities_flags) as series_entities_flags_array
+                groupArray(path_item) as path_item_array
             FROM {event_base_query}
             GROUP BY actor_id
         """,
@@ -203,14 +202,6 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
                 "event_base_query": self._event_base_query(),
             },
         )
-
-        # if self.query.series is not None and len(self.query.series) > 0:
-        #     query.select.append(
-        #         ast.Alias(
-        #             alias="series_entities_flags_array",
-        #             expr=ast.Call(name="groupArray", args=[ast.Field(chain=["series_entities_flags"])]),
-        #         )
-        #     )
 
         return query
 
@@ -246,8 +237,7 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
                 arrayZip(
                     timestamp_array,
                     path_item_array,
-                    arrayPopBack(arrayPushFront(timestamp_array, NULL)),
-                    series_entities_flags_array
+                    arrayPopBack(arrayPushFront(timestamp_array, NULL))
                 ) as paths_array,
 
                 /* Splits the tuple array if the difference between the current and the
