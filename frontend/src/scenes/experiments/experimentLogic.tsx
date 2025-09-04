@@ -2006,45 +2006,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 return experiment.exposure_criteria
             },
         ],
-        getOrderedMetrics: [
-            (s) => [s.experiment],
-            (experiment: Experiment) =>
-                (isSecondary: boolean): ExperimentMetric[] => {
-                    if (!experiment) {
-                        return []
-                    }
-
-                    const metricType = isSecondary ? 'secondary' : 'primary'
-                    const regularMetrics = isSecondary
-                        ? ((experiment.metrics_secondary || []) as ExperimentMetric[])
-                        : ((experiment.metrics || []) as ExperimentMetric[])
-
-                    const sharedMetrics = (experiment.saved_metrics || [])
-                        .filter((sharedMetric) => sharedMetric.metadata.type === metricType)
-                        .map((sharedMetric) => ({
-                            ...sharedMetric.query,
-                            name: sharedMetric.name,
-                            sharedMetricId: sharedMetric.saved_metric,
-                            isSharedMetric: true,
-                        })) as ExperimentMetric[]
-
-                    const allMetrics = [...regularMetrics, ...sharedMetrics]
-
-                    const metricsMap = new Map()
-                    allMetrics.forEach((metric: any) => {
-                        const uuid = metric.uuid || metric.query?.uuid
-                        if (uuid) {
-                            metricsMap.set(uuid, metric)
-                        }
-                    })
-
-                    const orderedUuids = isSecondary
-                        ? experiment.secondary_metrics_ordered_uuids || []
-                        : experiment.primary_metrics_ordered_uuids || []
-
-                    return orderedUuids.map((uuid) => metricsMap.get(uuid)).filter(Boolean) as ExperimentMetric[]
-                },
-        ],
         statsMethod: [
             (s) => [s.experiment],
             (experiment: Experiment): ExperimentStatsMethod => {
@@ -2053,51 +2014,45 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
         primaryMetricsState: [
             (s) => [
-                s.getOrderedMetrics,
+                s.experiment,
                 s.primaryMetricsResults,
                 s.primaryMetricsResultsErrors,
                 s.primaryMetricsResultsLoading,
-                s.experiment,
             ],
             (
-                getOrderedMetrics,
+                experiment,
                 primaryMetricsResults,
                 primaryMetricsResultsErrors,
-                primaryMetricsResultsLoading,
-                experiment
+                primaryMetricsResultsLoading
             ): MetricState[] => {
-                const primaryMetrics = getOrderedMetrics(false)
                 return processMetrics(
-                    primaryMetrics,
+                    experiment,
+                    false, // isSecondary
                     primaryMetricsResults,
                     primaryMetricsResultsErrors,
-                    primaryMetricsResultsLoading,
-                    experiment
+                    primaryMetricsResultsLoading
                 )
             },
         ],
         secondaryMetricsState: [
             (s) => [
-                s.getOrderedMetrics,
+                s.experiment,
                 s.secondaryMetricsResults,
                 s.secondaryMetricsResultsErrors,
                 s.secondaryMetricsResultsLoading,
-                s.experiment,
             ],
             (
-                getOrderedMetrics,
+                experiment,
                 secondaryMetricsResults,
                 secondaryMetricsResultsErrors,
-                secondaryMetricsResultsLoading,
-                experiment
+                secondaryMetricsResultsLoading
             ): MetricState[] => {
-                const secondaryMetrics = getOrderedMetrics(true)
                 return processMetrics(
-                    secondaryMetrics,
+                    experiment,
+                    true, // isSecondary
                     secondaryMetricsResults,
                     secondaryMetricsResultsErrors,
-                    secondaryMetricsResultsLoading,
-                    experiment
+                    secondaryMetricsResultsLoading
                 )
             },
         ],
