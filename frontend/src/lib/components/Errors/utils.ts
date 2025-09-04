@@ -116,9 +116,18 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
     const runtime: ErrorTrackingRuntime = getRuntimeFromLib(lib)
 
     const releases: ExceptionRelease[] | undefined = exceptionReleases
-        ? Object.keys(exceptionReleases).map((hashId) => {
-              return { commitSha: hashId, url: 'https://example-ab.com/first/second/third' }
-          })
+        ? Object.keys(exceptionReleases)
+              .filter((hashId) => exceptionReleases[hashId].metadata.git.commit_id !== undefined)
+              .map((hashId) => {
+                  const metadata = exceptionReleases[hashId].metadata.git
+
+                  return {
+                      commitSha: metadata.commit_id,
+                      repositoryUrl: 'http://example.com/first/second/third',
+                      repositoryName: metadata.repo_name,
+                      branch: metadata.branch,
+                  }
+              })
         : undefined
 
     return {

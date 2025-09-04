@@ -118,7 +118,9 @@ export interface ExceptionAttributes {
 
 export interface ExceptionRelease {
     commitSha: string
-    url?: string
+    repositoryUrl?: string
+    repositoryName?: string
+    branch?: string
 }
 
 export interface ExceptionAttributes {
