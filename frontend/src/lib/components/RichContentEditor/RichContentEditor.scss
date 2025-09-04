@@ -3,43 +3,4 @@
         display: inline-flex;
         max-height: 22px;
     }
-
-    .Section {
-        display: flex;
-        margin-left: -22px;
-
-        summary::marker {
-            content: '';
-        }
-
-        > button {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 1.25rem;
-            height: 1.25rem;
-            margin-top: 4px;
-            margin-right: 2px;
-            font-size: 0.625rem;
-            color: var(--lemon-button-color);
-            cursor: pointer;
-            border-radius: var(--radius);
-
-            &:hover {
-                background-color: var(--color-bg-fill-button-tertiary-hover);
-            }
-
-            &::before {
-                content: '\25B6';
-                opacity: 0.5;
-            }
-        }
-
-        &--open {
-            & > button::before {
-                opacity: 1;
-                transform: rotate(90deg);
-            }
-        }
-    }
 }

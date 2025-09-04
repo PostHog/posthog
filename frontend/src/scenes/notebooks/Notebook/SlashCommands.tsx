@@ -23,7 +23,7 @@ import {
 import { IconCode } from '@posthog/icons'
 import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
 
-import { EditorCommands, EditorRange } from 'lib/components/RichContentEditor/types'
+import { EditorCommands, EditorRange, RichContentNodeType } from 'lib/components/RichContentEditor/types'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
 import { selectFiles } from 'lib/utils/file-utils'
@@ -350,30 +350,29 @@ order by count() desc
     },
     {
         title: 'Section',
-        search: 'details section',
+        search: 'collapsible section',
         icon: <IconList color="currentColor" />,
         command: (chain, pos) =>
             chain.insertContentAt(pos, {
-                type: 'details',
+                type: RichContentNodeType.Section,
                 content: [
+                    { type: RichContentNodeType.SectionSummary },
                     {
-                        type: 'detailsSummary',
-                    },
-                    {
-                        type: 'detailsContent',
+                        type: RichContentNodeType.SectionContent,
                         content: [
                             {
                                 type: 'paragraph',
                                 content: [
                                     {
                                         type: 'text',
-                                        text: 'first item',
+                                        text: 'Click to edit section content',
                                     },
                                 ],
                             },
                         ],
                     },
                 ],
+                // attrs: { content: '' }, // Default empty content
             }),
     },
 ]

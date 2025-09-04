@@ -12,6 +12,9 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { RichContentEditor } from 'lib/components/RichContentEditor'
 import { RichContentNodeMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
+import Section from 'lib/components/RichContentEditor/SectionNode/Section'
+import SectionContent from 'lib/components/RichContentEditor/SectionNode/SectionContent'
+import SectionSummary from 'lib/components/RichContentEditor/SectionNode/SectionSummary'
 import { RichContentNode, TTEditor } from 'lib/components/RichContentEditor/types'
 import { createEditor } from 'lib/components/RichContentEditor/utils'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -132,6 +135,9 @@ export function Editor(): JSX.Element {
                 MentionsExtension,
                 NotebookNodePersonFeed,
                 NotebookNodeMap,
+                Section,
+                SectionSummary,
+                SectionContent,
             ]}
             className="NotebookEditor flex flex-col flex-1"
             onUpdate={onEditorUpdate}
