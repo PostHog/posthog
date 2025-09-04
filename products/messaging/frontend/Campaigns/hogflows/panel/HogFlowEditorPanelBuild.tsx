@@ -9,13 +9,13 @@ import { HogFlowAction } from '../types'
 
 export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
     {
-        type: 'function',
+        type: 'function_email',
         name: 'Email',
         description: 'Send an email to the user.',
         config: { template_id: 'template-email', inputs: {} },
     },
     {
-        type: 'function',
+        type: 'function_sms',
         name: 'SMS',
         description: 'Send an SMS to the user.',
         config: { template_id: 'template-twilio', inputs: {} },

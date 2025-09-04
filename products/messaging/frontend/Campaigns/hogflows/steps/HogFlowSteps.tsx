@@ -78,7 +78,7 @@ const HogFlowStepConfigs: Partial<{
     trigger: {
         type: 'trigger',
         icon: () => <IconBolt />,
-        color: () => '#005841',
+        color: (_, isDarkModeOn) => (isDarkModeOn ? '#35C46F' : '#005841'),
         renderConfiguration: (node) => <StepTriggerConfiguration node={node} />,
     },
     wait_until_condition: {
@@ -98,7 +98,7 @@ const HogFlowStepConfigs: Partial<{
     function_email: {
         type: 'function_email',
         icon: () => <IconLetter />,
-        color: () => '#005841',
+        color: (_, isDarkModeOn) => (isDarkModeOn ? '#2F80FA' : '#2F80FA'),
         renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
     },
     function_sms: {
@@ -134,7 +134,7 @@ const HogFlowStepConfigs: Partial<{
                 return isDarkModeOn ? '#B52AD9' : '#6500ae'
             }
 
-            return isDarkModeOn ? '#005841' : '#005841'
+            return isDarkModeOn ? '#F8BE2A' : '#F44D01'
         },
         renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
     },
