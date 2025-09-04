@@ -13,10 +13,9 @@ use tracing::{debug, info, warn};
 use crate::kafka::message::{AckableMessage, MessageResult};
 use crate::kafka::metrics_consts::{
     COMPLETION_CHANNEL_FAILURES, KAFKA_CONSUMER_IN_FLIGHT_MEMORY_BYTES,
-    KAFKA_CONSUMER_IN_FLIGHT_MESSAGES, MESSAGE_COMPLETION_DURATION, MESSAGES_FORCE_CLEARED,
+    KAFKA_CONSUMER_IN_FLIGHT_MESSAGES, MESSAGES_FORCE_CLEARED, MESSAGE_COMPLETION_DURATION,
     OUT_OF_ORDER_COMPLETIONS, PARTITION_LAST_COMMITTED_OFFSET, PARTITION_OFFSET_GAP_DETECTED,
-    PARTITION_OFFSET_GAP_SIZE, PARTITION_PENDING_COMPLETIONS,
-    PARTITION_SECONDS_SINCE_LAST_COMMIT,
+    PARTITION_OFFSET_GAP_SIZE, PARTITION_PENDING_COMPLETIONS, PARTITION_SECONDS_SINCE_LAST_COMMIT,
 };
 use crate::kafka::types::{Partition, PartitionOffset, PartitionState};
 
@@ -240,7 +239,7 @@ impl PartitionTracker {
                     // Handle shutdown signal
                     _ = &mut shutdown_rx => {
                         info!("Received shutdown signal for partition {}-{} completion processor", topic, partition);
-                        
+
                         // Process any remaining completions in the channel
                         while let Ok(completion) = completion_rx.try_recv() {
                             global_stats.message_processed(&completion.result, completion.memory_size);
@@ -254,7 +253,9 @@ impl PartitionTracker {
 
             info!(
                 "Completion processor for partition {}-{} stopped, in_flight={}",
-                topic, partition, in_flight_clone.load(Ordering::SeqCst)
+                topic,
+                partition,
+                in_flight_clone.load(Ordering::SeqCst)
             );
         });
 
@@ -272,13 +273,16 @@ impl PartitionTracker {
     fn get_in_flight_count(&self) -> usize {
         self.in_flight_count.load(Ordering::SeqCst) as usize
     }
-    
+
     /// Force clear all in-flight messages for this partition
     /// This should only be called when the partition is being revoked
     fn force_clear_inflight(&self) {
         let count = self.in_flight_count.swap(0, Ordering::SeqCst);
         if count > 0 {
-            warn!("Force cleared {} in-flight messages during partition revocation", count);
+            warn!(
+                "Force cleared {} in-flight messages during partition revocation",
+                count
+            );
             metrics::counter!(MESSAGES_FORCE_CLEARED).increment(count);
         }
     }

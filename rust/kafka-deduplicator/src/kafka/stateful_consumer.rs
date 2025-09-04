@@ -177,8 +177,9 @@ impl StatefulKafkaConsumer {
                 crate::kafka::metrics_consts::MESSAGES_SKIPPED_REVOKED,
                 "topic" => topic.to_string(),
                 "partition" => partition_num.to_string()
-            ).increment(1);
-            
+            )
+            .increment(1);
+
             // Only log occasionally for debugging
             debug!(
                 "Skipping message from revoked partition {}:{} offset {}",

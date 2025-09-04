@@ -39,12 +39,12 @@ mod tests {
         assert!(parse_timestamp("2025-09-02T14:45:58.462+02:00").is_some());
         assert!(parse_timestamp("2025-09-02T14:45:58.462Z").is_some());
         assert!(parse_timestamp("2025-09-02T14:45:58+02:00").is_some());
-        
+
         // Test numeric timestamps
         assert_eq!(parse_timestamp("1693584358"), Some(1693584358000)); // seconds to millis
         assert_eq!(parse_timestamp("1693584358000"), Some(1693584358000)); // already millis
     }
-    
+
     #[test]
     fn test_parse_timestamp_invalid_formats() {
         // These formats are not valid RFC3339 and should fail
@@ -52,7 +52,7 @@ mod tests {
         assert!(parse_timestamp("2025-09-02T19:08:52.84").is_none()); // No timezone
         assert!(parse_timestamp("2025-09-02T19:08:52.8").is_none()); // Partial millis, no timezone
         assert!(parse_timestamp("2025-09-02T19:08:52").is_none()); // No millis, no timezone
-        
+
         // Other invalid formats
         assert!(parse_timestamp("not-a-timestamp").is_none());
         assert!(parse_timestamp("").is_none());
@@ -64,7 +64,7 @@ mod tests {
         assert!(is_valid_timestamp("2025-09-02T14:45:58.462+02:00"));
         assert!(is_valid_timestamp("2025-09-02T14:45:58.462Z"));
         assert!(is_valid_timestamp("1693584358"));
-        
+
         // Invalid formats
         assert!(!is_valid_timestamp("2025-09-02T14:45:58.462+02")); // Missing :00
         assert!(!is_valid_timestamp("not-a-timestamp"));

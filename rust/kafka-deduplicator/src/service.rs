@@ -189,9 +189,8 @@ impl KafkaDeduplicatorService {
 
         // Wait for SIGTERM signal (Kubernetes graceful shutdown)
         use tokio::signal::unix::{signal, SignalKind};
-        let mut sigterm = signal(SignalKind::terminate())
-            .expect("Failed to listen for SIGTERM");
-        
+        let mut sigterm = signal(SignalKind::terminate()).expect("Failed to listen for SIGTERM");
+
         sigterm.recv().await;
         info!("Received SIGTERM signal, shutting down gracefully...");
 

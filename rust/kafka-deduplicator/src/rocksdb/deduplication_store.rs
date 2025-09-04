@@ -122,7 +122,6 @@ impl TryFrom<Vec<u8>> for DeduplicationKey {
     }
 }
 
-
 impl From<&RawEvent> for DeduplicationKey {
     fn from(raw_event: &RawEvent) -> Self {
         let timestamp = raw_event
@@ -649,7 +648,6 @@ mod tests {
             "user3 event should now be a duplicate"
         );
     }
-
 
     #[test]
     fn test_deduplication_key_formatting() {

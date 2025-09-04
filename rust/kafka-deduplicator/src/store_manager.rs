@@ -63,11 +63,9 @@ impl StoreManager {
             .or_try_insert_with(|| {
                 // Generate store path inside the closure so only the creating thread generates it
                 let store_path = self.build_store_path(topic, partition);
-                
                 // Ensure parent directory exists
                 // Note: This is inside the closure so only the creating thread does this
                 self.ensure_directory_exists(&store_path)?;
-                
                 info!(
                     "Creating new deduplication store for partition {}:{} at path: {}",
                     topic, partition, store_path
@@ -110,10 +108,11 @@ impl StoreManager {
                         error_chain.push(format!("Caused by: {err:?}"));
                         source = err.source();
                     }
-                    
+
                     error!(
                         "Failed to create store for {}:{} - {}",
-                        topic, partition,
+                        topic,
+                        partition,
                         error_chain.join(" -> ")
                     );
 
