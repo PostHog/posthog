@@ -198,6 +198,7 @@ function EmailTemplateField({
         <EmailTemplater
             type={schema.type as 'email' | 'native_email'}
             variables={sampleGlobalsWithInputs ?? {}}
+            defaultValue={schema.default}
             value={value}
             onChange={onChange}
         />

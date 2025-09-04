@@ -15,7 +15,14 @@ export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
         type: 'function_email',
         name: 'Email',
         description: 'Send an email to the user.',
-        config: { template_id: 'template-email', inputs: {} },
+        config: {
+            template_id: 'template-email',
+            inputs: {
+                email: {
+                    templating: 'liquid',
+                },
+            },
+        },
     },
     {
         type: 'function_sms',

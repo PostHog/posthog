@@ -6,6 +6,7 @@ import EmailEditor from 'react-email-editor'
 import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
+import { CyclotronJobTemplateSuggestionsButton } from 'lib/components/CyclotronJob/CyclotronJobTemplateSuggestions'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -225,21 +226,43 @@ function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Elem
                                 {field.key === 'from' ? (
                                     <NativeEmailIntegrationChoice value={value} onChange={onChange} />
                                 ) : field.key === 'to' ? (
-                                    <CodeEditorInline
-                                        embedded
-                                        className="flex-1"
-                                        globals={logicProps.variables}
-                                        value={value?.email}
-                                        onChange={(email) => onChange({ ...value, email })}
-                                    />
+                                    <span className="flex grow relative justify-between">
+                                        <span className="absolute top-0 right-2 z-20 p-px opacity-0 transition-opacity hover:opacity-100">
+                                            <CyclotronJobTemplateSuggestionsButton
+                                                templating="liquid"
+                                                value={value}
+                                                onOptionSelect={(option) => {
+                                                    onChange?.(`${value || ''}${option.example}`)
+                                                }}
+                                            />
+                                        </span>
+                                        <CodeEditorInline
+                                            embedded
+                                            className="flex-1"
+                                            globals={logicProps.variables}
+                                            value={value?.email}
+                                            onChange={(email) => onChange({ ...value, email })}
+                                        />
+                                    </span>
                                 ) : (
-                                    <CodeEditorInline
-                                        embedded
-                                        className="flex-1"
-                                        globals={logicProps.variables}
-                                        value={value}
-                                        onChange={onChange}
-                                    />
+                                    <span className="flex grow relative justify-between">
+                                        <span className="absolute top-0 right-2 z-20 p-px opacity-0 transition-opacity hover:opacity-100">
+                                            <CyclotronJobTemplateSuggestionsButton
+                                                templating="liquid"
+                                                value={value}
+                                                onOptionSelect={(option) => {
+                                                    onChange?.(`${value || ''}${option.example}`)
+                                                }}
+                                            />
+                                        </span>
+                                        <CodeEditorInline
+                                            embedded
+                                            className="flex-1"
+                                            globals={logicProps.variables}
+                                            value={value}
+                                            onChange={onChange}
+                                        />
+                                    </span>
                                 )}
                             </div>
                         )}

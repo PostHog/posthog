@@ -2,8 +2,8 @@ import { useReactFlow } from '@xyflow/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { IconArrowLeft, IconTrash } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonTab, LemonTabs, Tooltip } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconCode, IconTrash } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonDivider, LemonTab, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter } from 'lib/utils'
 
@@ -73,6 +73,13 @@ export function HogFlowEditorPanel(): JSX.Element | null {
                         <span className="flex gap-1 items-center font-medium rounded-md mr-3">
                             <span className="text-lg">{Step?.icon}</span>
                             <span className="font-semibold">{selectedNode.data.name}</span> step
+                            <LemonDivider vertical />
+                            <Tooltip
+                                title="You can use Liquid templating in any action text field."
+                                docLink="https://liquidjs.com/filters/overview.html"
+                            >
+                                <IconCode fontSize={20} />
+                            </Tooltip>
                             {validationResult?.valid === false && (
                                 <Tooltip title="Some fields need attention">
                                     <div>
@@ -80,6 +87,7 @@ export function HogFlowEditorPanel(): JSX.Element | null {
                                     </div>
                                 </Tooltip>
                             )}
+                            <LemonDivider vertical />
                             {selectedNode.deletable && (
                                 <LemonButton
                                     size="xsmall"
