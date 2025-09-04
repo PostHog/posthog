@@ -36,6 +36,7 @@ export const settingsLogic = kea<settingsLogicType>([
         selectSetting: (setting: SettingId) => ({ setting }),
         openCompactNavigation: true,
         closeCompactNavigation: true,
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
 
     reducers(({ props }) => ({
@@ -70,6 +71,13 @@ export const settingsLogic = kea<settingsLogicType>([
                 selectLevel: () => false,
                 selectSection: () => false,
                 selectSetting: () => false,
+            },
+        ],
+
+        searchTerm: [
+            '',
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
     })),
@@ -212,6 +220,97 @@ export const settingsLogic = kea<settingsLogicType>([
                     }
                     return true
                 }
+            },
+        ],
+
+        getTextFromTitle: [
+            () => [],
+            (): ((title: JSX.Element | string) => string) => {
+                return (title: JSX.Element | string): string => {
+                    if (typeof title === 'string') {
+                        return title
+                    }
+                    // For JSX elements, we'll extract text content or use a fallback
+                    const children = title?.props?.children
+                    if (typeof children === 'string') {
+                        return children
+                    }
+                    if (Array.isArray(children)) {
+                        // Handle cases where children is an array (e.g., multiple text nodes)
+                        return children.map((child) => (typeof child === 'string' ? child : '')).join('')
+                    }
+                    // Fallback for complex JSX or unexpected cases
+                    return ''
+                }
+            },
+        ],
+
+        filteredLevels: [
+            (s) => [s.levels, s.sections, s.searchTerm, s.getTextFromTitle],
+            (
+                levels: SettingLevelId[],
+                sections: SettingSection[],
+                searchTerm: string,
+                getTextFromTitle: (title: JSX.Element | string) => string
+            ): SettingLevelId[] => {
+                if (!searchTerm.trim()) {
+                    return levels
+                }
+
+                const searchLower = searchTerm.toLowerCase()
+
+                return levels.filter((level: SettingLevelId) => {
+                    // Check if level name matches
+                    if (level.toLowerCase().includes(searchLower)) {
+                        return true
+                    }
+
+                    // Check if any section in this level matches
+                    return sections
+                        .filter((section: SettingSection) => section.level === level)
+                        .some((section: SettingSection) => {
+                            // Check section title
+                            const sectionTitle = getTextFromTitle(section.title)
+                            if (sectionTitle && sectionTitle.toLowerCase().includes(searchLower)) {
+                                return true
+                            }
+
+                            // Check individual setting titles within this section
+                            return section.settings.some((setting: Setting) => {
+                                const settingTitle = getTextFromTitle(setting.title)
+                                return settingTitle && settingTitle.toLowerCase().includes(searchLower)
+                            })
+                        })
+                })
+            },
+        ],
+
+        filteredSections: [
+            (s) => [s.sections, s.searchTerm, s.getTextFromTitle],
+            (
+                sections: SettingSection[],
+                searchTerm: string,
+                getTextFromTitle: (title: JSX.Element | string) => string
+            ): SettingSection[] => {
+                if (!searchTerm.trim()) {
+                    return sections
+                }
+
+                const searchLower = searchTerm.toLowerCase()
+
+                return sections.filter((section: SettingSection) => {
+                    // Check section title
+                    const sectionTitle = getTextFromTitle(section.title)
+                    if (sectionTitle && sectionTitle.toLowerCase().includes(searchLower)) {
+                        return true
+                    }
+
+                    // Check if any setting in this section matches
+                    return section.settings.some((setting: Setting) => {
+                        const settingTitle = getTextFromTitle(setting.title)
+                        return settingTitle && settingTitle.toLowerCase().includes(searchLower)
+                    })
+                })
             },
         ],
     }),

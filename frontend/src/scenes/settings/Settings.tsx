@@ -6,7 +6,7 @@ import { router } from 'kea-router'
 import React from 'react'
 
 import { IconExternal } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonButtonProps, LemonDivider } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonButtonProps, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
@@ -36,12 +36,15 @@ export function Settings({
         selectedLevel,
         selectedSettingId,
         selectedSetting,
-        sections,
         settings,
         isCompactNavigationOpen,
-        levels,
+        searchTerm,
+        filteredLevels,
+        filteredSections,
     } = useValues(settingsLogic(props))
-    const { selectSection, selectLevel, selectSetting, openCompactNavigation } = useActions(settingsLogic(props))
+    const { selectSection, selectLevel, selectSetting, openCompactNavigation, setSearchTerm } = useActions(
+        settingsLogic(props)
+    )
     const { currentTeam } = useValues(teamLogic)
 
     const { ref, size } = useResizeBreakpoints(
@@ -80,7 +83,7 @@ export function Settings({
                   </OptionButton>
               ),
           }))
-        : levels.map((level) => ({
+        : filteredLevels.map((level) => ({
               key: level,
               content: (
                   <OptionButton
@@ -92,7 +95,7 @@ export function Settings({
                       <span className="text-secondary">{SettingLevelNames[level]}</span>
                   </OptionButton>
               ),
-              items: sections
+              items: filteredSections
                   .filter((x) => x.level === level)
                   .map((section) => ({
                       key: section.id,
@@ -131,6 +134,18 @@ export function Settings({
                 <>
                     {showOptions ? (
                         <div className="Settings__sections">
+                            {!settingsInSidebar && (
+                                <div className="px-2 pb-2">
+                                    <LemonInput
+                                        type="search"
+                                        placeholder="Search settings..."
+                                        value={searchTerm}
+                                        onChange={setSearchTerm}
+                                        size="small"
+                                        className="w-full"
+                                    />
+                                </div>
+                            )}
                             <OptionGroup options={options} />
                         </div>
                     ) : (
