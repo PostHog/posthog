@@ -36,7 +36,7 @@ describe('insightSceneLogic', () => {
         })
         initKeaTests()
         sceneLogic.mount()
-        tabId = sceneLogic.values.activeTabId
+        tabId = sceneLogic.values.activeTabId || ''
     })
 
     it('keeps url /insight/new', async () => {
