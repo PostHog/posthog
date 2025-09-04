@@ -2,6 +2,8 @@ import {
     AlertCalculationInterval,
     AlertCondition,
     AlertState,
+    DetectorConfig,
+    DetectorResult,
     InsightThreshold,
     TrendsAlertConfig,
 } from '~/queries/schema/schema-general'
@@ -17,6 +19,7 @@ export interface AlertTypeBase {
     insight: QueryBasedInsightModel
     config: AlertConfig
     skip_weekend?: boolean
+    detector_config?: DetectorConfig
 }
 
 export interface AlertTypeWrite extends Omit<AlertTypeBase, 'insight'> {
@@ -31,6 +34,7 @@ export interface AlertCheck {
     calculated_value: number
     state: AlertState
     targets_notified: boolean
+    detector_result?: DetectorResult
 }
 
 export interface AlertType extends AlertTypeBase {

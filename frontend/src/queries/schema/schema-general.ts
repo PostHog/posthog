@@ -3036,6 +3036,58 @@ export interface InsightThreshold {
     bounds?: InsightsThresholdBounds
 }
 
+export enum DetectorType {
+    THRESHOLD = 'threshold',
+    ZSCORE = 'zscore',
+    MAD = 'mad',
+}
+
+export enum DetectionDirection {
+    UP = 'up',
+    DOWN = 'down',
+    BOTH = 'both',
+}
+
+export enum ValueType {
+    RAW = 'raw',
+    DELTA = 'delta',
+}
+
+export interface ThresholdDetectorConfig {
+    bounds?: InsightsThresholdBounds
+    threshold_type: InsightThresholdType
+}
+
+export interface ZScoreDetectorConfig {
+    threshold: number
+    direction: DetectionDirection
+    min_samples: number
+    window_size: number
+}
+
+export interface MADDetectorConfig {
+    threshold: number
+    direction: DetectionDirection
+    min_samples: number
+    window_size: number
+}
+
+export type DetectorConfigType = ThresholdDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig
+
+export interface DetectorConfig {
+    type: DetectorType
+    value_type: ValueType
+    config: DetectorConfigType
+}
+
+export interface DetectorResult {
+    value?: number
+    detector_score?: number
+    is_breach: boolean
+    breach_messages: string[]
+    metadata: Record<string, any>
+}
+
 export enum AlertConditionType {
     ABSOLUTE_VALUE = 'absolute_value', // default alert, checks absolute value of current interval
     RELATIVE_INCREASE = 'relative_increase', // checks increase in value during current interval compared to previous interval
