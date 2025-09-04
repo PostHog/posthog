@@ -64,7 +64,7 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
                         fullWidth
                         disabledReason={
                             isDataPipelinesDeprecated
-                                ? `Data pipelines are migrating to standalone products with true usage-based pricing - realtime destinations and batch exports. You will only get billed for the data pipelines add-on based on events ingested until ${DATA_PIPELINES_CUTOFF_DATE}}.`
+                                ? `Data pipelines are moving to new, usage-based pricing with a large free allowance and old ingestion-based pricing ends on ${DATA_PIPELINES_CUTOFF_DATE}.`
                                 : undefined
                         }
                         onClick={() => {
