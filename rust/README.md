@@ -13,7 +13,7 @@ This is the microservice that receives HTTP event capture requests and extracts 
 
 ### feature-flags
 
-The new feature flags backend service that handles flag-scoped PostHog API requests.
+The new feature flags backend service that handles flag-scoped PostHog API requests. Currently, `/flags` endpoint is natively supported, and legacy `/decide` traffic is gradually being shifted to the Rust service.
 
 ### cymbal
 
