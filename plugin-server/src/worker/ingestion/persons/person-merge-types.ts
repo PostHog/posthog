@@ -138,28 +138,32 @@ export function determineMergeMode(hub: {
     PERSON_MERGE_ASYNC_TOPIC: string
     PERSON_MERGE_SYNC_BATCH_SIZE: number
 }): MergeMode {
-    const limit = hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT === 0 ? undefined : hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT
-
     // If async merge is enabled and topic is configured, use async mode for over-limit merges
-    if (hub.PERSON_MERGE_ASYNC_ENABLED && hub.PERSON_MERGE_ASYNC_TOPIC) {
+    if (hub.PERSON_MERGE_ASYNC_ENABLED && hub.PERSON_MERGE_ASYNC_TOPIC && hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT > 0) {
         return {
             type: 'ASYNC',
             topic: hub.PERSON_MERGE_ASYNC_TOPIC,
-            limit: limit || Number.MAX_SAFE_INTEGER,
+            limit: hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
         }
     }
 
     // If no async and we have a limit, use limit mode (reject over-limit merges)
-    if (limit) {
+    if (hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT > 0) {
         return {
             type: 'LIMIT',
-            limit,
+            limit: hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
         }
     }
 
-    // Default: sync mode with configurable batch size (0 = unlimited)
+    if (hub.PERSON_MERGE_SYNC_BATCH_SIZE > 0) {
+        return {
+            type: 'SYNC',
+            batchSize: hub.PERSON_MERGE_SYNC_BATCH_SIZE,
+        }
+    }
+
     return {
         type: 'SYNC',
-        batchSize: hub.PERSON_MERGE_SYNC_BATCH_SIZE === 0 ? undefined : hub.PERSON_MERGE_SYNC_BATCH_SIZE,
+        batchSize: undefined,
     }
 }

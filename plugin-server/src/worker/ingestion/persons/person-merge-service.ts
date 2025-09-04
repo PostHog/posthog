@@ -530,7 +530,10 @@ export class PersonMergeService {
         currentSourcePerson: InternalPerson,
         currentTargetPerson: InternalPerson
     ): Promise<TopicMessage[]> {
-        if (this.context.mergeMode.type === 'SYNC' && this.context.mergeMode.batchSize) {
+        if (this.context.mergeMode.type === 'SYNC') {
+            if (!this.context.mergeMode.batchSize) {
+                return await this.moveDistinctIdsWithLimit(tx, currentSourcePerson, currentTargetPerson, undefined)
+            }
             return await this.moveDistinctIdsInBatches(
                 tx,
                 currentSourcePerson,
@@ -538,7 +541,7 @@ export class PersonMergeService {
                 this.context.mergeMode.batchSize
             )
         } else {
-            const limit = this.context.mergeMode.type === 'LIMIT' ? this.context.mergeMode.limit : undefined
+            const limit = this.context.mergeMode.limit
             return await this.moveDistinctIdsWithLimit(tx, currentSourcePerson, currentTargetPerson, limit)
         }
     }
