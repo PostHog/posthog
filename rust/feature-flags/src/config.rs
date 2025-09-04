@@ -302,7 +302,7 @@ impl Config {
 
     /// Check if persons database routing is enabled
     pub fn is_persons_db_routing_enabled(&self) -> bool {
-        !self.persons_read_database_url.is_empty() || !self.persons_write_database_url.is_empty()
+        !self.persons_read_database_url.is_empty() && !self.persons_write_database_url.is_empty()
     }
 
     /// Get the database URL for persons reads, falling back to the default read URL
