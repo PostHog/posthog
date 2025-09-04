@@ -46,6 +46,97 @@ const UnknownAction = ({ logItem }: { logItem: ActivityLogItem }): JSX.Element =
     )
 }
 
+// Helper to determine the right preposition based on the action text
+const getPreposition = (text: string): string => {
+    if (text.includes('added') || text.includes('set')) {
+        return 'to'
+    }
+
+    if (text.includes('removed')) {
+        return 'from'
+    }
+
+    if (text.includes('changed') || text.includes('returned')) {
+        return 'for'
+    }
+
+    return 'on'
+}
+
+/**
+ * Formats the result from getExperimentChangeDescription into a human-readable string
+ * Handles arrays by joining with commas and "and" for the last item
+ * Adds appropriate preposition (to/for/on) based on the action
+ */
+const humanizeExperimentChange = (
+    result: string | JSX.Element | (string | JSX.Element)[] | null
+): string | JSX.Element | null => {
+    if (result === null) {
+        return null
+    }
+
+    if (Array.isArray(result)) {
+        // Filter out null/undefined values
+        const validItems = result.filter(Boolean)
+
+        if (validItems.length === 0) {
+            return null
+        }
+
+        if (validItems.length === 1) {
+            const item = validItems[0]
+            const itemText = typeof item === 'string' ? item : ''
+            const preposition = getPreposition(itemText)
+            return (
+                <span>
+                    {item} {preposition}
+                </span>
+            )
+        }
+
+        // Join with commas and "and" for the last item
+        const lastItem = validItems[validItems.length - 1]
+        const otherItems = validItems.slice(0, -1)
+
+        // Determine preposition based on first item (they should all be similar actions)
+        const firstItemText = typeof otherItems[0] === 'string' ? otherItems[0] : ''
+        const preposition = getPreposition(firstItemText)
+
+        // If all items are strings, return a string
+        const allStrings = validItems.every((item) => typeof item === 'string')
+        if (allStrings) {
+            return `${otherItems.join(', ')} and ${lastItem} ${preposition}`
+        }
+
+        // If mixed or JSX elements, return a span
+        return (
+            <span>
+                {otherItems.map((item, index) => (
+                    <span key={index}>
+                        {item}
+                        {index < otherItems.length - 1 ? ', ' : ' and '}
+                    </span>
+                ))}
+                {lastItem} {preposition}
+            </span>
+        )
+    }
+
+    // Single string or JSX element
+    const itemText = typeof result === 'string' ? result : ''
+    const preposition = getPreposition(itemText)
+
+    if (typeof result === 'string') {
+        return `${result} ${preposition}`
+    }
+
+    return (
+        <span>
+            {result} {preposition}
+        </span>
+    )
+}
+
 export const experimentActivityDescriber = (logItem: ActivityLogItem): HumanizedChange => {
     /**
      * we only have two item types, `shared_metric` or the `null` default for
@@ -144,7 +235,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                               match(updateLogDetail.type)
                                   .with('shared_metric', () => getSharedMetricChangeDescription(change))
                                   .with('holdout', () => getHoldoutChangeDescription(change))
-                                  .otherwise(() => getExperimentChangeDescription(change))
+                                  .otherwise(() => humanizeExperimentChange(getExperimentChangeDescription(change)))
                           )
                           .filter((part) => part !== null)
 
