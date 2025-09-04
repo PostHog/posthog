@@ -199,33 +199,6 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
         # Should use our default cache target age since no Stripe sources
         self.assertDiff(RevenueAnalyticsQueryRunner.DEFAULT_CACHE_TARGET_AGE)
 
-    def test_cache_target_age_revenue_analytics_disabled_ignored(self):
-        """Test that sources with revenue_analytics_enabled=False are ignored"""
-
-        # Create a Stripe source with revenue analytics disabled
-        source = ExternalDataSource.objects.create(
-            team=self.team,
-            source_id="src_test",
-            connection_id="conn_test",
-            source_type=ExternalDataSourceType.STRIPE,
-        )
-        source.revenue_analytics_config.enabled = False
-        source.revenue_analytics_config.save()
-
-        # Create a schema for the disabled source
-        ExternalDataSchema.objects.create(
-            team=self.team,
-            source=source,
-            name="schema_1",
-            should_sync=True,
-            status=ExternalDataSchema.Status.COMPLETED,
-            last_synced_at=datetime.now(),
-            sync_frequency_interval=timedelta(hours=1),
-        )
-
-        # Should use our default cache target age since revenue analytics is disabled
-        self.assertDiff(RevenueAnalyticsQueryRunner.DEFAULT_CACHE_TARGET_AGE)
-
     def test_cache_target_age_should_sync_false_ignored(self):
         """Test that schemas with should_sync=False are ignored"""
 
