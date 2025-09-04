@@ -1,4 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { LemonTag, Link } from '@posthog/lemon-ui'
 
@@ -12,7 +13,56 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { campaignsLogic } from './campaignsLogic'
+import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
+
+function CampaignActionsSummary({ campaign }: { campaign: HogFlow }): JSX.Element {
+    const actionsByType = useMemo(() => {
+        return campaign.actions.reduce(
+            (acc, action) => {
+                const step = getHogFlowStep(action, {})
+                if (!step || !step.type.startsWith('function')) {
+                    return acc
+                }
+                const key = 'template_id' in action.config ? action.config.template_id : action.type
+                acc[key] = {
+                    count: (acc[key]?.count || 0) + 1,
+                    icon: step.icon,
+                    color: step.color,
+                }
+                return acc
+            },
+            {} as Record<
+                string,
+                {
+                    count: number
+                    icon: JSX.Element
+                    color: string
+                }
+            >
+        )
+    }, [campaign.actions])
+
+    return (
+        <Link to={urls.messagingCampaign(campaign.id, 'workflow')}>
+            <div className="flex flex-row gap-2 items-center">
+                {Object.entries(actionsByType).map(([type, { count, icon, color }]) => (
+                    <div
+                        key={type}
+                        className="border rounded px-1 flex items-center justify-center gap-1"
+                        style={{
+                            backgroundColor: `${color}20`,
+                            borderColor: color,
+                            color,
+                        }}
+                    >
+                        {icon} {count}
+                    </div>
+                ))}
+            </div>
+        </Link>
+    )
+}
 
 export function CampaignsTable(): JSX.Element {
     useMountedLogic(campaignsLogic)
@@ -31,6 +81,13 @@ export function CampaignsTable(): JSX.Element {
             },
         },
 
+        {
+            title: 'Actions',
+            width: 0,
+            render: (_, item) => {
+                return <CampaignActionsSummary campaign={item} />
+            },
+        },
         {
             ...(updatedAtColumn() as LemonTableColumn<HogFlow, any>),
             width: 0,
@@ -56,6 +113,7 @@ export function CampaignsTable(): JSX.Element {
                 )
             },
         },
+
         {
             title: 'Status',
             width: 0,
