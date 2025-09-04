@@ -84,6 +84,7 @@ export interface DashboardLogicProps {
     id: number
     dashboard?: DashboardType<QueryBasedInsightModel>
     placement?: DashboardPlacement
+    variables?: Record<string, HogQLVariable>
 }
 
 export interface RefreshStatus {
@@ -277,7 +278,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     await breakpoint(200)
 
                     try {
-                        const apiUrl = values.apiUrl('force_cache', values.urlFilters, values.urlVariables)
+                        const variablesOverride = { ...values.urlVariables, ...props.variables }
+                        const apiUrl = values.apiUrl('force_cache', values.urlFilters, variablesOverride)
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
 
@@ -1260,19 +1262,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     // Ensure loading state is properly initialized for shared dashboards
                     actions.loadingDashboardItemsStarted(DashboardLoadAction.InitialLoad)
                     actions.loadDashboardSuccess(props.dashboard)
-                } else {
-                    if (!(SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams)) {
-                        if (values.shouldUseStreaming) {
-                            // Streaming loading: load metadata + stream tiles
-                            actions.loadDashboardStreaming({
-                                action: DashboardLoadAction.InitialLoad,
-                            })
-                        } else {
-                            // Regular loading
-                            actions.loadDashboard({
-                                action: DashboardLoadAction.InitialLoad,
-                            })
-                        }
+                } else if (!(SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams)) {
+                    if (values.shouldUseStreaming) {
+                        // Streaming loading: load metadata + stream tiles
+                        actions.loadDashboardStreaming({
+                            action: DashboardLoadAction.InitialLoad,
+                        })
+                    } else {
+                        // Regular loading
+                        actions.loadDashboard({
+                            action: DashboardLoadAction.InitialLoad,
+                        })
                     }
                 }
             }
@@ -1791,7 +1791,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return
             }
 
-            if (SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams) {
+            if (props.variables) {
+                // If variables are provided, force the dashboard to load synchronously so they are applied
+                actions.loadDashboard({ action: DashboardLoadAction.InitialLoadWithVariables })
+            } else if (SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams) {
                 if (values.shouldUseStreaming) {
                     actions.loadDashboardStreaming({
                         action: DashboardLoadAction.InitialLoadWithVariables,
