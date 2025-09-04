@@ -14981,6 +14981,10 @@
                 "showValuesOnSeries": {
                     "type": "boolean"
                 },
+                "stacked": {
+                    "default": true,
+                    "type": "boolean"
+                },
                 "toggledLifecycles": {
                     "items": {
                         "$ref": "#/definitions/LifecycleToggle"
