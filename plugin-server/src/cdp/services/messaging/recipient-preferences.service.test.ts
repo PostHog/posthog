@@ -4,6 +4,7 @@ import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
+import { logger } from '~/utils/logger'
 import { UUIDT } from '~/utils/utils'
 
 import { HogFlowAction } from '../../../schema/hogflow'
@@ -191,19 +192,19 @@ describe('RecipientPreferencesService', () => {
             it('should handle errors gracefully and return false', async () => {
                 const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
                 const invocation = createFunctionStepInvocation(action)
-                const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
+                const loggerSpy = jest.spyOn(logger, 'error').mockImplementation()
 
                 mockRecipientsManagerGet.mockRejectedValue(new Error('Database error'))
 
                 const result = await service.shouldSkipAction(invocation, action)
 
                 expect(result).toBe(false)
-                expect(consoleSpy).toHaveBeenCalledWith(
+                expect(loggerSpy).toHaveBeenCalledWith(
                     'Failed to fetch recipient preferences for test@example.com:',
                     expect.any(Error)
                 )
 
-                consoleSpy.mockRestore()
+                loggerSpy.mockRestore()
             })
 
             it('should throw error if no email identifier is found', async () => {
