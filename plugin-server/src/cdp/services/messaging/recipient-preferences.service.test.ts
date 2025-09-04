@@ -60,10 +60,7 @@ describe('RecipientPreferencesService', () => {
     })
 
     const createFunctionStepInvocation = (
-        action: Extract<
-            HogFlowAction,
-            { type: 'function' | 'function_email' | 'function_sms' | 'function_slack' | 'function_webhook' }
-        >
+        action: Extract<HogFlowAction, { type: 'function' | 'function_email' | 'function_sms' }>
     ): CyclotronJobInvocationHogFunction => {
         const hogFlow = new FixtureHogFlowBuilder()
             .withTeamId(team.id)
@@ -474,11 +471,11 @@ describe('RecipientPreferencesService', () => {
             })
 
             it('should return false for function_slack actions', async () => {
-                const action: Extract<HogFlowAction, { type: 'function_slack' }> = {
+                const action: Extract<HogFlowAction, { type: 'function' }> = {
                     id: 'slack',
                     name: 'Send Slack message',
                     description: 'Send a message to Slack',
-                    type: 'function_slack',
+                    type: 'function',
                     config: {
                         template_id: 'template-slack',
                         inputs: {
@@ -498,11 +495,11 @@ describe('RecipientPreferencesService', () => {
             })
 
             it('should return false for function_webhook actions', async () => {
-                const action: Extract<HogFlowAction, { type: 'function_webhook' }> = {
+                const action: Extract<HogFlowAction, { type: 'function' }> = {
                     id: 'webhook',
                     name: 'Send webhook',
                     description: 'Send a webhook request',
-                    type: 'function_webhook',
+                    type: 'function',
                     config: {
                         template_id: 'template-webhook',
                         inputs: {
