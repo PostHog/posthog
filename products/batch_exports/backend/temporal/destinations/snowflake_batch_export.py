@@ -622,18 +622,13 @@ class SnowflakeClient:
 
         # Handle cases where the Warehouse is suspended (sometimes we can recover from this)
         max_attempts = 3
-
-        def _is_exception_retryable(e: Exception) -> bool:
-            if isinstance(e, snowflake.connector.errors.ProgrammingError):
-                # Warehouse suspended error
-                return e.errno == 608
-            return False
-
         execute_copy_into = make_retryable_with_exponential_backoff(
             self.execute_async_query,
             max_attempts=max_attempts,
             retryable_exceptions=(snowflake.connector.errors.ProgrammingError,),
-            is_exception_retryable=_is_exception_retryable,
+            # 608 = Warehouse suspended error
+            is_exception_retryable=lambda e: isinstance(e, snowflake.connector.errors.ProgrammingError)
+            and e.errno == 608,
         )
 
         # We need to explicitly catch the exception here because otherwise it seems to be swallowed
