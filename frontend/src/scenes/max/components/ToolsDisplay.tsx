@@ -27,9 +27,14 @@ export interface ToolsDisplayProps {
     isFloating?: boolean
     tools: ToolRegistration[]
     bottomActions?: ReactNode
+    deepResearchMode?: boolean
 }
 
-export const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, bottomActions }) => {
+export const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, bottomActions, deepResearchMode }) => {
+    // Tools not available in deep research mode
+    if (deepResearchMode) {
+        return <></>
+    }
     // We show the tools reversed, so the ones registered last (scene-specific) are shown first
     const toolsInReverse = tools.toReversed()
 

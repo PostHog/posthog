@@ -1,4 +1,3 @@
-import { Details, DetailsContent, DetailsSummary } from '@tiptap/extension-details'
 import ExtensionDocument from '@tiptap/extension-document'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
@@ -77,23 +76,6 @@ export function Editor(): JSX.Element {
                     document: false,
                     gapcursor: false,
                     link: false,
-                }),
-                Details.configure({
-                    persist: true,
-                    HTMLAttributes: {
-                        class: 'Section',
-                    },
-                    openClassName: 'Section--open',
-                }),
-                DetailsSummary.configure({
-                    HTMLAttributes: {
-                        class: 'font-bold text-lg',
-                    },
-                }),
-                DetailsContent.configure({
-                    // HTMLAttributes: {
-                    //     class: 'font-bold',
-                    // },
                 }),
                 TableOfContents.configure({
                     getIndex: getHierarchicalIndexes,

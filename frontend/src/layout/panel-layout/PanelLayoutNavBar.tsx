@@ -17,12 +17,13 @@ import {
     IconShortcut,
     IconToolbar,
 } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -44,9 +45,10 @@ import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelState
 import { AccountPopoverOverlay } from '../navigation/TopBar/AccountPopover'
 import { navigationLogic } from '../navigation/navigationLogic'
 import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
+import { ProjectDropdownMenu } from './ProjectDropdownMenu'
 
 const navBarStyles = cva({
-    base: 'flex flex-col max-h-screen relative min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] border-r border-primary relative',
+    base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r',
     variants: {
         isLayoutNavCollapsed: {
             true: 'w-[var(--project-navbar-width-collapsed)]',
@@ -55,6 +57,10 @@ const navBarStyles = cva({
         isMobileLayout: {
             true: 'absolute top-0 bottom-0 left-0',
             false: '',
+        },
+        newSceneLayout: {
+            true: 'border-r-transparent',
+            false: 'border-primary',
         },
     },
 })
@@ -85,6 +91,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { location } = useValues(router)
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -142,7 +149,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         tooltip?: React.ReactNode
         tooltipDocLink?: string
     }[] = [
-        ...(isLayoutNavCollapsed
+        ...(isLayoutNavCollapsed && !newSceneLayout
             ? [
                   {
                       identifier: 'Search',
@@ -280,37 +287,57 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                         navBarStyles({
                             isLayoutNavCollapsed,
                             isMobileLayout,
+                            newSceneLayout,
                         })
                     )}
                     ref={containerRef}
                 >
                     <div className={`flex justify-between p-1 ${isLayoutNavCollapsed ? 'justify-center' : ''}`}>
-                        <OrganizationDropdownMenu />
-
-                        {!isLayoutNavCollapsed && (
-                            <div
-                                className={`flex gap-px ${isLayoutNavCollapsed ? 'justify-center' : ''}`}
-                                aria-label="Add a new item menu actions"
-                            >
-                                <ButtonPrimitive
-                                    iconOnly
-                                    onClick={toggleSearchBar}
-                                    data-attr="tree-navbar-search-button"
-                                    size="sm"
-                                    tooltip={
-                                        <div className="flex flex-col gap-0.5">
-                                            <span>
-                                                For search, press <KeyboardShortcut command k />
-                                            </span>
-                                            <span>
-                                                For commands, press <KeyboardShortcut command shift k />
-                                            </span>
-                                        </div>
-                                    }
-                                >
-                                    <IconSearch className="text-secondary size-4" />
-                                </ButtonPrimitive>
+                        {newSceneLayout ? (
+                            <div className={cn('flex gap-1 rounded-md p-1 w-full', isLayoutNavCollapsed && 'flex-col')}>
+                                <Tooltip title="Switch organization" closeDelayMs={0} placement="bottom">
+                                    <div>
+                                        <OrganizationDropdownMenu showName={false} buttonProps={{ variant: 'panel' }} />
+                                    </div>
+                                </Tooltip>
+                                <Tooltip title="Switch project" closeDelayMs={0} placement="bottom">
+                                    <div>
+                                        <ProjectDropdownMenu
+                                            buttonProps={{ className: 'max-w-[170px]', variant: 'panel' }}
+                                            iconOnly={isLayoutNavCollapsed}
+                                        />
+                                    </div>
+                                </Tooltip>
                             </div>
+                        ) : (
+                            <>
+                                <OrganizationDropdownMenu />
+                                {!isLayoutNavCollapsed && (
+                                    <div
+                                        className={`flex gap-px ${isLayoutNavCollapsed ? 'justify-center' : ''}`}
+                                        aria-label="Add a new item menu actions"
+                                    >
+                                        <ButtonPrimitive
+                                            iconOnly
+                                            onClick={toggleSearchBar}
+                                            data-attr="tree-navbar-search-button"
+                                            size="sm"
+                                            tooltip={
+                                                <div className="flex flex-col gap-0.5">
+                                                    <span>
+                                                        For search, press <KeyboardShortcut command k />
+                                                    </span>
+                                                    <span>
+                                                        For commands, press <KeyboardShortcut command shift k />
+                                                    </span>
+                                                </div>
+                                            }
+                                        >
+                                            <IconSearch className="text-secondary size-4" />
+                                        </ButtonPrimitive>
+                                    </div>
+                                )}
+                            </>
                         )}
                     </div>
 
@@ -534,6 +561,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
                             onDoubleClick={() => toggleLayoutNavCollapsed()}
                             data-attr="tree-navbar-resizer"
+                            className={cn({
+                                'top-[calc(var(--scene-layout-header-height)+4px)]': newSceneLayout,
+                                'top-0': newSceneLayout && isLayoutPanelVisible,
+                            })}
+                            offset={newSceneLayout ? -1 : 0}
                         />
                     )}
                 </nav>

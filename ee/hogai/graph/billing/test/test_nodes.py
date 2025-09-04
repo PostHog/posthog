@@ -654,6 +654,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
         events_item = next((item for item in aggregated if "Events" in item.label), None)
         self.assertIsNotNone(events_item)
 
+        events_item = cast(UsageHistoryItem, events_item)
         # Should have all 3 unique dates
         self.assertEqual(len(events_item.dates), 3)
         self.assertEqual(events_item.dates, ["2025-02-01", "2025-02-02", "2025-02-03"])
