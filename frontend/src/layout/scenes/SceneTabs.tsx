@@ -6,6 +6,7 @@ import { useActions, useValues } from 'kea'
 import { IconCopy, IconPlus, IconSearch, IconX } from '@posthog/icons'
 
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from 'lib/ui/HoverCard/HoverCard'
@@ -139,15 +140,22 @@ function SortableSceneTab({ tab }: { tab: SceneTab }): JSX.Element {
                     <div className="flex flex-col gap-1">
                         <span className="text-primary text-sm font-semibold">{tab.title}</span>
                         <span className="text-secondary text-xs flex items-center gap-1">
-                            {window.location.origin}
-                            {tab.pathname}
+                            <span>
+                                {window.location.origin}
+                                {tab.pathname}
+                            </span>
                             <ButtonPrimitive
                                 iconOnly
                                 size="xs"
                                 tooltip="Copy URL"
                                 className="text-primary"
                                 onClick={() => {
-                                    navigator.clipboard.writeText(location.href)
+                                    try {
+                                        navigator.clipboard.writeText(location.href)
+                                        lemonToast.success('URL copied to clipboard')
+                                    } catch (error) {
+                                        lemonToast.error('Failed to copy URL to clipboard', error)
+                                    }
                                 }}
                             >
                                 <IconCopy />
