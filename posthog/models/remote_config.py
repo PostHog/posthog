@@ -573,6 +573,11 @@ def organization_membership_saved(sender, instance: "OrganizationMembership", cr
     When a user is added to an organization, their unscoped personal API keys
     should gain access to teams within that organization. This ensures
     that the authentication cache is updated to reflect the new access rights.
+
+    Note: We intentionally only handle creation (created=True), not updates.
+    Changes to membership level (e.g., MEMBER → ADMIN) don't affect API key
+    access - Personal API keys grant access based on organization membership
+    existence, not role level.
     """
     if created:
         from posthog.storage.team_access_cache_signal_handlers import update_organization_membership_created_cache
