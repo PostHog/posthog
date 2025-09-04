@@ -351,7 +351,7 @@ def get_teams_for_user_personal_api_keys(user_id: int) -> set[str]:
     return affected_teams
 
 
-def get_teams_for_single_personal_api_key(personal_api_key_instance) -> list[str]:
+def get_teams_for_single_personal_api_key(personal_api_key_instance: "PersonalAPIKey") -> list[str]:
     """
     Get project API keys for teams that a single PersonalAPIKey has access to.
 

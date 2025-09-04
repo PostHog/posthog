@@ -752,6 +752,7 @@ class TestUpdateUserAuthenticationCache(TestCase):
         # Warm team1 cache
         warm_team_token_cache(team1.api_token)
         cache1 = team_access_tokens_hypercache.get_from_cache(team1.api_token)
+        assert cache1 is not None, "Cache should exist for team1"
         assert unscoped_key.secure_value in cache1["hashed_tokens"], "Unscoped key should be in team1"
         assert scoped_key.secure_value in cache1["hashed_tokens"], "Scoped key should be in team1"
 
@@ -767,6 +768,8 @@ class TestUpdateUserAuthenticationCache(TestCase):
         # Verify keys are NOT in org2 teams yet
         cache2_before = team_access_tokens_hypercache.get_from_cache(team2.api_token)
         cache3_before = team_access_tokens_hypercache.get_from_cache(team3.api_token)
+        assert cache2_before is not None, "Cache should exist for team2"
+        assert cache3_before is not None, "Cache should exist for team3"
         assert (
             unscoped_key.secure_value not in cache2_before["hashed_tokens"]
         ), "Unscoped key should NOT be in team2 before joining"
@@ -782,6 +785,8 @@ class TestUpdateUserAuthenticationCache(TestCase):
         # Verify unscoped key is now in org2 team caches, but scoped key is not
         cache2_after = team_access_tokens_hypercache.get_from_cache(team2.api_token)
         cache3_after = team_access_tokens_hypercache.get_from_cache(team3.api_token)
+        assert cache2_after is not None, "Cache should exist for team2"
+        assert cache3_after is not None, "Cache should exist for team3"
         assert (
             unscoped_key.secure_value in cache2_after["hashed_tokens"]
         ), "Unscoped key should be in team2 after joining"
@@ -929,6 +934,10 @@ class TestUpdateUserAuthenticationCache(TestCase):
         cached_data_team2 = team_access_tokens_hypercache.get_from_cache(team2.api_token)
         cached_data_other = team_access_tokens_hypercache.get_from_cache(other_team.api_token)
 
+        assert cached_data_team1 is not None, "Cache should exist for team1"
+        assert cached_data_team2 is not None, "Cache should exist for team2"
+        assert cached_data_other is not None, "Cache should exist for other team"
+
         assert key1_to_delete.secure_value in cached_data_team1["hashed_tokens"], "Key1 should be in team1"
         assert key1_to_delete.secure_value in cached_data_team2["hashed_tokens"], "Key1 should be in team2"
         assert key1_to_delete.secure_value in cached_data_other["hashed_tokens"], "Key1 should be in other team"
@@ -944,6 +953,10 @@ class TestUpdateUserAuthenticationCache(TestCase):
         cached_data_team1 = team_access_tokens_hypercache.get_from_cache(team1.api_token)
         cached_data_team2 = team_access_tokens_hypercache.get_from_cache(team2.api_token)
         cached_data_other = team_access_tokens_hypercache.get_from_cache(other_team.api_token)
+
+        assert cached_data_team1 is not None, "Cache should exist for team1"
+        assert cached_data_team2 is not None, "Cache should exist for team2"
+        assert cached_data_other is not None, "Cache should exist for other team"
 
         assert (
             key1_to_delete.secure_value not in cached_data_team1["hashed_tokens"]
@@ -1556,6 +1569,10 @@ class TestSignalHandlerCacheWarming(TestCase):
         cache2 = team_access_tokens_hypercache.get_from_cache(team2.api_token)
         cache3 = team_access_tokens_hypercache.get_from_cache(team3_to_delete.api_token)
 
+        assert cache1 is not None, "Cache should exist for team1"
+        assert cache2 is not None, "Cache should exist for team2"
+        assert cache3 is not None, "Cache should exist for team3"
+
         assert key.secure_value in cache1["hashed_tokens"]
         assert key.secure_value in cache2["hashed_tokens"]
         assert key.secure_value in cache3["hashed_tokens"]
@@ -1589,6 +1606,9 @@ class TestSignalHandlerCacheWarming(TestCase):
         # Verify the key is still in the remaining teams' caches
         cache1_after = team_access_tokens_hypercache.get_from_cache(team1.api_token)
         cache2_after = team_access_tokens_hypercache.get_from_cache(team2.api_token)
+
+        assert cache1_after is not None, "Cache should exist for team1"
+        assert cache2_after is not None, "Cache should exist for team2"
 
         assert key.secure_value in cache1_after["hashed_tokens"], "Key should still be in team1's cache"
         assert key.secure_value in cache2_after["hashed_tokens"], "Key should still be in team2's cache"
@@ -2085,6 +2105,10 @@ class TestOrganizationScopedAPIKeys(TestCase):
         team2_org1_cache = team_access_tokens_hypercache.get_from_cache(self.team2_org1.api_token)
         team1_org2_cache = team_access_tokens_hypercache.get_from_cache(self.team1_org2.api_token)
 
+        assert team1_org1_cache is not None, "Cache should exist for team1_org1"
+        assert team2_org1_cache is not None, "Cache should exist for team2_org1"
+        assert team1_org2_cache is not None, "Cache should exist for team1_org2"
+
         # Org1-scoped key should only be in org1 teams
         assert hash_key_value(self.org1_scoped_token) in team1_org1_cache["hashed_tokens"]
         assert hash_key_value(self.org1_scoped_token) in team2_org1_cache["hashed_tokens"]
@@ -2106,6 +2130,10 @@ class TestOrganizationScopedAPIKeys(TestCase):
         team2_org1_cache = team_access_tokens_hypercache.get_from_cache(self.team2_org1.api_token)
         team1_org2_cache = team_access_tokens_hypercache.get_from_cache(self.team1_org2.api_token)
 
+        assert team1_org1_cache is not None, "Cache should exist for team1_org1"
+        assert team2_org1_cache is not None, "Cache should exist for team2_org1"
+        assert team1_org2_cache is not None, "Cache should exist for team1_org2"
+
         # Both-orgs key should be in all teams (both org1 and org2)
         assert hash_key_value(self.both_orgs_token) in team1_org1_cache["hashed_tokens"]
         assert hash_key_value(self.both_orgs_token) in team2_org1_cache["hashed_tokens"]
@@ -2121,6 +2149,10 @@ class TestOrganizationScopedAPIKeys(TestCase):
         team1_org1_cache = team_access_tokens_hypercache.get_from_cache(self.team1_org1.api_token)
         team2_org1_cache = team_access_tokens_hypercache.get_from_cache(self.team2_org1.api_token)
         team1_org2_cache = team_access_tokens_hypercache.get_from_cache(self.team1_org2.api_token)
+
+        assert team1_org1_cache is not None, "Cache should exist for team1_org1"
+        assert team2_org1_cache is not None, "Cache should exist for team2_org1"
+        assert team1_org2_cache is not None, "Cache should exist for team1_org2"
 
         # Team-and-org-scoped key should only be in team1 of org1
         assert hash_key_value(self.team_and_org_token) in team1_org1_cache["hashed_tokens"]
@@ -2155,6 +2187,7 @@ class TestOrganizationScopedAPIKeys(TestCase):
 
         # Key should NOT appear in org3 team cache (user not in org)
         team_org3_cache = team_access_tokens_hypercache.get_from_cache(team_org3.api_token)
+        assert team_org3_cache is not None, "Cache should exist for team_org3"
         assert hash_key_value(org3_token) not in team_org3_cache["hashed_tokens"]
 
     def test_empty_scoped_organizations_behaves_as_unscoped(self):
@@ -2181,6 +2214,9 @@ class TestOrganizationScopedAPIKeys(TestCase):
         # Key should appear in all teams (unscoped behavior)
         team1_org1_cache = team_access_tokens_hypercache.get_from_cache(self.team1_org1.api_token)
         team1_org2_cache = team_access_tokens_hypercache.get_from_cache(self.team1_org2.api_token)
+
+        assert team1_org1_cache is not None, "Cache should exist for team1_org1"
+        assert team1_org2_cache is not None, "Cache should exist for team1_org2"
 
         assert hash_key_value(empty_org_token) in team1_org1_cache["hashed_tokens"]
         assert hash_key_value(empty_org_token) in team1_org2_cache["hashed_tokens"]

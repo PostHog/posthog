@@ -32,6 +32,7 @@ def capture_old_api_token(instance: Team, **kwargs):
     if instance.pk:  # Only for existing teams
         try:
             old_team = Team.objects.only("api_token").get(pk=instance.pk)
+            # Use setattr to avoid mypy complaints about dynamic attributes
             instance._old_api_token = old_team.api_token
         except Team.DoesNotExist:
             pass
@@ -169,7 +170,7 @@ def update_user_authentication_cache(instance, **kwargs):
         # Get all teams that the user's personal API keys have access to
         affected_teams = get_teams_for_user_personal_api_keys(instance.id)
 
-        _warm_cache_for_teams(affected_teams, "user status change", instance.id, None)
+        _warm_cache_for_teams(affected_teams, "user status change", str(instance.id), None)
 
     except Exception as e:
         logger.exception(f"Error updating authentication cache for user {instance.id} status change: {e}")
@@ -206,7 +207,7 @@ def update_personal_api_key_deleted_cache(instance: PersonalAPIKey):
             else:
                 team_api_tokens = []
 
-        _warm_cache_for_teams(team_api_tokens, "PersonalAPIKey deletion", instance.user_id, None)
+        _warm_cache_for_teams(team_api_tokens, "PersonalAPIKey deletion", str(instance.user_id), None)
 
     except Exception as e:
         logger.exception(
@@ -282,7 +283,9 @@ def update_organization_membership_deleted_cache(membership_instance):
         )
 
 
-def _warm_cache_for_teams(team_api_tokens: set[str], action: str, user_id: str, organization_id: str):
+def _warm_cache_for_teams(
+    team_api_tokens: set[str] | list[str], action: str, user_id: str, organization_id: str | None
+):
     """
     Warm the cache for a set of teams.
     """
