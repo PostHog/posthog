@@ -123,25 +123,6 @@ export interface ExceptionRelease {
     branch?: string
 }
 
-export interface ExceptionAttributes {
-    ingestionErrors?: string[]
-    runtime?: ErrorTrackingRuntime
-    type?: string
-    value?: string
-    synthetic?: boolean
-    lib?: string
-    libVersion?: string
-    browser?: string
-    browserVersion?: string
-    os?: string
-    osVersion?: string
-    sentryUrl?: string
-    level?: string
-    url?: string
-    handled?: boolean
-    releases?: ExceptionRelease[]
-}
-
 export type SymbolSetStatus = 'valid' | 'invalid'
 export type SymbolSetStatusFilter = SymbolSetStatus | 'all'
 export type ErrorEventProperties = EventType['properties']
