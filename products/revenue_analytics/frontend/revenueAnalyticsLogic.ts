@@ -192,7 +192,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             (dataWarehouseSources) =>
                 dataWarehouseSources === null
                     ? null
-                    : dataWarehouseSources.results.filter((source) => source.revenue_analytics_enabled),
+                    : dataWarehouseSources.results.filter((source) => source.revenue_analytics_config.enabled),
         ],
 
         disabledGrowthModeSelection: [(s) => [s.dateFilter], (dateFilter): boolean => dateFilter.interval !== 'month'],
