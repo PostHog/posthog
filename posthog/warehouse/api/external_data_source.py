@@ -632,7 +632,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             data={str(key): value.model_dump() for key, value in configs.items()},
         )
 
-    @action(methods=["PATCH"], detail=True, url_path="")
+    @action(methods=["PATCH"], detail=True)
     def revenue_analytics_config(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Update the revenue analytics configuration and return the full external data source."""
         external_data_source = self.get_object()
