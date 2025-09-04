@@ -494,9 +494,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             # Check prohibited appearance fields
             if "appearance" in data and data["appearance"] and "surveyPopupDelaySeconds" in data["appearance"]:
                 if data["appearance"]["surveyPopupDelaySeconds"] is not None:
-                    errors["appearance"] = {
-                        "surveyPopupDelaySeconds": "surveyPopupDelaySeconds is not allowed for external surveys"
-                    }
+                    errors["appearance"] = "surveyPopupDelaySeconds is not allowed for external surveys"
 
             if errors:
                 raise serializers.ValidationError(errors)
