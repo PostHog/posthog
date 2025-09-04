@@ -91,12 +91,11 @@ export const datasetItemModalLogic = kea<datasetItemModalLogicType>([
                         })
                         lemonToast.success('Dataset item created successfully')
                         if (values.shouldCloseModal) {
-                            // In case of "save and add another", we want to reset the form values.
                             props.closeModal(true)
-                            actions.setDatasetItemFormValues(FORM_DEFAULT_VALUE)
                         } else {
-                            // Otherwise, we just refetch the dataset items because we don't want annoying flashes.
                             actions.setRefetchDatasetItems(true)
+                            // In case of "save and add another", we want to reset the form values.
+                            actions.setDatasetItemFormValues(FORM_DEFAULT_VALUE)
                         }
                         actions.setShouldCloseModal(true)
                     } else {
