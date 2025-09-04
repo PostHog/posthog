@@ -13,6 +13,7 @@ use tracing::{debug, error, info, warn};
 use crate::kafka::message::{AckableMessage, MessageProcessor};
 use crate::rocksdb::deduplication_store::{DeduplicationStore, DeduplicationStoreConfig};
 use crate::store_manager::StoreManager;
+use crate::utils::timestamp;
 
 /// Context for a Kafka message being processed
 struct MessageContext<'a> {
@@ -200,8 +201,23 @@ impl MessageProcessor for DeduplicationProcessor {
                 // The RawEvent is serialized in the data field
                 match serde_json::from_str::<RawEvent>(&captured_event.data) {
                     Ok(mut raw_event) => {
-                        if raw_event.timestamp.is_none() {
-                            raw_event.timestamp = Some(now);
+                        // Validate timestamp: if it's None or unparseable, use CapturedEvent.now
+                        // This ensures we always have a valid timestamp for deduplication
+                        match raw_event.timestamp {
+                            None => {
+                                debug!("No timestamp in RawEvent, using CapturedEvent.now");
+                                raw_event.timestamp = Some(now);
+                            }
+                            Some(ref ts) if !timestamp::is_valid_timestamp(ts) => {
+                                debug!(
+                                    "Invalid timestamp '{}' at {}:{} offset {}, using CapturedEvent.now instead",
+                                    ts, topic, partition, offset
+                                );
+                                raw_event.timestamp = Some(now);
+                            }
+                            _ => {
+                                // Timestamp exists and is valid, keep it
+                            }
                         }
                         raw_event
                     }

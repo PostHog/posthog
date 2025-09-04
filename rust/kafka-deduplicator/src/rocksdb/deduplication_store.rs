@@ -5,11 +5,12 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use common_types::RawEvent;
 use rocksdb::{ColumnFamilyDescriptor, Options};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use crate::metrics::MetricsHelper;
 use crate::rocksdb::dedup_metadata::{MetadataV1, MetadataVersion, VersionedMetadata};
 use crate::rocksdb::{metrics_consts::*, store::RocksDbStore};
+use crate::utils::timestamp::parse_timestamp;
 
 const UNKNOWN_STR: &str = "unknown";
 
@@ -121,87 +122,6 @@ impl TryFrom<Vec<u8>> for DeduplicationKey {
     }
 }
 
-/// Parse a timestamp string into milliseconds since epoch
-/// Supports multiple formats:
-/// - u64 (assumed to be milliseconds or seconds based on magnitude)
-/// - ISO 8601 / RFC3339 datetime strings
-fn parse_timestamp(timestamp_str: &str) -> Option<u64> {
-    // First try parsing as u64 (for backward compatibility with numeric timestamps)
-    if let Ok(ts) = timestamp_str.parse::<u64>() {
-        // If it's a 10-digit number, assume it's seconds and convert to millis
-        // If it's 13+ digits, assume it's already milliseconds
-        if ts < 10_000_000_000 {
-            return Some(ts * 1000);
-        } else {
-            return Some(ts);
-        }
-    }
-
-    // Try parsing as ISO 8601 / RFC3339 datetime
-    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(timestamp_str) {
-        // Convert to milliseconds for consistent precision
-        return Some(dt.timestamp_millis() as u64);
-    }
-
-    // Try to fix and parse timestamps with timezone offsets without colons (e.g., +02 -> +02:00)
-    // This handles Node.js-generated timestamps which are more lenient than RFC3339
-    let mut fixed_timestamp = timestamp_str.to_string();
-    
-    // Fix timezone format: +02 -> +02:00 or -05 -> -05:00
-    if let Some(tz_pos) = fixed_timestamp.rfind(|c| c == '+' || c == '-') {
-        let tz_part = &fixed_timestamp[tz_pos..];
-        if tz_part.len() == 3 && !tz_part.contains(':') {
-            // It's like "+02" or "-05", needs to be "+02:00" or "-05:00"
-            fixed_timestamp.push_str(":00");
-        }
-    }
-    
-    // Try parsing the fixed timestamp
-    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&fixed_timestamp) {
-        return Some(dt.timestamp_millis() as u64);
-    }
-    
-    // Try parsing as a datetime without timezone (e.g., "2025-09-02T19:08:52.84")
-    // Add 'Z' to make it UTC
-    // Check if it doesn't have a timezone indicator (no +/- after the T part, and doesn't end with Z)
-    let has_timezone = timestamp_str.ends_with('Z') || 
-        (timestamp_str.contains('T') && {
-            let t_pos = timestamp_str.rfind('T').unwrap();
-            timestamp_str[t_pos..].contains('+') || timestamp_str[t_pos..].contains('-')
-        });
-    
-    if !has_timezone {
-        // First check if it has partial milliseconds and pad them
-        let padded_timestamp = if let Some(dot_pos) = timestamp_str.rfind('.') {
-            let after_dot = &timestamp_str[dot_pos + 1..];
-            if after_dot.len() < 3 {
-                // Pad milliseconds to 3 digits
-                format!("{}{:0<3}Z", &timestamp_str[..dot_pos + 1], after_dot)
-            } else if after_dot.len() > 3 {
-                // Truncate to 3 digits
-                format!("{}{}Z", &timestamp_str[..dot_pos + 1], &after_dot[..3])
-            } else {
-                format!("{timestamp_str}Z")
-            }
-        } else if !timestamp_str.contains('.') {
-            // No milliseconds at all, add .000Z
-            format!("{timestamp_str}.000Z")
-        } else {
-            format!("{timestamp_str}Z")
-        };
-        
-        if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&padded_timestamp) {
-            return Some(dt.timestamp_millis() as u64);
-        }
-    }
-
-    // Log parse failure for debugging
-    warn!(
-        "Failed to parse timestamp '{}' - will use current time",
-        timestamp_str
-    );
-    None
-}
 
 impl From<&RawEvent> for DeduplicationKey {
     fn from(raw_event: &RawEvent) -> Self {
@@ -730,30 +650,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_parse_timestamp_nodejs_formats() {
-        // Test Node.js generated timestamps with timezone offset without colon
-        assert!(parse_timestamp("2025-09-02T14:45:58.462+02").is_some());
-        assert!(parse_timestamp("2025-09-02T21:37:46.429+02").is_some());
-        assert!(parse_timestamp("2025-09-02T22:38:07.786+03").is_some());
-        assert!(parse_timestamp("2025-09-02T21:38:05.838-05").is_some());
-        
-        // Test timestamps with partial milliseconds
-        assert!(parse_timestamp("2025-09-02T19:08:52.84").is_some());
-        assert!(parse_timestamp("2025-09-02T19:08:52.8").is_some());
-        assert!(parse_timestamp("2025-09-02T19:08:57.344").is_some());
-        
-        // Test timestamps without milliseconds
-        assert!(parse_timestamp("2025-09-02T19:08:52").is_some());
-        
-        // Test standard RFC3339 still works
-        assert!(parse_timestamp("2025-09-02T14:45:58.462+02:00").is_some());
-        assert!(parse_timestamp("2025-09-02T14:45:58.462Z").is_some());
-        
-        // Test numeric timestamps still work
-        assert_eq!(parse_timestamp("1693584358"), Some(1693584358000)); // seconds to millis
-        assert_eq!(parse_timestamp("1693584358000"), Some(1693584358000)); // already millis
-    }
 
     #[test]
     fn test_deduplication_key_formatting() {
