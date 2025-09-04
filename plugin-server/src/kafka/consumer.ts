@@ -232,9 +232,16 @@ export class KafkaConsumer {
             // this is called as a readiness and a liveness probe
             const isWithinInterval = Date.now() - this.lastHeartbeatTime < this.maxHealthHeartbeatIntervalMs
             const isConnected = this.rdKafkaConsumer.isConnected()
-            return {
-                healthy: isConnected && isWithinInterval,
-                message: isConnected && isWithinInterval ? 'Healthy' : 'Unhealthy',
+
+            if (isConnected && isWithinInterval) {
+                return new HealthCheckResultOk()
+            } else {
+                return new HealthCheckResultError('Consumer unhealthy', {
+                    isConnected,
+                    isWithinInterval,
+                    lastHeartbeatTime: this.lastHeartbeatTime,
+                    maxHealthHeartbeatIntervalMs: this.maxHealthHeartbeatIntervalMs,
+                })
             }
         }
 
