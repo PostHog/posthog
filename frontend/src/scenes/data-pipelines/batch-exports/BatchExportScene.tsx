@@ -6,13 +6,13 @@ import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { BatchExportBackfills } from 'scenes/data-pipelines/batch-exports/BatchExportBackfills'
 import { BatchExportRuns } from 'scenes/data-pipelines/batch-exports/BatchExportRuns'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
-import { PipelineNodeLogs } from 'scenes/pipeline/PipelineNodeLogs'
-import { PipelineNodeMetrics } from 'scenes/pipeline/PipelineNodeMetrics'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { BatchExportService, Breadcrumb, PipelineStage } from '~/types'
+import { BatchExportService, Breadcrumb } from '~/types'
 
+import { PipelineNodeLogs } from '../legacy-plugins/PipelineNodeLogs'
+import { PipelineNodeMetrics } from '../legacy-plugins/PipelineNodeMetrics'
 import { BatchExportConfiguration } from './BatchExportConfiguration'
 import type { batchExportSceneLogicType } from './BatchExportSceneType'
 import { BatchExportsMetrics } from './BatchExportsMetrics'
@@ -127,10 +127,7 @@ export function BatchExportScene(): JSX.Element {
                   label: 'Logs',
                   key: 'logs',
                   content: (
-                      <FlaggedFeature
-                          flag="batch-export-new-logs"
-                          fallback={<PipelineNodeLogs id={id} stage={PipelineStage.Destination} />}
-                      >
+                      <FlaggedFeature flag="batch-export-new-logs" fallback={<PipelineNodeLogs id={id} />}>
                           <LogsViewer sourceType="batch_export" sourceId={id} instanceLabel="run" />
                       </FlaggedFeature>
                   ),

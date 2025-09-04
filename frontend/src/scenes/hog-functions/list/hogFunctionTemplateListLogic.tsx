@@ -9,11 +9,11 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
-import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
+    AvailableFeature,
     HogFunctionSubTemplateIdType,
     HogFunctionTemplateType,
     HogFunctionTemplateWithSubTemplateType,
@@ -67,14 +67,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
     ),
     path((id) => ['scenes', 'pipeline', 'destinationsLogic', id]),
     connect(() => ({
-        values: [
-            pipelineAccessLogic,
-            ['canEnableNewDestinations'],
-            featureFlagLogic,
-            ['featureFlags'],
-            userLogic,
-            ['user'],
-        ],
+        values: [featureFlagLogic, ['featureFlags'], userLogic, ['user', 'hasAvailableFeature']],
     })),
     actions({
         setFilters: (filters: Partial<HogFunctionTemplateListFilters>) => ({ filters }),
@@ -163,10 +156,10 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         ],
 
         canEnableHogFunction: [
-            (s) => [s.canEnableNewDestinations],
-            (canEnableNewDestinations): ((template: HogFunctionTemplateType) => boolean) => {
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature): ((template: HogFunctionTemplateType) => boolean) => {
                 return (template: HogFunctionTemplateType) => {
-                    return template?.free || canEnableNewDestinations
+                    return template?.free || hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
                 }
             },
         ],
@@ -182,9 +175,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                     // TRICKY: Hacky place but this is where we handle "nonHogFunctionTemplates" to modify the linked url
 
                     if (template.id.startsWith('managed-') || template.id.startsWith('self-managed-')) {
-                        return (
-                            urls.dataWarehouseSourceNew() +
-                            '?kind=' +
+                        return urls.dataWarehouseSourceNew(
                             template.id.replace('self-managed-', '').replace('managed-', '')
                         )
                     }
