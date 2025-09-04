@@ -454,7 +454,6 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
         schemas = ExternalDataSchema.objects.filter(
             team=self.team,
             should_sync=True,
-            source__revenue_analytics_enabled=True,
             source__source_type=ExternalDataSourceType.STRIPE,
         )
 

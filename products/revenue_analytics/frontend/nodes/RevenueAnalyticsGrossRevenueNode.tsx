@@ -3,7 +3,6 @@ import { useState } from 'react'
 
 import { dayjs } from 'lib/dayjs'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
-import { InsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -27,45 +26,35 @@ export function RevenueAnalyticsGrossRevenueNode(props: {
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `RevenueAnalyticsGrossRevenue.${uniqueNode++}`)
-    const logic = dataNodeLogic({
-        query: props.query,
-        key,
-        cachedResults: props.cachedResults,
-        loadPriority,
-        onData,
-        dataNodeCollectionId: dataNodeCollectionId ?? key,
-    })
-
-    const { response, responseLoading, queryId } = useValues(logic)
 
     return (
         <BindLogic logic={insightLogic} props={props.context.insightProps ?? {}}>
             <BindLogic logic={insightVizDataLogic} props={props.context.insightProps ?? {}}>
-                <Tile
-                    response={response as RevenueAnalyticsGrossRevenueQueryResponse}
-                    responseLoading={responseLoading}
-                    queryId={queryId ?? ''}
-                    context={props.context}
-                />
+                <BindLogic
+                    logic={dataNodeLogic}
+                    props={{
+                        query: props.query,
+                        key,
+                        cachedResults: props.cachedResults,
+                        loadPriority,
+                        onData,
+                        dataNodeCollectionId: dataNodeCollectionId ?? key,
+                    }}
+                >
+                    <Tile context={props.context} />
+                </BindLogic>
             </BindLogic>
         </BindLogic>
     )
 }
 
-const Tile = ({
-    response,
-    responseLoading,
-    queryId,
-    context,
-}: TileProps<RevenueAnalyticsGrossRevenueQueryResponse>): JSX.Element => {
+const Tile = ({ context }: TileProps): JSX.Element => {
     const { baseCurrency, revenueGoals, breakdownProperties } = useValues(revenueAnalyticsLogic)
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
-    const results = (response?.results as GraphDataset[]) ?? []
-    const { labels, datasets } = extractLabelAndDatasets(results)
-
     return (
         <TileWrapper
+            context={context}
             title="Gross revenue"
             tooltip={
                 <span>
@@ -79,41 +68,44 @@ const Tile = ({
                 </span>
             }
         >
-            {responseLoading ? (
-                <InsightLoadingState queryId={queryId} key={queryId} insightProps={context.insightProps ?? {}} />
-            ) : (
-                <RevenueAnalyticsLineGraph
-                    data-attr="revenue-analytics-revenue-tile-graph"
-                    datasets={datasets}
-                    labels={labels}
-                    legend={{
-                        display: breakdownProperties.length > 0 && datasets.length > 1,
-                        position: 'right',
-                        // By default chart.js renders first item at the bottom of stack, but legend goes at the top, let's reverse the legend instead
-                        reverse: true,
-                    }}
-                    trendsFilter={{
-                        aggregationAxisFormat: 'numeric',
-                        aggregationAxisPrefix: isPrefix ? currencySymbol : undefined,
-                        aggregationAxisPostfix: isPrefix ? undefined : currencySymbol,
-                        goalLines: revenueGoals.map((goal) => {
-                            const isFuture = dayjs(goal.due_date).isSameOrAfter(dayjs())
+            {(rawResponse) => {
+                const response = rawResponse as RevenueAnalyticsGrossRevenueQueryResponse | null
+                const results = (response?.results as GraphDataset[]) ?? []
+                const { labels, datasets } = extractLabelAndDatasets(results)
+                return (
+                    <RevenueAnalyticsLineGraph
+                        data-attr="revenue-analytics-revenue-tile-graph"
+                        datasets={datasets}
+                        labels={labels}
+                        legend={{
+                            display: breakdownProperties.length > 0 && datasets.length > 1,
+                            position: 'right',
+                            // By default chart.js renders first item at the bottom of stack, but legend goes at the top, let's reverse the legend instead
+                            reverse: true,
+                        }}
+                        trendsFilter={{
+                            aggregationAxisFormat: 'numeric',
+                            aggregationAxisPrefix: isPrefix ? currencySymbol : undefined,
+                            aggregationAxisPostfix: isPrefix ? undefined : currencySymbol,
+                            goalLines: revenueGoals.map((goal) => {
+                                const isFuture = dayjs(goal.due_date).isSameOrAfter(dayjs())
 
-                            return {
-                                label: `${goal.name} (${dayjs(goal.due_date).format('DD MMM YYYY')})`,
-                                value: goal.goal,
-                                displayLabel: true,
-                                borderColor: isFuture ? 'green' : 'red',
+                                return {
+                                    label: `${goal.name} (${dayjs(goal.due_date).format('DD MMM YYYY')})`,
+                                    value: goal.goal,
+                                    displayLabel: true,
+                                    borderColor: isFuture ? 'green' : 'red',
 
-                                // Only display smaller goals that are in the future
-                                // This implies that past goals that have been achieved already
-                                // will not be displayed
-                                displayIfCrossed: isFuture,
-                            }
-                        }),
-                    }}
-                />
-            )}
+                                    // Only display smaller goals that are in the future
+                                    // This implies that past goals that have been achieved already
+                                    // will not be displayed
+                                    displayIfCrossed: isFuture,
+                                }
+                            }),
+                        }}
+                    />
+                )
+            }}
         </TileWrapper>
     )
 }

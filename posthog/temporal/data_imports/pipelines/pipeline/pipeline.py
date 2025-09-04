@@ -419,7 +419,7 @@ def _notify_revenue_analytics_that_sync_has_completed(schema: ExternalDataSchema
         if (
             schema.name == STRIPE_CHARGE_RESOURCE_NAME
             and schema.source.source_type == ExternalDataSourceType.STRIPE
-            and schema.source.revenue_analytics_enabled
+            and schema.source.revenue_analytics_config.enabled
             and not schema.team.revenue_analytics_config.notified_first_sync
         ):
             # For every admin in the org, send a revenue analytics ready event

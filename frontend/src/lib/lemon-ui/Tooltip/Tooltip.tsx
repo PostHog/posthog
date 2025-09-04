@@ -20,6 +20,7 @@ import {
 } from '@floating-ui/react'
 import clsx from 'clsx'
 import React, { useRef, useState } from 'react'
+import { twMerge } from 'tailwind-merge'
 
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 
@@ -39,6 +40,7 @@ interface BaseTooltipProps {
     placement?: Placement
     fallbackPlacements?: Placement[]
     className?: string
+    containerClassName?: string
     visible?: boolean
     /**
      * Defaults to true if docLink is provided
@@ -66,6 +68,7 @@ export function Tooltip({
     interactive = false,
     visible: controlledOpen,
     docLink,
+    containerClassName,
 }: React.PropsWithChildren<RequiredTooltipProps>): JSX.Element {
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
     const [isHoveringTooltip, setIsHoveringTooltip] = useState(false) // Track tooltip hover state
@@ -154,7 +157,7 @@ export function Tooltip({
                 <FloatingPortal root={floatingContainer}>
                     <div
                         ref={refs.setFloating}
-                        className="Tooltip max-w-sm"
+                        className={twMerge('Tooltip max-w-sm', containerClassName)}
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ ...context.floatingStyles }}
                         {...getFloatingProps({

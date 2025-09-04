@@ -13,8 +13,6 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.hogql.database.database import create_hogql_database
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
@@ -37,9 +35,16 @@ from posthog.warehouse.data_load.service import (
     trigger_external_data_source_workflow,
 )
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from posthog.warehouse.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from posthog.warehouse.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
+
+
+class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExternalDataSourceRevenueAnalyticsConfig
+        fields = ["enabled", "include_invoiceless_charges"]
 
 
 class ExternalDataJobSerializers(serializers.ModelSerializer):
@@ -92,7 +97,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
     latest_error = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
     schemas = serializers.SerializerMethodField(read_only=True)
-    revenue_analytics_enabled = serializers.BooleanField(default=False)
+    revenue_analytics_config = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = ExternalDataSource
@@ -106,10 +111,10 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "source_type",
             "latest_error",
             "prefix",
-            "revenue_analytics_enabled",
             "last_run_at",
             "schemas",
             "job_inputs",
+            "revenue_analytics_config",
         ]
         read_only_fields = [
             "id",
@@ -121,6 +126,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "last_run_at",
             "schemas",
             "prefix",
+            "revenue_analytics_config",
         ]
 
     """
@@ -237,6 +243,11 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
     def get_schemas(self, instance: ExternalDataSource):
         return ExternalDataSchemaSerializer(instance.schemas, many=True, read_only=True, context=self.context).data
 
+    def get_revenue_analytics_config(self, instance: ExternalDataSource):
+        return ExternalDataSourceRevenueAnalyticsConfigSerializer(
+            instance.revenue_analytics_config, many=False, read_only=True, context=self.context
+        ).data
+
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
         """Update source ensuring we merge with existing job inputs to allow partial updates."""
         existing_job_inputs = instance.job_inputs
@@ -285,12 +296,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ["source_id"]
     ordering = "-created_at"
-
-    def get_serializer_context(self) -> dict[str, Any]:
-        context = super().get_serializer_context()
-        context["database"] = create_hogql_database(team_id=self.team_id)
-
-        return context
 
     def safely_get_queryset(self, queryset):
         return (
@@ -369,7 +374,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             team=self.team,
             status="Running",
             source_type=source_type_model,
-            revenue_analytics_enabled=True,
             job_inputs=source_config.to_dict(),
             prefix=prefix,
         )
@@ -622,6 +626,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
             data={str(key): value.model_dump() for key, value in configs.items()},
         )
+
+    @action(methods=["PATCH"], detail=True, url_path="")
+    def revenue_analytics_config(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Update the revenue analytics configuration and return the full external data source."""
+        external_data_source = self.get_object()
+        config = external_data_source.revenue_analytics_config
+
+        config_serializer = ExternalDataSourceRevenueAnalyticsConfigSerializer(config, data=request.data, partial=True)
+        config_serializer.is_valid(raise_exception=True)
+        config_serializer.save()
+
+        # Return the full external data source with updated config
+        source_serializer = self.get_serializer(external_data_source, context=self.get_serializer_context())
+        return Response(source_serializer.data)
 
 
 @dataclasses.dataclass(frozen=True)

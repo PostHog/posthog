@@ -5,7 +5,7 @@
 }
 
 .scene-layout__content-panel {
-    z-index: var(--z-top-navigation);
+    z-index: var(--z-scene-layout-content-panel);
     width: var(--scene-layout-panel-width);
     border-left: 1px solid var(--color-border-primary);
 }

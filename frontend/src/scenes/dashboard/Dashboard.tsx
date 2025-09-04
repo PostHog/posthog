@@ -129,7 +129,12 @@ function DashboardScene(): JSX.Element {
                 <div>
                     <DashboardOverridesBanner />
 
-                    <div className={cn('Dashboard_filters', newSceneLayout && '-mt-2')}>
+                    <div
+                        className={cn(
+                            'dashboard-filters sticky top-[var(--breadcrumbs-height-compact)] z-10 bg-primary py-2',
+                            newSceneLayout && 'top-0 -mx-4 px-4 -mt-2 py-1'
+                        )}
+                    >
                         <div className="flex gap-2 justify-between">
                             {![
                                 DashboardPlacement.Public,
