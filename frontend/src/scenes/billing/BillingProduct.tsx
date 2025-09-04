@@ -247,11 +247,12 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     product: BillingProductV2Type | BillingProductV2AddonType
                                     displayName: string
                                 }) => {
-                                    const isSessionReplay = variant.key === 'session_replay'
-                                    const currentAmount = isSessionReplay
+                                    const isMainProductVariant =
+                                        variant.key === 'session_replay' || variant.key === 'realtime_destinations'
+                                    const currentAmount = isMainProductVariant
                                         ? (product as BillingProductV2Type).current_amount_usd_before_addons || '0'
                                         : (variant.product as BillingProductV2AddonType).current_amount_usd || '0'
-                                    const projectedAmount = isSessionReplay
+                                    const projectedAmount = isMainProductVariant
                                         ? projectedAmountExcludingAddons
                                         : variant.product.projected_amount_usd || '0'
                                     const discountMultiplier = 1 - combinedMonetaryData.discountPercent / 100
@@ -293,7 +294,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     <div className="ml-16">
                                                         <BillingGauge
                                                             items={
-                                                                isSessionReplay
+                                                                isMainProductVariant
                                                                     ? billingGaugeItems.filter(
                                                                           (item) =>
                                                                               item.type !==

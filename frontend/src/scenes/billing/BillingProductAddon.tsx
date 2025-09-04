@@ -136,13 +136,15 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
             </div>
 
             {/* Features */}
-            <div className={clsx('mt-3', { 'ml-11': addon.type !== 'mobile_replay' })}>
+            <div
+                className={clsx('mt-3', { 'ml-11': addon.type !== 'mobile_replay' && addon.type !== 'batch_exports' })}
+            >
                 <BillingAddonFeaturesList
                     addonFeatures={addonFeatures?.filter((feature) => !feature.entitlement_only) || []}
                     addonType={addon.type}
                 />
 
-                {addon.type === 'mobile_replay' && addon.subscribed && (
+                {(addon.type === 'mobile_replay' || addon.type === 'batch_exports') && addon.subscribed && (
                     <>
                         <div className="flex w-full items-center gap-x-8">
                             <LemonButton

@@ -390,7 +390,9 @@ export const billingProductLogic = kea<billingProductLogicType>([
         isProductWithVariants: [
             (_s, p) => [p.product],
             (product): boolean =>
-                product.type === 'session_replay' && 'addons' in product && product.addons?.length > 0,
+                (product.type === 'session_replay' || product.type === 'realtime_destinations') &&
+                'addons' in product &&
+                product.addons?.length > 0,
         ],
         projectedAmountExcludingAddons: [
             (s, p) => [s.isProductWithVariants, p.product],
