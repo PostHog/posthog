@@ -179,34 +179,17 @@ export class HogFlowExecutorService {
         return result
     }
 
-    // Like execute but does the complete flow, logging delays and async function calls rather than performing them
+    // Like execute but performs a single action in the flow, logging delays and async function calls rather than performing them
     async executeTest(
         invocation: CyclotronJobInvocationHogFlow
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
-        const finalResult = createInvocationResult<CyclotronJobInvocationHogFlow>(
-            invocation,
-            {},
-            {
-                finished: false,
-            }
-        )
-
-        let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null
-
-        result = await this.execute(invocation)
+        const result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> = await this.execute(invocation)
 
         if (result?.invocation.queueScheduledAt) {
-            this.log(finalResult, 'info', `Workflow will pause until ${result.invocation.queueScheduledAt.toISO()}`)
+            this.log(result, 'info', `Workflow would have paused until ${result.invocation.queueScheduledAt.toISO()}`)
         }
 
-        result?.logs?.forEach((log) => {
-            finalResult.logs.push(log)
-        })
-        result?.metrics?.forEach((metric) => {
-            finalResult.metrics.push(metric)
-        })
-
-        return finalResult
+        return result
     }
 
     /**

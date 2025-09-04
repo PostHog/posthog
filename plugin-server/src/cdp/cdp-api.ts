@@ -468,15 +468,15 @@ export class CdpApi {
                 triggerGlobals,
                 compoundConfiguration,
                 filterGlobals,
-                current_action_id,
+                current_action_id
             )
-            const response = await this.hogFlowExecutor.executeTest(invocation)
+            const result = await this.hogFlowExecutor.executeTest(invocation)
 
             res.json({
-                result: null, // HogFlows don't have a result property like HogFunctions
-                status: response.error ? 'error' : 'success',
-                errors: response.error ? [response.error] : [],
-                logs: response.logs,
+                result,
+                status: result.error ? 'error' : 'success',
+                errors: result.error ? [result.error] : [],
+                logs: result.logs,
             })
         } catch (e) {
             console.error(e)

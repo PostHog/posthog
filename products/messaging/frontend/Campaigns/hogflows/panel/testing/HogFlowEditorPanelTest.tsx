@@ -146,7 +146,7 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
             {/* footer */}
             <div className="p-2">
                 {testResult ? (
-                    <div className="flex gap-2">
+                    <div className="flex justify-end gap-2">
                         <LemonButton
                             type="secondary"
                             onClick={() => setTestResult(null)}
@@ -156,15 +156,17 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                             Clear test result
                         </LemonButton>
 
-                        <LemonButton
-                            type="primary"
-                            onClick={() => submitTestInvocation()}
-                            icon={<IconPlayFilled />}
-                            loading={isTestInvocationSubmitting}
-                            data-attr="continue-workflow-test-panel-new"
-                        >
-                            Continue
-                        </LemonButton>
+                        {selectedNode?.data?.type !== 'exit' && (
+                            <LemonButton
+                                type="primary"
+                                onClick={() => submitTestInvocation()}
+                                icon={<IconPlayFilled />}
+                                loading={isTestInvocationSubmitting}
+                                data-attr="continue-workflow-test-panel-new"
+                            >
+                                Continue
+                            </LemonButton>
+                        )}
                     </div>
                 ) : (
                     <>
