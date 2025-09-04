@@ -295,7 +295,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 if (values.configurationHasErrors) {
                     // Get the configuration logic instance
                     const configLogic = hogFunctionConfigurationLogic(props)
-                    const inputErrors = configLogic.values.inputFormErrors?.inputs || {}
+                    const inputErrors = configLogic.values.inputFormErrors || {}
 
                     // Create a simple list of errors
                     const errorMessages = Object.entries(inputErrors).map(([key, error]) => {
