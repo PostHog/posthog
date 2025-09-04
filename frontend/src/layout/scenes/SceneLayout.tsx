@@ -90,7 +90,6 @@ export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren
         </div>
     )
 }
-8
 
 export function SceneLayout({ children, className, layoutConfig }: SceneLayoutProps): JSX.Element {
     const {
@@ -146,9 +145,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                         }
                     )}
                 >
-                    {layoutConfig?.layout !== 'app-raw-no-header' && (
-                        <SceneHeader className="row-span-1 col-span-1 min-w-0" />
-                    )}
+                    <SceneHeader layout={layoutConfig?.layout} className="row-span-1 col-span-1 min-w-0" />
                     <ScrollableShadows
                         direction="vertical"
                         className={cn(

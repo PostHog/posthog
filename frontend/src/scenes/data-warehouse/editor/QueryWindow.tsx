@@ -16,8 +16,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 
@@ -79,7 +77,6 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     const { sidebarWidth } = useValues(editorSizingLogic)
     const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {
@@ -129,19 +126,6 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
 
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
-            {newSceneLayout && (
-                <div className="flex flex-col gap-2 pt-2 px-4">
-                    <SceneTitleSection
-                        name="SQL Editor"
-                        description={null}
-                        resourceType={{
-                            type: 'sql',
-                            typePlural: 'sql',
-                        }}
-                    />
-                    <SceneDivider />
-                </div>
-            )}
             <div className="flex flex-row overflow-x-auto">
                 {renderSidebarButton()}
                 <QueryTabs

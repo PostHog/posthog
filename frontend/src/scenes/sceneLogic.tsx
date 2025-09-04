@@ -390,13 +390,9 @@ export const sceneLogic = kea<sceneLogicType>([
         sceneId: [(s) => [s.activeTab], (activeTab) => activeTab?.sceneId],
         sceneKey: [(s) => [s.activeTab], (activeTab) => activeTab?.sceneKey],
         sceneConfig: [
-            (s) => [s.sceneId, s.featureFlags],
-            (sceneId: Scene, featureFlags): SceneConfig | null => {
-                const config = sceneConfigurations[sceneId] || null
-                if (sceneId === Scene.SQLEditor && featureFlags[FEATURE_FLAGS.SCENE_TABS]) {
-                    return { ...config, layout: 'app' }
-                }
-                return config
+            (s) => [s.sceneId],
+            (sceneId: Scene): SceneConfig | null => {
+                return sceneConfigurations[sceneId] || null
             },
         ],
         sceneParams: [
