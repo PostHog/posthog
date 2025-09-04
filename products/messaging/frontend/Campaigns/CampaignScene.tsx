@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -26,10 +27,14 @@ export function CampaignScene(props: CampaignSceneLogicProps): JSX.Element {
     const { currentTab } = useValues(campaignSceneLogic)
 
     const logic = campaignLogic(props)
-    const { campaignLoading, campaign } = useValues(logic)
+    const { campaignLoading, campaign, originalCampaign } = useValues(logic)
 
     if (campaignLoading) {
         return <SpinnerOverlay sceneLevel />
+    }
+
+    if (!originalCampaign) {
+        return <NotFound object="campaign" />
     }
 
     const tabs: (LemonTab<CampaignTab> | null)[] = [
