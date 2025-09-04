@@ -234,8 +234,8 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
 
         enabledDataWarehouseSources: [
             (s) => [s.dataWarehouseSources],
-            (dataWarehouseSources: ExternalDataSource[]): ExternalDataSource[] => {
-                return dataWarehouseSources?.filter((source) => source.revenue_analytics_config.enabled) ?? []
+            (dataWarehouseSources): ExternalDataSource[] => {
+                return dataWarehouseSources?.results?.filter((source) => source.revenue_analytics_config.enabled) ?? []
             },
         ],
 
