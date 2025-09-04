@@ -72,12 +72,20 @@ impl FeatureFlagList {
                   f.active,
                   f.ensure_experience_continuity,
                   f.version,
-                  f.evaluation_runtime
+                  f.evaluation_runtime,
+                  COALESCE(
+                      ARRAY_AGG(tag.name) FILTER (WHERE tag.name IS NOT NULL),
+                      '{}'::text[]
+                  ) AS evaluation_tags
               FROM posthog_featureflag AS f
               JOIN posthog_team AS t ON (f.team_id = t.id)
+              LEFT JOIN posthog_featureflagevaluationtag AS et ON (f.id = et.feature_flag_id)
+              LEFT JOIN posthog_tag AS tag ON (et.tag_id = tag.id)
             WHERE t.project_id = $1
               AND f.deleted = false
               AND f.active = true
+            GROUP BY f.id, f.team_id, f.name, f.key, f.filters, f.deleted, f.active, 
+                     f.ensure_experience_continuity, f.version, f.evaluation_runtime
         "#;
         let flags_row = sqlx::query_as::<_, FeatureFlagRow>(query)
             .bind(project_id)
@@ -108,6 +116,7 @@ impl FeatureFlagList {
                         ensure_experience_continuity: row.ensure_experience_continuity,
                         version: row.version,
                         evaluation_runtime: row.evaluation_runtime,
+                        evaluation_tags: row.evaluation_tags,
                     }),
                     Err(e) => {
                         tracing::warn!(
@@ -178,7 +187,8 @@ impl FeatureFlagList {
 mod tests {
     use super::*;
     use crate::utils::test_utils::{
-        insert_flag_for_team_in_pg, insert_flags_for_team_in_redis, insert_new_team_in_pg,
+        insert_evaluation_tags_for_flag_in_pg, insert_flag_for_team_in_pg, 
+        insert_flags_for_team_in_redis, insert_new_team_in_pg,
         insert_new_team_in_redis, setup_invalid_pg_client, setup_pg_reader_client,
         setup_redis_client,
     };
@@ -309,6 +319,7 @@ mod tests {
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         };
 
         let flag2 = FeatureFlagRow {
@@ -322,6 +333,7 @@ mod tests {
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         };
 
         // Insert multiple flags for the team
@@ -341,5 +353,44 @@ mod tests {
         for flag in &flags_from_pg.flags {
             assert_eq!(flag.team_id, team.id);
         }
+    }
+
+    #[tokio::test]
+    async fn test_fetch_flags_with_evaluation_tags_from_pg() {
+        let reader = setup_pg_reader_client(None).await;
+
+        let team = insert_new_team_in_pg(reader.clone(), None)
+            .await
+            .expect("Failed to insert team");
+
+        let flag_row = insert_flag_for_team_in_pg(reader.clone(), team.id, None)
+            .await
+            .expect("Failed to insert flag");
+
+        // Insert evaluation tags for the flag
+        insert_evaluation_tags_for_flag_in_pg(
+            reader.clone(), 
+            flag_row.id, 
+            team.id,
+            vec!["docs-page", "marketing-site", "app"]
+        )
+        .await
+        .expect("Failed to insert evaluation tags");
+
+        let (flags_from_pg, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
+            .await
+            .expect("Failed to fetch flags from pg");
+
+        assert_eq!(flags_from_pg.flags.len(), 1);
+        let flag = flags_from_pg.flags.first().expect("Should have one flag");
+        assert_eq!(flag.key, "flag1");
+        assert_eq!(flag.team_id, team.id);
+        
+        // Check that evaluation tags were properly fetched
+        let tags = flag.evaluation_tags.as_ref().expect("Should have evaluation tags");
+        assert_eq!(tags.len(), 3);
+        assert!(tags.contains(&"docs-page".to_string()));
+        assert!(tags.contains(&"marketing-site".to_string()));
+        assert!(tags.contains(&"app".to_string()));
     }
 }

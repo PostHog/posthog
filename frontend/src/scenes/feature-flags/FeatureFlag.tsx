@@ -91,6 +91,7 @@ import {
 import { AnalysisTab } from './FeatureFlagAnalysisTab'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
+import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
@@ -549,6 +550,36 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     </>
                                                 )}
                                             </div>
+                                        </div>
+                                        <div>
+                                            {featureFlag?.tags && (
+                                                <>
+                                                    {featureFlag.tags.length > 0 ? (
+                                                        <span className="text-secondary">Tags:</span>
+                                                    ) : null}{' '}
+                                                    {featureFlag.can_edit ? (
+                                                        <FeatureFlagEvaluationTags
+                                                            tags={featureFlag.tags}
+                                                            evaluationTags={featureFlag.evaluation_tags || []}
+                                                            onChange={(tags, evaluationTags) => {
+                                                                saveFeatureFlag({
+                                                                    tags,
+                                                                    evaluation_tags: evaluationTags,
+                                                                })
+                                                            }}
+                                                            tagsAvailable={tags.filter(
+                                                                (tag: string) => !featureFlag.tags?.includes(tag)
+                                                            )}
+                                                        />
+                                                    ) : featureFlag.tags.length > 0 ? (
+                                                        <FeatureFlagEvaluationTags
+                                                            tags={featureFlag.tags}
+                                                            evaluationTags={featureFlag.evaluation_tags || []}
+                                                            staticOnly
+                                                        />
+                                                    ) : null}
+                                                </>
+                                            )}
                                         </div>
                                         <div className="mt-2">{featureFlag.name || <i>Description (optional)</i>}</div>
                                     </div>

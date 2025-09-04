@@ -41,7 +41,7 @@ from posthog.helpers.encrypted_flag_payloads import (
     encrypt_flag_payloads,
     get_decrypted_flag_payloads,
 )
-from posthog.models import FeatureFlag
+from posthog.models import FeatureFlag, Tag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
@@ -50,6 +50,7 @@ from posthog.models.cohort.util import get_dependent_cohorts
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import (
     FeatureFlagDashboards,
+    FeatureFlagEvaluationTag,
     can_user_edit_feature_flag,
     get_all_feature_flags,
     get_user_blast_radius,
@@ -159,6 +160,10 @@ class FeatureFlagSerializer(
         queryset=Dashboard.objects.all(),
     )
 
+    evaluation_tags = serializers.SerializerMethodField(
+        help_text="Tags that act as evaluation constraints. Flag will only evaluate when SDK provides matching environment tags.",
+    )
+
     name = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -198,6 +203,7 @@ class FeatureFlagSerializer(
             "performed_rollback",
             "can_edit",
             "tags",
+            "evaluation_tags",
             "usage_dashboard",
             "analytics_dashboards",
             "has_enriched_analytics",
@@ -230,6 +236,13 @@ class FeatureFlagSerializer(
                     access_level=OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW,
                 ).exists()
             )
+        )
+
+    def get_evaluation_tags(self, feature_flag: FeatureFlag) -> list:
+        return list(
+            FeatureFlagEvaluationTag.objects.filter(feature_flag=feature_flag)
+            .select_related("tag")
+            .values_list("tag__name", flat=True)
         )
 
     # Simple flags are ones that only have rollout_percentage
@@ -500,7 +513,10 @@ class FeatureFlagSerializer(
     def check_flag_evaluation(self, data):
         # TODO: Once we move to no DB level evaluation, can get rid of this.
 
-        temporary_flag = FeatureFlag(**data)
+        # Remove tags since it's not a model field
+        data_copy = data.copy()
+        data_copy.pop("tags", None)
+        temporary_flag = FeatureFlag(**data_copy)
         project_id = self.context["project_id"]
 
         # Skip validation for flags with flag dependencies since the evaluation
@@ -521,7 +537,10 @@ class FeatureFlagSerializer(
         validated_data["last_modified_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
         validated_data["version"] = 1  # This is the first version of the feature flag
-        tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
+        # Don't pop tags here - let TaggedItemSerializerMixin handle it via super().create()
+        evaluation_tags = self.initial_data.get(
+            "evaluation_tags", None
+        )  # evaluation constraint tags (from initial_data since it's read-only)
         creation_context = validated_data.pop(
             "creation_context", "feature_flags"
         )  # default to "feature_flags" if an alternative value is not provided
@@ -545,7 +564,9 @@ class FeatureFlagSerializer(
         with ImpersonatedContext(request):
             instance: FeatureFlag = super().create(validated_data)
 
-        self._attempt_set_tags(tags, instance)
+        # Handle evaluation tags - mark specified tags as evaluation constraints
+        if evaluation_tags:
+            self._set_evaluation_tags(evaluation_tags, instance)
 
         _create_usage_dashboard(instance, request.user)
 
@@ -637,17 +658,22 @@ class FeatureFlagSerializer(
             validated_data["version"] = locked_version + 1
             old_key = instance.key
 
+            # Pop fields that aren't model fields before calling super().update()
+            analytics_dashboards = validated_data.pop("analytics_dashboards", None)
+            evaluation_tags = self.initial_data.get(
+                "evaluation_tags", None
+            )  # Get from initial_data since it's read-only
+
             with ImpersonatedContext(request):
                 instance = super().update(instance, validated_data)
-
-        # Continue with the update outside of the transaction. This is an intentional choice
-        # to avoid deadlocks. Not to mention, before making the concurrency changes, these
-        # updates were already occurring outside of a transaction.
-        analytics_dashboards = validated_data.pop("analytics_dashboards", None)
 
         if analytics_dashboards is not None:
             for dashboard in analytics_dashboards:
                 FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
+
+        # Handle evaluation tags updates - mark specified tags as evaluation constraints
+        if evaluation_tags is not None:
+            self._set_evaluation_tags(evaluation_tags, instance)
 
         # Propagate the new variants and aggregation group type index to the linked experiments
         if "filters" in validated_data:
@@ -733,6 +759,42 @@ class FeatureFlagSerializer(
             )
             .order_by("key")
         )
+
+    def _set_evaluation_tags(self, evaluation_tag_names: list[str], feature_flag: FeatureFlag):
+        """
+        Sets evaluation tags for a feature flag.
+        This method:
+        1. Ensures all specified tags exist (creates them if needed)
+        2. Creates FeatureFlagEvaluationTag entries to mark these tags as evaluation constraints
+        3. Removes any old evaluation tags that are no longer specified
+        Note: Regular tags are handled separately by TaggedItemSerializerMixin
+        """
+        from posthog.models.tag import tagify
+
+        # Normalize tag names
+        normalized_tags = [tagify(tag_name) for tag_name in evaluation_tag_names]
+
+        # Get or create the tags
+        tag_instances = []
+        for tag_name in normalized_tags:
+            tag, _ = Tag.objects.get_or_create(name=tag_name, team_id=feature_flag.team_id)
+            tag_instances.append(tag)
+
+        # Get existing evaluation tags for this flag
+        existing_eval_tags = set(
+            FeatureFlagEvaluationTag.objects.filter(feature_flag=feature_flag).values_list("tag_id", flat=True)
+        )
+        new_eval_tags = {tag.id for tag in tag_instances}
+
+        # Add new evaluation tags
+        for tag in tag_instances:
+            if tag.id not in existing_eval_tags:
+                FeatureFlagEvaluationTag.objects.create(feature_flag=feature_flag, tag=tag)
+
+        # Remove evaluation tags that are no longer specified
+        tags_to_remove = existing_eval_tags - new_eval_tags
+        if tags_to_remove:
+            FeatureFlagEvaluationTag.objects.filter(feature_flag=feature_flag, tag_id__in=tags_to_remove).delete()
 
     def _update_filters(self, validated_data):
         if "get_filters" in validated_data:
@@ -836,6 +898,7 @@ def _update_feature_flag_dashboard(feature_flag: FeatureFlag, old_key: str) -> N
 
 class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
+    evaluation_tags = serializers.SerializerMethodField()
 
     class Meta:
         model = FeatureFlag
@@ -851,7 +914,15 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             "has_encrypted_payloads",
             "version",
             "evaluation_runtime",
+            "evaluation_tags",
         ]
+
+    def get_evaluation_tags(self, obj):
+        return list(
+            FeatureFlagEvaluationTag.objects.filter(feature_flag=obj)
+            .select_related("tag")
+            .values_list("tag__name", flat=True)
+        )
 
 
 class FeatureFlagViewSet(

@@ -497,7 +497,15 @@ def get_feature_flags_for_team_in_cache(project_id: int) -> Optional[list[Featur
     if flag_data is not None:
         try:
             parsed_data = json.loads(flag_data)
-            return [FeatureFlag(**flag) for flag in parsed_data]
+            flags = []
+            for flag_data in parsed_data:
+                # Pop evaluation_tags since it's not a direct field on the model
+                evaluation_tags_list = flag_data.pop("evaluation_tags", None)
+                flag = FeatureFlag(**flag_data)
+                # Store evaluation_tags as a custom attribute (not the reverse relation) for use in flag evaluation
+                flag.cached_evaluation_tags = evaluation_tags_list
+                flags.append(flag)
+            return flags
         except Exception as e:
             logger.exception("Error parsing flags from cache")
             capture_exception(e)
@@ -519,3 +527,25 @@ class FeatureFlagDashboards(models.Model):
                 name="unique feature flag for a dashboard",
             )
         ]
+
+
+class FeatureFlagEvaluationTag(models.Model):
+    """
+    Marks an existing tag as also being an evaluation constraint for a feature flag.
+    When a tag is marked as an evaluation tag, it serves dual purpose:
+    1. It remains an organizational tag (via the TaggedItem relationship)
+    2. It acts as an evaluation constraint - the flag will only evaluate when
+       the SDK/client provides matching environment tags
+    This allows for user-specified evaluation environments like "docs-page",
+    "marketing-site", "app", etc.
+    """
+
+    feature_flag = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE, related_name="evaluation_tags")
+    tag = models.ForeignKey("Tag", on_delete=models.CASCADE, related_name="evaluation_flags")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [["feature_flag", "tag"]]
+
+    def __str__(self) -> str:
+        return f"{self.feature_flag.key} - {self.tag.name}"
