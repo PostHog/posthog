@@ -57,7 +57,7 @@ function ReleaseListItem({ release }: { release: ExceptionRelease }): JSX.Elemen
             {release.repositoryUrl && (
                 <div className="flex items-center gap-2">
                     <div className="w-20 text-xs text-muted">URL</div>
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 flex min-w-0 items-center gap-2">
                         <Link
                             to={release.repositoryUrl}
                             target="_blank"
@@ -66,7 +66,7 @@ function ReleaseListItem({ release }: { release: ExceptionRelease }): JSX.Elemen
                             <span className="flex-1 truncate max-w-full" title={release.repositoryUrl}>
                                 {release.repositoryUrl}
                             </span>
-                            <IconExternal className="size-3 shrink-0" />
+                            <IconExternal className="shrink-0" />
                         </Link>
                     </div>
                 </div>
