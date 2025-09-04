@@ -53,11 +53,8 @@ export function RevenueAnalyticsScene(): JSX.Element {
                 productName={PRODUCT_NAME}
                 productKey={PRODUCT_KEY}
                 thingName={PRODUCT_THING_NAME}
-                description={
-                    PRODUCT_DESCRIPTION +
-                    ". Because we're in open beta, each user will need to enable this feature separately."
-                }
-                titleOverride="Revenue Analytics is in opt-in beta."
+                description={PRODUCT_DESCRIPTION}
+                titleOverride="Revenue Analytics is in open beta."
                 actionElementOverride={
                     <LemonButton
                         type="primary"
@@ -94,12 +91,22 @@ export function RevenueAnalyticsScene(): JSX.Element {
 
                 <LemonBanner
                     type="info"
-                    dismissKey="revenue-analytics-beta-banner-v2"
                     action={{ children: 'Send feedback', id: 'revenue-analytics-feedback-button' }}
                     className={cn(!newSceneLayout && 'mb-2')}
                 >
-                    Revenue Analytics is in beta. Please let us know what you'd like to see here and/or report any
-                    issues directly to us!
+                    <p>
+                        Revenue Analytics is in beta. Please let us know what you'd like to see here and/or report any
+                        issues directly to us!
+                    </p>
+                    <p>
+                        At this stage, Revenue Analytics is optimized for small/medium-sized companies. If you process
+                        more than 20,000 transactions/month you might have performance issues.
+                    </p>
+                    <p>
+                        Similarly, at this stage we're optimized for customers running on a subscription model (mostly
+                        SaaS). If you're running a business where your revenue is not coming from recurring payments,
+                        you might find Revenue analytics to be less useful/more empty than expected.
+                    </p>
                 </LemonBanner>
 
                 {sourceRunningForTheFirstTime && (
@@ -115,6 +122,7 @@ export function RevenueAnalyticsScene(): JSX.Element {
                         Refresh the page to see the latest data.
                     </LemonBanner>
                 )}
+
                 <RevenueAnalyticsSceneContent />
             </SceneContent>
         </BindLogic>
