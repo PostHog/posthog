@@ -176,7 +176,7 @@ impl From<FrameError> for UnhandledError {
     fn from(e: FrameError) -> Self {
         // TODO - this should be unreachable, but I need to reconsider the error enum structure to make it possible to assert that
         // at the type level. Leaving for a later refactor for now.
-        UnhandledError::Other(format!("Unhandled resolution error: {}", e.to_string()))
+        UnhandledError::Other(format!("Unhandled resolution error: {}", e))
     }
 }
 
