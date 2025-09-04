@@ -43,10 +43,10 @@ const validateInput = (input: CyclotronJobInputType, inputSchema: CyclotronJobIn
     } else if (inputSchema.type === 'integration' && typeof value !== 'number') {
         return 'Value must be an Integration ID'
     } else if (inputSchema.type === 'json') {
-        if (typeof value !== 'string') {
-            return 'Value must be a string'
+        if (!['string', 'object'].includes(typeof value)) {
+            return 'Value must be valid json'
         }
-        if (!tryJsonParse(value)) {
+        if (typeof value === 'string' && !tryJsonParse(value)) {
             return 'Invalid JSON'
         }
     }
