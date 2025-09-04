@@ -64,6 +64,42 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertEqual(response.status_code, 200)
 
+    def test_materialize_view(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+
+        assert response.status_code == 201
+        saved_query_id = response.data["id"]
+        assert saved_query_id is not None
+
+        with (
+            patch("posthog.warehouse.api.saved_query.sync_saved_query_workflow"),
+            patch("posthog.warehouse.api.saved_query.saved_query_workflow_exists", return_value=False),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}",
+                {
+                    "id": saved_query_id,
+                    "lifecycle": "update",
+                    "sync_frequency": "24hour",
+                },
+            )
+
+            assert response.status_code == 200
+            assert response.data["is_materialized"] is True
+
+            saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
+
+            assert saved_query.is_materialized is True
+
     def test_create_with_types(self):
         with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
             response = self.client.post(
@@ -851,6 +887,7 @@ class TestSavedQuery(APIBaseTest):
         db_saved_query.sync_frequency_interval = "24hours"
         db_saved_query.last_run_at = "2025-05-01T00:00:00Z"
         db_saved_query.status = DataWarehouseSavedQuery.Status.COMPLETED
+        db_saved_query.is_materialized = True
 
         mock_table = DataWarehouseTable.objects.create(
             team=self.team, name="materialized_event_view", format="Parquet", url_pattern="s3://bucket/path"
@@ -873,6 +910,7 @@ class TestSavedQuery(APIBaseTest):
             self.assertIsNone(db_saved_query.latest_error)
             self.assertIsNone(db_saved_query.status)
             self.assertIsNone(db_saved_query.table_id)
+            self.assertFalse(db_saved_query.is_materialized)
 
             # Check the table has been deleted
             mock_table.refresh_from_db()

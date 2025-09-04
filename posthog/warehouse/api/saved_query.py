@@ -85,6 +85,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "edited_history_id",
             "latest_history_id",
             "soft_update",
+            "is_materialized",
         ]
         read_only_fields = [
             "id",
@@ -95,6 +96,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "last_run_at",
             "latest_error",
             "latest_history_id",
+            "is_materialized",
         ]
         extra_kwargs = {
             "soft_update": {"write_only": True},
@@ -249,11 +251,13 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 delete_saved_query_schedule(str(locked_instance.id))
                 locked_instance.sync_frequency_interval = None
                 validated_data["sync_frequency_interval"] = None
+                validated_data["is_materialized"] = True
             elif sync_frequency:
                 sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
                 validated_data["sync_frequency_interval"] = sync_frequency_interval
                 was_sync_frequency_updated = True
                 locked_instance.sync_frequency_interval = sync_frequency_interval
+                validated_data["is_materialized"] = True
 
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
 
@@ -483,6 +487,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             saved_query.last_run_at = None
             saved_query.latest_error = None
             saved_query.status = None
+            saved_query.is_materialized = False
 
             # delete the materialized table reference
             if saved_query.table is not None:
