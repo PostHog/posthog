@@ -47,6 +47,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     key((props) => `${props.id}`),
     connect((props: CampaignLogicProps) => ({
         values: [campaignLogic(props), ['campaign'], hogFlowEditorLogic, ['selectedNodeId']],
+        actions: [hogFlowEditorLogic, ['setSelectedNodeId']],
     })),
     actions({
         setTestResult: (testResult: HogflowTestResult | null) => ({ testResult }),
@@ -254,10 +255,9 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                     })
 
                     actions.setTestResult(apiResponse)
-                    return {
-                        current_action_id: values.testResult?.result?.state?.currentAction?.id,
-                        ...values.testInvocation,
-                    }
+                    actions.setSelectedNodeId(values.testResult?.result?.state?.currentAction?.id)
+
+                    return values.testInvocation
                 } catch (error: any) {
                     console.error('Workflow test error:', error)
                     lemonToast.error('Error testing workflow')

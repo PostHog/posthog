@@ -196,33 +196,18 @@ export class HogFlowExecutorService {
 
         let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null
 
-        let loopCount = 0
+        result = await this.execute(invocation)
 
-        while (!result || !result.finished) {
-            logger.info('🦔', `[HogFlowExecutor] Executing hog flow invocation`, {
-                loopCount,
-            })
-            loopCount++
-            if (loopCount > 100) {
-                // NOTE: This is hardcoded for now to prevent infinite loops. Later we should fix this properly.
-                break
-            }
-
-            const nextInvocation: CyclotronJobInvocationHogFlow = result?.invocation ?? invocation
-
-            result = await this.execute(nextInvocation)
-
-            if (result?.invocation.queueScheduledAt) {
-                this.log(finalResult, 'info', `Workflow will pause until ${result.invocation.queueScheduledAt.toISO()}`)
-            }
-
-            result?.logs?.forEach((log) => {
-                finalResult.logs.push(log)
-            })
-            result?.metrics?.forEach((metric) => {
-                finalResult.metrics.push(metric)
-            })
+        if (result?.invocation.queueScheduledAt) {
+            this.log(finalResult, 'info', `Workflow will pause until ${result.invocation.queueScheduledAt.toISO()}`)
         }
+
+        result?.logs?.forEach((log) => {
+            finalResult.logs.push(log)
+        })
+        result?.metrics?.forEach((metric) => {
+            finalResult.metrics.push(metric)
+        })
 
         return finalResult
     }

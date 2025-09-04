@@ -146,7 +146,7 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
             {/* footer */}
             <div className="p-2">
                 {testResult ? (
-                    <>
+                    <div className="flex gap-2">
                         <LemonButton
                             type="secondary"
                             onClick={() => setTestResult(null)}
@@ -165,7 +165,7 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                         >
                             Continue
                         </LemonButton>
-                    </>
+                    </div>
                 ) : (
                     <>
                         <div className="flex flex-col gap-2">
