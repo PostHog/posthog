@@ -3016,6 +3016,8 @@ export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     filtersOverride?: DashboardFilter | null
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
+    /** The tab of the scene if the insight is a full scene insight */
+    tabId?: string | null
 }
 
 export interface SetInsightOptions {

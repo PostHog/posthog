@@ -61,7 +61,7 @@ export const createEmptyInsight = (
 
 export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType>([
     props({ filtersOverride: null, variablesOverride: null } as InsightLogicProps),
-    key(keyForInsightLogicProps('new')),
+    key((props) => keyForInsightLogicProps('new')(props)),
     path((key) => ['scenes', 'insights', 'insightLogic', key]),
     connect(() => ({
         values: [
@@ -191,7 +191,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
 
                     const beforeUpdates: Record<string, any> = {}
                     for (const key of Object.keys(metadataUpdate)) {
-                        beforeUpdates[key] = values.savedInsight[key]
+                        beforeUpdates[key] = values.savedInsight[key as keyof QueryBasedInsightModel]
                     }
 
                     const response = await insightsApi.update(values.insight.id as number, metadataUpdate)
@@ -333,11 +333,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         ],
     })),
     selectors({
+        insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         query: [
             (s) => [(state) => insightDataLogic.findMounted(s.insightProps(state))?.values.query || null],
             (node): Node | null => node,
         ],
-        insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         isInDashboardContext: [() => [(_, props) => props], ({ dashboardId }) => !!dashboardId],
         hasDashboardItemId: [
             () => [(_, props) => props],
@@ -413,7 +413,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             (hasOverrides) => (hasOverrides ? 'Discard overrides to edit the insight.' : null),
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         saveInsight: async ({ redirectToViewMode, folder }) => {
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
@@ -478,9 +478,13 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     // redirect new insights added to dashboard to the dashboard
                     router.actions.push(urls.dashboard(dashboards[0], savedInsight.short_id))
                 } else if (insightNumericId) {
-                    // TODO: we will soon have multiple insightSceneLogics!
-                    const mountedInsightSceneLogic = insightSceneLogic.findMounted()
-                    mountedInsightSceneLogic?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+                    if (props.tabId) {
+                        const mountedInsightSceneLogic = insightSceneLogic.findMounted({ tabId: props.tabId })
+                        mountedInsightSceneLogic?.actions.setInsightMode(
+                            ItemMode.View,
+                            InsightEventSource.InsightHeader
+                        )
+                    }
                 } else {
                     router.actions.push(urls.insightView(savedInsight.short_id))
                 }
