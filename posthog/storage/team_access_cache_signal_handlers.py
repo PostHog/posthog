@@ -32,8 +32,8 @@ def capture_old_api_token(instance: Team, **kwargs):
     if instance.pk:  # Only for existing teams
         try:
             old_team = Team.objects.only("api_token").get(pk=instance.pk)
-            # Use setattr to avoid mypy complaints about dynamic attributes
-            instance._old_api_token = old_team.api_token
+            # Store the old api_token value for post_save cleanup
+            instance._old_api_token = old_team.api_token  # type: ignore[attr-defined]
         except Team.DoesNotExist:
             pass
 

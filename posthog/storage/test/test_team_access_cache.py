@@ -2281,6 +2281,9 @@ class TestOrganizationScopingSignalHandlers(TestCase):
         cache1 = team_access_tokens_hypercache.get_from_cache(self.team_org1.api_token)
         cache2 = team_access_tokens_hypercache.get_from_cache(self.team_org2.api_token)
 
+        assert cache1 is not None, "Cache should exist for team_org1"
+        assert cache2 is not None, "Cache should exist for team_org2"
+
         # Initially unscoped, so should be in both teams
         assert hash_key_value(self.token) in cache1["hashed_tokens"]
         assert hash_key_value(self.token) in cache2["hashed_tokens"]
@@ -2292,6 +2295,9 @@ class TestOrganizationScopingSignalHandlers(TestCase):
         # Check caches again - should only be in org1 teams now
         cache1_after = team_access_tokens_hypercache.get_from_cache(self.team_org1.api_token)
         cache2_after = team_access_tokens_hypercache.get_from_cache(self.team_org2.api_token)
+
+        assert cache1_after is not None, "Cache should exist for team_org1 after"
+        assert cache2_after is not None, "Cache should exist for team_org2 after"
 
         assert hash_key_value(self.token) in cache1_after["hashed_tokens"]
         assert hash_key_value(self.token) not in cache2_after["hashed_tokens"]
@@ -2322,6 +2328,9 @@ class TestOrganizationScopingSignalHandlers(TestCase):
         cache1 = team_access_tokens_hypercache.get_from_cache(self.team_org1.api_token)
         cache2 = team_access_tokens_hypercache.get_from_cache(self.team_org2.api_token)
 
+        assert cache1 is not None, "Cache should exist for team_org1"
+        assert cache2 is not None, "Cache should exist for team_org2"
+
         assert hash_key_value(scoped_token) in cache1["hashed_tokens"]
         assert hash_key_value(scoped_token) not in cache2["hashed_tokens"]
 
@@ -2332,6 +2341,9 @@ class TestOrganizationScopingSignalHandlers(TestCase):
         # Check caches again - should be in both orgs now
         cache1_after = team_access_tokens_hypercache.get_from_cache(self.team_org1.api_token)
         cache2_after = team_access_tokens_hypercache.get_from_cache(self.team_org2.api_token)
+
+        assert cache1_after is not None, "Cache should exist for team_org1 after"
+        assert cache2_after is not None, "Cache should exist for team_org2 after"
 
         assert hash_key_value(scoped_token) in cache1_after["hashed_tokens"]
         assert hash_key_value(scoped_token) in cache2_after["hashed_tokens"]
@@ -2416,6 +2428,7 @@ class TestSecretTokenRotation(TestCase):
 
         # Verify both tokens in cache
         cache_data = team_access_tokens_hypercache.get_from_cache(self.team.api_token)
+        assert cache_data is not None, "Cache should exist after backup token set"
         assert hash_key_value(self.team.secret_api_token, mode="sha256") in cache_data["hashed_tokens"]
         assert hash_key_value(backup_token1, mode="sha256") in cache_data["hashed_tokens"]
 
@@ -2426,6 +2439,7 @@ class TestSecretTokenRotation(TestCase):
 
         # Verify new backup in cache, old backup not in cache
         cache_data = team_access_tokens_hypercache.get_from_cache(self.team.api_token)
+        assert cache_data is not None, "Cache should exist after backup token change"
         assert hash_key_value(self.team.secret_api_token, mode="sha256") in cache_data["hashed_tokens"]
         assert hash_key_value(backup_token2, mode="sha256") in cache_data["hashed_tokens"]
         assert hash_key_value(backup_token1, mode="sha256") not in cache_data["hashed_tokens"]
@@ -2436,6 +2450,7 @@ class TestSecretTokenRotation(TestCase):
 
         # Verify only primary token remains
         cache_data = team_access_tokens_hypercache.get_from_cache(self.team.api_token)
+        assert cache_data is not None
         assert hash_key_value(self.team.secret_api_token, mode="sha256") in cache_data["hashed_tokens"]
         assert hash_key_value(backup_token2, mode="sha256") not in cache_data["hashed_tokens"]
 
@@ -2519,6 +2534,7 @@ class TestTeamAPITokenRegeneration(TestCase):
 
         # Verify personal key is in initial cache
         initial_cache = team_access_tokens_hypercache.get_from_cache(self.initial_api_token)
+        assert initial_cache is not None, "Initial cache should exist"
         assert hash_key_value(self.personal_token) in initial_cache["hashed_tokens"]
 
         # Regenerate the API token
@@ -2529,6 +2545,7 @@ class TestTeamAPITokenRegeneration(TestCase):
 
         # Verify personal key is still in new cache
         new_cache = team_access_tokens_hypercache.get_from_cache(new_api_token)
+        assert new_cache is not None, "New cache should exist after API token change"
         assert hash_key_value(self.personal_token) in new_cache["hashed_tokens"]
 
         # Verify old cache is gone
