@@ -37,7 +37,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
     preaggregated_query_builder: StatsTablePreAggregatedQueryBuilder
     used_preaggregated_tables: bool
 
-    def __init__(self, *args, use_v2_tables: bool = False, **kwargs):
+    def __init__(self, *args, use_v2_tables: bool = True, **kwargs):
         super().__init__(*args, **kwargs)
         self.use_v2_tables = use_v2_tables
         self.used_preaggregated_tables = False
@@ -470,9 +470,11 @@ GROUP BY session_id, breakdown_value
             expr
             for expr in [
                 # use order from query
-                ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction)
-                if column is not None and column in columns
-                else None,
+                (
+                    ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction)
+                    if column is not None and column in columns
+                    else None
+                ),
                 f("context.columns.unique_conversions"),
                 f("context.columns.total_conversions"),
                 f("context.columns.visitors"),

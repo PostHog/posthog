@@ -18,7 +18,7 @@ export function LegacyMetricModal({
     experimentId: Experiment['id']
     isSecondary?: boolean
 }): JSX.Element {
-    const { experiment, experimentLoading, getInsightType, editingPrimaryMetricIndex, editingSecondaryMetricIndex } =
+    const { experiment, experimentLoading, getInsightType, editingPrimaryMetricUuid, editingSecondaryMetricUuid } =
         useValues(experimentLogic({ experimentId }))
     const { updateExperimentMetrics, setExperiment, restoreUnmodifiedExperiment } = useActions(
         experimentLogic({ experimentId })
@@ -26,15 +26,19 @@ export function LegacyMetricModal({
     const { closePrimaryMetricModal, closeSecondaryMetricModal } = useActions(modalsLogic)
     const { isPrimaryMetricModalOpen, isSecondaryMetricModalOpen } = useValues(modalsLogic)
 
-    const metricIdx = isSecondary ? editingSecondaryMetricIndex : editingPrimaryMetricIndex
+    const metricUuid = isSecondary ? editingSecondaryMetricUuid : editingPrimaryMetricUuid
     const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
 
-    if (!metricIdx && metricIdx !== 0) {
+    if (!metricUuid) {
         return <></>
     }
 
     const metrics = experiment[metricsField]
-    const metric = metrics[metricIdx] as ExperimentTrendsQuery | ExperimentFunnelsQuery
+    const metric = metrics.find((m) => m.uuid === metricUuid) as ExperimentTrendsQuery | ExperimentFunnelsQuery
+
+    if (!metric) {
+        return <></>
+    }
     const insightType = getInsightType(metric)
     const funnelStepsLength = (metric as ExperimentFunnelsQuery)?.funnels_query?.series?.length || 0
 
@@ -62,7 +66,7 @@ export function LegacyMetricModal({
                                     children: 'Delete',
                                     type: 'primary',
                                     onClick: () => {
-                                        const newMetrics = metrics.filter((_, idx) => idx !== metricIdx)
+                                        const newMetrics = metrics.filter((m) => m.uuid !== metricUuid)
                                         setExperiment({
                                             [metricsField]: newMetrics,
                                         })
@@ -112,15 +116,13 @@ export function LegacyMetricModal({
                     data-attr="metrics-selector"
                     value={insightType}
                     onChange={(newInsightType) => {
+                        const newMetric =
+                            newInsightType === InsightType.TRENDS ? getDefaultTrendsMetric() : getDefaultFunnelsMetric()
                         setExperiment({
                             ...experiment,
-                            [metricsField]: [
-                                ...metrics.slice(0, metricIdx),
-                                newInsightType === InsightType.TRENDS
-                                    ? getDefaultTrendsMetric()
-                                    : getDefaultFunnelsMetric(),
-                                ...metrics.slice(metricIdx + 1),
-                            ],
+                            [metricsField]: metrics.map((m) =>
+                                m.uuid === metricUuid ? { ...newMetric, uuid: metricUuid, name: m.name } : m
+                            ),
                         })
                     }}
                     options={[

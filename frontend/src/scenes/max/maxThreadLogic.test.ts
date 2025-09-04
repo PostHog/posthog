@@ -12,7 +12,7 @@ import { useMocks } from '~/mocks/jest'
 import * as notebooksModel from '~/models/notebooksModel'
 import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
-import { ConversationDetail, ConversationStatus } from '~/types'
+import { ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
@@ -737,6 +737,7 @@ describe('maxThreadLogic', () => {
                         id: 'assistant-1',
                     },
                 ],
+                type: ConversationType.Assistant,
             }
 
             // Create logic with conversation containing messages
@@ -772,6 +773,7 @@ describe('maxThreadLogic', () => {
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 messages: [],
+                type: ConversationType.Assistant,
             }
 
             // Create logic with conversation containing no messages
@@ -795,6 +797,7 @@ describe('maxThreadLogic', () => {
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 messages: [],
+                type: ConversationType.Assistant,
             }
 
             logic.unmount()

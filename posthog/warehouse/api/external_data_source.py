@@ -548,7 +548,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
-            schemas = source.get_schemas(source_config, self.team_id)
+            schemas = source.get_schemas(source_config, self.team_id, True)
         except Exception as e:
             capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(
@@ -561,10 +561,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "table": schema.name,
                 "should_sync": False,
                 "incremental_fields": schema.incremental_fields,
-                "incremental_available": True,
-                "append_available": True,
-                "incremental_field": schema.incremental_fields[0]["label"]
-                if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["label"]) > 0
+                "incremental_available": schema.supports_incremental,
+                "append_available": schema.supports_append,
+                "incremental_field": schema.incremental_fields[0]["field"]
+                if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
                 else None,
                 "sync_type": None,
                 "rows": schema.row_count,

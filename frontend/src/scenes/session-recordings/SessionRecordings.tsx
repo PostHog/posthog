@@ -20,6 +20,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -28,8 +29,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey, ReplayTab, ReplayTabs } from '~/types'
 
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
@@ -93,15 +92,6 @@ function Header(): JSX.Element {
                     </>
                 }
             />
-            <SceneTitleSection
-                name="Session replay"
-                description="See how users interact with your product."
-                resourceType={{
-                    type: 'session_recording_playlist',
-                    typePlural: 'Session Recordings',
-                }}
-            />
-            <SceneDivider />
         </>
     )
 }
@@ -264,7 +254,7 @@ function PageTabs(): JSX.Element {
     return (
         <LemonTabs
             activeKey={tab}
-            className="flex"
+            className={cn('flex', newSceneLayout && 'mt-0')}
             barClassName="mb-0"
             onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
             sceneInset={newSceneLayout}

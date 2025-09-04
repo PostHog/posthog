@@ -6,7 +6,7 @@ TTL_SECONDS = 30 * 24 * 60 * 60  # 30 days
 
 
 def check_and_cache_login_device(user_id: int, location: str, short_user_agent: str) -> bool:
-    """Check if the user has logged in with this device before and cache it for 30 days"""
+    """Check if this is a new device and cache it for 30 days"""
 
     # Create a unique device identifier based on location + user agent
     device_fingerprint = f"{location}:{short_user_agent}"

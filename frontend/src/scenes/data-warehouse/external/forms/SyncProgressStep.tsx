@@ -90,6 +90,7 @@ export const SyncProgressStep = (): JSX.Element => {
 
     return (
         <div className="flex flex-col gap-2">
+            <h3>Sit tight as we import your data! After it's done, you will be able to query it in PostHog.</h3>
             <div>
                 <LemonTable
                     emptyState="No schemas selected"

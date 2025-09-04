@@ -193,7 +193,7 @@ async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_sch
             ),
             EvalCase(
                 input=EvalInput(instructions="How many unique users visited our site last week?"),
-                expected="SELECT count(DISTINCT distinct_id) FROM events WHERE event = '$pageview' AND timestamp >= now() - INTERVAL 7 DAY",
+                expected="SELECT count(DISTINCT person_id) FROM events WHERE event = '$pageview' AND timestamp >= now() - INTERVAL 7 DAY",
                 metadata=metadata,
             ),
             EvalCase(
@@ -207,7 +207,7 @@ async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_sch
                 input=EvalInput(
                     instructions="Get the daily count of unique users (including anonymous) who triggered any event, broken down by day for the past 2 weeks"
                 ),
-                expected="SELECT toStartOfDay(timestamp) AS day, count(DISTINCT distinct_id) AS unique_users FROM events WHERE timestamp >= now() - INTERVAL 14 DAY GROUP BY day ORDER BY day DESC",
+                expected="SELECT toStartOfDay(timestamp) AS day, count(DISTINCT person_id) AS unique_users FROM events WHERE timestamp >= now() - INTERVAL 14 DAY GROUP BY day ORDER BY day DESC",
                 metadata=metadata,
             ),
         ],

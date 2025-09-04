@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import { RevenueAnalyticsRevenueQueryResultItem } from '~/queries/schema/schema-general'
+import { RevenueAnalyticsMRRQueryResultItem } from '~/queries/schema/schema-general'
 import { LifecycleToggle } from '~/types'
 
 import { LemonTagType } from './lemon-ui/LemonTag'
@@ -96,7 +96,7 @@ export function getTrendLikeSeriesColor(index: number, isPrevious: boolean): str
  * Hexadecimal is necessary as Chart.js doesn't work with CSS vars.
  */
 export function getBarColorFromStatus(
-    status: LifecycleToggle | `revenue-analytics-${keyof RevenueAnalyticsRevenueQueryResultItem}`,
+    status: LifecycleToggle | `revenue-analytics-${keyof RevenueAnalyticsMRRQueryResultItem}`,
     hover?: boolean
 ): string {
     switch (status) {

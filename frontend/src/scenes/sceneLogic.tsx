@@ -19,8 +19,9 @@ import { useEffect, useState } from 'react'
 
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -127,7 +128,14 @@ export const sceneLogic = kea<sceneLogicType>([
             inviteLogic,
             ['hideInviteModal'],
         ],
-        values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
+        values: [
+            billingLogic,
+            ['billing'],
+            organizationLogic,
+            ['organizationBeingDeleted'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
     })),
     afterMount(({ cache }) => {
         cache.mountedTabLogic = {} as Record<string, () => void>
@@ -381,7 +389,16 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
         sceneId: [(s) => [s.activeTab], (activeTab) => activeTab?.sceneId],
         sceneKey: [(s) => [s.activeTab], (activeTab) => activeTab?.sceneKey],
-        sceneConfig: [(s) => [s.sceneId], (sceneId: Scene): SceneConfig | null => sceneConfigurations[sceneId] || null],
+        sceneConfig: [
+            (s) => [s.sceneId, s.featureFlags],
+            (sceneId: Scene, featureFlags): SceneConfig | null => {
+                const config = sceneConfigurations[sceneId] || null
+                if (sceneId === Scene.SQLEditor && featureFlags[FEATURE_FLAGS.SCENE_TABS]) {
+                    return { ...config, layout: 'app' }
+                }
+                return config
+            },
+        ],
         sceneParams: [
             (s) => [s.activeTab],
             (activeTab): SceneParams => activeTab?.sceneParams || { params: {}, searchParams: {}, hashParams: {} },
@@ -952,9 +969,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 actions.setTabs(newTabs)
             }
             if (!process?.env?.STORYBOOK) {
-                // This persists the changed tab titles in location.history without a replace/push action
-                // Somehow it messes up storybook.
-                router.actions.refreshRouterState()
+                // This persists the changed tab titles in location.history without a replace/push action.
+                // We'll do it outside the action's event loop to avoid race conditions with subscribing.
+                // Somehow it messes up Storybook, so disabled for it.
+                window.setTimeout(() => router.actions.refreshRouterState(), 1)
             }
         },
         tabs: () => {
@@ -976,7 +994,11 @@ export const sceneLogic = kea<sceneLogicType>([
     })),
     afterMount(({ actions, cache, values }) => {
         cache.onKeyDown = (event: KeyboardEvent) => {
-            if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
+            if (
+                values.featureFlags[FEATURE_FLAGS.SCENE_TABS] &&
+                (event.ctrlKey || event.metaKey) &&
+                event.key === 'b'
+            ) {
                 event.preventDefault()
                 event.stopPropagation()
                 if (event.shiftKey) {

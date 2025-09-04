@@ -183,13 +183,16 @@ def _build_query(
     incremental_field: Optional[str],
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
-    add_limit: Optional[bool] = False,
+    add_sampling: Optional[bool] = False,
 ) -> sql.Composed:
-    query = sql.SQL("SELECT * FROM {}").format(sql.Identifier(schema, table_name))
-
     if not should_use_incremental_field:
-        if add_limit:
-            query_with_limit = cast(LiteralString, f"{query.as_string()} ORDER BY RANDOM() LIMIT 100")
+        if add_sampling:
+            query = sql.SQL("SELECT * FROM {} TABLESAMPLE SYSTEM (1)").format(sql.Identifier(schema, table_name))
+        else:
+            query = sql.SQL("SELECT * FROM {}").format(sql.Identifier(schema, table_name))
+
+        if add_sampling:
+            query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
             return sql.SQL(query_with_limit).format()
 
         return query
@@ -200,15 +203,25 @@ def _build_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
-    query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} >= {last_value}").format(
-        schema=sql.Identifier(schema),
-        table=sql.Identifier(table_name),
-        incremental_field=sql.Identifier(incremental_field),
-        last_value=sql.Literal(db_incremental_field_last_value),
-    )
+    if add_sampling:
+        query = sql.SQL(
+            "SELECT * FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {incremental_field} >= {last_value}"
+        ).format(
+            schema=sql.Identifier(schema),
+            table=sql.Identifier(table_name),
+            incremental_field=sql.Identifier(incremental_field),
+            last_value=sql.Literal(db_incremental_field_last_value),
+        )
+    else:
+        query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} >= {last_value}").format(
+            schema=sql.Identifier(schema),
+            table=sql.Identifier(table_name),
+            incremental_field=sql.Identifier(incremental_field),
+            last_value=sql.Literal(db_incremental_field_last_value),
+        )
 
-    if add_limit:
-        query_with_limit = cast(LiteralString, f"{query.as_string()} ORDER BY RANDOM() LIMIT 100")
+    if add_sampling:
+        query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
         return sql.SQL(query_with_limit).format()
     else:
         query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
@@ -607,7 +620,7 @@ def postgres_source(
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,
-                    add_limit=True,
+                    add_sampling=True,
                 )
 
                 inner_query_without_limit = _build_query(

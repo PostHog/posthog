@@ -33,7 +33,7 @@ export function DashboardItems(): JSX.Element {
         refreshStatus,
         itemsLoading,
         effectiveEditBarFilters,
-        urlVariables,
+        effectiveDashboardVariableOverrides,
         temporaryBreakdownColors,
         dataColorThemeId,
     } = useValues(dashboardLogic)
@@ -167,7 +167,7 @@ export function DashboardItems(): JSX.Element {
                                     placement={placement}
                                     loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
                                     filtersOverride={effectiveEditBarFilters}
-                                    variablesOverride={urlVariables}
+                                    variablesOverride={effectiveDashboardVariableOverrides}
                                     // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
                                     breakdownColorOverride={temporaryBreakdownColors}
                                     dataColorThemeId={dataColorThemeId}
@@ -249,6 +249,14 @@ export function DashboardItems(): JSX.Element {
                         }
                     })}
                 </ReactGridLayout>
+            )}
+            {itemsLoading && (
+                <div className="mt-4 flex items-center justify-center">
+                    <div className="flex items-center gap-2 text-muted">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />
+                        <span>Loading tiles...</span>
+                    </div>
+                </div>
             )}
         </div>
     )

@@ -348,13 +348,27 @@ export async function filterFunctionInstrumented(options: {
         // If there are no filters (only bytecode exists then on the filter object)
         // everything matches no need to execute bytecode (lets save those cpu cycles)
         if (filters && Object.keys(filters).length === 1 && 'bytecode' in filters) {
-            // if we have no filters we assume we match all events hence match = true
-            hogFunctionPreFilterCounter.inc({ result: 'no_filters' })
+            hogFunctionPreFilterCounter.inc({ result: 'bytecode_execution_skipped__no_filters' })
+            result.match = true
+            return result
         }
 
         // check whether we have a match with our pre-filter
-        if (filters?.events?.length) {
+        // Only run if we have event filters and NO action filters (as actions are pre-saved event filters)
+        if (filters?.events?.length && !filters?.actions?.length) {
             preFilterMatch = preFilterResult(filters, filterGlobals)
+            if (preFilterMatch === false) {
+                hogFunctionPreFilterCounter.inc({ result: 'bytecode_execution_skipped__pre_filtered_out' })
+                result.match = false
+                metrics.push({
+                    team_id: fn.team_id,
+                    app_source_id: fn.id,
+                    metric_kind: 'other',
+                    metric_name: 'filtered',
+                    count: 1,
+                })
+                return result
+            }
         }
 
         if (!filters?.bytecode) {
@@ -387,30 +401,6 @@ export async function filterFunctionInstrumented(options: {
         }
 
         result.match = typeof execHogOutcome.execResult.result === 'boolean' && execHogOutcome.execResult.result
-
-        // if our filter was not used we don't wanna do any comparison
-        if (preFilterMatch !== null) {
-            if (preFilterMatch === false && result.match === true) {
-                // we would have filtered out this event but it actually matched the bytecode filter
-                // this would mean we dropped a valid event
-
-                logger.warn(
-                    '🦔',
-                    `[${fnKind}] Pre-filter mismatch detected - event would have been incorrectly filtered`,
-                    {
-                        functionId: fn.id,
-                        functionName: fn.name,
-                        teamId: fn.team_id,
-                        eventUuid: eventUuid,
-                        eventName: filterGlobals.event,
-                        preFilterMatch,
-                        resultMatch: result.match,
-                    }
-                )
-
-                hogFunctionPreFilterCounter.inc({ result: 'mismatch_unsafe' })
-            }
-        }
 
         if (!result.match) {
             metrics.push({

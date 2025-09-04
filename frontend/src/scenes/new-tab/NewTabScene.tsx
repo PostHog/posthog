@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { useEffect } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
@@ -14,18 +14,18 @@ export const scene: SceneExport = {
     logic: newTabSceneLogic,
 }
 
-export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
-    const { filteredItemsGrid, search } = useValues(newTabSceneLogic({ tabId }))
-    const { setSearch } = useActions(newTabSceneLogic({ tabId }))
-
-    const handleSubmit = (): void => {
-        if (filteredItemsGrid.length > 0 && filteredItemsGrid[0].types.length > 0) {
-            const firstItem = filteredItemsGrid[0].types[0]
-            if (firstItem.href) {
-                router.actions.push(firstItem.href)
-            }
-        }
+const generateHash = (string: string): number => {
+    let hash = 0
+    for (const char of string) {
+        hash = (hash << 5) - hash + char.charCodeAt(0)
+        hash |= 0 // Convert to 32bit integer
     }
+    return Math.abs(hash)
+}
+
+export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
+    const { filteredItemsGrid, search, selectedItem, focused } = useValues(newTabSceneLogic({ tabId }))
+    const { setSearch, selectNext, selectPrevious, onFocus, onBlur, onSubmit } = useActions(newTabSceneLogic({ tabId }))
 
     // pastel palette (cycle through)
     const swatches = [
@@ -45,6 +45,14 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
         'bg-stone-800/80 text-stone-300 dark:bg-stone-300/80 dark:text-stone-700',
     ]
 
+    // scroll it to view
+    useEffect(() => {
+        if (selectedItem) {
+            const element = document.querySelector('.selected-new-tab-item')
+            element?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' })
+        }
+    }, [selectedItem])
+
     return (
         <div className="w-full py-24">
             <div className="flex gap-2 max-w-[800px] px-8 m-auto mt-2 mb-12">
@@ -52,14 +60,26 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     type="text"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    onClick={() => setSearch('')}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter') {
-                            handleSubmit()
+                            e.preventDefault()
+                            e.stopPropagation()
+                            onSubmit()
+                        }
+                        if (e.key === 'Tab') {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            if (e.shiftKey) {
+                                selectPrevious()
+                            } else {
+                                selectNext()
+                            }
                         }
                     }}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
                     autoFocus
-                    placeholder="Type to filter apps, press ENTER to run the first one."
+                    placeholder="Type to filter, then press ENTER to run and (shift+)tab to move."
                     className="flex-1 px-4 py-3 rounded-lg border border-border dark:border-border-dark bg-white dark:bg-gray-900 text-primary dark:text-primary-dark text-base focus:ring-2 focus:ring-red dark:focus:ring-yellow focus:border-transparent transition-all"
                 />
                 <LemonButton
@@ -71,14 +91,14 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                               ? 'No results'
                               : ''
                     }
-                    onClick={handleSubmit}
+                    onClick={onSubmit}
                 >
                     Take me there
                 </LemonButton>
             </div>
 
-            {filteredItemsGrid.map(({ category, types }, catIndex) => (
-                <div className="w-full overflow-auto p-4 px-12 max-w-[880px] m-auto" key={catIndex}>
+            {filteredItemsGrid.map(({ category, types }) => (
+                <div className="w-full overflow-auto p-4 px-12 max-w-[880px] m-auto" key={category}>
                     <div className="px-2 py-8 text-center">
                         {search ? <SearchHighlightMultiple string={category} substring={search} /> : category}
                     </div>
@@ -88,20 +108,20 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                             gridTemplateColumns: 'repeat(auto-fit, minmax(7rem, 1fr))',
                         }}
                     >
-                        {types.map((qt, index) => (
+                        {types.map((qt) => (
                             <div key={qt.name} className="text-center m-auto">
                                 <Link
                                     to={qt.href}
                                     className={cn(
                                         'group flex flex-col items-center text-center cursor-pointer select-none focus:outline-none',
-                                        index === 0 && catIndex === 0 && search ? 'underline' : ''
+                                        focused && selectedItem?.type === qt ? 'underline selected-new-tab-item' : ''
                                     )}
                                 >
                                     <div
                                         className={`flex items-center justify-center w-16 h-16 rounded-xl shadow-sm group-hover:shadow-md transition ${
-                                            index === 0 && catIndex === 0 && search
-                                                ? darkSwatches[(index + catIndex * 4) % darkSwatches.length]
-                                                : swatches[(index + catIndex * 4) % swatches.length]
+                                            focused && selectedItem?.type === qt
+                                                ? darkSwatches[generateHash(qt.name) % darkSwatches.length]
+                                                : swatches[generateHash(qt.name) % swatches.length]
                                         }`}
                                     >
                                         <span className="text-2xl font-semibold">{qt.icon ?? qt.name[0]}</span>

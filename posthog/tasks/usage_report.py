@@ -11,7 +11,7 @@ from typing import Any, Literal, Optional, TypedDict, Union
 
 from django.conf import settings
 from django.db import connection
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, F, Q, Sum
 
 import requests
 import structlog
@@ -25,6 +25,7 @@ from retry import retry
 from posthog.schema import AIEventType
 
 from posthog import version_requirement
+from posthog.batch_exports.models import BatchExportRun
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tags_context
@@ -96,6 +97,7 @@ class UsageReportCounters:
     # Recordings
     recording_count_in_period: int
     recording_bytes_in_period: int
+    zero_duration_recording_count_in_period: int
     mobile_recording_count_in_period: int
     mobile_recording_bytes_in_period: int
     mobile_billable_recording_count_in_period: int
@@ -140,6 +142,7 @@ class UsageReportCounters:
     active_external_data_schemas_in_period: int
 
     # Batch Exports metadata
+    rows_exported_in_period: int
     active_batch_exports_in_period: int
 
     dwh_total_storage_in_s3_in_mib: float
@@ -675,6 +678,42 @@ def get_teams_with_recording_count_in_period(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_zero_duration_recording_count_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+    previous_begin = begin - (end - begin)
+
+    result = sync_execute(
+        """
+        SELECT team_id, count(distinct session_id) as count
+        FROM (
+            SELECT any(team_id) as team_id, session_id
+            FROM session_replay_events
+            WHERE min_first_timestamp >= %(begin)s AND min_first_timestamp < %(end)s
+            GROUP BY session_id
+            HAVING dateDiff('milliseconds', min(min_first_timestamp), max(max_last_timestamp)) = 0
+        )
+        WHERE session_id NOT IN (
+            -- we want to exclude sessions that might have events with timestamps
+            -- before the period we are interested in
+            SELECT DISTINCT session_id
+            FROM session_replay_events
+            -- begin is the very first instant of the period we are interested in
+            -- we assume it is also the very first instant of a day
+            -- so we can to subtract 1 second to get the day before
+            WHERE min_first_timestamp >= %(previous_begin)s AND min_first_timestamp < %(begin)s
+            GROUP BY session_id
+        )
+        GROUP BY team_id
+    """,
+        {"previous_begin": previous_begin, "begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return result
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_mobile_billable_recording_count_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
     previous_begin = begin - (end - begin)
 
@@ -890,6 +929,22 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list
         )
         .values("team_id")
         .annotate(total=Sum("rows_synced"))
+    )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> list:
+    return list(
+        BatchExportRun.objects.filter(
+            finished_at__gte=begin,
+            finished_at__lte=end,
+            status=BatchExportRun.Status.COMPLETED,
+            batch_export__model=BatchExport.Model.EVENTS,
+            batch_export__deleted=False,
+        )
+        .values(team_id=F("batch_export__team_id"))
+        .annotate(total=Sum("records_completed"))
     )
 
 
@@ -1141,6 +1196,7 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
         or report.local_evaluation_requests_count_in_period > 0
         or report.survey_responses_count_in_period > 0
         or report.rows_synced_in_period > 0
+        or report.rows_exported_in_period > 0
         or report.exceptions_captured_in_period > 0
     )
 
@@ -1196,6 +1252,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_elixir_events_count_in_period": all_metrics["elixir_events"],
         "teams_with_recording_count_in_period": get_teams_with_recording_count_in_period(
             period_start, period_end, snapshot_source="web"
+        ),
+        "teams_with_zero_duration_recording_count_in_period": get_teams_with_zero_duration_recording_count_in_period(
+            period_start, period_end
         ),
         "teams_with_recording_bytes_in_period": get_teams_with_recording_bytes_in_period(
             period_start, period_end, snapshot_source="web"
@@ -1341,6 +1400,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_rows_synced_in_period": get_teams_with_rows_synced_in_period(period_start, period_end),
+        "teams_with_rows_exported_in_period": get_teams_with_rows_exported_in_period(period_start, period_end),
         "teams_with_active_external_data_schemas_in_period": get_teams_with_active_external_data_schemas_in_period(),
         "teams_with_active_batch_exports_in_period": get_teams_with_active_batch_exports_in_period(),
         "teams_with_dwh_tables_storage_in_s3_in_mib": get_teams_with_dwh_tables_storage_in_s3(),
@@ -1405,6 +1465,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ),
         recording_count_in_period=all_data["teams_with_recording_count_in_period"].get(team.id, 0),
         recording_bytes_in_period=all_data["teams_with_recording_bytes_in_period"].get(team.id, 0),
+        zero_duration_recording_count_in_period=all_data["teams_with_zero_duration_recording_count_in_period"].get(
+            team.id, 0
+        ),
         mobile_recording_count_in_period=all_data["teams_with_mobile_recording_count_in_period"].get(team.id, 0),
         mobile_recording_bytes_in_period=all_data["teams_with_mobile_recording_bytes_in_period"].get(team.id, 0),
         mobile_billable_recording_count_in_period=all_data["teams_with_mobile_billable_recording_count_in_period"].get(
@@ -1437,6 +1500,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         event_explorer_api_duration_ms=all_data["teams_with_event_explorer_api_duration_ms"].get(team.id, 0),
         survey_responses_count_in_period=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
         rows_synced_in_period=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
+        rows_exported_in_period=all_data["teams_with_rows_exported_in_period"].get(team.id, 0),
         active_external_data_schemas_in_period=all_data["teams_with_active_external_data_schemas_in_period"].get(
             team.id, 0
         ),
