@@ -59,8 +59,6 @@ function ExceptionCardContent({ issue, issueLoading, timestamp, label }: Excepti
     const { currentTab } = useValues(exceptionCardLogic)
     const { setCurrentTab } = useActions(exceptionCardLogic)
 
-    const { release } = useValues(releasePreviewLogic)
-
     return (
         <LemonCard hoverEffect={false} className="p-0 relative overflow-hidden">
             <TabsPrimitive value={currentTab} onValueChange={setCurrentTab}>
@@ -69,7 +67,7 @@ function ExceptionCardContent({ issue, issueLoading, timestamp, label }: Excepti
                         <div className="w-full h-full">
                             <div className="flex items-center gap-1 text-lg h-full">
                                 <IconLogomark />
-                                <span className="text-sm">Exception {release}</span>
+                                <span className="text-sm">Exception</span>
                             </div>
                         </div>
                         <div className="flex gap-2 w-full justify-center h-full">
