@@ -1,4 +1,3 @@
-import json
 import typing
 import datetime as dt
 
@@ -72,6 +71,7 @@ class TestFlattenLinkedinRecord:
             partition_mode=None,
             partition_format=None,
             is_stats=True,
+            partition_size=1,
         )
 
         result = _flatten_linkedin_record(record, schema)
@@ -93,6 +93,7 @@ class TestFlattenLinkedinRecord:
             partition_mode=None,
             partition_format=None,
             is_stats=False,
+            partition_size=1,
         )
 
         result = _flatten_linkedin_record(record, schema)
@@ -102,7 +103,7 @@ class TestFlattenLinkedinRecord:
 
     def test_flatten_integer_fields(self):
         """Test conversion of integer fields."""
-        record = {"impressions": "1000", "clicks": "50"}
+        record = {"impressions": 1000, "clicks": 50}
         schema = LinkedinAdsSchema(
             name="test",
             primary_keys=[],
@@ -111,6 +112,7 @@ class TestFlattenLinkedinRecord:
             partition_mode=None,
             partition_format=None,
             is_stats=True,
+            partition_size=1,
         )
 
         result = _flatten_linkedin_record(record, schema)
@@ -129,6 +131,7 @@ class TestFlattenLinkedinRecord:
             partition_mode=None,
             partition_format=None,
             is_stats=True,
+            partition_size=1,
         )
 
         result = _flatten_linkedin_record(record, schema)
@@ -146,6 +149,7 @@ class TestFlattenLinkedinRecord:
             partition_mode=None,
             partition_format=None,
             is_stats=False,
+            partition_size=1,
         )
 
         result = _flatten_linkedin_record(record, schema)
@@ -164,6 +168,7 @@ class TestFlattenLinkedinRecord:
             partition_mode=None,
             partition_format=None,
             is_stats=True,
+            partition_size=1,
         )
 
         result = _flatten_linkedin_record(record, schema)
@@ -172,7 +177,7 @@ class TestFlattenLinkedinRecord:
         assert result["account_id"] == 888999000
 
     def test_flatten_complex_objects_to_json(self):
-        """Test conversion of complex objects to JSON strings."""
+        """Test that complex objects are passed through as-is from API."""
         record = {"targetingCriteria": {"locations": ["US", "CA"], "ages": {"min": 25, "max": 65}}}
         schema = LinkedinAdsSchema(
             name="test",
@@ -182,30 +187,14 @@ class TestFlattenLinkedinRecord:
             partition_mode=None,
             partition_format=None,
             is_stats=False,
+            partition_size=1,
         )
 
         result = _flatten_linkedin_record(record, schema)
 
-        parsed_targeting = json.loads(result["targetingCriteria"])
-        assert parsed_targeting["locations"] == ["US", "CA"]
-        assert parsed_targeting["ages"]["min"] == 25
-
-    def test_flatten_field_name_with_dots(self):
-        """Test field names with dots get converted to underscores."""
-        record = {"some.nested.field": "test_value"}
-        schema = LinkedinAdsSchema(
-            name="test",
-            primary_keys=[],
-            field_names=["some.nested.field"],
-            partition_keys=[],
-            partition_mode=None,
-            partition_format=None,
-            is_stats=False,
-        )
-
-        result = _flatten_linkedin_record(record, schema)
-
-        assert result["some_nested_field"] == "test_value"
+        # API returns dict objects, pipeline handles JSON conversion later
+        assert result["targetingCriteria"]["locations"] == ["US", "CA"]
+        assert result["targetingCriteria"]["ages"]["min"] == 25
 
     def test_flatten_missing_field_returns_none(self):
         """Test missing fields return None."""
@@ -218,6 +207,7 @@ class TestFlattenLinkedinRecord:
             partition_mode=None,
             partition_format=None,
             is_stats=False,
+            partition_size=1,
         )
 
         result = _flatten_linkedin_record(record, schema)

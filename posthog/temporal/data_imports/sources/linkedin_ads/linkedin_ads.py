@@ -1,4 +1,3 @@
-import json
 import typing
 import datetime as dt
 import collections.abc
@@ -13,7 +12,7 @@ from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsS
 from posthog.warehouse.types import IncrementalFieldType
 
 from .client import LinkedinAdsClient, LinkedinAdsResource
-from .schemas import FLOAT_FIELDS, INTEGER_FIELDS, RESOURCE_SCHEMAS, URN_COLUMNS, VIRTUAL_COLUMN_URN_MAPPING
+from .schemas import FLOAT_FIELDS, RESOURCE_SCHEMAS, URN_COLUMNS, VIRTUAL_COLUMN_URN_MAPPING
 
 
 @dataclass
@@ -25,6 +24,7 @@ class LinkedinAdsSchema:
     partition_mode: PartitionMode | None
     partition_format: PartitionFormat | None
     is_stats: bool
+    partition_size: int
     filter_field_names: list[tuple[str, IncrementalFieldType]] | None = None
 
 
@@ -64,6 +64,7 @@ def get_schemas() -> dict[str, LinkedinAdsSchema]:
         partition_mode = resource_contents.get("partition_mode", None)
         partition_format = resource_contents.get("partition_format", None)
         is_stats = resource_contents.get("is_stats", False)
+        partition_size = resource_contents.get("partition_size", 1)
 
         schema = LinkedinAdsSchema(
             name=resource_name,
@@ -74,6 +75,7 @@ def get_schemas() -> dict[str, LinkedinAdsSchema]:
             partition_format=partition_format,
             is_stats=is_stats,
             filter_field_names=filter_field_names,
+            partition_size=partition_size,
         )
 
         schemas[resource_name] = schema
@@ -159,7 +161,7 @@ def linkedin_ads_source(
         items=get_rows(),
         primary_keys=schema.primary_keys,
         partition_count=1,  # this enables partitioning
-        partition_size=1,  # this enables partitioning
+        partition_size=schema.partition_size,  # this enables partitioning
         partition_mode=schema.partition_mode,
         partition_format=schema.partition_format,
         partition_keys=schema.partition_keys,
@@ -250,25 +252,13 @@ def _flatten_linkedin_record(
                             flattened[pivot_name] = pivot_extracted_id
             continue
 
-        # Handle single-value fields
-        value: typing.Any = None
-
         value = record.get(field_name)
 
         # Convert based on field type
         if value is not None:
-            if field_name in INTEGER_FIELDS:
-                value = int(value)
-            elif field_name in FLOAT_FIELDS:
+            if field_name in FLOAT_FIELDS:
                 value = float(value)
 
-            elif isinstance(value, dict | list):
-                value = json.dumps(value)
-            else:
-                value = str(value)
-
-        # Convert field name to column name (replace dots with underscores)
-        column_name = field_name.replace(".", "_")
-        flattened[column_name] = value
+        flattened[field_name] = value
 
     return flattened

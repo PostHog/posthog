@@ -3,21 +3,6 @@ from typing import Literal, NotRequired, TypedDict
 
 from posthog.warehouse.types import IncrementalFieldType
 
-# Field type mappings for data type conversion
-INTEGER_FIELDS = {
-    "id",
-    "campaign_id",
-    "campaign_group_id",
-    "impressions",
-    "clicks",
-    "externalWebsiteConversions",
-    "landingPageClicks",
-    "totalEngagements",
-    "videoViews",
-    "videoCompletions",
-    "oneClickLeads",
-    "follows",
-}
 FLOAT_FIELDS = {"costInUsd"}
 
 # There are in the results from the API. The value is in the URN format.
@@ -72,6 +57,7 @@ class ResourceSchema(TypedDict):
     partition_keys: list[str]
     partition_mode: Literal["md5", "numerical", "datetime"] | None
     partition_format: Literal["month", "day"] | None
+    partition_size: int
     is_stats: bool
 
 
@@ -85,6 +71,7 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
         "partition_mode": "numerical",
         "partition_format": None,
         "is_stats": False,
+        "partition_size": 1000,
     },
     LinkedinAdsResource.Campaigns: {
         "resource_name": "campaigns",
@@ -109,6 +96,7 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
         "partition_mode": "datetime",
         "partition_format": "month",
         "is_stats": False,
+        "partition_size": 1,
     },
     LinkedinAdsResource.CampaignGroups: {
         "resource_name": "campaign_groups",
@@ -126,6 +114,7 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
         "partition_mode": "datetime",
         "partition_format": "month",
         "is_stats": False,
+        "partition_size": 1,
     },
     LinkedinAdsResource.CampaignStats: {
         "resource_name": "campaign_stats",
@@ -151,6 +140,7 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
         "partition_mode": "datetime",
         "partition_format": "month",
         "is_stats": True,
+        "partition_size": 1,
     },
     LinkedinAdsResource.CampaignGroupStats: {
         "resource_name": "campaign_group_stats",
@@ -176,5 +166,6 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
         "partition_mode": "datetime",
         "partition_format": "month",
         "is_stats": True,
+        "partition_size": 1,
     },
 }
