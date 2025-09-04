@@ -120,7 +120,6 @@ class Command(BaseCommand):
 
         # Add LIMIT clause if specified
         limit_clause = f"LIMIT {limit}" if limit else ""
-
         query = f"""
             SELECT DISTINCT
                 team_id,
@@ -132,7 +131,7 @@ class Command(BaseCommand):
             {limit_clause}
         """
         try:
-            results = sync_execute(query)
+            results = sync_execute(query, params)
             return [
                 {
                     "team_id": row[0],
@@ -167,7 +166,6 @@ class Command(BaseCommand):
                 cohort_id=cohort_id,
                 condition=condition_hash[:16] + "...",
             )
-
             query = """
                 SELECT
                     person_id
@@ -180,12 +178,8 @@ class Command(BaseCommand):
                     AND matches >= %s
                 LIMIT 100000
             """
-            
             try:
                 results = sync_execute(query, [team_id, cohort_id, condition_hash, days, min_matches])
-
-            try:
-                results = sync_execute(query)
 
                 for row in results:
                     person_id = row[0]
