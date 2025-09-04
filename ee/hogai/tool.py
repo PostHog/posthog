@@ -103,7 +103,7 @@ class session_summarization(BaseModel):
             - filters: "{"key":"$os","value":["Mac OS X"],"operator":"exact","type":"event"}" -> name: "MacOS users"
             - filters: "{"date_from": "-7d", "filter_test_accounts": True}" -> name: "All sessions (last 7 days)"
             - and similar
-          * If there's no enough context to generated the summary name - keep it an empty string ("")
+          * If there's not enough context to generated the summary name - keep it an empty string ("")
         """
     )
 
