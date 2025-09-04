@@ -255,7 +255,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                     })
 
                     actions.setTestResult(apiResponse)
-                    actions.setSelectedNodeId(values.testResult?.result?.invocation.state?.currentAction?.id)
+                    actions.setSelectedNodeId(values.testResult?.result?.invocation?.state?.currentAction?.id)
 
                     return values.testInvocation
                 } catch (error: any) {
