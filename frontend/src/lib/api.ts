@@ -92,7 +92,6 @@ import {
     ExternalDataJob,
     ExternalDataSource,
     ExternalDataSourceCreatePayload,
-    ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
     FeatureFlagAssociatedRoleType,
@@ -1297,13 +1296,6 @@ export class ApiRequest {
 
     public externalDataSourceSchema(schemaId: ExternalDataSourceSchema['id'], teamId?: TeamType['id']): ApiRequest {
         return this.externalDataSchemas(teamId).addPathComponent(schemaId)
-    }
-
-    public externalDataSourceRevenueAnalyticsConfig(
-        sourceId: ExternalDataSource['id'],
-        teamId?: TeamType['id']
-    ): ApiRequest {
-        return this.externalDataSources(teamId).addPathComponent(sourceId).addPathComponent('revenue_analytics_config')
     }
 
     // Fix HogQL errors
@@ -3490,12 +3482,6 @@ const api = {
                 .withAction('jobs')
                 .withQueryString({ before, after })
                 .get()
-        },
-        async updateRevenueAnalyticsConfig(
-            sourceId: ExternalDataSource['id'],
-            data: Partial<ExternalDataSourceRevenueAnalyticsConfig>
-        ): Promise<ExternalDataSource> {
-            return await new ApiRequest().externalDataSourceRevenueAnalyticsConfig(sourceId).update({ data })
         },
     },
 

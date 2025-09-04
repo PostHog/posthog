@@ -62,11 +62,11 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
             teamLogic,
             ['currentTeam', 'currentTeamId'],
             dataWarehouseSettingsLogic,
-            ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
+            ['dataWarehouseSources'],
             databaseTableListLogic,
             ['database'],
         ],
-        actions: [teamLogic, ['updateCurrentTeam'], dataWarehouseSettingsLogic, ['updateSourceRevenueAnalyticsConfig']],
+        actions: [teamLogic, ['updateCurrentTeam'], dataWarehouseSettingsLogic, ['updateSource']],
     })),
     actions({
         addEvent: (eventName: string, revenueCurrency: CurrencyCode) => ({ eventName, revenueCurrency }),
@@ -234,8 +234,8 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
 
         enabledDataWarehouseSources: [
             (s) => [s.dataWarehouseSources],
-            (dataWarehouseSources): ExternalDataSource[] => {
-                return dataWarehouseSources?.results?.filter((source) => source.revenue_analytics_config.enabled) ?? []
+            (dataWarehouseSources: ExternalDataSource[]): ExternalDataSource[] => {
+                return dataWarehouseSources?.filter((source) => source.revenue_analytics_enabled) ?? []
             },
         ],
 

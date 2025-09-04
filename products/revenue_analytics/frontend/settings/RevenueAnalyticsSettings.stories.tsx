@@ -32,10 +32,7 @@ const meta: Meta = {
                                 {
                                     ...externalDataSourceResponseMock,
                                     prefix: 'dev_',
-                                    revenue_analytics_config: {
-                                        enabled: false,
-                                        include_invoiceless_charges: true,
-                                    },
+                                    revenue_analytics_enabled: false,
                                 },
                             ],
                         },
