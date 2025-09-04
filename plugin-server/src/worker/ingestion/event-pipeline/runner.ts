@@ -28,7 +28,7 @@ import {
     pipelineStepThrowCounter,
 } from './metrics'
 import { normalizeEventStep } from './normalizeEventStep'
-import { isPipelineDlq, isPipelineDrop, isPipelineOk, isPipelineRedirect } from './pipeline-step-result'
+import { isDlqResult, isDropResult, isRedirectResult, isSuccessResult } from './pipeline-step-result'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 import { transformEventStep } from './transformEventStep'
@@ -313,17 +313,17 @@ export class EventPipelineRunner {
             event.team_id
         )
 
-        if (!isPipelineOk(personStepResult)) {
+        if (!isSuccessResult(personStepResult)) {
             // Handle DLQ/drop/redirect cases - return early from pipeline
-            if (isPipelineDlq(personStepResult)) {
+            if (isDlqResult(personStepResult)) {
                 await this.sendToDLQ(event, personStepResult.error, 'processPersonsStep')
-            } else if (isPipelineDrop(personStepResult)) {
+            } else if (isDropResult(personStepResult)) {
                 logger.info('Event dropped during person processing', {
                     team_id: event.team_id,
                     distinct_id: event.distinct_id,
                     reason: personStepResult.reason,
                 })
-            } else if (isPipelineRedirect(personStepResult)) {
+            } else if (isRedirectResult(personStepResult)) {
                 logger.info('Event redirected during person processing', {
                     team_id: event.team_id,
                     distinct_id: event.distinct_id,

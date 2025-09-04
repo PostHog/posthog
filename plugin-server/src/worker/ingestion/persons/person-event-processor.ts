@@ -6,12 +6,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { ONE_HOUR } from '../../../config/constants'
 import { InternalPerson, Person } from '../../../types'
 import { logger } from '../../../utils/logger'
-import {
-    PipelineStepResult,
-    createPipelineDlq,
-    createPipelineOk,
-    createPipelineRedirect,
-} from '../event-pipeline/pipeline-step-result'
+import { PipelineStepResult, dlq, redirect, success } from '../event-pipeline/pipeline-step-result'
 import { uuidFromDistinctId } from '../person-uuid'
 import { PersonContext } from './person-context'
 import { PersonMergeService } from './person-merge-service'
@@ -71,7 +66,7 @@ export class PersonEventProcessor {
                 const [updatedPerson, updateKafkaAck] =
                     await this.propertyService.updatePersonProperties(personFromMerge)
                 return [
-                    createPipelineOk(updatedPerson),
+                    success(updatedPerson),
                     Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined),
                 ]
             } catch (error) {
@@ -82,10 +77,7 @@ export class PersonEventProcessor {
 
         // Handle regular property updates
         const [updatedPerson, updateKafkaAck] = await this.propertyService.handleUpdate()
-        return [
-            createPipelineOk(updatedPerson),
-            Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined),
-        ]
+        return [success(updatedPerson), Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined)]
     }
 
     private async handlePersonlessMode(): Promise<[PipelineStepResult<Person>, Promise<void>]> {
@@ -143,7 +135,7 @@ export class PersonEventProcessor {
                 person.force_upgrade = true
             }
 
-            return [createPipelineOk(person), Promise.resolve()]
+            return [success(person), Promise.resolve()]
         }
 
         // We need a value from the `person_created_column` in ClickHouse. This should be
@@ -158,7 +150,7 @@ export class PersonEventProcessor {
             uuid: uuidFromDistinctId(this.context.team.id, this.context.distinctId),
             created_at: createdAt,
         }
-        return [createPipelineOk(fakePerson), Promise.resolve()]
+        return [success(fakePerson), Promise.resolve()]
     }
 
     getContext(): PersonContext {
@@ -183,14 +175,14 @@ export class PersonEventProcessor {
                         team_id: event.team_id,
                         distinct_id: event.distinct_id,
                     })
-                    return createPipelineRedirect('Event redirected to async merge topic', mergeMode.topic)
+                    return redirect('Event redirected to async merge topic', mergeMode.topic)
                 case 'LIMIT':
                     logger.warn('Limit exceeded, will be sent to DLQ', {
                         limit: mergeMode.limit,
                         team_id: event.team_id,
                         distinct_id: event.distinct_id,
                     })
-                    return createPipelineDlq('Merge limit exceeded', error)
+                    return dlq('Merge limit exceeded', error)
                 case 'SYNC':
                     // SYNC mode should never hit limits - this indicates a bug
                     logger.error('Unexpected limit exceeded in SYNC mode - this should not happen', {

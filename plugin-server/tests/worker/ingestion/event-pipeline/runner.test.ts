@@ -4,6 +4,7 @@ import { v4 } from 'uuid'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { forSnapshot } from '~/tests/helpers/snapshots'
+import { dlq, redirect, success } from '~/worker/ingestion/event-pipeline/pipeline-step-result'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
 import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 
@@ -185,14 +186,13 @@ describe('EventPipelineRunner', () => {
             groupStoreForBatch
         )
 
-        jest.mocked(processPersonsStep).mockResolvedValue({
-            type: 'ok',
-            value: [
+        jest.mocked(processPersonsStep).mockResolvedValue(
+            success([
                 pluginEvent,
                 { person, personUpdateProperties: {}, get: () => Promise.resolve(person) } as any,
                 Promise.resolve(),
-            ],
-        })
+            ])
+        )
         jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
 
         // @ts-expect-error TODO: Check why expect never
@@ -325,11 +325,9 @@ describe('EventPipelineRunner', () => {
                 const pipelineStepDLQCounterSpy = jest.spyOn(metrics.pipelineStepDLQCounter, 'labels')
 
                 // Make processPersonsStep return a DLQ result instead of throwing
-                jest.mocked(processPersonsStep).mockResolvedValueOnce({
-                    type: 'dlq',
-                    reason: 'Merge limit exceeded',
-                    error: new PersonMergeLimitExceededError('person_merge_move_limit_hit'),
-                })
+                jest.mocked(processPersonsStep).mockResolvedValueOnce(
+                    dlq('Merge limit exceeded', new PersonMergeLimitExceededError('person_merge_move_limit_hit'))
+                )
 
                 await runner.runEventPipeline(pluginEvent, team)
 
@@ -352,11 +350,9 @@ describe('EventPipelineRunner', () => {
 
             it('redirects event when merge limit is exceeded in async mode during processPersonsStep', async () => {
                 // Make processPersonsStep return a redirect result
-                jest.mocked(processPersonsStep).mockResolvedValueOnce({
-                    type: 'redirect',
-                    reason: 'Event redirected to async merge topic',
-                    topic: 'async-merge-topic',
-                })
+                jest.mocked(processPersonsStep).mockResolvedValueOnce(
+                    redirect('Event redirected to async merge topic', 'async-merge-topic')
+                )
 
                 await runner.runEventPipeline(pluginEvent, team)
 

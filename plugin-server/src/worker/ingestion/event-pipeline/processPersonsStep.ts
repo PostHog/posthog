@@ -9,7 +9,7 @@ import { PersonEventProcessor } from '../persons/person-event-processor'
 import { PersonMergeService } from '../persons/person-merge-service'
 import { PersonPropertyService } from '../persons/person-property-service'
 import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'
-import { PipelineStepResult, createPipelineOk, isPipelineOk } from './pipeline-step-result'
+import { PipelineStepResult, isSuccessResult, success } from './pipeline-step-result'
 import { EventPipelineRunner } from './runner'
 
 export async function processPersonsStep(
@@ -39,8 +39,8 @@ export async function processPersonsStep(
     )
     const [result, kafkaAck] = await processor.processEvent()
 
-    if (isPipelineOk(result)) {
-        return createPipelineOk([event, result.value, kafkaAck])
+    if (isSuccessResult(result)) {
+        return success([event, result.value, kafkaAck])
     } else {
         return result
     }

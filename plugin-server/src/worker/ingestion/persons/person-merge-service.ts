@@ -19,8 +19,8 @@ import {
     PersonMergeResult,
     SourcePersonNotFoundError,
     TargetPersonNotFoundError,
-    createMergeError,
-    createMergeSuccess,
+    mergeError,
+    mergeSuccess,
 } from './person-merge-types'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
 import { PersonsStoreTransaction } from './persons-store-transaction'
@@ -152,7 +152,7 @@ export class PersonMergeService {
             clearTimeout(timeout)
         }
         // For non-merge events or when no merge conditions are met, return success with no person
-        return createMergeSuccess(undefined, Promise.resolve())
+        return mergeSuccess(undefined, Promise.resolve())
     }
 
     public async merge(
@@ -164,7 +164,7 @@ export class PersonMergeService {
         // No reason to alias person against itself. Done by posthog-node when updating user properties
         if (mergeIntoDistinctId === otherPersonDistinctId) {
             // Create a success result with undefined person to indicate no merge was needed
-            return createMergeSuccess(undefined, Promise.resolve())
+            return mergeSuccess(undefined, Promise.resolve())
         }
         if (isDistinctIdIllegal(mergeIntoDistinctId)) {
             await captureIngestionWarning(
@@ -178,7 +178,7 @@ export class PersonMergeService {
                 },
                 { alwaysSend: true }
             )
-            return createMergeSuccess(undefined, Promise.resolve())
+            return mergeSuccess(undefined, Promise.resolve())
         }
         if (isDistinctIdIllegal(otherPersonDistinctId)) {
             await captureIngestionWarning(
@@ -192,7 +192,7 @@ export class PersonMergeService {
                 },
                 { alwaysSend: true }
             )
-            return createMergeSuccess(undefined, Promise.resolve())
+            return mergeSuccess(undefined, Promise.resolve())
         }
 
         const result = await promiseRetry(
@@ -259,14 +259,14 @@ export class PersonMergeService {
 
                 const kafkaMessages = await tx.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion)
                 await this.context.kafkaProducer.queueMessages(kafkaMessages)
-                return createMergeSuccess(existingPerson, Promise.resolve())
+                return mergeSuccess(existingPerson, Promise.resolve())
             })
         } else if (otherPerson && mergeIntoPerson) {
             // Both Distinct IDs point at an existing Person
 
             if (otherPerson.id == mergeIntoPerson.id) {
                 // Nothing to do, they are the same Person
-                return createMergeSuccess(mergeIntoPerson, Promise.resolve())
+                return mergeSuccess(mergeIntoPerson, Promise.resolve())
             }
 
             const result = await this.mergePeople({
@@ -333,7 +333,7 @@ export class PersonMergeService {
                     ],
                     tx
                 )
-                return createMergeSuccess(person, Promise.resolve())
+                return mergeSuccess(person, Promise.resolve())
             })
         }
     }
@@ -368,7 +368,7 @@ export class PersonMergeService {
             logger.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call', {
                 team_id: this.context.team.id,
             })
-            return createMergeSuccess(mergeInto, Promise.resolve())
+            return mergeSuccess(mergeInto, Promise.resolve())
         }
 
         // How the merge works:
@@ -422,7 +422,7 @@ export class PersonMergeService {
             logger.warn('🤔', 'merge race condition detected, too many concurrent merges', {
                 team_id: this.context.team.id,
             })
-            return createMergeSuccess(mergeInto, Promise.resolve())
+            return mergeSuccess(mergeInto, Promise.resolve())
         }
 
         // For other errors (PersonMergeLimitExceededError, etc.), return the error result
@@ -509,15 +509,15 @@ export class PersonMergeService {
                 .inc()
 
             const kafkaAck = this.context.kafkaProducer.queueMessages(kafkaMessages)
-            return createMergeSuccess(mergedPerson, kafkaAck)
+            return mergeSuccess(mergedPerson, kafkaAck)
         } catch (error) {
             // Map exceptions to result types - these will cause transaction rollback
             if (error instanceof SourcePersonNotFoundError) {
-                return createMergeError(error)
+                return mergeError(error)
             } else if (error instanceof TargetPersonNotFoundError) {
-                return createMergeError(error)
+                return mergeError(error)
             } else if (error instanceof PersonMergeLimitExceededError) {
-                return createMergeError(error)
+                return mergeError(error)
             } else {
                 // Re-throw unexpected errors
                 throw error
@@ -669,7 +669,7 @@ export class PersonMergeService {
                     )
 
                     if (!refreshedPerson) {
-                        return createMergeSuccess(currentTargetPerson, Promise.resolve())
+                        return mergeSuccess(currentTargetPerson, Promise.resolve())
                     }
 
                     currentSourcePerson = refreshedPerson
@@ -683,7 +683,7 @@ export class PersonMergeService {
                     )
 
                     if (!refreshedPerson) {
-                        return createMergeSuccess(currentTargetPerson, Promise.resolve())
+                        return mergeSuccess(currentTargetPerson, Promise.resolve())
                     }
 
                     currentTargetPerson = refreshedPerson
@@ -699,7 +699,7 @@ export class PersonMergeService {
         }
 
         // This should never be reached, but add fallback for race condition
-        return createMergeError(
+        return mergeError(
             new PersonMergeRaceConditionError(
                 `Failed to merge persons due to concurrent merges, ` +
                     `source person: ${sourcePerson.id}, target person: ${targetPerson.id}, team: ${this.context.team.id} ` +

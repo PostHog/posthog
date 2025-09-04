@@ -6,6 +6,12 @@ import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
 import { KAFKA_INGESTION_WARNINGS, KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/config/kafka-topics'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
+import {
+    PipelineStepResultType,
+    isDlqResult,
+    isRedirectResult,
+    isSuccessResult,
+} from '~/worker/ingestion/event-pipeline/pipeline-step-result'
 import { fromInternalPerson } from '~/worker/ingestion/persons/person-update-batch'
 
 import { TopicMessage } from '../../../src/kafka/producer'
@@ -357,8 +363,8 @@ describe('PersonState.processEvent()', () => {
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
 
-            expect(result.type).toBe('ok')
-            if (result.type === 'ok') {
+            expect(result.type).toBe(PipelineStepResultType.OK)
+            if (isSuccessResult(result)) {
                 const fakePerson = result.value
                 expect(fakePerson).toEqual(
                     expect.objectContaining({
@@ -378,7 +384,7 @@ describe('PersonState.processEvent()', () => {
             // verify there are no Postgres distinct_ids
             const distinctIds = await fetchDistinctIdValues(
                 hub.db.postgres,
-                result.type === 'ok' ? (result.value as InternalPerson) : ({} as InternalPerson)
+                isSuccessResult(result) ? (result.value as InternalPerson) : ({} as InternalPerson)
             )
             expect(distinctIds).toEqual(expect.arrayContaining([]))
         })
@@ -494,8 +500,8 @@ describe('PersonState.processEvent()', () => {
             await hub.db.kafkaProducer.flush()
             await kafkaAcks2
 
-            expect(result2.type).toBe('ok')
-            if (result2.type === 'ok') {
+            expect(result2.type).toBe(PipelineStepResultType.OK)
+            if (isSuccessResult(result2)) {
                 const fakePerson = result2.value
                 expect(fakePerson).toEqual(
                     expect.objectContaining({
@@ -554,8 +560,8 @@ describe('PersonState.processEvent()', () => {
             await hub.db.kafkaProducer.flush()
             await kafkaAcks2
 
-            expect(result2.type).toBe('ok')
-            if (result2.type === 'ok') {
+            expect(result2.type).toBe(PipelineStepResultType.OK)
+            if (isSuccessResult(result2)) {
                 const fakePerson = result2.value
                 expect(fakePerson.force_upgrade).toBeUndefined()
             }
@@ -608,8 +614,8 @@ describe('PersonState.processEvent()', () => {
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
 
-            expect(result.type).toBe('ok')
-            if (result.type === 'ok') {
+            expect(result.type).toBe(PipelineStepResultType.OK)
+            if (isSuccessResult(result)) {
                 const person = result.value
                 expect(person).toEqual(
                     expect.objectContaining({
@@ -640,8 +646,8 @@ describe('PersonState.processEvent()', () => {
                 uuid: new UUIDT().toString(),
                 properties: {},
             }).processEvent()
-            expect(personVerifyResult.type).toBe('ok')
-            if (personVerifyResult.type === 'ok') {
+            expect(personVerifyResult.type).toBe(PipelineStepResultType.OK)
+            if (isSuccessResult(personVerifyResult)) {
                 expect(personVerifyResult.value.properties).toEqual({ $creator_event_uuid: originalEventUuid, c: 420 })
             }
 
@@ -658,8 +664,8 @@ describe('PersonState.processEvent()', () => {
                 hub,
                 false
             ).processEvent()
-            expect(processPersonFalseResult.type).toBe('ok')
-            if (processPersonFalseResult.type === 'ok') {
+            expect(processPersonFalseResult.type).toBe(PipelineStepResultType.OK)
+            if (isSuccessResult(processPersonFalseResult)) {
                 expect(processPersonFalseResult.value.properties).toEqual({})
             }
         })
@@ -1089,8 +1095,8 @@ describe('PersonState.processEvent()', () => {
             const context = personS.getContext()
             await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
-            expect(result.type).toBe('ok')
-            if (result.type === 'ok') {
+            expect(result.type).toBe(PipelineStepResultType.OK)
+            if (isSuccessResult(result)) {
                 const person = result.value
                 expect(person).toEqual(
                     expect.objectContaining({
@@ -1245,8 +1251,8 @@ describe('PersonState.processEvent()', () => {
             await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
             // Return logic is still unaware that merge happened
-            expect(result.type).toBe('ok')
-            if (result.type === 'ok') {
+            expect(result.type).toBe(PipelineStepResultType.OK)
+            if (isSuccessResult(result)) {
                 const person = result.value
                 expect(person).toMatchObject({
                     id: expect.any(String),
@@ -4035,10 +4041,10 @@ describe('PersonState.processEvent()', () => {
 
                     const [result] = await processor.processEvent()
 
-                    expect(result.type).toBe('dlq')
-                    if (result.type === 'dlq') {
+                    expect(result.type).toBe(PipelineStepResultType.DLQ)
+                    if (isDlqResult(result)) {
                         expect(result.reason).toBe('Merge limit exceeded')
-                        expect(result.error.message).toContain('person_merge_move_limit_hit')
+                        expect((result.error as any).message).toContain('person_merge_move_limit_hit')
                     }
                 })
 
@@ -4064,8 +4070,8 @@ describe('PersonState.processEvent()', () => {
 
                     const [result] = await processor.processEvent()
 
-                    expect(result.type).toBe('redirect')
-                    if (result.type === 'redirect') {
+                    expect(result.type).toBe(PipelineStepResultType.REDIRECT)
+                    if (isRedirectResult(result)) {
                         expect(result.reason).toBe('Event redirected to async merge topic')
                         expect(result.topic).toBe('async-merge-topic')
                     }
@@ -4109,8 +4115,8 @@ describe('PersonState.processEvent()', () => {
 
                         const [result] = await processor.processEvent()
 
-                        expect(result.type).toBe('ok')
-                        if (result.type === 'ok') {
+                        expect(result.type).toBe(PipelineStepResultType.OK)
+                        if (isSuccessResult(result)) {
                             expect(result.value).toEqual(mockPerson)
                         }
                     }

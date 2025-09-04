@@ -101,7 +101,7 @@ export type MergeMode =
 /**
  * Helper function to create a successful merge result
  */
-export function createMergeSuccess(person: InternalPerson | undefined, kafkaAck: Promise<void>): PersonMergeResult {
+export function mergeSuccess(person: InternalPerson | undefined, kafkaAck: Promise<void>): PersonMergeResult {
     return {
         success: true,
         person,
@@ -112,7 +112,7 @@ export function createMergeSuccess(person: InternalPerson | undefined, kafkaAck:
 /**
  * Helper function to create a merge error result
  */
-export function createMergeError(error: PersonMergeError): PersonMergeResult {
+export function mergeError(error: PersonMergeError): PersonMergeResult {
     return {
         success: false,
         error,
