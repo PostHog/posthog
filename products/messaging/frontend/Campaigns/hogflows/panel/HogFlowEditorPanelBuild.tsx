@@ -176,14 +176,20 @@ function HogFunctionTemplatesChooser(): JSX.Element {
         loadHogFunctionTemplates()
     }, [loadHogFunctionTemplates])
 
-    // TODO: For now hide all templates that have secret values...
-
     const actions = useMemo(
         () =>
             filteredTemplates
-                .filter(
-                    (template) => template.type === 'destination' && !TEMPLATE_IDS_AT_TOP_LEVEL.includes(template.id)
-                )
+                .filter((template) => {
+                    if (template.type !== 'destination' || TEMPLATE_IDS_AT_TOP_LEVEL.includes(template.id)) {
+                        return false
+                    }
+
+                    // TODO: For now hide all templates that have secret values as we dont support secret management yet
+                    if (template.type === 'destination' && template.inputs_schema?.some((input) => input.secret)) {
+                        return false
+                    }
+                    return true
+                })
                 .map(
                     (template): CreateActionType => ({
                         type: 'function',
