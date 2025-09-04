@@ -1,6 +1,6 @@
 import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { forms } from 'kea-forms'
+import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
@@ -629,9 +629,18 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             errors: (data) => {
                 return {
                     name: !data.name ? 'Name is required' : undefined,
-                    mappings: VALIDATION_RULES.SITE_DESTINATION_REQUIRES_MAPPINGS(data),
-                    filters: VALIDATION_RULES.INTERNAL_DESTINATION_REQUIRES_FILTERS(data),
-                    inputs: values.inputFormErrors,
+                    mappings: VALIDATION_RULES.SITE_DESTINATION_REQUIRES_MAPPINGS(data) as unknown as DeepPartialMap<
+                        HogFunctionMappingType[],
+                        ValidationErrorType
+                    >,
+                    filters: VALIDATION_RULES.INTERNAL_DESTINATION_REQUIRES_FILTERS(data) as unknown as DeepPartialMap<
+                        HogFunctionConfigurationType['filters'],
+                        ValidationErrorType
+                    >,
+                    inputs: (values.inputFormErrors ?? {}) as DeepPartialMap<
+                        HogFunctionConfigurationType['inputs'],
+                        ValidationErrorType
+                    >,
                 }
             },
             submit: async (data) => {
