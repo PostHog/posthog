@@ -135,13 +135,19 @@ impl From<(&RawHermesFrame, HermesError)> for Frame {
 
 impl From<(&RawHermesFrame, Token<'_>, Option<String>)> for Frame {
     fn from((frame, token, resolved_name): (&RawHermesFrame, Token<'_>, Option<String>)) -> Self {
+        let source = token.get_source().map(|s| sanitize_string(s.to_string()));
+        let in_app = source
+            .as_ref()
+            .map(|s| !s.contains("node_modules"))
+            .unwrap_or(frame.meta.in_app);
+
         let mut res = Self {
             raw_id: FrameId::placeholder(),
             mangled_name: frame.fn_name.clone(),
             line: Some(token.get_src_line()),
             column: Some(token.get_src_col()),
-            source: token.get_source().map(|s| sanitize_string(s.to_string())),
-            in_app: frame.meta.in_app, // TODO - we look for node_modules in the source file name for javascript, should we here too?
+            source,
+            in_app,
             resolved_name,
             lang: "hermes-js".to_string(),
             resolved: true,

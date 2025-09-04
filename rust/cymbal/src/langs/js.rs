@@ -182,6 +182,7 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
         let source = token.file().and_then(|f| f.name()).map(|s| s.to_string());
 
         let in_app = source
+            .as_ref()
             .map(|s| !s.contains("node_modules"))
             .unwrap_or(raw_frame.meta.in_app);
 
@@ -190,10 +191,7 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
             mangled_name: raw_frame.fn_name.clone(),
             line: Some(token.line()),
             column: Some(token.column()),
-            source: token
-                .file()
-                .and_then(|f| f.name())
-                .map(|s| sanitize_string(s.to_string())),
+            source,
             in_app,
             resolved_name,
             lang: "javascript".to_string(),
