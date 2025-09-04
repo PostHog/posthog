@@ -436,4 +436,3 @@ async fn test_deduplication_with_different_events() -> Result<()> {
 
     Ok(())
 }
-
