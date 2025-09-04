@@ -315,11 +315,9 @@ export function ExperimentMetricForm({
                         { value: ExperimentMetricGoal.Increase, label: 'Increase' },
                         { value: ExperimentMetricGoal.Decrease, label: 'Decrease' },
                     ]}
-                    fullWidth
                 />
                 <div className="text-muted text-sm mt-1">
-                    Choose whether you want this metric to increase or decrease. For example, conversion rates should
-                    increase, while bounce rates should decrease.
+                    For example, conversion rates should increase, while bounce rates should decrease.
                 </div>
             </div>
             <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />

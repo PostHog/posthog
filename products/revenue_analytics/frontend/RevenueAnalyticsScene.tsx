@@ -22,7 +22,7 @@ import { Onboarding } from './Onboarding'
 import { RevenueAnalyticsFilters } from './RevenueAnalyticsFilters'
 import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
-import { GrossRevenueTile, MRRTile, MetricsTile, OverviewTile, RevenueGrowthRateTile, TopCustomersTile } from './tiles'
+import { GrossRevenueTile, MRRTile, MetricsTile, OverviewTile, TopCustomersTile } from './tiles'
 
 export const scene: SceneExport = {
     component: RevenueAnalyticsScene,
@@ -153,7 +153,6 @@ const RevenueAnalyticsTables = (): JSX.Element => {
                 <MRRTile />
                 <GrossRevenueTile />
                 <MetricsTile />
-                <RevenueGrowthRateTile />
                 <TopCustomersTile />
             </div>
         </div>
