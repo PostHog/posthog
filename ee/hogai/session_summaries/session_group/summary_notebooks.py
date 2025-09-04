@@ -196,7 +196,7 @@ class SummaryNotebookIntermediateState:
 
 
 def _create_notebook_title(team_name: str, summary_name: str | None) -> str:
-    title = f"Session Summaries Report - {team_name}"
+    title = f"Session summaries report - {team_name}"
     timestamp = timezone.now().strftime("%Y-%m-%d")
     if summary_name:
         title += f" - {summary_name}"

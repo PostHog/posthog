@@ -124,7 +124,7 @@ class TestNotebookCreation(APIBaseTest):
         assert notebook.created_by == self.user
         assert notebook.last_modified_by == self.user
         assert notebook.title is not None
-        assert f"Session Summaries Report - {self.team.name}" in notebook.title
+        assert f"Session summaries report - {self.team.name}" in notebook.title
 
         # Check content structure
         assert content["type"] == "doc"
@@ -132,7 +132,7 @@ class TestNotebookCreation(APIBaseTest):
 
         # Check that it has the expected structure
         assert content["content"][0]["type"] == "heading"
-        assert f"Session Summaries Report - {self.team.name}" in content["content"][0]["content"][0]["text"]
+        assert f"Session summaries report - {self.team.name}" in content["content"][0]["content"][0]["text"]
 
         # Check that pattern content is included
         content_text: str = json.dumps(content)
@@ -923,7 +923,7 @@ class TestSummaryNotebookIntermediateState(APIBaseTest):
 
         # Check main title
         assert content[0]["type"] == "heading"
-        assert "Session Summaries Report - Test Team" in content[0]["content"][0]["text"]
+        assert "Session summaries report - Test Team" in content[0]["content"][0]["text"]
 
         # Check plan section
         assert content[2]["type"] == "heading"
@@ -1005,7 +1005,7 @@ class TestSummaryNotebookIntermediateState(APIBaseTest):
         # Initial state - just the plan
         initial_formatted: dict[str, Any] = state.format_intermediate_state()
         initial_str: str = json.dumps(initial_formatted)
-        assert "Session Summaries Report - PostHog" in initial_str
+        assert "Session summaries report - PostHog" in initial_str
         assert "[ ] Watch sessions" in initial_str
         assert "[ ] Find initial patterns" in initial_str
         assert "[ ] Generate final report" in initial_str
