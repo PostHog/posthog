@@ -1,4 +1,5 @@
 import { instrumented } from '~/common/tracing/tracing-utils'
+
 import { HealthCheckResult, Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
