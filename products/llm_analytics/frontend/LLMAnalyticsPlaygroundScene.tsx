@@ -63,7 +63,8 @@ function PlaygroundLayout(): JSX.Element {
 }
 
 function ConversationPanel(): JSX.Element {
-    const { messages } = useValues(llmAnalyticsPlaygroundLogic)
+    const { messages, tools } = useValues(llmAnalyticsPlaygroundLogic)
+    const { setTools } = useActions(llmAnalyticsPlaygroundLogic)
     const [expandTextAreas, setExpandTextAreas] = useState(false)
     const messagesStartRef = useRef<HTMLDivElement>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -75,17 +76,30 @@ function ConversationPanel(): JSX.Element {
                 <div ref={messagesStartRef} data-attr="messages-start" />
                 <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-semibold">Messages</h3>
-                    <LemonSwitch
-                        bordered
-                        checked={expandTextAreas}
-                        onChange={setExpandTextAreas}
-                        label="Expand text areas"
-                        size="small"
-                        tooltip="If your messages exceed the text box you can toggle this to see more"
-                    />
+                    <div className="flex items-center gap-2">
+                        {!tools && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconPlus />}
+                                onClick={() => setTools([])}
+                                tooltip="Add tools block"
+                            >
+                                Add Tools
+                            </LemonButton>
+                        )}
+                        <LemonSwitch
+                            bordered
+                            checked={expandTextAreas}
+                            onChange={setExpandTextAreas}
+                            label="Expand text areas"
+                            size="small"
+                            tooltip="If your messages exceed the text box you can toggle this to see more"
+                        />
+                    </div>
                 </div>
                 <div className="space-y-3">
-                    <ToolsDisplay expandTextAreas={expandTextAreas} />
+                    {tools && <ToolsDisplay expandTextAreas={expandTextAreas} />}
                     <SystemMessageDisplay expandTextAreas={expandTextAreas} />
                     {messages.map((message, index) => (
                         <MessageDisplay key={index} index={index} message={message} expandTextAreas={expandTextAreas} />
@@ -134,13 +148,21 @@ function ToolsDisplay({ expandTextAreas }: { expandTextAreas: boolean }): JSX.El
     return (
         <>
             <div className="border rounded p-3 relative group bg-white dark:bg-[var(--bg-surface-primary)] border-l-4 border-l-[var(--color-orange-500)]">
-                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
                     <LemonButton
                         size="small"
                         icon={<IconPencil />}
                         tooltip="Edit tools"
                         noPadding
                         onClick={() => setShowEditModal(true)}
+                    />
+                    <LemonButton
+                        size="small"
+                        status="danger"
+                        icon={<IconTrash />}
+                        tooltip="Remove tools block"
+                        noPadding
+                        onClick={() => setTools(null)}
                     />
                 </div>
 
