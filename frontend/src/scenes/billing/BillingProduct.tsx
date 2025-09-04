@@ -27,6 +27,7 @@ import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 import { summarizeUsage } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
+import { REALTIME_DESTINATIONS_BILLING_START_DATE } from './constants'
 import { paymentEntryLogic } from './paymentEntryLogic'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
@@ -77,6 +78,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
 
+    const productDisplayNameOverrides: Record<string, string> = {
+        realtime_destinations: 'Data pipelines',
+    }
+    const displayProductName = productDisplayNameOverrides[product.type] || product.name
+
     const upgradeToPlanKey = upgradePlan?.plan_key
     const currentPlanKey = currentPlan?.plan_key
 
@@ -111,12 +117,21 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     <div className="flex gap-4 items-center justify-between">
                         {/* Product name and description */}
                         <div className="flex gap-x-2">
-                            <div>{getProductIcon(product.name, product.icon_key, 'text-2xl shrink-0')}</div>
+                            <div>{getProductIcon(displayProductName, product.icon_key, 'text-2xl shrink-0')}</div>
                             <div>
                                 <h3 className="font-bold mb-0 flex items-center gap-x-2">
-                                    {product.name}{' '}
+                                    {displayProductName}{' '}
                                     {isTemporaryFreeProduct && (
                                         <LemonTag type="highlight">included with your plan</LemonTag>
+                                    )}
+                                    {product.type === 'realtime_destinations' && (
+                                        <Tooltip
+                                            title={`Data pipelines have been migrated from an add-on to standalone products with true usage-based pricing. You will be billed for usage starting from ${REALTIME_DESTINATIONS_BILLING_START_DATE}.`}
+                                        >
+                                            <LemonTag type="success" icon={<IconInfo />}>
+                                                Migrated
+                                            </LemonTag>
+                                        </Tooltip>
                                     )}
                                 </h3>
                                 <div>{product.description}</div>
