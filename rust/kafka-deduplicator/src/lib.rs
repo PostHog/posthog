@@ -6,6 +6,7 @@ pub mod duplicate_metrics;
 pub mod event;
 pub mod kafka;
 pub mod metrics;
+pub mod processor_pool;
 pub mod processor_rebalance_handler;
 pub mod rocksdb;
 pub mod service;
