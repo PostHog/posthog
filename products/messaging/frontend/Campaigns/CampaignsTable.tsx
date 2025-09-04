@@ -115,7 +115,7 @@ export function CampaignsTable(): JSX.Element {
             title: 'Status',
             width: 0,
             key: 'status',
-            sorter: (a) => (a.status === 'active' ? 1 : -1),
+            sorter: (a, b) => a.status.localeCompare(b.status),
             render: (_, item) => {
                 return (
                     <LemonTag type={item.status === 'active' ? 'success' : 'default'}>
