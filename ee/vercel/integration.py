@@ -539,7 +539,7 @@ class VercelIntegration:
             )
             if result.success:
                 logger.info(
-                    f"{item_type}_created_in_vercel",
+                    f"{item_type} created in Vercel",
                     item_id=item_id,
                     integration_config_id=setup_result.integration_config_id,
                     resource_id=setup_result.resource_id,
@@ -562,7 +562,7 @@ class VercelIntegration:
             )
             if result.success:
                 logger.info(
-                    f"{item_type}_updated_in_vercel",
+                    f"{item_type} updated in Vercel",
                     item_id=item_id,
                     integration_config_id=setup_result.integration_config_id,
                     resource_id=setup_result.resource_id,
@@ -601,7 +601,7 @@ class VercelIntegration:
         )
         if result.success:
             logger.info(
-                f"{item_type}_deleted_from_vercel",
+                f"{item_type} deleted from Vercel",
                 item_id=item_id,
                 integration_config_id=setup_result.integration_config_id,
                 resource_id=setup_result.resource_id,
@@ -609,7 +609,7 @@ class VercelIntegration:
             )
         else:
             logger.exception(
-                f"{item_type}_delete_failed",
+                f"Failed to delete {item_type} from Vercel",
                 item_id=item_id,
                 integration_config_id=setup_result.integration_config_id,
                 resource_id=setup_result.resource_id,
