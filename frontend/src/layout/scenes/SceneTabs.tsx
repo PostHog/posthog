@@ -25,10 +25,10 @@ export interface SceneTabsProps {
 }
 
 export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
-    const { tabs } = useValues(sceneLogic)
+    const { tabs, activeSceneId } = useValues(sceneLogic)
     const { newTab, reorderTabs } = useActions(sceneLogic)
     const { toggleSearchBar } = useActions(commandBarLogic)
-    const { isLayoutPanelPinned } = useValues(panelLayoutLogic)
+    const { isLayoutPanelVisible } = useValues(panelLayoutLogic)
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
@@ -41,12 +41,12 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     return (
         <div
             className={cn(
-                'flex items-center w-full bg-surface-tertiary z-[var(--z-top-navigation)] pr-1.5 border-b border-primary relative',
+                'h-[var(--scene-layout-header-height)] flex items-center w-full bg-surface-tertiary z-[var(--z-top-navigation)] pr-1.5 border-b border-primary relative',
                 className
             )}
         >
             {/* rounded corner on the left to make scene curve into tab line */}
-            {!isLayoutPanelPinned && (
+            {!isLayoutPanelVisible && (
                 <div className="absolute left-0 -bottom-1 size-2 bg-surface-tertiary">
                     <div className="relative -bottom-1 size-2 border-l border-t border-primary rounded-tl bg-primary" />
                 </div>
