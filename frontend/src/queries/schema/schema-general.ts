@@ -3509,7 +3509,7 @@ export interface RevenueAnalyticsGoal {
     /**
      * @default 'gross'
      */
-    mrrOrGross: 'mrr' | 'gross'
+    mrr_or_gross: 'mrr' | 'gross'
 }
 
 export interface RevenueAnalyticsConfig {

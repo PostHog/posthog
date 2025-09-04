@@ -41,10 +41,10 @@ export const extractLabelAndDatasets = (results: GraphDataset[]): { labels: stri
 // Helper to build goal lines from revenue goals
 export const goalLinesFromRevenueGoals = (
     revenueGoals: RevenueAnalyticsGoal[],
-    mode: RevenueAnalyticsGoal['mrrOrGross']
+    mode: RevenueAnalyticsGoal['mrr_or_gross']
 ): GoalLine[] => {
     return revenueGoals
-        .filter((goal) => goal.mrrOrGross === mode)
+        .filter((goal) => goal.mrr_or_gross === mode)
         .map((goal) => {
             const isFuture = dayjs(goal.due_date).isSameOrAfter(dayjs())
 

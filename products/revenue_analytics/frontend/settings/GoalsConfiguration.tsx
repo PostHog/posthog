@@ -151,7 +151,7 @@ const EMPTY_GOAL = {
     name: `Q${nextQuarter} ${nextQuarterYear}`,
     due_date: nextQuarterDate.endOf('quarter').format('YYYY-MM-DD'),
     goal: 1_000_000, // Nice round $1M MRR goal
-    mrrOrGross: 'mrr' as const,
+    mrr_or_gross: 'mrr' as const,
 }
 
 export function GoalsConfiguration(): JSX.Element {
@@ -296,7 +296,7 @@ export function GoalsConfiguration(): JSX.Element {
             tooltip: 'Are you tracking MRR or gross revenue?',
             render: (_, goal, index) => {
                 const { isEditingRow, isAddingRow } = getIndexInformation(index)
-                const goalValue = isEditingRow || isAddingRow ? temporaryGoal.mrrOrGross : goal.mrrOrGross
+                const goalValue = isEditingRow || isAddingRow ? temporaryGoal.mrr_or_gross : goal.mrr_or_gross
                 const checked = goalValue === 'gross' // 'gross' is to the right, therefore checked
 
                 return (
@@ -305,7 +305,7 @@ export function GoalsConfiguration(): JSX.Element {
                         <LemonSwitch
                             checked={checked}
                             onChange={(checked) =>
-                                setTemporaryGoal({ ...temporaryGoal, mrrOrGross: checked ? 'gross' : 'mrr' })
+                                setTemporaryGoal({ ...temporaryGoal, mrr_or_gross: checked ? 'gross' : 'mrr' })
                             }
                             disabledReason={
                                 !isAddingRow && !isEditingRow ? 'Only enabled when editing this goal' : undefined

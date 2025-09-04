@@ -155,7 +155,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
                 due_date: '2020-12-31',
                 name: '2020 Q4',
                 goal: 1_000_000,
-                mrrOrGross: 'gross',
+                mrr_or_gross: 'gross',
             },
             // Very in the future to avoid flappy snapshots until 2035, assuming I'll be a multimillionaire by then and wont have to handle this
             // These are both "Current" goals since they're for the same day
@@ -163,20 +163,20 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
                 due_date: '2035-12-31',
                 name: '2035 Q4',
                 goal: 1_500_000,
-                mrrOrGross: 'gross',
+                mrr_or_gross: 'gross',
             },
             {
                 due_date: '2035-12-31',
                 name: '2035 Q4 MRR',
                 goal: 1_200_000,
-                mrrOrGross: 'mrr',
+                mrr_or_gross: 'mrr',
             },
             // Future goal
             {
                 due_date: '2040-12-31',
                 name: '2040 Q4',
                 goal: 1_800_000,
-                mrrOrGross: 'gross',
+                mrr_or_gross: 'gross',
             },
         ],
     },

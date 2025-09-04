@@ -2276,7 +2276,7 @@ class RevenueAnalyticsGoal(BaseModel):
     )
     due_date: str
     goal: float
-    mrrOrGross: Optional[MrrOrGross] = MrrOrGross.GROSS
+    mrr_or_gross: Optional[MrrOrGross] = MrrOrGross.GROSS
     name: str
 
 
