@@ -5,7 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { PaginationManual } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
-import { objectsEqual, toParams } from 'lib/utils'
+import { objectsEqual, parseTagsFilter, toParams } from 'lib/utils'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -248,27 +248,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             }
 
             const { page, created_by_id, active, type, search, order, evaluation_runtime } = searchParams
-            // Parse tags from URL (supports repeated params, JSON array string, or single string)
-            let tags: string[] | undefined
-            const rawTags: any = searchParams['tags']
-            if (Array.isArray(rawTags)) {
-                tags = rawTags as string[]
-            } else if (typeof rawTags === 'string') {
-                try {
-                    const parsed = JSON.parse(rawTags)
-                    if (Array.isArray(parsed)) {
-                        tags = parsed.map((t) => String(t))
-                    } else if (parsed) {
-                        tags = [String(parsed)]
-                    }
-                } catch {
-                    // Fallback: support comma-separated or single value
-                    tags = rawTags
-                        .split(',')
-                        .map((t: string) => t)
-                        .filter(Boolean)
-                }
-            }
+            const tags: string[] | undefined = parseTagsFilter(searchParams['tags'])
             const pageFiltersFromUrl: Partial<FeatureFlagsFilters> = {
                 created_by_id,
                 type,
