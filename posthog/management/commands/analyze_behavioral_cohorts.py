@@ -104,7 +104,7 @@ class Command(BaseCommand):
         """Get unique condition hashes from ClickHouse with optional limit"""
 
         where_clauses = ["date >= now() - INTERVAL %s DAY"]
-        params = [days]
+        params: list[Any] = [days]
 
         if team_id:
             where_clauses.append("team_id = %s")
