@@ -12,8 +12,8 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { isObject } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
-import { PlayerMetaBottomSettings } from 'scenes/session-recordings/player/player-meta/PlayerMetaBottomSettings'
 import { PlayerMetaLinks } from 'scenes/session-recordings/player/player-meta/PlayerMetaLinks'
+import { PlayerMetaTopSettings } from 'scenes/session-recordings/player/player-meta/PlayerMetaTopSettings'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
     SessionRecordingPlayerMode,
@@ -209,7 +209,7 @@ export function PlayerMeta(): JSX.Element {
                     {!isCinemaMode && <ResolutionView size={size} />}
                     <PlayerPersonMeta />
                 </div>
-                {!isCinemaMode && <PlayerMetaBottomSettings size={size} />}
+                {!isCinemaMode && <PlayerMetaTopSettings size={size} />}
             </div>
         </DraggableToNotebook>
     )

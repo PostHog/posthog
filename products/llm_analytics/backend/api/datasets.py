@@ -28,6 +28,7 @@ class DatasetSerializer(serializers.ModelSerializer):
             "updated_at",
             "deleted",
             "created_by",
+            "team",
         ]
         read_only_fields = [
             "id",

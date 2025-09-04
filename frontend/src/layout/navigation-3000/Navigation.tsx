@@ -54,7 +54,7 @@ export function Navigation({
             className={cn(
                 'Navigation3000',
                 mobileLayout && 'Navigation3000--mobile',
-                newSceneLayout && 'Navigation3000--minimal-scene-layout'
+                newSceneLayout && 'Navigation3000--minimal-scene-layout [&>main]:overflow-y-hidden'
             )}
             style={theme?.mainStyle}
         >
