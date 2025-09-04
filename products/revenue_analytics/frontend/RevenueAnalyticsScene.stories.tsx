@@ -1,4 +1,4 @@
-import { Meta, StoryObj } from '@storybook/react'
+import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
 
@@ -119,8 +119,4 @@ export function RevenueAnalyticsDashboardSyncInProgress(): JSX.Element {
     }, [setTopCustomersDisplayMode, setRevenueAnalyticsFilters, addBreakdown])
 
     return <App />
-}
-
-export const RevenueAnalyticsDashboardWithoutFeatureFlag: StoryObj<typeof meta> = {
-    parameters: { featureFlags: [] },
 }
