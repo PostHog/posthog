@@ -698,12 +698,22 @@ def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_
 
 @receiver(post_save, sender=FeatureFlag)
 def sync_feature_flag_experimentation_item(sender, instance: FeatureFlag, created, **kwargs):
-    _safe_vercel_sync(
-        "sync feature flag to Vercel",
-        instance.pk,
-        instance.team,
-        lambda: VercelIntegration.sync_feature_flag_to_vercel(instance, created),
-    )
+    if instance.deleted:
+        # If feature flag is marked as deleted, send deletion request to Vercel
+        _safe_vercel_sync(
+            "delete feature flag from Vercel",
+            instance.pk,
+            instance.team,
+            lambda: VercelIntegration.delete_feature_flag_from_vercel(instance),
+        )
+    else:
+        # Otherwise, sync normally
+        _safe_vercel_sync(
+            "sync feature flag to Vercel",
+            instance.pk,
+            instance.team,
+            lambda: VercelIntegration.sync_feature_flag_to_vercel(instance, created),
+        )
 
 
 @receiver(post_delete, sender=FeatureFlag)
@@ -718,12 +728,20 @@ def delete_resource_experimentation_item(sender, instance: FeatureFlag, **kwargs
 
 @receiver(post_save, sender=Experiment)
 def sync_experiment_experimentation_item(sender, instance: Experiment, created, **kwargs):
-    _safe_vercel_sync(
-        "sync experiment to Vercel",
-        instance.pk,
-        instance.team,
-        lambda: VercelIntegration.sync_experiment_to_vercel(instance, created),
-    )
+    if instance.deleted:
+        _safe_vercel_sync(
+            "delete experiment from Vercel",
+            instance.pk,
+            instance.team,
+            lambda: VercelIntegration.delete_experiment_from_vercel(instance),
+        )
+    else:
+        _safe_vercel_sync(
+            "sync experiment to Vercel",
+            instance.pk,
+            instance.team,
+            lambda: VercelIntegration.sync_experiment_to_vercel(instance, created),
+        )
 
 
 @receiver(post_delete, sender=Experiment)

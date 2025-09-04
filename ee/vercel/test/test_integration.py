@@ -521,3 +521,82 @@ class TestVercelIntegration(TestCase):
             item_type="feature_flag",
             item_id=f"flag_{feature_flag.pk}",
         )
+
+    @patch("ee.vercel.integration.VercelIntegration.delete_feature_flag_from_vercel")
+    def test_feature_flag_post_save_signal_deletes_when_marked_deleted(self, mock_delete):
+        team, _ = self.make_team_with_vercel(self.organization, self.user)
+
+        feature_flag = FeatureFlag.objects.create(
+            team=team,
+            key="test_flag",
+            name="Test Flag",
+            deleted=False,
+        )
+        mock_delete.reset_mock()
+
+        feature_flag.deleted = True
+        feature_flag.save()
+
+        mock_delete.assert_called_once_with(feature_flag)
+
+    @patch("ee.vercel.integration.VercelIntegration.sync_feature_flag_to_vercel")
+    def test_feature_flag_post_save_signal_syncs_when_not_deleted(self, mock_sync):
+        """Test that post_save signal triggers sync when feature flag is not deleted"""
+        team, _ = self.make_team_with_vercel(self.organization, self.user)
+
+        feature_flag = FeatureFlag.objects.create(
+            team=team,
+            key="test_flag",
+            name="Test Flag",
+            deleted=False,
+        )
+
+        mock_sync.assert_called_with(feature_flag, True)
+        mock_sync.reset_mock()
+
+        feature_flag.name = "Updated Test Flag"
+        feature_flag.save()
+
+        mock_sync.assert_called_once_with(feature_flag, False)
+
+    @patch("ee.vercel.integration.VercelIntegration.delete_experiment_from_vercel")
+    def test_experiment_post_save_signal_deletes_when_marked_deleted(self, mock_delete):
+        """Test that post_save signal triggers deletion when experiment is marked as deleted=True"""
+        team, _ = self.make_team_with_vercel(self.organization, self.user)
+
+        feature_flag = FeatureFlag.objects.create(team=team, key="exp-flag")
+
+        experiment = Experiment.objects.create(
+            team=team,
+            name="test_experiment",
+            feature_flag=feature_flag,
+            deleted=False,
+        )
+        mock_delete.reset_mock()
+
+        experiment.deleted = True
+        experiment.save()
+
+        mock_delete.assert_called_once_with(experiment)
+
+    @patch("ee.vercel.integration.VercelIntegration.sync_experiment_to_vercel")
+    def test_experiment_post_save_signal_syncs_when_not_deleted(self, mock_sync):
+        """Test that post_save signal triggers sync when experiment is not deleted"""
+        team, _ = self.make_team_with_vercel(self.organization, self.user)
+
+        feature_flag = FeatureFlag.objects.create(team=team, key="exp-flag")
+
+        experiment = Experiment.objects.create(
+            team=team,
+            name="test_experiment",
+            feature_flag=feature_flag,
+            deleted=False,
+        )
+
+        mock_sync.assert_called_with(experiment, True)
+        mock_sync.reset_mock()
+
+        experiment.name = "Updated Test Experiment"
+        experiment.save()
+
+        mock_sync.assert_called_once_with(experiment, False)

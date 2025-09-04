@@ -55,7 +55,7 @@ class VercelAPIClient:
         self.session.headers.update({"Content-Type": "application/json", "Authorization": f"Bearer {bearer_token}"})
 
     @staticmethod
-    def _should_retry_request(exc: Exception) -> bool:
+    def _should_retry_request(exc: BaseException) -> bool:
         is_transient_error = isinstance(exc, (Timeout | requests.ConnectionError))
 
         if isinstance(exc, HTTPError):
@@ -199,7 +199,7 @@ class VercelAPIClient:
         state: str | None = None,
         redirect_uri: str | None = None,
         grant_type: str = "authorization_code",
-    ) -> SSOTokenResponse:
+    ) -> SSOTokenResponse | None:
         data = {"code": code, "client_id": client_id, "client_secret": client_secret, "grant_type": grant_type}
         if state:
             data["state"] = state
@@ -216,5 +216,5 @@ class VercelAPIClient:
             json_data = self._parse_json_response(response)
 
             return self._validate_sso_response(json_data)
-        except APIError as e:
-            return SSOTokenResponse(access_token="", token_type="", error=e.message, error_description=e.detail)
+        except APIError:
+            return None
