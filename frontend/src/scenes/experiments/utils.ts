@@ -771,3 +771,34 @@ export function insertMetricIntoOrderingArray(
     newArray.splice(afterIndex + 1, 0, newUuid)
     return newArray
 }
+
+/**
+ * Initialize ordering arrays for metrics if they're null
+ */
+export function initializeMetricOrdering(experiment: Experiment): void {
+    // Initialize primary_metrics_ordered_uuids if it's null
+    if (experiment.primary_metrics_ordered_uuids === null) {
+        const primaryMetrics = experiment.metrics || []
+        const sharedPrimaryMetrics = (experiment.saved_metrics || []).filter(
+            (sharedMetric: any) => sharedMetric.metadata.type === 'primary'
+        )
+
+        const allMetrics = [...primaryMetrics, ...sharedPrimaryMetrics]
+        experiment.primary_metrics_ordered_uuids = allMetrics
+            .map((metric: any) => metric.uuid || metric.query?.uuid)
+            .filter(Boolean)
+    }
+
+    // Initialize secondary_metrics_ordered_uuids if it's null
+    if (experiment.secondary_metrics_ordered_uuids === null) {
+        const secondaryMetrics = experiment.metrics_secondary || []
+        const sharedSecondaryMetrics = (experiment.saved_metrics || []).filter(
+            (sharedMetric: any) => sharedMetric.metadata.type === 'secondary'
+        )
+
+        const allMetrics = [...secondaryMetrics, ...sharedSecondaryMetrics]
+        experiment.secondary_metrics_ordered_uuids = allMetrics
+            .map((metric: any) => metric.uuid || metric.query?.uuid)
+            .filter(Boolean)
+    }
+}
