@@ -1,22 +1,17 @@
 from datetime import datetime
 from functools import cached_property
 
-from typing import Any
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import apply_path_cleaning, property_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.paths_v2.utils import interval_unit_to_sql
 from posthog.hogql_queries.insights.utils.entities import entity_to_expr
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.team.team import Team
 from posthog.schema import (
     CachedPathsV2QueryResponse,
     ConversionWindowIntervalUnit,
-    HogQLQueryModifiers,
     PathsV2Filter,
     PathsV2Item,
     PathsV2Query,
@@ -31,42 +26,49 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
     query: PathsV2Query
     cached_response: CachedPathsV2QueryResponse
 
-    def __init__(
-        self,
-        query: PathsV2Query | dict[str, Any],
-        team: Team,
-        timings: HogQLTimings | None = None,
-        modifiers: HogQLQueryModifiers | None = None,
-        limit_context: LimitContext | None = None,
-    ):
-        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
-
+    @property
+    def pathsV2Filter(self) -> PathsV2Filter:
         if not self.query.pathsV2Filter:
-            self.query.pathsV2Filter = PathsV2Filter()
+            return PathsV2Filter()
+        return self.query.pathsV2Filter
 
-        self.max_steps: int = (
-            self.query.pathsV2Filter.maxSteps
-            if self.query.pathsV2Filter.maxSteps is not None
+    @property
+    def max_steps(self) -> int:
+        return (
+            self.pathsV2Filter.maxSteps
+            if self.pathsV2Filter.maxSteps is not None
             else PathsV2Filter.model_fields["maxSteps"].default
         )
-        self.max_rows_per_step: int = (
-            self.query.pathsV2Filter.maxRowsPerStep
-            if self.query.pathsV2Filter.maxRowsPerStep is not None
+
+    @property
+    def max_rows_per_step(self) -> int:
+        return (
+            self.pathsV2Filter.maxRowsPerStep
+            if self.pathsV2Filter.maxRowsPerStep is not None
             else PathsV2Filter.model_fields["maxRowsPerStep"].default
         )
-        self.interval: int = (
-            self.query.pathsV2Filter.windowInterval
-            if self.query.pathsV2Filter.windowInterval is not None
+
+    @property
+    def interval(self) -> int:
+        return (
+            self.pathsV2Filter.windowInterval
+            if self.pathsV2Filter.windowInterval is not None
             else PathsV2Filter.model_fields["windowInterval"].default
         )
-        self.interval_unit: ConversionWindowIntervalUnit = (
-            self.query.pathsV2Filter.windowIntervalUnit
-            if self.query.pathsV2Filter.windowIntervalUnit is not None
+
+    @property
+    def interval_unit(self) -> ConversionWindowIntervalUnit:
+        return (
+            self.pathsV2Filter.windowIntervalUnit
+            if self.pathsV2Filter.windowIntervalUnit is not None
             else PathsV2Filter.model_fields["windowIntervalUnit"].default
         )
-        self.collapse_events: bool = (
-            self.query.pathsV2Filter.collapseEvents
-            if self.query.pathsV2Filter.collapseEvents is not None
+
+    @property
+    def collapse_events(self) -> bool:
+        return (
+            self.pathsV2Filter.collapseEvents
+            if self.pathsV2Filter.collapseEvents is not None
             else PathsV2Filter.model_fields["collapseEvents"].default
         )
 
