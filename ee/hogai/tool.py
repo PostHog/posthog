@@ -96,7 +96,7 @@ class session_summarization(BaseModel):
         - This won't be used for any search of filtering, only to properly label the generated summary.
         - Examples:
           * If `should_use_current_filters` is `false`, then the `summary_name` should be generated based on the `session_summarization_query`:
-            - query: "I want to watch all the sessions of user `user@example.com` in the last 30 days no matter how long" -> name: "Sessions of the user example@gmail.com (last 30 days)"
+            - query: "I want to watch all the sessions of user `user@example.com` in the last 30 days no matter how long" -> name: "Sessions of the user user@example.com (last 30 days)"
             - query: "summarize my last 100 session recordings" -> name: "Last 100 sessions"
             - and similar
           * If `should_use_current_filters` is `false`, then the `summary_name` should be generated based on the current filters in the context (if present):
