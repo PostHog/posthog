@@ -872,6 +872,43 @@ export function ProjectTree({
             sortDropdown={
                 showSortDropdown ? <TreeSortDropdownMenu sortMethod={sortMethod} setSortMethod={setSortMethod} /> : null
             }
+            panelActionsNewSceneLayout={[
+                {
+                    ...(root === 'project://' &&
+                        sortMethod !== 'recent' && {
+                            tooltip: 'New root folder',
+                            'data-attr': 'tree-panel-new-root-folder-button',
+                            onClick: () => createFolder(''),
+                            children: (
+                                <>
+                                    <IconFolderPlus className="text-tertiary size-3" />
+                                    New root folder
+                                </>
+                            ),
+                        }),
+                },
+                {
+                    ...(root === 'project://' &&
+                        sortMethod !== 'recent' && {
+                            tooltip: selectMode === 'default' ? 'Enable multi-select' : 'Disable multi-select',
+                            'data-attr': 'tree-panel-enable-multi-select-button',
+                            onClick: () => setSelectMode(selectMode === 'default' ? 'multi' : 'default'),
+                            active: selectMode === 'multi',
+                            'aria-pressed': selectMode === 'multi',
+                            children: (
+                                <>
+                                    <IconCheckbox
+                                        className={cn('size-3', {
+                                            'text-tertiary': selectMode === 'default',
+                                            'text-primary': selectMode === 'multi',
+                                        })}
+                                    />
+                                    {selectMode === 'default' ? 'Enable multi-select' : 'Disable multi-select'}
+                                </>
+                            ),
+                        }),
+                },
+            ]}
             panelActions={
                 root === 'project://' ? (
                     <>
