@@ -32,7 +32,7 @@ export function ReleasePreview(): JSX.Element {
                     onMouseLeave={() => setIsOpen(false)}
                 >
                     <IconCommit className="text-sm text-secondary" />
-                    <span>{releasePreviewData.mostProbableRelease.commitSha.slice(0, 7)}</span>
+                    <span>{releasePreviewData.mostProbableRelease?.commitSha.slice(0, 7)}</span>
                 </LemonTag>
             </span>
         </Popover>
