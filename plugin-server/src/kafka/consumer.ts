@@ -30,6 +30,7 @@ import { getKafkaConfigFromEnv } from './config'
 
 const DEFAULT_BATCH_TIMEOUT_MS = 500
 const SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS = 10000
+const MAX_HEALTH_HEARTBEAT_INTERVAL_MS = 60_000
 const STATISTICS_INTERVAL_MS = 5000 // Emit internal metrics every 5 seconds
 
 const consumedBatchDuration = new Histogram({
@@ -135,18 +136,17 @@ interface RebalanceCoordination {
 
 export class KafkaConsumer {
     private isStopping = false
+    private lastHeartbeatTime = 0
     private rdKafkaConsumer: RdKafkaConsumer
     private consumerConfig: ConsumerGlobalConfig
     private fetchBatchSize: number
+    private maxHealthHeartbeatIntervalMs: number
     private maxBackgroundTasks: number
-    private consumerLoopStallThresholdMs: number
     private consumerLoop: Promise<void> | undefined
     private backgroundTask: Promise<void>[]
     private podName: string
-    // Legacy health monitoring (for backward compatibility)
-    private lastHeartbeatTime = 0
-    private maxHealthHeartbeatIntervalMs: number
-    // Enhanced health monitoring state
+    // New health monitoring state
+    private consumerLoopStallThresholdMs: number
     private lastConsumerLoopTime = 0
     private consumerState: string | undefined
     private lastStatsEmitTime = 0
@@ -169,8 +169,9 @@ export class KafkaConsumer {
         this.config.waitForBackgroundTasksOnRebalance = defaultConfig.CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE
         this.maxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
         this.fetchBatchSize = defaultConfig.CONSUMER_BATCH_SIZE
+        this.maxHealthHeartbeatIntervalMs =
+            defaultConfig.CONSUMER_MAX_HEARTBEAT_INTERVAL_MS || MAX_HEALTH_HEARTBEAT_INTERVAL_MS
         this.consumerLoopStallThresholdMs = defaultConfig.CONSUMER_LOOP_STALL_THRESHOLD_MS
-        this.maxHealthHeartbeatIntervalMs = defaultConfig.CONSUMER_MAX_HEARTBEAT_INTERVAL_MS
 
         const rebalancecb: RebalanceCallback = this.config.waitForBackgroundTasksOnRebalance
             ? this.rebalanceCallback.bind(this)
@@ -226,45 +227,24 @@ export class KafkaConsumer {
     }
 
     public isHealthy(): HealthCheckResult {
-        const details: Record<string, any> = {
-            topic: this.config.topic,
-            groupId: this.config.groupId,
-            healthCheckMode: defaultConfig.KAFKA_CONSUMER_LOOP_BASED_HEALTH_CHECK ? 'loop-based' : 'heartbeat-based',
-        }
-
         // Use legacy heartbeat-based health check if feature flag is disabled
         if (!defaultConfig.KAFKA_CONSUMER_LOOP_BASED_HEALTH_CHECK) {
-            const isConnected = this.rdKafkaConsumer.isConnected()
+            // this is called as a readiness and a liveness probe
             const isWithinInterval = Date.now() - this.lastHeartbeatTime < this.maxHealthHeartbeatIntervalMs
-
-            details.lastHeartbeatTime = this.lastHeartbeatTime
-            details.timeSinceLastHeartbeat = Date.now() - this.lastHeartbeatTime
-            details.maxHeartbeatInterval = this.maxHealthHeartbeatIntervalMs
-
-            if (!isConnected) {
-                return {
-                    healthy: false,
-                    message: 'Consumer not connected to Kafka broker',
-                    details,
-                }
-            }
-
-            if (!isWithinInterval) {
-                return {
-                    healthy: false,
-                    message: `Heartbeat timeout exceeded (${Math.round((Date.now() - this.lastHeartbeatTime) / 1000)}s since last heartbeat)`,
-                    details,
-                }
-            }
-
+            const isConnected = this.rdKafkaConsumer.isConnected()
             return {
-                healthy: true,
-                message: 'Healthy (heartbeat-based check)',
-                details,
+                healthy: isConnected && isWithinInterval,
+                message: isConnected && isWithinInterval ? 'Healthy' : 'Unhealthy',
             }
         }
 
         // New loop-based health check implementation
+        const details: Record<string, any> = {
+            topic: this.config.topic,
+            groupId: this.config.groupId,
+            healthCheckMode: 'loop-based',
+        }
+
         // 1. Basic connectivity check
         if (!this.rdKafkaConsumer.isConnected()) {
             return {

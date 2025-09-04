@@ -591,6 +591,17 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 })
             })
         })
+
+        describe('heartbeats', () => {
+            it('it should send them whilst processing', async () => {
+                // non-zero offset because the code can't commit offset 0
+                const partitionMsgs1 = [createMessage('session_id_1', 1), createMessage('session_id_2', 1)]
+                await ingester.handleEachBatch(partitionMsgs1)
+
+                // NOTE: the number here can change as we change the code. Important is that it is called a number of times
+                expect(mockConsumer.heartbeat).toHaveBeenCalledTimes(6)
+            })
+        })
     })
 
     describe('when ingester.stop is called in teardown', () => {
