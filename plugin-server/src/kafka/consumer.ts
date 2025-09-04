@@ -143,7 +143,10 @@ export class KafkaConsumer {
     private consumerLoop: Promise<void> | undefined
     private backgroundTask: Promise<void>[]
     private podName: string
-    // Health monitoring state
+    // Legacy health monitoring (for backward compatibility)
+    private lastHeartbeatTime = 0
+    private maxHealthHeartbeatIntervalMs: number
+    // Enhanced health monitoring state
     private lastConsumerLoopTime = 0
     private consumerState: string | undefined
     private lastStatsEmitTime = 0
@@ -167,6 +170,7 @@ export class KafkaConsumer {
         this.maxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
         this.fetchBatchSize = defaultConfig.CONSUMER_BATCH_SIZE
         this.consumerLoopStallThresholdMs = defaultConfig.CONSUMER_LOOP_STALL_THRESHOLD_MS
+        this.maxHealthHeartbeatIntervalMs = defaultConfig.CONSUMER_MAX_HEARTBEAT_INTERVAL_MS
 
         const rebalancecb: RebalanceCallback = this.config.waitForBackgroundTasksOnRebalance
             ? this.rebalanceCallback.bind(this)
@@ -189,7 +193,10 @@ export class KafkaConsumer {
             'client.rack': defaultConfig.KAFKA_CLIENT_RACK, // Helps with cross-AZ traffic awareness and is not unique to the consumer
             'metadata.max.age.ms': 30000, // Refresh metadata every 30s - Relevant for leader loss (MSK Security Patches)
             'socket.timeout.ms': 30000,
-            'statistics.interval.ms': STATISTICS_INTERVAL_MS, // Enable internal metrics emission
+            // Only enable statistics when using loop-based health check
+            ...(defaultConfig.KAFKA_CONSUMER_LOOP_BASED_HEALTH_CHECK
+                ? { 'statistics.interval.ms': STATISTICS_INTERVAL_MS }
+                : {}),
             // Custom settings and overrides - this is where most configuration overrides should be done
             ...getKafkaConfigFromEnv('CONSUMER'),
             // Finally any specifically given consumer config overrides
@@ -212,13 +219,52 @@ export class KafkaConsumer {
         }
     }
 
+    public heartbeat(): void {
+        // Can be called externally to update the heartbeat time and keep the consumer alive
+        // This is maintained for backward compatibility with the legacy health check mechanism
+        this.lastHeartbeatTime = Date.now()
+    }
+
     public isHealthy(): HealthCheckResult {
-        // Multi-dimensional health check
         const details: Record<string, any> = {
             topic: this.config.topic,
             groupId: this.config.groupId,
+            healthCheckMode: defaultConfig.KAFKA_CONSUMER_LOOP_BASED_HEALTH_CHECK ? 'loop-based' : 'heartbeat-based',
         }
 
+        // Use legacy heartbeat-based health check if feature flag is disabled
+        if (!defaultConfig.KAFKA_CONSUMER_LOOP_BASED_HEALTH_CHECK) {
+            const isConnected = this.rdKafkaConsumer.isConnected()
+            const isWithinInterval = Date.now() - this.lastHeartbeatTime < this.maxHealthHeartbeatIntervalMs
+
+            details.lastHeartbeatTime = this.lastHeartbeatTime
+            details.timeSinceLastHeartbeat = Date.now() - this.lastHeartbeatTime
+            details.maxHeartbeatInterval = this.maxHealthHeartbeatIntervalMs
+
+            if (!isConnected) {
+                return {
+                    healthy: false,
+                    message: 'Consumer not connected to Kafka broker',
+                    details,
+                }
+            }
+
+            if (!isWithinInterval) {
+                return {
+                    healthy: false,
+                    message: `Heartbeat timeout exceeded (${Math.round((Date.now() - this.lastHeartbeatTime) / 1000)}s since last heartbeat)`,
+                    details,
+                }
+            }
+
+            return {
+                healthy: true,
+                message: 'Healthy (heartbeat-based check)',
+                details,
+            }
+        }
+
+        // New loop-based health check implementation
         // 1. Basic connectivity check
         if (!this.rdKafkaConsumer.isConnected()) {
             return {
@@ -546,6 +592,7 @@ export class KafkaConsumer {
 
         // Initialize health monitoring state
         this.lastConsumerLoopTime = Date.now()
+        this.lastHeartbeatTime = Date.now() // Also initialize heartbeat for backward compatibility
 
         if (defaultConfig.CONSUMER_AUTO_CREATE_TOPICS) {
             // For hobby deploys we want to auto-create, but on cloud we don't
@@ -597,6 +644,9 @@ export class KafkaConsumer {
                     const messages = await retryIfRetriable(() =>
                         promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(this.fetchBatchSize, cb))
                     )
+
+                    // After successfully pulling a batch, update heartbeat for backward compatibility
+                    this.heartbeat()
 
                     gaugeBatchUtilization.labels({ groupId }).set(messages.length / this.fetchBatchSize)
 
