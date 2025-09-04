@@ -76,8 +76,3 @@ export function processMetrics(
         })
         .filter((state): state is MetricState => state !== null)
 }
-
-// Helper to get a specific metric by UUID
-export function getMetricByUuid(metrics: MetricState[], uuid: string): MetricState | null {
-    return metrics.find((m) => m.uuid === uuid) || null
-}
