@@ -21,8 +21,8 @@ use crate::{
     flags::flag_models::FeatureFlagId,
     metrics::consts::{
         FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME, FLAG_DB_CONNECTION_TIME,
-        FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME, FLAG_PERSON_PROCESSING_TIME,
-        FLAG_PERSON_QUERY_TIME,
+        FLAG_DEFINITION_QUERY_TIME, FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME,
+        FLAG_PERSON_PROCESSING_TIME, FLAG_PERSON_QUERY_TIME,
     },
     properties::{
         property_matching::match_property,
@@ -602,7 +602,7 @@ pub async fn set_feature_flag_hash_key_overrides(
                 ),
             ];
             let flags_query_timer =
-                common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &flags_labels);
+                common_metrics::timing_guard(FLAG_DEFINITION_QUERY_TIME, &flags_labels);
             let flag_rows = sqlx::query(flags_query)
                 .bind(project_id)
                 .fetch_all(&mut *transaction)
@@ -789,7 +789,7 @@ pub async fn should_write_hash_key_override(
                 ("operation".to_string(), "should_write_check".to_string()),
             ];
             let flags_query_timer =
-                common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &flags_labels);
+                common_metrics::timing_guard(FLAG_DEFINITION_QUERY_TIME, &flags_labels);
             let flag_rows = sqlx::query(flags_query)
                 .bind(project_id)
                 .fetch_all(&mut *conn)
