@@ -51,7 +51,7 @@ class LLMProxyCompletionSerializer(serializers.Serializer):
     thinking = serializers.BooleanField(default=False, required=False)
     temperature = serializers.FloatField(required=False)
     max_tokens = serializers.IntegerField(required=False)
-    tools = serializers.ListField(child=serializers.DictField(), required=False)
+    tools = serializers.JSONField(required=False)
     reasoning_level = serializers.ChoiceField(
         choices=["minimal", "low", "medium", "high"], required=False, allow_null=True
     )
@@ -160,6 +160,10 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 messages = serializer.validated_data.get("messages")
                 if not self.validate_messages(messages):
                     return Response({"error": "Invalid messages"}, status=400)
+                # Convert tools dict to array of entries, otherwise use as-is
+                tools_data = serializer.validated_data.get("tools")
+                processed_tools = list(tools_data.values()) if isinstance(tools_data, dict) else tools_data
+
                 # Build kwargs common to all providers
                 stream_kwargs: dict[str, Any] = {
                     "system": serializer.validated_data.get("system"),
@@ -167,7 +171,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     "thinking": serializer.validated_data.get("thinking", False),
                     "temperature": serializer.validated_data.get("temperature"),
                     "max_tokens": serializer.validated_data.get("max_tokens"),
-                    "tools": serializer.validated_data.get("tools"),
+                    "tools": processed_tools,
                     "distinct_id": distinct_id,
                     "trace_id": trace_id,
                     "properties": properties,
