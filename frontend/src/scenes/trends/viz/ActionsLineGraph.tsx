@@ -36,6 +36,7 @@ export function ActionsLineGraph({
         showPercentStackView,
         supportsPercentStackView,
         trendsFilter,
+        lifecycleFilter,
         isLifecycle,
         isStickiness,
         hasDataWarehouseSeries,
@@ -171,6 +172,7 @@ export function ActionsLineGraph({
             showPercentView={isStickiness}
             showPercentStackView={showPercentStackView}
             supportsPercentStackView={supportsPercentStackView}
+            isStacked={isLifecycle ? (lifecycleFilter?.stacked ?? true) : !!showPercentStackView}
             yAxisScaleType={yAxisScaleType}
             showMultipleYAxes={showMultipleYAxes}
             showTrendLines={showTrendLines}

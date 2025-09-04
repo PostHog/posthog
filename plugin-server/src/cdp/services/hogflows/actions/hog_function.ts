@@ -16,7 +16,7 @@ import { RecipientPreferencesService } from '../../messaging/recipient-preferenc
 import { findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerResult } from './action.interface'
 
-type FunctionActionType = 'function' | 'function_email' | 'function_sms' | 'function_slack' | 'function_webhook'
+type FunctionActionType = 'function' | 'function_email' | 'function_sms'
 
 type Action = Extract<HogFlowAction, { type: FunctionActionType }>
 
