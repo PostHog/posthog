@@ -285,13 +285,18 @@ class VercelAuthentication(authentication.BaseAuthentication):
 
         try:
             payload = self._validate_jwt_token(token, auth_type)
-            logger.info("Vercel auth successful", auth_type=auth_type, account_id=payload.get("account_id"))
+            logger.info(
+                "Vercel auth successful",
+                auth_type=auth_type,
+                account_id=payload.get("account_id"),
+                integration="vercel",
+            )
             return VercelUser(claims=payload), None
         except jwt.InvalidTokenError as e:
-            logger.warning("Vercel auth failed", auth_type=auth_type, error=str(e))
+            logger.warning("Vercel auth failed", auth_type=auth_type, error=str(e), integration="vercel")
             raise AuthenticationFailed(f"Invalid {auth_type} authentication token")
         except Exception as e:
-            logger.exception("Vercel auth error", auth_type=auth_type, error=str(e))
+            logger.exception("Vercel auth error", auth_type=auth_type, error=str(e), integration="vercel")
             raise AuthenticationFailed(f"{auth_type.title()} authentication failed")
 
     def _get_bearer_token(self, request: Request) -> str | None:
