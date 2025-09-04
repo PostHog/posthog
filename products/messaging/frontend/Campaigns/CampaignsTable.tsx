@@ -49,10 +49,9 @@ function CampaignActionsSummary({ campaign }: { campaign: HogFlow }): JSX.Elemen
                 {Object.entries(actionsByType).map(([type, { count, icon, color }]) => (
                     <div
                         key={type}
-                        className="border rounded px-1 flex items-center justify-center gap-1"
+                        className="rounded px-1 flex items-center justify-center gap-1"
                         style={{
                             backgroundColor: `${color}20`,
-                            borderColor: color,
                             color,
                         }}
                     >
