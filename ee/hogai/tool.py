@@ -100,9 +100,9 @@ class create_dashboard(BaseModel):
     Do not call the search_insights tool if this tool is used.
     """
 
-    search_insights_query: str = Field(
-        description="The user's query to search for insights. "
-        "Include all relevant context from earlier messages too, as the tool won't see that conversation history."
+    search_insights_queries: list[str] = Field(
+        description="The user's queries to search for insights. "
+        "Include all relevant context from earlier messages too, as the tool won't see that conversation history. If the user asks to search for multiple insights, pass a list of queries."
     )
     create_dashboard_query: str = Field(
         description=(

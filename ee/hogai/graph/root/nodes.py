@@ -687,7 +687,7 @@ class RootNodeTools(AssistantNode):
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
                 create_dashboard_query=tool_call.args["create_dashboard_query"],
-                search_insights_query=tool_call.args["search_insights_query"],
+                search_insights_queries=tool_call.args["search_insights_queries"],
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif ToolClass := get_contextual_tool_class(tool_call.name):
@@ -752,8 +752,10 @@ class RootNodeTools(AssistantNode):
     def router(self, state: AssistantState) -> RouteName:
         last_message = state.messages[-1]
 
-        if isinstance(last_message, AssistantToolCallMessage):
+        if isinstance(last_message, AssistantToolCallMessage) and not last_message.visible:
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
+        elif isinstance(last_message, AssistantToolCallMessage) and last_message.visible:
+            return "end"
         if isinstance(last_message, AssistantMessage) and state.root_tool_call_id:
             tool_calls = getattr(last_message, "tool_calls", None)
             if tool_calls and len(tool_calls) > 0:

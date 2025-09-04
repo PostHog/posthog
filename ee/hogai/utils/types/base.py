@@ -211,6 +211,10 @@ class _SharedAssistantState(BaseState):
     The user's query for creating a dashboard with insights.
     """
     insight_ids: Optional[list[int]] = Field(default=None)
+    """
+    The user's queries to search for insights.
+    """
+    search_insights_queries: Optional[list[str]] = Field(default=None)
 
 
 class AssistantState(_SharedAssistantState):
