@@ -36,7 +36,7 @@ export function TestAccountFilter({
             bordered
             label={
                 <div className="flex items-center whitespace-nowrap">
-                    <span>Filter out internal and test users</span>
+                    <span className="whitespace-nowrap">Filter out internal and test users</span>
                     <LemonButton
                         icon={<IconGear />}
                         to={urls.settings('project-product-analytics', 'internal-user-filtering')}

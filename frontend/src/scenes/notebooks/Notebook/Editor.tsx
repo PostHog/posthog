@@ -143,7 +143,7 @@ export function Editor(): JSX.Element {
         <RichContentEditor
             logicKey={`Notebook.${shortId}`}
             extensions={extensions}
-            className="NotebookEditor flex flex-col flex-1"
+            className="NotebookEditor flex flex-col flex-1 overflow-hidden"
             onUpdate={onEditorUpdate}
             onSelectionUpdate={onEditorSelectionUpdate}
             onCreate={(editor) => {

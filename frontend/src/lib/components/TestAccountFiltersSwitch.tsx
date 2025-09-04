@@ -26,7 +26,7 @@ export function TestAccountFilterSwitch({ checked, onChange, ...props }: TestAcc
             onChange={onChange}
             label={
                 <div className="flex items-center">
-                    <span>Filter out internal and test users</span>
+                    <span className="whitespace-nowrap">Filter out internal and test users</span>
                     <LemonButton
                         icon={<IconGear />}
                         size="small"
