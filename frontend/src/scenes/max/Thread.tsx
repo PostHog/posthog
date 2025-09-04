@@ -641,7 +641,7 @@ const Visualization = React.memo(function Visualization({
                     {!isHogQLQuery(query.source) && (
                         <div className="flex flex-wrap gap-4 mt-1 *:grow">
                             <PropertiesSummary properties={query.source.properties} />
-                            <BreakdownSummary query={query.source} />
+                            <InsightBreakdownSummary query={query.source} />
                         </div>
                     )}
                 </>
