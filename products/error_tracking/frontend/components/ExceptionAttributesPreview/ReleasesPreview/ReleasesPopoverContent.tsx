@@ -35,6 +35,23 @@ function ReleasesList({ releases }: { releases: ExceptionRelease[] }): JSX.Eleme
     )
 }
 
+function SimplePropertyRow({ label, value }: { label: string; value?: string }): JSX.Element {
+    if (!value) {
+        return <></>
+    }
+
+    return (
+        <div className="flex items-center gap-2">
+            <div className="w-20 text-xs text-muted">{label}</div>
+            <div className="flex-1 min-w-0">
+                <span className="text-xs block truncate max-w-full" title={value}>
+                    {value}
+                </span>
+            </div>
+        </div>
+    )
+}
+
 function ReleaseListItem({ release }: { release: ExceptionRelease }): JSX.Element {
     return (
         <div className="space-y-2">
@@ -71,6 +88,8 @@ function ReleaseListItem({ release }: { release: ExceptionRelease }): JSX.Elemen
                     </div>
                 </div>
             )}
+            <SimplePropertyRow label="Repository" value={release.repositoryName} />
+            <SimplePropertyRow label="Branch" value={release.branch} />
         </div>
     )
 }
