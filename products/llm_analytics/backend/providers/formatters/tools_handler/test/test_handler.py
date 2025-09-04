@@ -37,6 +37,7 @@ class TestLLMToolsHandler:
             "tool2": {"name": "test2", "input_schema": {"type": "object"}},
         }
         handler = LLMToolsHandler(tools_dict)
+        assert handler.tools is not None
         assert len(handler.tools) == 2
         assert handler.tools[0].name == "test1"
         assert handler.tools[1].name == "test2"
@@ -87,6 +88,7 @@ class TestLLMToolsHandler:
         handler = LLMToolsHandler(anthropic_tools)
         result = handler.convert_to(ToolFormat.OPENAI)
 
+        assert result is not None
         assert len(result) == 2
         assert result[0]["function"]["name"] == "get_weather"
         assert result[1]["function"]["name"] == "send_email"
@@ -97,6 +99,7 @@ class TestLLMToolsHandler:
         handler = LLMToolsHandler(anthropic_tools)
         result = handler.convert_to(ToolFormat.OPENAI)
 
+        assert result is not None
         assert result[0]["function"]["description"] == ""
 
     def test_tools_with_missing_parameters_handled_gracefully(self):
@@ -105,11 +108,13 @@ class TestLLMToolsHandler:
         handler = LLMToolsHandler(gemini_tools)
         result = handler.convert_to(ToolFormat.OPENAI)
 
+        assert result is not None
         assert result[0]["function"]["parameters"] == {"type": "object", "properties": {}}
 
     def test_tools_property_exposed(self):
         tools_data = [{"name": "test", "input_schema": {"type": "object"}}]
         handler = LLMToolsHandler(tools_data)
+        assert handler.tools is not None
         assert len(handler.tools) == 1
         assert handler.tools[0].name == "test"
 

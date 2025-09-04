@@ -275,6 +275,7 @@ class TestFormatConversions:
         result = handler.convert_to(ToolFormat.GEMINI)
 
         # Check that forbidden fields are removed
+        assert result is not None
         parameters = result[0]["functionDeclarations"][0]["parameters"]
         assert "$schema" not in parameters
         assert "additionalProperties" not in parameters
