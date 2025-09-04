@@ -6,7 +6,7 @@ from urllib.parse import urlencode
 import requests
 import structlog
 from requests import HTTPError, RequestException, Timeout
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 logger = structlog.get_logger(__name__)
 
@@ -49,7 +49,34 @@ class VercelAPIClient:
             return exc.response.status_code
         return None
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    @staticmethod
+    def _is_transient_error(exc: BaseException) -> bool:
+        """
+        Transient errors include:
+        - Network timeouts and connection errors
+        - Server errors (5xx status codes)
+
+        Non-transient errors that shouldn't be retried:
+        - Client errors (4xx status codes) - these indicate issues with the request itself
+        - Other exceptions that aren't network-related
+        """
+        if isinstance(exc, (Timeout | RequestException)):
+            if not isinstance(exc, HTTPError):
+                return True
+
+        if isinstance(exc, HTTPError):
+            # Extract status code directly from response
+            if hasattr(exc, "response") and exc.response and hasattr(exc.response, "status_code"):
+                if exc.response.status_code >= 500:
+                    return True
+
+        return False
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception(lambda exc: VercelAPIClient._is_transient_error(exc)),
+    )
     def _request(
         self, method: str, url: str, operation_name: str, **kwargs
     ) -> tuple[requests.Response | None, dict[str, Any]]:

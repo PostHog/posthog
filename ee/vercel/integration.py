@@ -649,6 +649,16 @@ class VercelIntegration:
 
 
 def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_func: Callable[[], None]) -> None:
+    """
+    Safety wrapper for Vercel sync operations triggered by Django signals.
+
+    Django signals run synchronously within the same database transaction as the save/delete operation.
+    Without this wrapper, any network failure or API error from Vercel would cause the entire database operation to fail,
+    blocking users from saving or deleting their feature flags and experiments.
+
+    Operations are silently skipped if Vercel integration is not configured and
+    exceptions are caught and logged rather than bubbling up to the caller.
+    """
     if not VercelIntegration._get_vercel_resource_for_team(team):
         return
 
