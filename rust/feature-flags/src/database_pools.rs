@@ -14,9 +14,7 @@ pub struct DatabasePools {
 }
 
 impl DatabasePools {
-    /// Create database pools based on configuration
     pub async fn from_config(config: &Config) -> Result<Self, FlagError> {
-        // Create flag matching pools (default behavior)
         let non_persons_reader = Arc::new(
             get_pool(&config.read_database_url, config.max_pg_connections)
                 .await
