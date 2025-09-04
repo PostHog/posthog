@@ -43,10 +43,10 @@ importers:
     devDependencies:
       '@parcel/packager-ts':
         specifier: 2.13.3
-        version: 2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))
+        version: 2.13.3(@parcel/core@2.13.3)
       '@parcel/transformer-typescript-types':
         specifier: 2.13.3
-        version: 2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))(typescript@5.2.2)
+        version: 2.13.3(@parcel/core@2.13.3)(typescript@5.2.2)
       '@trivago/prettier-plugin-sort-imports':
         specifier: ^5.2.2
         version: 5.2.2(prettier@3.6.2)
@@ -537,6 +537,9 @@ importers:
       '@radix-ui/react-dropdown-menu':
         specifier: ^2.1.6
         version: 2.1.6(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@radix-ui/react-hover-card':
+        specifier: ^1.1.15
+        version: 1.1.15(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@radix-ui/react-popover':
         specifier: ^1.1.14
         version: 1.1.14(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -5761,6 +5764,9 @@ packages:
   '@radix-ui/primitive@1.1.2':
     resolution: {integrity: sha512-XnbHrrprsNqZKQhStrSwgRUQzoCI1glLzdw79xiZPoofhGICeZRSQ3dIxAKH1gb3OHfNf4d6f+vAv3kil2eggA==}
 
+  '@radix-ui/primitive@1.1.3':
+    resolution: {integrity: sha512-JTF99U/6XIjCBo0wqkU5sK10glYe27MRRsfwoiq5zzOEZLHU3A3KCMa5X/azekYRCJ0HlwI0crAXS/5dEHTzDg==}
+
   '@radix-ui/react-accordion@1.2.2':
     resolution: {integrity: sha512-b1oh54x4DMCdGsB4/7ahiSrViXxaBwRPotiZNnYXjLha9vfuURSAZErki6qjDoSIV0eXx5v57XnTGVtGwnfp2g==}
     peerDependencies:
@@ -5998,6 +6004,19 @@ packages:
       '@types/react-dom':
         optional: true
 
+  '@radix-ui/react-dismissable-layer@1.1.11':
+    resolution: {integrity: sha512-Nqcp+t5cTB8BinFkZgXiMJniQH0PsUt2k51FUhbdfeKvc4ACcG2uQniY/8+h1Yv6Kza4Q7lD7PQV0z0oicE0Mg==}
+    peerDependencies:
+      '@types/react': '*'
+      '@types/react-dom': '*'
+      react: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+      react-dom: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      '@types/react-dom':
+        optional: true
+
   '@radix-ui/react-dismissable-layer@1.1.5':
     resolution: {integrity: sha512-E4TywXY6UsXNRhFrECa5HAvE5/4BFcGyfTyK36gP+pAW1ed7UTK4vKwdr53gAJYwqbfCWC6ATvJa3J3R/9+Qrg==}
     peerDependencies:
@@ -6079,6 +6098,19 @@ packages:
 
   '@radix-ui/react-focus-scope@1.1.7':
     resolution: {integrity: sha512-t2ODlkXBQyn7jkl6TNaw/MtVEVvIGelJDCG41Okq/KwUsJBwQ4XVZsHAVUkK4mBv3ewiAS3PGuUWuY2BoK4ZUw==}
+    peerDependencies:
+      '@types/react': '*'
+      '@types/react-dom': '*'
+      react: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+      react-dom: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      '@types/react-dom':
+        optional: true
+
+  '@radix-ui/react-hover-card@1.1.15':
+    resolution: {integrity: sha512-qgTkjNT1CfKMoP0rcasmlH2r1DAiYicWsDsufxl940sT2wHNEWWv6FMWIQXWhVdmC1d/HYfbhQx60KYyAtKxjg==}
     peerDependencies:
       '@types/react': '*'
       '@types/react-dom': '*'
@@ -6182,6 +6214,19 @@ packages:
       '@types/react-dom':
         optional: true
 
+  '@radix-ui/react-popper@1.2.8':
+    resolution: {integrity: sha512-0NJQ4LFFUuWkE7Oxf0htBKS6zLkkjBH+hM1uk7Ng705ReR8m/uelduy1DBo0PyBXPKVnBA6YBlU94MBGXrSBCw==}
+    peerDependencies:
+      '@types/react': '*'
+      '@types/react-dom': '*'
+      react: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+      react-dom: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      '@types/react-dom':
+        optional: true
+
   '@radix-ui/react-portal@1.0.3':
     resolution: {integrity: sha512-xLYZeHrWoPmA5mEKEfZZevoVRK/Q43GfzRXkWV6qawIWWK8t6ifIiLQdd7rmQ4Vk1bmI21XhqF9BN3jWf+phpA==}
     peerDependencies:
@@ -6236,6 +6281,19 @@ packages:
 
   '@radix-ui/react-presence@1.1.4':
     resolution: {integrity: sha512-ueDqRbdc4/bkaQT3GIpLQssRlFgWaL/U2z/S31qRwwLWoxHLgry3SIfCwhxeQNbirEUXFa+lq3RL3oBYXtcmIA==}
+    peerDependencies:
+      '@types/react': '*'
+      '@types/react-dom': '*'
+      react: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+      react-dom: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      '@types/react-dom':
+        optional: true
+
+  '@radix-ui/react-presence@1.1.5':
+    resolution: {integrity: sha512-/jfEwNDdQVBCNvjkGit4h6pMOzq8bHkopq458dPt2lMjx+eBQUohZNG9A7DtO/O5ukSbxuaNGXMjHicgwy6rQQ==}
     peerDependencies:
       '@types/react': '*'
       '@types/react-dom': '*'
@@ -22539,6 +22597,14 @@ snapshots:
       '@parcel/utils': 2.13.3
       lmdb: 2.8.5
 
+  '@parcel/cache@2.13.3(@parcel/core@2.13.3)':
+    dependencies:
+      '@parcel/core': 2.13.3
+      '@parcel/fs': 2.13.3(@parcel/core@2.13.3)
+      '@parcel/logger': 2.13.3
+      '@parcel/utils': 2.13.3
+      lmdb: 2.8.5
+
   '@parcel/codeframe@2.13.3':
     dependencies:
       chalk: 4.1.2
@@ -22595,6 +22661,36 @@ snapshots:
       - typescript
       - uncss
 
+  '@parcel/core@2.13.3':
+    dependencies:
+      '@mischnic/json-sourcemap': 0.1.1
+      '@parcel/cache': 2.13.3(@parcel/core@2.13.3)
+      '@parcel/diagnostic': 2.13.3
+      '@parcel/events': 2.13.3
+      '@parcel/feature-flags': 2.13.3
+      '@parcel/fs': 2.13.3(@parcel/core@2.13.3)
+      '@parcel/graph': 3.3.3
+      '@parcel/logger': 2.13.3
+      '@parcel/package-manager': 2.13.3(@parcel/core@2.13.3)
+      '@parcel/plugin': 2.13.3(@parcel/core@2.13.3)
+      '@parcel/profiler': 2.13.3
+      '@parcel/rust': 2.13.3
+      '@parcel/source-map': 2.1.1
+      '@parcel/types': 2.13.3(@parcel/core@2.13.3)
+      '@parcel/utils': 2.13.3
+      '@parcel/workers': 2.13.3(@parcel/core@2.13.3)
+      base-x: 3.0.10
+      browserslist: 4.24.4
+      clone: 2.1.2
+      dotenv: 16.4.7
+      dotenv-expand: 11.0.7
+      json5: 2.2.3
+      msgpackr: 1.11.2
+      nullthrows: 1.1.1
+      semver: 7.7.2
+    transitivePeerDependencies:
+      - '@swc/helpers'
+
   '@parcel/core@2.13.3(@swc/helpers@0.5.15)':
     dependencies:
       '@mischnic/json-sourcemap': 0.1.1
@@ -22644,6 +22740,16 @@ snapshots:
       '@parcel/watcher': 2.5.1
       '@parcel/workers': 2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))
 
+  '@parcel/fs@2.13.3(@parcel/core@2.13.3)':
+    dependencies:
+      '@parcel/core': 2.13.3
+      '@parcel/feature-flags': 2.13.3
+      '@parcel/rust': 2.13.3
+      '@parcel/types-internal': 2.13.3
+      '@parcel/utils': 2.13.3
+      '@parcel/watcher': 2.5.1
+      '@parcel/workers': 2.13.3(@parcel/core@2.13.3)
+
   '@parcel/graph@3.3.3':
     dependencies:
       '@parcel/feature-flags': 2.13.3
@@ -22671,6 +22777,18 @@ snapshots:
       '@mischnic/json-sourcemap': 0.1.1
       '@parcel/diagnostic': 2.13.3
       '@parcel/fs': 2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))
+      '@parcel/rust': 2.13.3
+      '@parcel/utils': 2.13.3
+      nullthrows: 1.1.1
+      semver: 7.7.2
+    transitivePeerDependencies:
+      - '@parcel/core'
+
+  '@parcel/node-resolver-core@3.4.3(@parcel/core@2.13.3)':
+    dependencies:
+      '@mischnic/json-sourcemap': 0.1.1
+      '@parcel/diagnostic': 2.13.3
+      '@parcel/fs': 2.13.3(@parcel/core@2.13.3)
       '@parcel/rust': 2.13.3
       '@parcel/utils': 2.13.3
       nullthrows: 1.1.1
@@ -22754,6 +22872,21 @@ snapshots:
     transitivePeerDependencies:
       - '@swc/helpers'
 
+  '@parcel/package-manager@2.13.3(@parcel/core@2.13.3)':
+    dependencies:
+      '@parcel/core': 2.13.3
+      '@parcel/diagnostic': 2.13.3
+      '@parcel/fs': 2.13.3(@parcel/core@2.13.3)
+      '@parcel/logger': 2.13.3
+      '@parcel/node-resolver-core': 3.4.3(@parcel/core@2.13.3)
+      '@parcel/types': 2.13.3(@parcel/core@2.13.3)
+      '@parcel/utils': 2.13.3
+      '@parcel/workers': 2.13.3(@parcel/core@2.13.3)
+      '@swc/core': 1.11.4(@swc/helpers@0.5.15)
+      semver: 7.7.2
+    transitivePeerDependencies:
+      - '@swc/helpers'
+
   '@parcel/packager-css@2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))':
     dependencies:
       '@parcel/diagnostic': 2.13.3
@@ -22809,6 +22942,12 @@ snapshots:
     transitivePeerDependencies:
       - '@parcel/core'
 
+  '@parcel/packager-ts@2.13.3(@parcel/core@2.13.3)':
+    dependencies:
+      '@parcel/plugin': 2.13.3(@parcel/core@2.13.3)
+    transitivePeerDependencies:
+      - '@parcel/core'
+
   '@parcel/packager-wasm@2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))':
     dependencies:
       '@parcel/plugin': 2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))
@@ -22818,6 +22957,12 @@ snapshots:
   '@parcel/plugin@2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))':
     dependencies:
       '@parcel/types': 2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))
+    transitivePeerDependencies:
+      - '@parcel/core'
+
+  '@parcel/plugin@2.13.3(@parcel/core@2.13.3)':
+    dependencies:
+      '@parcel/types': 2.13.3(@parcel/core@2.13.3)
     transitivePeerDependencies:
       - '@parcel/core'
 
@@ -23033,6 +23178,18 @@ snapshots:
     transitivePeerDependencies:
       - '@parcel/core'
 
+  '@parcel/transformer-typescript-types@2.13.3(@parcel/core@2.13.3)(typescript@5.2.2)':
+    dependencies:
+      '@parcel/diagnostic': 2.13.3
+      '@parcel/plugin': 2.13.3(@parcel/core@2.13.3)
+      '@parcel/source-map': 2.1.1
+      '@parcel/ts-utils': 2.13.3(typescript@5.2.2)
+      '@parcel/utils': 2.13.3
+      nullthrows: 1.1.1
+      typescript: 5.2.2
+    transitivePeerDependencies:
+      - '@parcel/core'
+
   '@parcel/ts-utils@2.13.3(typescript@5.2.2)':
     dependencies:
       nullthrows: 1.1.1
@@ -23049,6 +23206,13 @@ snapshots:
     dependencies:
       '@parcel/types-internal': 2.13.3
       '@parcel/workers': 2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))
+    transitivePeerDependencies:
+      - '@parcel/core'
+
+  '@parcel/types@2.13.3(@parcel/core@2.13.3)':
+    dependencies:
+      '@parcel/types-internal': 2.13.3
+      '@parcel/workers': 2.13.3(@parcel/core@2.13.3)
     transitivePeerDependencies:
       - '@parcel/core'
 
@@ -23126,6 +23290,16 @@ snapshots:
   '@parcel/workers@2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))':
     dependencies:
       '@parcel/core': 2.13.3(@swc/helpers@0.5.15)
+      '@parcel/diagnostic': 2.13.3
+      '@parcel/logger': 2.13.3
+      '@parcel/profiler': 2.13.3
+      '@parcel/types-internal': 2.13.3
+      '@parcel/utils': 2.13.3
+      nullthrows: 1.1.1
+
+  '@parcel/workers@2.13.3(@parcel/core@2.13.3)':
+    dependencies:
+      '@parcel/core': 2.13.3
       '@parcel/diagnostic': 2.13.3
       '@parcel/logger': 2.13.3
       '@parcel/profiler': 2.13.3
@@ -23246,6 +23420,8 @@ snapshots:
   '@radix-ui/primitive@1.1.1': {}
 
   '@radix-ui/primitive@1.1.2': {}
+
+  '@radix-ui/primitive@1.1.3': {}
 
   '@radix-ui/react-accordion@1.2.2(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
@@ -23455,6 +23631,19 @@ snapshots:
       '@types/react': 17.0.52
       '@types/react-dom': 18.2.14
 
+  '@radix-ui/react-dismissable-layer@1.1.11(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+    dependencies:
+      '@radix-ui/primitive': 1.1.3
+      '@radix-ui/react-compose-refs': 1.1.2(@types/react@17.0.52)(react@18.2.0)
+      '@radix-ui/react-primitive': 2.1.3(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@radix-ui/react-use-callback-ref': 1.1.1(@types/react@17.0.52)(react@18.2.0)
+      '@radix-ui/react-use-escape-keydown': 1.1.1(@types/react@17.0.52)(react@18.2.0)
+      react: 18.2.0
+      react-dom: 18.2.0(react@18.2.0)
+    optionalDependencies:
+      '@types/react': 17.0.52
+      '@types/react-dom': 18.2.14
+
   '@radix-ui/react-dismissable-layer@1.1.5(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       '@radix-ui/primitive': 1.1.1
@@ -23530,6 +23719,23 @@ snapshots:
       '@radix-ui/react-compose-refs': 1.1.2(@types/react@17.0.52)(react@18.2.0)
       '@radix-ui/react-primitive': 2.1.3(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@radix-ui/react-use-callback-ref': 1.1.1(@types/react@17.0.52)(react@18.2.0)
+      react: 18.2.0
+      react-dom: 18.2.0(react@18.2.0)
+    optionalDependencies:
+      '@types/react': 17.0.52
+      '@types/react-dom': 18.2.14
+
+  '@radix-ui/react-hover-card@1.1.15(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+    dependencies:
+      '@radix-ui/primitive': 1.1.3
+      '@radix-ui/react-compose-refs': 1.1.2(@types/react@17.0.52)(react@18.2.0)
+      '@radix-ui/react-context': 1.1.2(@types/react@17.0.52)(react@18.2.0)
+      '@radix-ui/react-dismissable-layer': 1.1.11(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@radix-ui/react-popper': 1.2.8(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@radix-ui/react-portal': 1.1.9(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@radix-ui/react-presence': 1.1.5(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@radix-ui/react-primitive': 2.1.3(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@radix-ui/react-use-controllable-state': 1.2.2(@types/react@17.0.52)(react@18.2.0)
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
     optionalDependencies:
@@ -23662,6 +23868,24 @@ snapshots:
       '@types/react': 17.0.52
       '@types/react-dom': 18.2.14
 
+  '@radix-ui/react-popper@1.2.8(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+    dependencies:
+      '@floating-ui/react-dom': 2.0.8(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@radix-ui/react-arrow': 1.1.7(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@radix-ui/react-compose-refs': 1.1.2(@types/react@17.0.52)(react@18.2.0)
+      '@radix-ui/react-context': 1.1.2(@types/react@17.0.52)(react@18.2.0)
+      '@radix-ui/react-primitive': 2.1.3(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@radix-ui/react-use-callback-ref': 1.1.1(@types/react@17.0.52)(react@18.2.0)
+      '@radix-ui/react-use-layout-effect': 1.1.1(@types/react@17.0.52)(react@18.2.0)
+      '@radix-ui/react-use-rect': 1.1.1(@types/react@17.0.52)(react@18.2.0)
+      '@radix-ui/react-use-size': 1.1.1(@types/react@17.0.52)(react@18.2.0)
+      '@radix-ui/rect': 1.1.1
+      react: 18.2.0
+      react-dom: 18.2.0(react@18.2.0)
+    optionalDependencies:
+      '@types/react': 17.0.52
+      '@types/react-dom': 18.2.14
+
   '@radix-ui/react-portal@1.0.3(@types/react-dom@18.3.7(@types/react@17.0.52))(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       '@babel/runtime': 7.27.6
@@ -23703,6 +23927,16 @@ snapshots:
       '@types/react-dom': 18.2.14
 
   '@radix-ui/react-presence@1.1.4(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+    dependencies:
+      '@radix-ui/react-compose-refs': 1.1.2(@types/react@17.0.52)(react@18.2.0)
+      '@radix-ui/react-use-layout-effect': 1.1.1(@types/react@17.0.52)(react@18.2.0)
+      react: 18.2.0
+      react-dom: 18.2.0(react@18.2.0)
+    optionalDependencies:
+      '@types/react': 17.0.52
+      '@types/react-dom': 18.2.14
+
+  '@radix-ui/react-presence@1.1.5(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       '@radix-ui/react-compose-refs': 1.1.2(@types/react@17.0.52)(react@18.2.0)
       '@radix-ui/react-use-layout-effect': 1.1.1(@types/react@17.0.52)(react@18.2.0)
