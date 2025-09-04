@@ -8,7 +8,6 @@ import { IconBook, IconDownload, IconInfo, IconPlayFilled, IconSidebarClose } fr
 import { LemonDivider, Spinner } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconCancel } from 'lib/lemon-ui/icons'
