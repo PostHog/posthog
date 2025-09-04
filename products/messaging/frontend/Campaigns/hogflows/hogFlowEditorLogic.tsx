@@ -91,7 +91,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
         loadActionMetricsById: (params: AppMetricsTotalsRequest, timezone: string) => ({ params, timezone }),
-        fitView: true,
+        fitView: (duration?: number) => ({ duration }),
     }),
     reducers(() => ({
         mode: [
@@ -475,21 +475,24 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             // We can clear the dropzones now
             actions.setDropzoneNodes([])
         },
-        setReactFlowInstance: () => actions.fitView(),
+        setReactFlowInstance: () => {
+            // TRICKY: Slight race condition here where the react flow instance is not set yet
+            setTimeout(() => {
+                actions.fitView(0)
+            }, 100)
+        },
         setSelectedNodeId: ({ selectedNodeId }) => {
             if (selectedNodeId) {
                 actions.fitView()
             }
         },
-        fitView: () => {
-            const selectedNode = values.nodes.find((node) => node.id === values.selectedNodeId)
-
+        fitView: ({ duration }) => {
             values.reactFlowInstance?.fitView({
                 padding: {
                     right: '500px',
                 },
-                nodes: selectedNode ? [selectedNode] : [],
-                duration: 100,
+                nodes: values.selectedNode ? [values.selectedNode] : values.nodes,
+                duration: duration ?? 100,
             })
         },
     })),
@@ -522,11 +525,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             setMode: () => syncProperty('mode', values.mode),
         }
     }),
-    urlToAction(({ actions }) => {
+    urlToAction(({ actions, values }) => {
         const reactToTabChange = (_: any, search: Record<string, string>): void => {
-            const { node, mode } = search
-            actions.setSelectedNodeId(node ?? null)
-            if (mode && HOG_FLOW_EDITOR_MODES.includes(mode as HogFlowEditorMode)) {
+            const { node = null, mode } = search
+            if (node !== values.selectedNodeId) {
+                actions.setSelectedNodeId(node ?? null)
+            }
+            if (mode && HOG_FLOW_EDITOR_MODES.includes(mode as HogFlowEditorMode) && mode !== values.mode) {
                 actions.setMode(mode as HogFlowEditorMode)
             }
         }
