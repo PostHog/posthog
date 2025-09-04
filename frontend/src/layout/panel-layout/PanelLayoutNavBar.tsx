@@ -44,6 +44,7 @@ import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
 import { AccountPopoverOverlay } from '../navigation/TopBar/AccountPopover'
 import { navigationLogic } from '../navigation/navigationLogic'
+import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
 import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
 import { ProjectDropdownMenu } from './ProjectDropdownMenu'
 
@@ -92,6 +93,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
+    const { sceneLayoutConfig } = useValues(sceneLayoutLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -563,7 +565,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             data-attr="tree-navbar-resizer"
                             className={cn({
                                 'top-[calc(var(--scene-layout-header-height)+4px)]': newSceneLayout,
-                                'top-0': newSceneLayout && isLayoutPanelVisible,
+                                'top-0':
+                                    (newSceneLayout && isLayoutPanelVisible) ||
+                                    sceneLayoutConfig?.layout === 'app-raw-no-header',
                             })}
                             offset={newSceneLayout ? -1 : 0}
                         />
