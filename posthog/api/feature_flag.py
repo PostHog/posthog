@@ -1007,6 +1007,34 @@ class FeatureFlagViewSet(
             elif key == "evaluation_runtime":
                 evaluation_runtime = request.GET["evaluation_runtime"]
                 queryset = queryset.filter(evaluation_runtime=evaluation_runtime)
+            elif key == "tags":
+                # Support multiple tags via repeated params (?tags=a&tags=b) or JSON array when sent once
+                tags_param = request.GET.getlist("tags") or [filters.get("tags", "")]
+                import json
+
+                tag_names: list[str] = []
+                for raw in tags_param:
+                    if not raw:
+                        continue
+                    try:
+                        parsed = json.loads(raw)
+                        if isinstance(parsed, list):
+                            tag_names.extend([str(t).strip().lower() for t in parsed])
+                        else:
+                            tag_names.append(str(parsed).strip().lower())
+                    except (json.JSONDecodeError, TypeError):
+                        tag_names.append(str(raw).strip().lower())
+
+                tag_names = [t for t in tag_names if t]
+                if tag_names:
+                    # OR semantics: flags that have ANY of the selected tags
+                    eval_only_raw = request.GET.get("evaluation_only", "false").lower()
+                    eval_only = eval_only_raw in ("1", "true", "yes")
+                    if eval_only:
+                        queryset = queryset.filter(evaluation_tags__tag__name__in=list(set(tag_names)))
+                    else:
+                        queryset = queryset.filter(tagged_items__tag__name__in=list(set(tag_names)))
+                    queryset = queryset.distinct()
             elif key == "excluded_properties":
                 import json
 
@@ -1099,6 +1127,20 @@ class FeatureFlagViewSet(
                 required=False,
                 enum=["server", "client", "both"],
                 description="Filter feature flags by their evaluation runtime.",
+            ),
+            OpenApiParameter(
+                "tags",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by one or more tags. Supports repeated params (?tags=a&tags=b) or a JSON array.",
+            ),
+            OpenApiParameter(
+                "evaluation_only",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="When true, filter tags against evaluation_tags instead of organizational tags.",
             ),
             OpenApiParameter(
                 "excluded_properties",

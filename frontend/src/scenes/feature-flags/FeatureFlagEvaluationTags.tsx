@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconBolt, IconPencil, IconPlus } from '@posthog/icons'
 
@@ -38,6 +38,14 @@ export function FeatureFlagEvaluationTags({
     const { saveFeatureFlag } = useActions(featureFlagLogic)
     const { featureFlagLoading } = useValues(featureFlagLogic)
 
+    // Hide evaluation options toggle if there are no tags
+    useEffect(() => {
+        if (selectedTags.length === 0 && showEvaluationOptions) {
+            setShowEvaluationOptions(false)
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedTags.length])
+
     const handleSave = (): void => {
         if (onChange) {
             onChange(selectedTags, selectedEvaluationTags)
@@ -74,12 +82,14 @@ export function FeatureFlagEvaluationTags({
                         placeholder='Add tags like "production", "app", "docs-page"'
                         autoFocus
                     />
-                    <LemonButton
-                        size="small"
-                        onClick={() => setShowEvaluationOptions(!showEvaluationOptions)}
-                        icon={<IconBolt />}
-                        tooltip="Configure evaluation environments"
-                    />
+                    {selectedTags.length > 0 && (
+                        <LemonButton
+                            size="small"
+                            onClick={() => setShowEvaluationOptions(!showEvaluationOptions)}
+                            icon={<IconBolt />}
+                            tooltip="Configure evaluation environments"
+                        />
+                    )}
                 </div>
 
                 {showEvaluationOptions && selectedTags.length > 0 && (
@@ -123,9 +133,7 @@ export function FeatureFlagEvaluationTags({
 
     return (
         <div className={clsx(className, 'inline-flex flex-wrap gap-1 items-center')}>
-            {tags.length === 0 ? (
-                <span className="text-muted">—</span>
-            ) : (
+            {tags.length > 0 &&
                 tags.map((tag, index) => {
                     const isEvaluationTag = evaluationTags.includes(tag)
                     return (
@@ -143,8 +151,7 @@ export function FeatureFlagEvaluationTags({
                             </LemonTag>
                         </Tooltip>
                     )
-                })
-            )}
+                })}
 
             {!staticOnly && (
                 <LemonTag

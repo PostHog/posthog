@@ -42,6 +42,8 @@ export interface FeatureFlagsFilters {
     order?: string
     page?: number
     evaluation_runtime?: string
+    tags?: string[]
+    evaluation_only?: boolean
 }
 
 const DEFAULT_FILTERS: FeatureFlagsFilters = {
@@ -52,6 +54,8 @@ const DEFAULT_FILTERS: FeatureFlagsFilters = {
     order: undefined,
     page: 1,
     evaluation_runtime: undefined,
+    tags: undefined,
+    evaluation_only: undefined,
 }
 
 export interface FlagLogicProps {
@@ -77,7 +81,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             {
                 loadFeatureFlags: async () => {
                     const response = await api.get(
-                        `api/projects/${values.currentProjectId}/feature_flags/?${toParams(values.paramsFromFilters)}`
+                        `api/projects/${values.currentProjectId}/feature_flags/?${toParams(values.paramsFromFilters, true)}`
                     )
 
                     return {
@@ -144,6 +148,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 ...filters,
                 limit: FLAGS_PER_PAGE,
                 offset: filters.page ? (filters.page - 1) * FLAGS_PER_PAGE : 0,
+                // explode array so backend receives tags=one&tags=two
+                // The API will interpret multiple values as AND/OR depending on implementation
             }),
         ],
         breadcrumbs: [
@@ -203,8 +209,15 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                   },
               ]
             | void => {
-            const searchParams: Record<string, string | number> = {
+            const searchParams: Record<string, string | number | boolean> = {
                 ...values.filters,
+            } as any
+
+            // Ensure arrays serialize stably in URL (router doesn't explode arrays)
+            if (Array.isArray(values.filters.tags) && values.filters.tags.length > 0) {
+                ;(searchParams as any).tags = JSON.stringify(values.filters.tags)
+            } else {
+                delete (searchParams as any).tags
             }
 
             let replace = false // set a page in history
@@ -235,12 +248,34 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             }
 
             const { page, created_by_id, active, type, search, order, evaluation_runtime } = searchParams
+            // Parse tags from URL (supports repeated params, JSON array string, or single string)
+            let tags: string[] | undefined
+            const rawTags: any = searchParams['tags']
+            if (Array.isArray(rawTags)) {
+                tags = rawTags as string[]
+            } else if (typeof rawTags === 'string') {
+                try {
+                    const parsed = JSON.parse(rawTags)
+                    if (Array.isArray(parsed)) {
+                        tags = parsed.map((t) => String(t))
+                    } else if (parsed) {
+                        tags = [String(parsed)]
+                    }
+                } catch {
+                    // Fallback: support comma-separated or single value
+                    tags = rawTags
+                        .split(',')
+                        .map((t: string) => t)
+                        .filter(Boolean)
+                }
+            }
             const pageFiltersFromUrl: Partial<FeatureFlagsFilters> = {
                 created_by_id,
                 type,
                 search,
                 order,
                 evaluation_runtime,
+                tags,
             }
 
             pageFiltersFromUrl.active = active !== undefined ? String(active) : undefined

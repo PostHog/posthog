@@ -2,12 +2,11 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconLock } from '@posthog/icons'
-import { LemonDialog, LemonInput, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonMenu, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { MemberSelect } from 'lib/components/MemberSelect'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
@@ -39,6 +38,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Noun, groupsModel } from '~/models/groupsModel'
+import { tagsModel } from '~/models/tagsModel'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ProductKey } from '~/types'
 import {
@@ -53,6 +53,7 @@ import {
 } from '~/types'
 
 import { createMaxToolSurveyConfig } from './FeatureFlag'
+import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { featureFlagLogic } from './featureFlagLogic'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
@@ -239,6 +240,7 @@ export function OverViewTab({
     const flagLogic = featureFlagsLogic({ flagPrefix })
     const { featureFlagsLoading, featureFlags, count, pagination, filters, shouldShowEmptyState } = useValues(flagLogic)
     const { setFeatureFlagsFilters } = useActions(flagLogic)
+    const { tags: allTags } = useValues(tagsModel)
     const { hasAvailableFeature } = useValues(userLogic)
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
@@ -284,8 +286,18 @@ export function OverViewTab({
                   {
                       title: 'Tags',
                       dataIndex: 'tags' as keyof FeatureFlagType,
-                      render: function Render(tags: FeatureFlagType['tags']) {
-                          return tags ? <ObjectTags tags={tags} staticOnly /> : null
+                      render: function Render(_, featureFlag: FeatureFlagType) {
+                          const tags = featureFlag.tags
+                          if (!tags || tags.length === 0) {
+                              return null
+                          }
+                          return (
+                              <FeatureFlagEvaluationTags
+                                  tags={tags}
+                                  evaluationTags={featureFlag.evaluation_tags || []}
+                                  staticOnly
+                              />
+                          )
                       },
                   } as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
               ]
@@ -474,6 +486,48 @@ export function OverViewTab({
                     }}
                     data-attr="feature-flag-select-created-by"
                 />
+                <span className="ml-1">
+                    <b>Tags</b>
+                </span>
+                <LemonMenu
+                    closeParentPopoverOnClickInside={false}
+                    items={[
+                        ...((allTags || []).map((t: string) => ({
+                            key: t,
+                            custom: true,
+                            label: () => (
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="checkbox"
+                                        className="cursor-pointer"
+                                        checked={(filters.tags || []).includes(t)}
+                                        onChange={(e) => {
+                                            const selected = new Set(filters.tags || [])
+                                            if (e.target.checked) {
+                                                selected.add(t)
+                                            } else {
+                                                selected.delete(t)
+                                            }
+                                            setFeatureFlagsFilters({ tags: Array.from(selected), page: 1 })
+                                        }}
+                                    />
+                                    <span className="text-sm">{t}</span>
+                                </div>
+                            ),
+                        })) as any),
+                        { key: '__divider__', custom: true, label: () => <div className="my-1" /> },
+                        {
+                            key: '__clear__',
+                            label: 'Clear',
+                            onClick: () => setFeatureFlagsFilters({ tags: undefined, page: 1 }),
+                        },
+                    ]}
+                >
+                    <LemonButton size="small" type="secondary" className="w-32" data-attr="feature-flag-select-tags">
+                        {filters.tags?.length ? `${filters.tags.length} selected` : 'Any tags'}
+                    </LemonButton>
+                </LemonMenu>
+                {/* Removed Evaluation only toggle per feedback */}
                 {enabledFeaturesLogic.values.featureFlags?.[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
                     <>
                         <span className="ml-1">
