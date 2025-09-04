@@ -73,17 +73,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     sessionRecordingEventUsageLogic,
                     ['reportRecording'],
                     snapshotLogic,
-                    [
-                        'loadSnapshots',
-                        'loadSnapshotSources',
-                        'loadSnapshotSourcesSuccess',
-                        'loadSnapshotSourcesFailure',
-                        'loadNextSnapshotSource',
-                        'loadSnapshotsForSource',
-                        'loadSnapshotsForSourceSuccess',
-                        'loadSnapshotsForSourceFailure',
-                        'setSnapshots',
-                    ],
+                    ['loadSnapshots', 'loadSnapshotSources', 'loadNextSnapshotSource', 'setSnapshots'],
                 ],
                 values: [
                     teamLogic,
@@ -91,14 +81,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     annotationsModel,
                     ['annotations', 'annotationsLoading'],
                     snapshotLogic,
-                    [
-                        'snapshotSources',
-                        'snapshotsBySources',
-                        'snapshotsLoading',
-                        'snapshotsLoaded',
-                        'snapshotsBySourceSuccessCount',
-                        'isRealtimePolling',
-                    ],
+                    ['snapshotSources', 'snapshotsBySources', 'snapshotsLoading', 'snapshotsLoaded'],
                 ],
             }
         }

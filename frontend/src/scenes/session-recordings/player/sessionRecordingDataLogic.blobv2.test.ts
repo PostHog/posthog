@@ -13,6 +13,7 @@ import { AvailableFeature, SessionRecordingSnapshotSource } from '~/types'
 
 import recordingEventsJson from '../__mocks__/recording_events_query'
 import { recordingMetaJson } from '../__mocks__/recording_meta'
+import { snapshotDataLogic } from './snapshotDataLogic'
 
 const pathForKeyZero = join(__dirname, './__mocks__/blob_key_0.jsonl')
 const pathForKeyOne = join(__dirname, './__mocks__/blob_key_1.jsonl')
@@ -47,6 +48,7 @@ const BLOB_V2_SOURCE_ONE: SessionRecordingSnapshotSource = {
 
 describe('sessionRecordingDataLogic blobby v2', () => {
     let logic: ReturnType<typeof sessionRecordingDataLogic.build>
+    let snapshotLogic: ReturnType<typeof snapshotDataLogic.build>
 
     beforeEach(() => {
         useAvailableFeatures([AvailableFeature.RECORDINGS_PERFORMANCE])
@@ -93,12 +95,14 @@ describe('sessionRecordingDataLogic blobby v2', () => {
             },
         })
         initKeaTests()
-        logic = sessionRecordingDataLogic({
+        const props = {
             sessionRecordingId: '2',
             // we don't want to wait for the default real-time polling interval in tests
             realTimePollingIntervalMilliseconds: 10,
             blobV2PollingDisabled: true,
-        })
+        }
+        logic = sessionRecordingDataLogic(props)
+        snapshotLogic = snapshotDataLogic(props)
         logic.mount()
         // Most of these tests assume the metadata is being loaded upfront which is the typical case
         logic.actions.loadRecordingMeta()
@@ -115,9 +119,9 @@ describe('sessionRecordingDataLogic blobby v2', () => {
                     'loadSnapshots',
                     'loadSnapshotSources',
                     'loadRecordingMetaSuccess',
-                    'loadSnapshotSourcesSuccess',
+                    snapshotLogic.actionTypes.loadSnapshotSourcesSuccess,
+                    snapshotLogic.actionTypes.loadSnapshotsForSourceSuccess,
                     // loads the first and second blob v2 source at once
-                    'loadSnapshotsForSourceSuccess',
                     'reportUsageIfFullyLoaded',
                 ])
                 .toFinishAllListeners()

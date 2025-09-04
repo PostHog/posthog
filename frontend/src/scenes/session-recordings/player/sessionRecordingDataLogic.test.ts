@@ -27,6 +27,7 @@ import recordingEventsJson from '../__mocks__/recording_events_query'
 import { recordingMetaJson } from '../__mocks__/recording_meta'
 import { snapshotsAsJSONLines, sortedRecordingSnapshots } from '../__mocks__/recording_snapshots'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
+import { snapshotDataLogic } from './snapshotDataLogic'
 
 const sortedRecordingSnapshotsJson = sortedRecordingSnapshots()
 
@@ -45,6 +46,7 @@ const REALTIME_SOURCE: SessionRecordingSnapshotSource = {
 
 describe('sessionRecordingDataLogic', () => {
     let logic: ReturnType<typeof sessionRecordingDataLogic.build>
+    let snapshotLogic: ReturnType<typeof snapshotDataLogic.build>
 
     beforeEach(() => {
         useAvailableFeatures([AvailableFeature.RECORDINGS_PERFORMANCE])
@@ -86,11 +88,13 @@ describe('sessionRecordingDataLogic', () => {
             },
         })
         initKeaTests()
-        logic = sessionRecordingDataLogic({
+        const props = {
             sessionRecordingId: '2',
             // we don't want to wait for the default real-time polling interval in tests
             realTimePollingIntervalMilliseconds: 10,
-        })
+        }
+        logic = sessionRecordingDataLogic(props)
+        snapshotLogic = snapshotDataLogic(props)
         logic.mount()
         // Most of these tests assume the metadata is being loaded upfront which is the typical case
         logic.actions.loadRecordingMeta()
@@ -126,8 +130,8 @@ describe('sessionRecordingDataLogic', () => {
                     'loadSnapshots',
                     'loadSnapshotSources',
                     'loadRecordingMetaSuccess',
-                    'loadSnapshotSourcesSuccess',
-                    'loadSnapshotsForSourceSuccess',
+                    snapshotLogic.actionTypes.loadSnapshotSourcesSuccess,
+                    snapshotLogic.actionTypes.loadSnapshotsForSourceSuccess,
                     'reportUsageIfFullyLoaded',
                 ])
                 .toFinishAllListeners()
@@ -184,7 +188,10 @@ describe('sessionRecordingDataLogic', () => {
             logic.actions.loadRecordingMeta()
             logic.actions.loadSnapshots()
 
-            await expectLogic(logic).toDispatchActions(['loadRecordingMetaSuccess', 'loadSnapshotSourcesFailure'])
+            await expectLogic(logic).toDispatchActions([
+                'loadRecordingMetaSuccess',
+                snapshotLogic.actionTypes.loadSnapshotSourcesFailure,
+            ])
             expect(logic.values.sessionPlayerData).toMatchObject({
                 person: recordingMetaJson.person,
                 durationMs: 11868,
@@ -202,11 +209,13 @@ describe('sessionRecordingDataLogic', () => {
             initKeaTests()
             useAvailableFeatures([])
             initKeaTests()
-            logic = sessionRecordingDataLogic({
+            const props = {
                 sessionRecordingId: '2',
                 // we don't want to wait for the default real time polling interval in tests
                 realTimePollingIntervalMilliseconds: 10,
-            })
+            }
+            logic = sessionRecordingDataLogic(props)
+            snapshotLogic = snapshotDataLogic(props)
             logic.mount()
             logic.actions.loadRecordingMeta()
             await expectLogic(logic).toFinishAllListeners()
@@ -256,7 +265,7 @@ describe('sessionRecordingDataLogic', () => {
             })
                 .toDispatchActionsInAnyOrder([
                     'loadSnapshots',
-                    'loadSnapshotsForSourceSuccess',
+                    snapshotLogic.actionTypes.loadSnapshotsForSourceSuccess,
                     'loadEvents',
                     'loadEventsSuccess',
                 ])
@@ -267,7 +276,7 @@ describe('sessionRecordingDataLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.loadSnapshots()
             })
-                .toDispatchActions(['loadSnapshotsForSourceSuccess'])
+                .toDispatchActions([snapshotLogic.actionTypes.loadSnapshotsForSourceSuccess])
                 .toDispatchActionsInAnyOrder([
                     sessionRecordingEventUsageLogic.actionTypes.reportRecording, // loaded
                     sessionRecordingEventUsageLogic.actionTypes.reportRecording, // viewed
