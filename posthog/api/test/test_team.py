@@ -400,7 +400,7 @@ def team_api_test_factory():
             ]
             if self.client_class is EnvironmentToProjectRewriteClient:
                 expected_activity.insert(
-                    0,
+                    1,
                     {
                         "_state": ANY,
                         "activity": "deleted",
