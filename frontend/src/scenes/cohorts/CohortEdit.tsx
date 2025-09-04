@@ -358,7 +358,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 }
                                 className={cn('ph-ignore-input', !newSceneLayout && 'mt-4')}
                             >
-                                {!isNewCohort && (
+                                {!isNewCohort && newSceneLayout && (
                                     <div className="flex flex-col gap-y-0 flex-1 justify-center">
                                         <h3 className="text-sm">Upload a CSV</h3>
                                         <span className="max-w-prose">
@@ -375,16 +375,16 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 {/* TODO: @adamleithp Adding a csv file doesn't show up with cohort.csv... */}
                                 <LemonField
                                     name="csv"
-                                    label={newSceneLayout ? null : isNewCohort ? 'Upload users' : 'Add users'}
+                                    label={newSceneLayout ? null : isNewCohort ? null : 'Add users'}
                                     data-attr="cohort-csv"
                                 >
                                     {({ onChange }) => (
                                         <>
-                                            {!newSceneLayout && (
+                                            {!newSceneLayout && !isNewCohort && (
                                                 <span>
                                                     Upload a CSV file to add users to your cohort. For single-column
                                                     files, include one distinct ID per row (all rows will be processed
-                                                    as data). For multi-column files, include a header row with a
+                                                    as data). Fo`r multi-column files, include a header row with a
                                                     'distinct_id' column containing the user identifiers.
                                                 </span>
                                             )}
