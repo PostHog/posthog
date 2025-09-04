@@ -875,6 +875,7 @@ const Content = ({
                     cachedResults={undefined}
                     exportContext={exportContext}
                     onSaveInsight={saveAsInsight}
+                    editMode
                 />
             </div>
         )

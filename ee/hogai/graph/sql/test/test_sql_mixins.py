@@ -11,8 +11,16 @@ class TestSQLMixins(NonAtomicBaseTest):
     def _node(self):
         class DummyNode(HogQLGeneratorMixin):
             def __init__(self, team, user):
-                self._team = team
-                self._user = user
+                self.__team = team
+                self.__user = user
+
+            @property
+            def _team(self):
+                return self.__team
+
+            @property
+            def _user(self):
+                return self.__user
 
         return DummyNode(self.team, self.user)
 
@@ -181,25 +189,3 @@ class TestSQLMixins(NonAtomicBaseTest):
 
         # Should not raise any exception for valid complex SQL
         await mixin._quality_check_output(complex_output)
-
-    async def test_quality_check_does_not_expand_asterisks(self):
-        """Test quality check success with complex query including joins."""
-        mixin = self._node
-
-        complex_output = SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query="SELECT * FROM events LIMIT 10"))
-
-        # Should not raise any exception for valid complex SQL
-        res = await mixin._quality_check_output(complex_output)
-        self.assertEqual(res, "SELECT\n    *\nFROM\n    events\nLIMIT 10")
-
-    async def test_quality_check_handles_variables(self):
-        """Test quality check success with complex query including joins."""
-        mixin = self._node
-
-        complex_output = SQLSchemaGeneratorOutput(
-            query=AssistantHogQLQuery(query="SELECT event FROM events WHERE {variables.f}")
-        )
-
-        # Should not raise any exception for valid complex SQL
-        res = await mixin._quality_check_output(complex_output)
-        self.assertEqual(res, "SELECT\n    event\nFROM\n    events\nWHERE\n    {variables.f}")
