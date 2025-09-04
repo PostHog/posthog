@@ -1,11 +1,13 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, Link } from '@posthog/lemon-ui'
 
+import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -20,14 +22,45 @@ export function CampaignsTable(): JSX.Element {
     const columns: LemonTableColumns<HogFlow> = [
         {
             title: 'Name',
+            key: 'name',
+            sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
             render: (_, item) => {
                 return (
                     <LemonTableLink to={urls.messagingCampaign(item.id)} title={item.name} description={item.status} />
                 )
             },
         },
+
+        {
+            ...(updatedAtColumn() as LemonTableColumn<HogFlow, any>),
+            width: 0,
+        },
+        {
+            title: 'Last 7 days',
+            width: 0,
+            render: (_, { id }) => {
+                return (
+                    <Link to={urls.messagingCampaign(id, 'metrics')}>
+                        <AppMetricsSparkline
+                            logicKey={id}
+                            forceParams={{
+                                appSource: 'hog_flow',
+                                appSourceId: id,
+                                metricKind: ['success', 'failure'],
+                                breakdownBy: 'metric_kind',
+                                interval: 'day',
+                                dateFrom: '-7d',
+                            }}
+                        />
+                    </Link>
+                )
+            },
+        },
         {
             title: 'Status',
+            width: 0,
+            key: 'status',
+            sorter: (a) => (a.status === 'active' ? 1 : -1),
             render: (_, item) => {
                 return (
                     <LemonTag type={item.status === 'active' ? 'success' : 'default'}>
@@ -61,7 +94,12 @@ export function CampaignsTable(): JSX.Element {
 
     return (
         <div className="campaigns-section">
-            <LemonTable dataSource={campaigns} loading={campaignsLoading} columns={columns} />
+            <LemonTable
+                dataSource={campaigns}
+                loading={campaignsLoading}
+                columns={columns}
+                defaultSorting={{ columnKey: 'status', order: -1 }}
+            />
         </div>
     )
 }
