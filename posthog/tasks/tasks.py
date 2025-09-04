@@ -791,16 +791,6 @@ def ee_persist_single_recording(id: str, team_id: int) -> None:
 
 
 @shared_task(ignore_result=True)
-def ee_persist_finished_recordings() -> None:
-    try:
-        from ee.session_recordings.persistence_tasks import persist_finished_recordings
-    except ImportError:
-        pass
-    else:
-        persist_finished_recordings()
-
-
-@shared_task(ignore_result=True)
 def ee_persist_finished_recordings_v2() -> None:
     try:
         from ee.session_recordings.persistence_tasks import persist_finished_recordings_v2
