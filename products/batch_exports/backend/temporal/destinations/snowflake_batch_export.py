@@ -653,10 +653,9 @@ class SnowflakeClient:
                     err_msg += f": {e.msg}"
                 raise SnowflakeWarehouseSuspendedError(err_msg)
             elif e.errno == 904 and e.msg is not None and "invalid identifier" in e.msg:
-                err_msg = "The data being loaded into the destination table does not match the schema of the destination table"
-                if e.msg is not None:
-                    err_msg += f": {e.msg}"
-                raise SnowflakeDestinationTableIncompatibleSchemaError(err_msg)
+                raise SnowflakeDestinationTableIncompatibleSchemaError(
+                    f"The data being loaded into the destination table does not match the schema of the destination table: {e.msg}"
+                )
 
             raise SnowflakeFileNotLoadedError(
                 table_name,
