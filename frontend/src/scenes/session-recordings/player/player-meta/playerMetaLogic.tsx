@@ -200,6 +200,16 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 }
             },
         ],
+        sessionTTLDays: [
+            (s) => [s.sessionPlayerMetaData],
+            (sessionPlayerMetaData) => {
+                if (sessionPlayerMetaData?.retention_period_days && sessionPlayerMetaData?.start_time) {
+                    return calculateTTL(sessionPlayerMetaData.start_time, sessionPlayerMetaData.retention_period_days)
+                }
+
+                return null
+            },
+        ],
         overviewItems: [
             (s) => [s.sessionPlayerMetaData, s.startTime, s.recordingPropertiesById],
             (sessionPlayerMetaData, startTime, recordingPropertiesById) => {
