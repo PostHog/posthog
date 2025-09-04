@@ -11,6 +11,7 @@ import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/T
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
+import { releasePreviewLogic } from '../ExceptionAttributesPreview/ReleasesPreview/releasePreviewLogic'
 import { PropertiesTab } from './Tabs/PropertiesTab'
 import { SessionTab } from './Tabs/SessionTab'
 import { StacktraceTab } from './Tabs/StacktraceTab'
@@ -35,22 +36,21 @@ export function ExceptionCard({ issue, issueLoading, event, eventLoading, label 
         setLoading(eventLoading)
     }, [setLoading, eventLoading])
 
+    const logicProps: ErrorPropertiesLogicProps = {
+        properties: event?.properties,
+        id: event?.uuid ?? issue?.id ?? 'error',
+    }
+
     return (
-        <BindLogic
-            logic={errorPropertiesLogic}
-            props={
-                {
-                    properties: event?.properties,
-                    id: event?.uuid ?? issue?.id ?? 'error',
-                } as ErrorPropertiesLogicProps
-            }
-        >
-            <ExceptionCardContent
-                issue={issue}
-                timestamp={event?.timestamp}
-                issueLoading={issueLoading}
-                label={label}
-            />
+        <BindLogic logic={errorPropertiesLogic} props={logicProps}>
+            <BindLogic logic={releasePreviewLogic} props={logicProps}>
+                <ExceptionCardContent
+                    issue={issue}
+                    timestamp={event?.timestamp}
+                    issueLoading={issueLoading}
+                    label={label}
+                />
+            </BindLogic>
         </BindLogic>
     )
 }
@@ -58,6 +58,9 @@ export function ExceptionCard({ issue, issueLoading, event, eventLoading, label 
 function ExceptionCardContent({ issue, issueLoading, timestamp, label }: ExceptionCardContentProps): JSX.Element {
     const { currentTab } = useValues(exceptionCardLogic)
     const { setCurrentTab } = useActions(exceptionCardLogic)
+
+    const { release } = useValues(releasePreviewLogic)
+
     return (
         <LemonCard hoverEffect={false} className="p-0 relative overflow-hidden">
             <TabsPrimitive value={currentTab} onValueChange={setCurrentTab}>
@@ -66,7 +69,7 @@ function ExceptionCardContent({ issue, issueLoading, timestamp, label }: Excepti
                         <div className="w-full h-full">
                             <div className="flex items-center gap-1 text-lg h-full">
                                 <IconLogomark />
-                                <span className="text-sm">Exception</span>
+                                <span className="text-sm">Exception {release}</span>
                             </div>
                         </div>
                         <div className="flex gap-2 w-full justify-center h-full">

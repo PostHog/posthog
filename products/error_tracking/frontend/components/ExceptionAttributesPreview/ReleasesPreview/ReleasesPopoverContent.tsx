@@ -1,11 +1,7 @@
-import { useValues } from 'kea'
-import { useMemo } from 'react'
-
 import { IconCopy, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
-import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
-import { ErrorTrackingStackFrameRecord, ExceptionRelease } from 'lib/components/Errors/types'
+import { ExceptionRelease } from 'lib/components/Errors/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
@@ -57,20 +53,9 @@ function SimplePropertyRow({ label, value }: { label: string; value?: string }):
 }
 
 function ReleaseListItem({ release }: { release: ExceptionRelease }): JSX.Element {
-    const { stackFrameRecords } = useValues(stackFrameLogic)
+    // const { kaboomFrameRecord } = useValues(releasePreviewLogic)
 
-    const kaboomFrame: ErrorTrackingStackFrameRecord | undefined = useMemo(() => {
-        const framesInOrder = Object.getOwnPropertyNames(stackFrameRecords).map((k) => stackFrameRecords[k])
-
-        for (let i = framesInOrder.length - 1; i >= 0; i--) {
-            const frame = framesInOrder[i]
-            if (frame.resolved && frame.contents.in_app) {
-                return frame
-            }
-        }
-
-        return undefined
-    }, [stackFrameRecords])
+    // Keep: local computation previously used, but now derive from releasePreviewLogic (kaboomFrameRecord)
 
     return (
         <div className="space-y-2">
@@ -111,7 +96,7 @@ function ReleaseListItem({ release }: { release: ExceptionRelease }): JSX.Elemen
             <SimplePropertyRow label="Branch" value={release.branch} />
             <div>
                 <span>Kaboom stack frame record:</span>
-                <span>{kaboomFrame && kaboomFrame.contents.line}</span>
+                {/* <span>{kaboomFrameRecord?.contents?.line ?? '—'}</span> */}
             </div>
         </div>
     )
