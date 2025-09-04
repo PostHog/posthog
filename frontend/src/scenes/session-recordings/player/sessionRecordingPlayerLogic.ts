@@ -334,6 +334,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             false as boolean,
             {
                 setShowingClipParams: (_, { showingClipParams }) => showingClipParams,
+                setIsCommenting: (state, { isCommenting }) => (isCommenting ? false : state),
+                setQuickEmojiIsOpen: (state, { quickEmojiIsOpen }) => (quickEmojiIsOpen ? false : state),
             },
         ],
         wasMarkedViewed: [
@@ -346,12 +348,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             false,
             {
                 setIsCommenting: (_, { isCommenting }) => isCommenting,
+                setShowingClipParams: (state, { showingClipParams }) => (showingClipParams ? false : state),
+                setQuickEmojiIsOpen: (state, { quickEmojiIsOpen }) => (quickEmojiIsOpen ? false : state),
             },
         ],
         quickEmojiIsOpen: [
             false,
             {
                 setQuickEmojiIsOpen: (_, { quickEmojiIsOpen }) => quickEmojiIsOpen,
+                setShowingClipParams: (state, { showingClipParams }) => (showingClipParams ? false : state),
+                setIsCommenting: (state, { isCommenting }) => (isCommenting ? false : state),
             },
         ],
         maskingWindow: [
