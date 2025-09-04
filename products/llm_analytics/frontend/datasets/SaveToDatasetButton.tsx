@@ -13,10 +13,10 @@ import { urls } from 'scenes/urls'
 import { DatasetItem } from '~/types'
 
 import { DatasetItemModal } from './DatasetItemModal'
-import { addDatasetItemLogic } from './addDatasetItemLogic'
+import { saveToDatasetButtonLogic } from './saveToDatasetButtonLogic'
 import { useKeyboardNavigation } from './useKeyboardNavigation'
 
-export interface AddDatasetItemButtonProps {
+export interface SaveToDatasetButtonProps {
     traceId: string
     timestamp: string
     sourceId: string
@@ -25,14 +25,14 @@ export interface AddDatasetItemButtonProps {
     metadata?: unknown
 }
 
-export const AddDatasetItemButton = React.memo(function AddDatasetItemButton({
+export const SaveToDatasetButton = React.memo(function SaveToDatasetButton({
     traceId,
     timestamp,
     sourceId,
     input,
     output,
     metadata,
-}: AddDatasetItemButtonProps) {
+}: SaveToDatasetButtonProps) {
     const partialDatasetItem: Partial<DatasetItem> = useMemo(
         () => ({
             ref_trace_id: traceId,
@@ -44,7 +44,7 @@ export const AddDatasetItemButton = React.memo(function AddDatasetItemButton({
         }),
         [traceId, timestamp, sourceId, input, output, metadata]
     )
-    const logic = addDatasetItemLogic({ partialDatasetItem })
+    const logic = saveToDatasetButtonLogic({ partialDatasetItem })
 
     const { dropdownVisible, isModalOpen, selectedDataset, isModalMounted } = useValues(logic)
     const { setEditMode, setDropdownVisible, setIsModalOpen } = useActions(logic)
@@ -92,8 +92,8 @@ export const AddDatasetItemButton = React.memo(function AddDatasetItemButton({
 })
 
 function OverlayMenu(): JSX.Element {
-    const { datasets, isLoadingDatasets } = useValues(addDatasetItemLogic)
-    const { setSearchFormValue, setDropdownVisible } = useActions(addDatasetItemLogic)
+    const { datasets, isLoadingDatasets } = useValues(saveToDatasetButtonLogic)
+    const { setSearchFormValue, setDropdownVisible } = useActions(saveToDatasetButtonLogic)
 
     const { referenceRef, itemsRef, focusedItemIndex } = useKeyboardNavigation<HTMLDivElement, HTMLButtonElement>(
         datasets?.length ?? 0,
@@ -102,7 +102,7 @@ function OverlayMenu(): JSX.Element {
     )
 
     return (
-        <Form logic={addDatasetItemLogic} formKey="searchForm" className="w-xs" enableFormOnSubmit>
+        <Form logic={saveToDatasetButtonLogic} formKey="searchForm" className="w-xs" enableFormOnSubmit>
             <LemonField name="search" label="Search" labelClassName="sr-only">
                 <LemonInput placeholder="Find a dataset" autoFocus />
             </LemonField>

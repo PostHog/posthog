@@ -41,7 +41,7 @@ import { LLMInputOutput } from './LLMInputOutput'
 import { SearchHighlight } from './SearchHighlight'
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
-import { AddDatasetItemButton } from './datasets/AddDatasetItemButton'
+import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
 import { DisplayOption, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
@@ -540,7 +540,7 @@ const EventContent = React.memo(
             event.event === '$ai_generation' &&
             featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]
 
-        const showAddDatasetItemButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
+        const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
 
         const handleTryInPlayground = (): void => {
             if (!event) {
@@ -614,7 +614,7 @@ const EventContent = React.memo(
                                     )}
                                 </div>
                             )}
-                            {(showPlaygroundButton || hasSessionID(event) || showAddDatasetItemButton) && (
+                            {(showPlaygroundButton || hasSessionID(event) || showSaveToDatasetButton) && (
                                 <div className="flex flex-row items-center gap-2">
                                     {showPlaygroundButton && (
                                         <LemonButton
@@ -627,8 +627,8 @@ const EventContent = React.memo(
                                             Try in Playground
                                         </LemonButton>
                                     )}
-                                    {showAddDatasetItemButton && (
-                                        <AddDatasetItemButton
+                                    {showSaveToDatasetButton && (
+                                        <SaveToDatasetButton
                                             traceId={trace.id}
                                             timestamp={trace.createdAt}
                                             sourceId={event.id}

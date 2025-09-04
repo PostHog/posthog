@@ -9,9 +9,9 @@ import { urls } from 'scenes/urls'
 import api from '~/lib/api'
 import { Dataset, DatasetItem } from '~/types'
 
-import type { addDatasetItemLogicType } from './addDatasetItemLogicType'
+import type { saveToDatasetButtonLogicType } from './saveToDatasetButtonLogicType'
 
-export interface AddDatasetItemLogicProps {
+export interface saveToDatasetButtonLogicProps {
     partialDatasetItem: Partial<DatasetItem> | null
 }
 
@@ -22,10 +22,10 @@ export interface SearchFormValues {
     datasetId: string | null
 }
 
-export const addDatasetItemLogic = kea<addDatasetItemLogicType>([
-    path(['scenes', 'llm-analytics', 'addDatasetItemLogic']),
+export const saveToDatasetButtonLogic = kea<saveToDatasetButtonLogicType>([
+    path(['scenes', 'llm-analytics', 'saveToDatasetButtonLogic']),
 
-    props({ partialDatasetItem: null } as AddDatasetItemLogicProps),
+    props({ partialDatasetItem: null } as saveToDatasetButtonLogicProps),
 
     actions({
         setIsModalOpen: (isModalOpen: boolean) => ({ isModalOpen }),
