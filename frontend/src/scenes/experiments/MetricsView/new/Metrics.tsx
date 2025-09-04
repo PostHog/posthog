@@ -11,6 +11,7 @@ import { experimentLogic } from '../../experimentLogic'
 import { modalsLogic } from '../../modalsLogic'
 import { MetricsReorderModal } from '../MetricsReorderModal'
 import { AddPrimaryMetric, AddSecondaryMetric } from '../shared/AddMetric'
+import { getIsCachedForMetric, getResultForMetric } from '../shared/mapUtils'
 import { MetricsTable } from './MetricsTable'
 import { ResultDetails } from './ResultDetails'
 
@@ -33,16 +34,17 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
         return <></>
     }
 
-    const resultsMap = isSecondary ? secondaryMetricsResults : primaryMetricsResults
-    const errorsMap = isSecondary ? secondaryMetricsResultsErrors : primaryMetricsResultsErrors
+    const results = isSecondary ? secondaryMetricsResults : primaryMetricsResults
+    const errors = isSecondary ? secondaryMetricsResultsErrors : primaryMetricsResultsErrors
 
     const metrics = getOrderedMetrics(!!isSecondary)
 
-    // Get results and errors for the ordered metrics
-    const results = metrics.map((metric) => resultsMap.get(metric.uuid!))
-    const errors = metrics.map((metric) => errorsMap.get(metric.uuid!))
-
-    const showResultDetails = metrics.length === 1 && results[0] && hasMinimumExposureForResults && !isSecondary
+    const showResultDetails =
+        metrics.length === 1 &&
+        metrics[0].uuid != undefined &&
+        getResultForMetric(results, metrics[0]) !== null &&
+        hasMinimumExposureForResults &&
+        !isSecondary
 
     return (
         <div className="mb-4 -mt-2">
@@ -99,7 +101,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                 <>
                     <MetricsTable
                         metrics={metrics}
-                        results={results as any}
+                        results={results}
                         errors={errors}
                         isSecondary={!!isSecondary}
                         getInsightType={getInsightType}
@@ -108,11 +110,11 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                     {showResultDetails && (
                         <div className="mt-4">
                             <ResultDetails
-                                metric={metrics[0] as ExperimentMetric}
+                                metric={metrics[0]}
                                 result={{
-                                    ...results[0]!,
+                                    ...getResultForMetric(results, metrics[0])!,
                                     metric: metrics[0] as ExperimentMetric,
-                                    is_cached: results[0]?.is_cached ?? false,
+                                    is_cached: getIsCachedForMetric(results, metrics[0]),
                                 }}
                                 experiment={experiment}
                                 isSecondary={!!isSecondary}

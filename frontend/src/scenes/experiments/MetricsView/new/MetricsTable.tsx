@@ -1,23 +1,24 @@
 import { useActions, useValues } from 'kea'
 
 import {
+    CachedNewExperimentQueryResponse,
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentTrendsQuery,
-    NewExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'
 import { insertMetricIntoOrderingArray } from '../../utils'
+import { getErrorForMetric, getResultForMetric } from '../shared/mapUtils'
 import { type ExperimentVariantResult, getVariantInterval } from '../shared/utils'
 import { MetricRowGroup } from './MetricRowGroup'
 import { TableHeader } from './TableHeader'
 
 interface MetricsTableProps {
     metrics: ExperimentMetric[]
-    results: NewExperimentQueryResponse[]
-    errors: any[]
+    results: Map<string, CachedNewExperimentQueryResponse>
+    errors: Map<string, any>
     isSecondary: boolean
     getInsightType: (metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery) => InsightType
     showDetailsModal?: boolean
@@ -36,7 +37,7 @@ export function MetricsTable({
 
     // Calculate shared axisRange across all metrics
     const maxAbsValue = Math.max(
-        ...results.flatMap((result: NewExperimentQueryResponse) => {
+        ...Array.from(results.values()).flatMap((result: CachedNewExperimentQueryResponse) => {
             const variantResults = result?.variant_results || []
             return variantResults.flatMap((variant: ExperimentVariantResult) => {
                 const interval = getVariantInterval(variant)
@@ -70,8 +71,8 @@ export function MetricsTable({
                 <TableHeader axisRange={axisRange} />
                 <tbody>
                     {metrics.map((metric, index) => {
-                        const result = results[index]
-                        const error = errors[index]
+                        const result = getResultForMetric(results, metric)
+                        const error = getErrorForMetric(errors, metric)
 
                         const isLoading = !result && !error && !!experiment.start_date
 
