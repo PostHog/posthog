@@ -380,19 +380,19 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             )
         },
     })),
-    subscriptions(() => ({
+    subscriptions(({ props }) => ({
         query: (query) => {
-            if (query) {
+            if (query && props.tabId === sceneLogic.values.activeTabId) {
                 const hashQuery = router.values.currentLocation.hashParams['q']
                 if (!hashQuery || !objectsEqual(parseDraftQueryFromURL(hashQuery), query)) {
-                    router.actions.replace(
-                        router.values.currentLocation.pathname,
-                        router.values.currentLocation.search,
-                        {
-                            ...router.values.currentLocation.hashParams,
-                            q: JSON.stringify(query),
-                        }
-                    )
+                    // router.actions.replace(
+                    //     router.values.currentLocation.pathname,
+                    //     router.values.currentLocation.search,
+                    //     {
+                    //         ...router.values.currentLocation.hashParams,
+                    //         q: JSON.stringify(query),
+                    //     }
+                    // )
                 }
             }
         },
@@ -418,11 +418,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             let insightId = String(shortId) as InsightShortId
             if (insightId === 'new') {
                 insightId = `new-${values.tabId}` as InsightShortId
-            }
-            if (values.insightId && values.insightId !== insightId) {
-                // This is for another logic. Pressing the back button can end up here
-
-                return
             }
 
             const currentScene = sceneLogic.findMounted()?.values
@@ -531,7 +526,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
 
             const baseUrl = insightMode === ItemMode.View ? urls.insightView(insightId) : urls.insightEdit(insightId)
             const searchParams = window.location.search
-            return [baseUrl, searchParams, values.query ? { q: values.query } : undefined]
+            // return [baseUrl, searchParams, values.query ? { q: values.query } : undefined]
+            return [baseUrl, searchParams, undefined]
         }
 
         return {
