@@ -200,15 +200,16 @@ field_name_overrides: dict[ActivityScope, dict[str, str]] = {
 
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
-    "PersonalAPIKey": [
-        "last_used_at",
-    ],
     "AlertConfiguration": [
         "last_checked_at",
         "next_check_at",
         "is_calculating",
         "last_notified_at",
         "last_error_at",
+    ],
+    "Dashboard": ["last_accessed_at"],
+    "PersonalAPIKey": [
+        "last_used_at",
     ],
 }
 

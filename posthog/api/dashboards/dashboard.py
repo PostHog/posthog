@@ -689,7 +689,7 @@ class DashboardsViewSet(
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         dashboard = self.get_object()
         dashboard.last_accessed_at = now()
-        dashboard.save(update_fields=["last_accessed_at"], skip_activity_log=True)
+        dashboard.save(update_fields=["last_accessed_at"])
         serializer = DashboardSerializer(dashboard, context=self.get_serializer_context())
         return Response(serializer.data)
 
@@ -703,7 +703,7 @@ class DashboardsViewSet(
 
         # Do all database operations and data loading synchronously first
         dashboard.last_accessed_at = now()
-        dashboard.save(update_fields=["last_accessed_at"], skip_activity_log=True)
+        dashboard.save(update_fields=["last_accessed_at"])
 
         # Prepare metadata with initial tiles
         metadata_serializer = DashboardMetadataSerializer(dashboard, context=self.get_serializer_context())
