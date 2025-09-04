@@ -1,6 +1,5 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use dashmap::DashMap;
 use rdkafka::TopicPartitionList;
 use std::sync::Arc;
 use tracing::{error, info};
