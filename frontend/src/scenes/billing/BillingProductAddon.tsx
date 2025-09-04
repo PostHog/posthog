@@ -106,7 +106,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             {isDataPipelinesDeprecated && (
                                 <div>
                                     <Tooltip
-                                        title={`Data pipelines are migrating to standalone products with true usage-based pricing - realtime destinations and batch exports. You can no longer upgrade to the data pipelines add-on but you have access to new products with generous free allowance by default. You will only get billed for the data pipelines add-on based on events ingested until ${DATA_PIPELINES_CUTOFF_DATE}.`}
+                                        title={`Data pipelines are moving to new, usage-based pricing with a large free allowance. You can no longer upgrade to this add-on and old ingestion-based pricing ends on ${DATA_PIPELINES_CUTOFF_DATE}.`}
                                     >
                                         <LemonTag type="warning" icon={<IconInfo />}>
                                             Deprecated
