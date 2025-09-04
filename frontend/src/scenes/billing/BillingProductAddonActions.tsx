@@ -131,7 +131,7 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
                         disableClientSideRouting
                         disabledReason={
                             isDataPipelinesDeprecated
-                                ? `Data pipelines are migrating to standalone products with true usage-based pricing - realtime destinations and batch exports. You can no longer upgrade to the data pipelines add-on but you have access to new products with generous free allowance by default.`
+                                ? `Data pipelines are moving to new, usage-based pricing with a large free allowance. You can no longer upgrade to the data pipelines add-on.`
                                 : (billingError && billingError.message) ||
                                   (billing?.subscription_level === 'free' && 'Upgrade to add add-ons')
                         }
