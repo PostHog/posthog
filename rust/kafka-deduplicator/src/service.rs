@@ -11,18 +11,18 @@ use crate::{
     checkpoint_manager::CheckpointManager,
     config::Config,
     deduplication_processor::{DeduplicationConfig, DeduplicationProcessor},
-    kafka::{stateful_consumer::StatefulKafkaConsumer, types::Partition, ConsumerConfigBuilder},
+    kafka::{stateful_consumer::StatefulKafkaConsumer, ConsumerConfigBuilder},
     processor_pool::ProcessorPool,
     processor_rebalance_handler::ProcessorRebalanceHandler,
-    rocksdb::deduplication_store::{DeduplicationStore, DeduplicationStoreConfig},
+    rocksdb::deduplication_store::DeduplicationStoreConfig,
+    store_manager::StoreManager,
 };
-use dashmap::DashMap;
 
 /// The main Kafka Deduplicator service that encapsulates all components
 pub struct KafkaDeduplicatorService {
     config: Config,
     consumer: Option<StatefulKafkaConsumer>,
-    stores: Arc<DashMap<Partition, DeduplicationStore>>,
+    store_manager: Arc<StoreManager>,
     checkpoint_manager: Option<CheckpointManager>,
     processor_pool_handles: Option<Vec<tokio::task::JoinHandle<()>>>,
     shutdown_tx: Option<oneshot::Sender<()>>,
@@ -36,12 +36,20 @@ impl KafkaDeduplicatorService {
         // Validate configuration
         config.validate().with_context(|| format!("Configuration validation failed for service with consumer topic '{}' and group '{}'", config.kafka_consumer_topic, config.kafka_consumer_group))?;
 
-        // Create shared stores for deduplication
-        let stores = Arc::new(DashMap::new());
+        // Create store configuration
+        let store_config = DeduplicationStoreConfig {
+            path: config.store_path_buf(),
+            max_capacity: config
+                .parse_storage_capacity()
+                .context("Failed to parse max_store_capacity")?,
+        };
 
-        // Create checkpoint manager
+        // Create store manager for handling concurrent store creation
+        let store_manager = Arc::new(StoreManager::new(store_config));
+
+        // Create checkpoint manager with the store manager
         let mut checkpoint_manager =
-            CheckpointManager::new(stores.clone(), config.flush_interval());
+            CheckpointManager::new(store_manager.clone(), config.flush_interval());
         checkpoint_manager.start();
         info!(
             "Started checkpoint manager with flush interval: {:?}",
@@ -51,7 +59,7 @@ impl KafkaDeduplicatorService {
         Ok(Self {
             config,
             consumer: None,
-            stores,
+            store_manager,
             checkpoint_manager: Some(checkpoint_manager),
             processor_pool_handles: None,
             shutdown_tx: None,
@@ -66,29 +74,28 @@ impl KafkaDeduplicatorService {
             return Err(anyhow::anyhow!("Service already initialized"));
         }
 
-        // Create deduplication config
-        let store_config = DeduplicationStoreConfig {
-            path: self.config.store_path_buf(),
-            max_capacity: self
-                .config
-                .parse_storage_capacity()
-                .context("Failed to parse max_store_capacity")?,
-        };
-
+        // Create deduplication config (store config already in store_manager)
         let dedup_config = DeduplicationConfig {
             output_topic: self.config.output_topic.clone(),
             producer_config: self.config.build_producer_config(),
-            store_config,
+            store_config: DeduplicationStoreConfig {
+                path: self.config.store_path_buf(),
+                max_capacity: self
+                    .config
+                    .parse_storage_capacity()
+                    .context("Failed to parse max_store_capacity")?,
+            },
             producer_send_timeout: self.config.producer_send_timeout(),
             flush_interval: self.config.flush_interval(),
         };
 
-        // Create a processor with reference to the shared stores
-        let processor = DeduplicationProcessor::new(dedup_config, self.stores.clone())
-            .with_context(|| "Failed to create deduplication processor".to_string())?;
+        // Create a processor with the store manager
+        let processor = DeduplicationProcessor::new(dedup_config, self.store_manager.clone())
+            .with_context(|| "Failed to create deduplication processor")?;
 
-        // Create rebalance handler with stores reference
-        let rebalance_handler = Arc::new(ProcessorRebalanceHandler::new(self.stores.clone()));
+        // Create rebalance handler with the store manager
+        let rebalance_handler =
+            Arc::new(ProcessorRebalanceHandler::new(self.store_manager.clone()));
 
         // Create consumer config using the kafka module's builder
         let consumer_config =
@@ -214,6 +221,9 @@ impl KafkaDeduplicatorService {
                 self.config.shutdown_timeout()
             ),
         }
+
+        // Shutdown all stores cleanly
+        self.store_manager.shutdown().await;
 
         info!("Kafka Deduplicator service stopped");
         Ok(())

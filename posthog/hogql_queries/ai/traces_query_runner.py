@@ -122,7 +122,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 round(
                     sumIf(toFloat(properties.$ai_latency),
                         properties.$ai_parent_id IS NULL
-                        OR properties.$ai_parent_id = properties.$ai_trace_id
+                        OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
                     ), 2
                 ) AS total_latency,
                 sumIf(toFloat(properties.$ai_input_tokens),
@@ -158,7 +158,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                         arraySort(x -> x.3,
                             groupArrayIf(
                                 tuple(uuid, event, timestamp, properties),
-                                event IN ('$ai_metric', '$ai_feedback') OR properties.$ai_parent_id = properties.$ai_trace_id
+                                event IN ('$ai_metric', '$ai_feedback') OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
                             )
                         )
                     )

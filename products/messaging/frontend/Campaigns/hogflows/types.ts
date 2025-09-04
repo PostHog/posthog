@@ -1,6 +1,8 @@
 import { Node } from '@xyflow/react'
 import { z } from 'zod'
 
+import { CyclotronJobInputsValidationResult } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
+
 import { HogFlowActionSchema } from './steps/types'
 
 const HogFlowEdgeSchema = z.object({
@@ -42,6 +44,8 @@ export const HogFlowSchema = z.object({
     actions: z.array(HogFlowActionSchema),
     abort_action: z.string().optional(),
     edges: z.array(HogFlowEdgeSchema),
+    updated_at: z.string(),
+    created_at: z.string(),
 })
 
 // NOTE: these are purposefully exported as interfaces to support kea typegen
@@ -49,3 +53,7 @@ export interface HogFlow extends z.infer<typeof HogFlowSchema> {}
 export interface HogFlowEdge extends z.infer<typeof HogFlowEdgeSchema> {}
 export type HogFlowAction = z.infer<typeof HogFlowActionSchema> & Record<string, unknown>
 export interface HogFlowActionNode extends Node<HogFlowAction> {}
+
+export type HogFlowActionValidationResult = CyclotronJobInputsValidationResult & {
+    schema: z.ZodError | null
+}

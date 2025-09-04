@@ -49,7 +49,7 @@ class HogFlowActionSerializer(serializers.Serializer):
     )
     created_at = serializers.IntegerField(required=False)
     updated_at = serializers.IntegerField(required=False)
-    filters = HogFunctionFiltersSerializer(required=False, default=dict, allow_null=True)
+    filters = HogFunctionFiltersSerializer(required=False, default=None, allow_null=True)
     type = serializers.CharField(max_length=100)
     config = serializers.JSONField()
 
@@ -96,6 +96,7 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
             "status",
             "created_at",
             "created_by",
+            "updated_at",
             "trigger",
             "trigger_masking",
             "conversion",
@@ -121,6 +122,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "status",
             "created_at",
             "created_by",
+            "updated_at",
             "trigger",
             "trigger_masking",
             "conversion",

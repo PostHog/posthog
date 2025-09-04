@@ -960,9 +960,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 actions.setTabs(newTabs)
             }
             if (!process?.env?.STORYBOOK) {
-                // This persists the changed tab titles in location.history without a replace/push action
-                // Somehow it messes up storybook.
-                router.actions.refreshRouterState()
+                // This persists the changed tab titles in location.history without a replace/push action.
+                // We'll do it outside the action's event loop to avoid race conditions with subscribing.
+                // Somehow it messes up Storybook, so disabled for it.
+                window.setTimeout(() => router.actions.refreshRouterState(), 1)
             }
         },
         tabs: () => {

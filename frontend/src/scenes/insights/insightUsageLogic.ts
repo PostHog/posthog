@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { projectLogic } from 'scenes/projectLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -30,6 +31,8 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
             ['insight'],
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['query'],
+            sceneLogic,
+            ['activeTabId'],
         ],
         actions: [eventUsageLogic, ['reportInsightViewed']],
     })),
@@ -51,11 +54,10 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
     listeners(({ actions, values }) => ({
         onQueryChange: async ({ query }, breakpoint) => {
             // We only want to report direct views on the insights page.
-            if (
-                !insightSceneLogic.isMounted() ||
-                insightSceneLogic.values.activeSceneId !== 'Insight' ||
-                insightSceneLogic.values.insight?.short_id !== values.insight?.short_id
-            ) {
+            const logic = insightSceneLogic.findMounted({ tabId: values.activeTabId })
+            const shortId = logic?.values.insight?.short_id
+
+            if (!logic || shortId !== values.insight?.short_id) {
                 return
             }
 

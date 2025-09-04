@@ -3,11 +3,13 @@ import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dn
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 
-import { IconPlus, IconSearch, IconX } from '@posthog/icons'
+import { IconCopy, IconPlus, IconSearch, IconX } from '@posthog/icons'
 
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { HoverCard, HoverCardContent, HoverCardTrigger } from 'lib/ui/HoverCard/HoverCard'
 import { cn } from 'lib/utils/css-classes'
 import { SceneTab } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -124,9 +126,46 @@ function SortableSceneTab({ tab }: { tab: SceneTab }): JSX.Element {
             {...listeners}
             className="grow-0 shrink basis-auto min-w-[40px] max-w-[200px]"
         >
-            <SceneTabContextMenu tab={tab}>
-                <SceneTabComponent tab={tab} isDragging={isDragging} />
-            </SceneTabContextMenu>
+            <HoverCard>
+                <HoverCardTrigger>
+                    <SceneTabContextMenu tab={tab}>
+                        <SceneTabComponent tab={tab} isDragging={isDragging} />
+                    </SceneTabContextMenu>
+                </HoverCardTrigger>
+                <HoverCardContent
+                    className="break-all"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                >
+                    <div className="flex flex-col gap-1">
+                        <span className="text-primary text-sm font-semibold">{tab.title}</span>
+                        <span className="text-secondary text-xs flex items-center gap-1">
+                            <span>
+                                {window.location.origin}
+                                {tab.pathname}
+                            </span>
+                            <ButtonPrimitive
+                                iconOnly
+                                size="xs"
+                                tooltip="Copy tab URL with pathname, search, and hash"
+                                className="text-primary"
+                                onClick={() => {
+                                    try {
+                                        navigator.clipboard.writeText(
+                                            `${window.location.origin}${tab.pathname}${tab.search}${tab.hash}`
+                                        )
+                                        lemonToast.success('URL copied to clipboard')
+                                    } catch (error) {
+                                        lemonToast.error(`Failed to copy URL to clipboard ${error}`)
+                                    }
+                                }}
+                            >
+                                <IconCopy />
+                            </ButtonPrimitive>
+                        </span>
+                    </div>
+                </HoverCardContent>
+            </HoverCard>
         </div>
     )
 }

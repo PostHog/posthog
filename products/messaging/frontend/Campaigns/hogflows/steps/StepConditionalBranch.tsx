@@ -2,7 +2,7 @@ import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconDecisionTree, IconPlus, IconX } from '@posthog/icons'
+import { IconPlus, IconX } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
@@ -10,50 +10,8 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { HogFlowFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
-import { StepView } from './components/StepView'
-import { HogFlowStep, HogFlowStepNodeProps } from './types'
 
-export const StepConditionalBranch: HogFlowStep<'conditional_branch'> = {
-    type: 'conditional_branch',
-    name: 'Conditional branch',
-    description: 'Branch based on a condition such as the event trigger or a person property.',
-    icon: <IconDecisionTree className="text-[#e5991e]" />,
-    color: '#e5991e',
-    renderNode: (props) => <StepConditionalBranchNode {...props} />,
-    renderConfiguration: (node) => <StepConditionalBranchConfiguration node={node} />,
-    create: () => {
-        return {
-            action: {
-                name: 'Conditional',
-                description: '',
-                type: 'conditional_branch',
-                on_error: 'continue',
-                config: {
-                    conditions: [
-                        {
-                            filters: {
-                                events: [
-                                    {
-                                        id: '$pageview',
-                                        name: '$pageview',
-                                        type: 'events',
-                                    },
-                                ],
-                            },
-                        },
-                    ],
-                },
-            },
-            branchEdges: 1,
-        }
-    },
-}
-
-function StepConditionalBranchNode({ data }: HogFlowStepNodeProps): JSX.Element {
-    return <StepView action={data} />
-}
-
-function StepConditionalBranchConfiguration({
+export function StepConditionalBranchConfiguration({
     node,
 }: {
     node: Node<Extract<HogFlowAction, { type: 'conditional_branch' }>>

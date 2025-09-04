@@ -72,7 +72,7 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             data-attr="events-table-trace-link"
                             to={urls.llmAnalyticsTrace(event.properties.$ai_trace_id, {
                                 event: event.id,
-                                timestamp: event.timestamp,
+                                exception_ts: event.timestamp,
                             })}
                         >
                             View LLM Trace

@@ -96,10 +96,16 @@ export const stringToPluginServerMode = Object.fromEntries(
     ])
 ) as Record<string, PluginServerMode>
 
+export interface HealthCheckResult {
+    healthy: boolean
+    message?: string
+    details?: Record<string, any>
+}
+
 export type PluginServerService = {
     id: string
     onShutdown: () => Promise<any>
-    healthcheck: () => boolean | Promise<boolean>
+    healthcheck: () => boolean | HealthCheckResult | Promise<boolean | HealthCheckResult>
 }
 
 export type CdpConfig = {
@@ -202,6 +208,12 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PERSON_PROPERTIES_TRIM_TARGET_BYTES: number // target size in bytes we trim JSON to before writing (customer-facing 512kb)
     // Limit per merge for moving distinct IDs. 0 disables limiting.
     PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: number
+    // Topic for async person merge processing
+    PERSON_MERGE_ASYNC_TOPIC: string
+    // Enable async person merge processing
+    PERSON_MERGE_ASYNC_ENABLED: boolean
+    // Batch size for sync person merge processing (0 = unlimited)
+    PERSON_MERGE_SYNC_BATCH_SIZE: number
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number // maximum number of concurrent updates to groups table per batch
     GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number // maximum number of retries for optimistic update
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number // starting interval for exponential backoff between retries for optimistic update
@@ -249,6 +261,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     CONSUMER_BATCH_SIZE: number // Primarily for kafka consumers the batch size to use
     CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: number // Primarily for kafka consumers the max heartbeat interval to use after which it will be considered unhealthy
+    CONSUMER_LOOP_STALL_THRESHOLD_MS: number // Threshold in ms after which the consumer loop is considered stalled
+    KAFKA_CONSUMER_LOOP_BASED_HEALTH_CHECK: boolean // Use consumer loop monitoring for health checks instead of heartbeats
     CONSUMER_MAX_BACKGROUND_TASKS: number
     CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean
     CONSUMER_AUTO_CREATE_TOPICS: boolean
