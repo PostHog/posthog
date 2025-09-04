@@ -6,7 +6,6 @@ import {
     Controls,
     Edge,
     EdgeTypes,
-    FitViewOptions,
     NodeTypes,
     ReactFlow,
     ReactFlowProvider,
@@ -41,23 +40,17 @@ function HogFlowEditorContent(): JSX.Element {
     } = useActions(hogFlowEditorLogic)
 
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
+
     const reactFlowInstance = useReactFlow()
 
     useEffect(() => {
         setReactFlowInstance(reactFlowInstance)
     }, [reactFlowInstance, setReactFlowInstance])
 
-    const fitViewOptions: FitViewOptions = {
-        padding: {
-            right: '500px',
-        },
-    }
-
     return (
         <div ref={reactFlowWrapper} className="w-full h-full">
             <ReactFlow<HogFlowActionNode, Edge>
                 fitView
-                fitViewOptions={fitViewOptions}
                 nodes={[...nodes, ...(dropzoneNodes as unknown as HogFlowActionNode[])]}
                 edges={edges}
                 onNodesChange={onNodesChange}
@@ -75,7 +68,7 @@ function HogFlowEditorContent(): JSX.Element {
             >
                 <Background gap={36} variant={BackgroundVariant.Dots} />
 
-                <Controls showInteractive={false} fitViewOptions={fitViewOptions} />
+                <Controls showInteractive={false} />
 
                 <HogFlowEditorPanel />
             </ReactFlow>
