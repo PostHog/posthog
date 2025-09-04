@@ -68,7 +68,6 @@ def call_root_for_replay_sessions(demo_org_team_user):
 async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_replay_sessions, pytestconfig):
     """Test routing between search_session_recordings (contextual) and session_summarization (root) with context."""
 
-    # Create a wrapper that passes True for include_search_session_recordings_context
     async def task_with_context(messages):
         return await call_root_for_replay_sessions(messages, include_search_session_recordings_context=True)
 
@@ -220,7 +219,6 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
 async def eval_session_summarization_no_context(patch_feature_enabled, call_root_for_replay_sessions, pytestconfig):
     """Test session summarization without search_session_recordings context - should_use_current_filters should always be false."""
 
-    # Create a wrapper that passes False for include_search_session_recordings_context
     async def task_without_context(messages):
         return await call_root_for_replay_sessions(messages, include_search_session_recordings_context=False)
 
