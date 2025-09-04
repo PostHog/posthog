@@ -567,3 +567,89 @@ def test_create_s3_batch_export_validates_file_format_and_compression(
         else:
             assert response.status_code == status.HTTP_400_BAD_REQUEST
             assert response.json()["detail"] == expected_error_message
+
+
+@pytest.mark.parametrize(
+    "type,config,expected_error_message",
+    [
+        (
+            "Snowflake",
+            {
+                "account": "my-account",
+                "user": "user",
+                "database": "my-db",
+                "warehouse": "COMPUTE_WH",
+                "schema": "public",
+                "table_name": 2,  # Wrong type
+                "authentication_type": "keypair",
+                "private_key": "SECRET_KEY",
+            },
+            "invalid type: got 'int', expected 'str'",
+        ),
+        (
+            "S3",
+            {
+                "bucket_name": "my-s3-bucket",
+                "region": "us-east-1",
+                "prefix": "posthog-events/",
+                "aws_access_key_id": "abc123",
+                "aws_secret_access_key": "secret",
+                "hello": 123,  # Unknown field
+                "hello2": 123,  # Another unknown field
+            },
+            "unknown field/s: 'hello', 'hello2'",
+        ),
+        (
+            "Postgres",
+            {
+                "user": "test",
+                "password": "password",
+                "host": "host",
+                "database": "db",
+                "schema": None,  # Not optional
+                "table_name": "test",
+            },
+            "invalid type: got 'NoneType', expected 'str'",
+        ),
+        (
+            "BigQuery",
+            {
+                "project_id": "test",
+                # Missing required `dataset_id`
+                "private_key": "pkey",
+                "private_key_id": "pkey_id",
+                "token_uri": "token",
+                "client_email": "email",
+            },
+            "missing required field: 'dataset_id'",
+        ),
+    ],
+)
+def test_create_batch_export_with_invalid_config(client: HttpClient, temporal, type, config, expected_error_message):
+    """Test creating a BatchExport with an invalid configuration returns an error."""
+
+    destination_data = {
+        "type": type,
+        "config": config,
+    }
+
+    batch_export_data = {
+        "name": "destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    organization = create_organization("Test Org")
+    team = create_team(organization)
+    user = create_user("test@user.com", "Test User", organization)
+    client.force_login(user)
+
+    with start_test_worker(temporal):
+        response = create_batch_export(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_error_message in response.json()["detail"]
