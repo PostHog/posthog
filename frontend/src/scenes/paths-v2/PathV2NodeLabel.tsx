@@ -12,7 +12,8 @@ function formatNodeName(node: PathNodeData): string {
     } else if (node.name.includes(POSTHOG_OTHER)) {
         return 'Other (i.e. all remaining values)'
     }
-    return node.name
+    // Remove the prefix
+    return node.name.replace(/^\d+_/, '')
 }
 
 export type PathV2NodeLabelProps = {
