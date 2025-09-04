@@ -1,5 +1,4 @@
 from datetime import datetime
-from functools import cached_property
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -27,7 +26,7 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
     cached_response: CachedPathsV2QueryResponse
 
     @property
-    def pathsV2Filter(self) -> PathsV2Filter:
+    def paths_v2_filter(self) -> PathsV2Filter:
         if not self.query.pathsV2Filter:
             return PathsV2Filter()
         return self.query.pathsV2Filter
@@ -35,44 +34,44 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
     @property
     def max_steps(self) -> int:
         return (
-            self.pathsV2Filter.maxSteps
-            if self.pathsV2Filter.maxSteps is not None
+            self.paths_v2_filter.maxSteps
+            if self.paths_v2_filter.maxSteps is not None
             else PathsV2Filter.model_fields["maxSteps"].default
         )
 
     @property
     def max_rows_per_step(self) -> int:
         return (
-            self.pathsV2Filter.maxRowsPerStep
-            if self.pathsV2Filter.maxRowsPerStep is not None
+            self.paths_v2_filter.maxRowsPerStep
+            if self.paths_v2_filter.maxRowsPerStep is not None
             else PathsV2Filter.model_fields["maxRowsPerStep"].default
         )
 
     @property
     def interval(self) -> int:
         return (
-            self.pathsV2Filter.windowInterval
-            if self.pathsV2Filter.windowInterval is not None
+            self.paths_v2_filter.windowInterval
+            if self.paths_v2_filter.windowInterval is not None
             else PathsV2Filter.model_fields["windowInterval"].default
         )
 
     @property
     def interval_unit(self) -> ConversionWindowIntervalUnit:
         return (
-            self.pathsV2Filter.windowIntervalUnit
-            if self.pathsV2Filter.windowIntervalUnit is not None
+            self.paths_v2_filter.windowIntervalUnit
+            if self.paths_v2_filter.windowIntervalUnit is not None
             else PathsV2Filter.model_fields["windowIntervalUnit"].default
         )
 
     @property
     def collapse_events(self) -> bool:
         return (
-            self.pathsV2Filter.collapseEvents
-            if self.pathsV2Filter.collapseEvents is not None
+            self.paths_v2_filter.collapseEvents
+            if self.paths_v2_filter.collapseEvents is not None
             else PathsV2Filter.model_fields["collapseEvents"].default
         )
 
-    @cached_property
+    @property
     def query_date_range(self) -> QueryDateRange:
         return QueryDateRange(
             date_range=self.query.dateRange,
