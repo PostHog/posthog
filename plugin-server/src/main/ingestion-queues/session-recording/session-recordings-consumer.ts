@@ -383,6 +383,7 @@ export class SessionRecordingIngester {
                     this.partitionMetrics[partitionStat.partition] = metrics
                 }
             })
+            this.kafkaConsumer.heartbeat()
 
             await this.reportPartitionMetrics()
 
@@ -395,7 +396,6 @@ export class SessionRecordingIngester {
                     }
                 }
             })
-            this.kafkaConsumer.heartbeat()
 
             await instrumentFn(
                 `recordingingester.handleEachBatch.flushAllReadySessions`,
@@ -411,13 +411,14 @@ export class SessionRecordingIngester {
                 await instrumentFn(`recordingingester.handleEachBatch.consumeReplayEvents`, async () => {
                     await this.replayEventsIngester!.consumeBatch(recordingMessages)
                 })
+                this.kafkaConsumer.heartbeat()
             }
-            this.kafkaConsumer.heartbeat()
 
             if (this.consoleLogsIngester) {
                 await instrumentFn(`recordingingester.handleEachBatch.consumeConsoleLogEvents`, async () => {
                     await this.consoleLogsIngester!.consumeBatch(recordingMessages)
                 })
+                this.kafkaConsumer.heartbeat()
             }
         })
     }

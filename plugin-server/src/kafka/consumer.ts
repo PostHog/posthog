@@ -316,16 +316,7 @@ export class KafkaConsumer {
     }
 
     public assignments(): Assignment[] {
-        if (!this.rdKafkaConsumer.isConnected()) {
-            return []
-        }
-        try {
-            return this.rdKafkaConsumer.assignments()
-        } catch (error) {
-            // Consumer might be connected but in an erroneous state (e.g., during rebalancing)
-            logger.debug('Failed to get assignments', { error: error.message })
-            return []
-        }
+        return this.rdKafkaConsumer.isConnected() ? this.rdKafkaConsumer.assignments() : []
     }
 
     public offsetsStore(topicPartitionOffsets: TopicPartitionOffset[]): void {
@@ -570,9 +561,10 @@ export class KafkaConsumer {
             throw error
         }
 
-        // Initialize health monitoring state
+        this.heartbeat() // Setup the heartbeat so we are healthy since connection is established
+
+        // Initialize health monitoring state for new loop-based check
         this.lastConsumerLoopTime = Date.now()
-        this.lastHeartbeatTime = Date.now() // Also initialize heartbeat for backward compatibility
 
         if (defaultConfig.CONSUMER_AUTO_CREATE_TOPICS) {
             // For hobby deploys we want to auto-create, but on cloud we don't
