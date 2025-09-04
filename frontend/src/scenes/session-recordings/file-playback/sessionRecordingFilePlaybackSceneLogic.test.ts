@@ -19,7 +19,10 @@ describe('sessionRecordingFilePlaybackLogic', () => {
 
         it('should generate a new playerKey on load', () => {
             expectLogic(logic).toMatchValues({
-                playerKey: 'file-playback',
+                playerProps: {
+                    sessionRecordingId: '',
+                    playerKey: 'file-playback-empty',
+                },
             })
 
             logic.actions.loadFromFileSuccess({} as any)
