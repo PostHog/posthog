@@ -13,11 +13,10 @@ from ee.hogai.graph.billing.nodes import BillingNode
 from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
 from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
-from ee.hogai.utils.types import AssistantNodeName, AssistantState
+from ee.hogai.utils.types import AssistantNodeName, AssistantState, StateType
 from ee.hogai.utils.types.base import BaseState
 from ee.hogai.utils.types.composed import MaxNodeName
 
-from .base import StateType
 from .funnels.nodes import FunnelGeneratorNode, FunnelGeneratorToolsNode
 from .inkeep_docs.nodes import InkeepDocsNode
 from .insights.nodes import InsightSearchNode
@@ -103,6 +102,16 @@ class BaseAssistantGraph(Generic[StateType]):
             checkpointer=checkpointer if checkpointer is not None else global_checkpointer
         )
         return AssistantCompiledStateGraph(compiled_graph, self._get_reasoning_message_by_node_name)
+
+    def add_title_generator(self, end_node: MaxNodeName = AssistantNodeName.END):
+        builder = self._graph
+        self._has_start_node = True
+
+        title_generator = TitleGeneratorNode(self._team, self._user)
+        builder.add_node(AssistantNodeName.TITLE_GENERATOR, title_generator)
+        builder.add_edge(AssistantNodeName.START, AssistantNodeName.TITLE_GENERATOR)
+        builder.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
+        return self
 
 
 class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
@@ -368,7 +377,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         )
         return self
 
-    def add_title_generator(self, end_node: AssistantNodeName = AssistantNodeName.END):
+    def add_title_generator(self, end_node: MaxNodeName = AssistantNodeName.END):
         self._has_start_node = True
 
         title_generator = TitleGeneratorNode(self._team, self._user)

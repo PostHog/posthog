@@ -1,22 +1,22 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use dashmap::DashMap;
 use rdkafka::TopicPartitionList;
 use std::sync::Arc;
 use tracing::info;
 
-use crate::deduplication_processor::DeduplicationProcessor;
 use crate::kafka::rebalance_handler::RebalanceHandler;
 use crate::kafka::types::Partition;
+use crate::rocksdb::deduplication_store::DeduplicationStore;
 
-/// Rebalance handler that coordinates with DeduplicationProcessor
-/// This handler cleans up stores for revoked partitions
+/// Rebalance handler that coordinates store cleanup on partition revocation
 pub struct ProcessorRebalanceHandler {
-    processor: Arc<DeduplicationProcessor>,
+    stores: Arc<DashMap<Partition, DeduplicationStore>>,
 }
 
 impl ProcessorRebalanceHandler {
-    pub fn new(processor: Arc<DeduplicationProcessor>) -> Self {
-        Self { processor }
+    pub fn new(stores: Arc<DashMap<Partition, DeduplicationStore>>) -> Self {
+        Self { stores }
     }
 }
 
@@ -41,7 +41,16 @@ impl RebalanceHandler for ProcessorRebalanceHandler {
             .collect();
 
         // Clean up stores for revoked partitions
-        self.processor.cleanup_stores(&partition_infos).await;
+        for partition in &partition_infos {
+            if let Some(_store) = self.stores.remove(partition) {
+                info!(
+                    "Cleaned up deduplication store for revoked partition {}:{}",
+                    partition.topic(),
+                    partition.partition_number()
+                );
+                // Store will be dropped when Arc goes out of scope
+            }
+        }
 
         Ok(())
     }
@@ -55,7 +64,7 @@ impl RebalanceHandler for ProcessorRebalanceHandler {
         info!("Post-rebalance: Partition changes complete");
 
         // Log current stats
-        let store_count = self.processor.get_active_store_count().await;
+        let store_count = self.stores.len();
         info!("Active deduplication stores: {}", store_count);
 
         Ok(())

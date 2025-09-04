@@ -43,18 +43,13 @@ from ee.hogai.utils.state import (
     is_state_update,
     is_task_started_update,
     is_value_update,
+    merge_message_chunk,
     validate_state_update,
     validate_value_update,
 )
 from ee.hogai.utils.types import AssistantMessageOrStatusUnion, AssistantMessageUnion, AssistantOutput
 from ee.hogai.utils.types.base import AssistantMode
-from ee.hogai.utils.types.composed import (
-    MaxGraphState,
-    MaxGraphStateWithMessages,
-    MaxNodeName,
-    MaxPartialGraphState,
-    MaxPartialGraphStateWithMessages,
-)
+from ee.hogai.utils.types.composed import AssistantMaxGraphState, AssistantMaxPartialGraphState, MaxNodeName
 from ee.models import Conversation
 
 logger = structlog.get_logger(__name__)
@@ -64,14 +59,14 @@ class BaseAssistant(ABC):
     _team: Team
     _graph: AssistantCompiledStateGraph
     _user: User
-    _state_type: type[MaxGraphStateWithMessages]
-    _partial_state_type: type[MaxPartialGraphStateWithMessages]
+    _state_type: type[AssistantMaxGraphState]
+    _partial_state_type: type[AssistantMaxPartialGraphState]
     _mode: AssistantMode
     _contextual_tools: dict[str, Any]
     _conversation: Conversation
     _session_id: Optional[str]
     _latest_message: Optional[HumanMessage]
-    _state: Optional[MaxGraphStateWithMessages]
+    _state: Optional[AssistantMaxGraphState]
     _callback_handler: Optional[BaseCallbackHandler]
     _trace_id: Optional[str | UUID]
     _custom_update_ids: set[str]
@@ -80,7 +75,9 @@ class BaseAssistant(ABC):
     _last_reasoning_headline: Optional[str]
     """Last emitted reasoning headline, to be able to carry it over."""
     _billing_context: Optional[MaxBillingContext]
-    _initial_state: Optional[MaxGraphStateWithMessages | MaxPartialGraphStateWithMessages]
+    _initial_state: Optional[AssistantMaxGraphState | AssistantMaxPartialGraphState]
+    _commentary_chunk: Optional[str]
+    """Buffer for accumulating partial commentary from tool call chunks."""
 
     def __init__(
         self,
@@ -90,15 +87,15 @@ class BaseAssistant(ABC):
         new_message: Optional[HumanMessage] = None,
         user: User,
         graph: AssistantCompiledStateGraph,
-        state_type: type[MaxGraphStateWithMessages],
-        partial_state_type: type[MaxPartialGraphStateWithMessages],
+        state_type: type[AssistantMaxGraphState],
+        partial_state_type: type[AssistantMaxPartialGraphState],
         mode: AssistantMode,
         session_id: Optional[str] = None,
         contextual_tools: Optional[dict[str, Any]] = None,
         is_new_conversation: bool = False,
         trace_id: Optional[str | UUID] = None,
         billing_context: Optional[MaxBillingContext] = None,
-        initial_state: Optional[MaxGraphStateWithMessages | MaxPartialGraphStateWithMessages] = None,
+        initial_state: Optional[AssistantMaxGraphState | AssistantMaxPartialGraphState] = None,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
@@ -135,6 +132,7 @@ class BaseAssistant(ABC):
         self._billing_context = billing_context
         self._mode = mode
         self._initial_state = initial_state
+        self._commentary_chunk = None
 
     @property
     @abstractmethod
@@ -161,12 +159,12 @@ class BaseAssistant(ABC):
         pass
 
     @abstractmethod
-    def get_initial_state(self) -> MaxGraphStateWithMessages:
+    def get_initial_state(self) -> AssistantMaxGraphState:
         """The initial state of the graph."""
         pass
 
     @abstractmethod
-    def get_resumed_state(self) -> MaxPartialGraphStateWithMessages:
+    def get_resumed_state(self) -> AssistantMaxPartialGraphState:
         """The state of the graph after a resume."""
         pass
 
@@ -263,7 +261,7 @@ class BaseAssistant(ABC):
 
                     # This is an unhandled error, so we just stop further generation at this point
                     snapshot = await self._graph.aget_state(config)
-                    state_snapshot = validate_state_update(snapshot.values)
+                    state_snapshot = validate_state_update(snapshot.values, self._state_type)
                     # Some nodes might have already sent a failure message, so we don't want to send another one.
                     if not state_snapshot.messages or not isinstance(state_snapshot.messages[-1], FailureMessage):
                         yield AssistantEventType.MESSAGE, FailureMessage()
@@ -297,7 +295,7 @@ class BaseAssistant(ABC):
 
         # If the graph previously hasn't reset the state, it is an interrupt. We resume from the point of interruption.
         if snapshot.next and self._latest_message:
-            saved_state = validate_state_update(snapshot.values)
+            saved_state = validate_state_update(snapshot.values, self._state_type)
             if saved_state.graph_status == "interrupted":
                 self._state = saved_state
                 await self._graph.aupdate_state(
@@ -318,7 +316,7 @@ class BaseAssistant(ABC):
         return initial_state
 
     async def _node_to_reasoning_message(
-        self, node_name: MaxNodeName, input: MaxGraphStateWithMessages
+        self, node_name: MaxNodeName, input: AssistantMaxGraphState
     ) -> Optional[ReasoningMessage]:
         async_callable = self._graph.get_reasoning_message_by_node_name.get(node_name)
         if async_callable:
@@ -328,11 +326,13 @@ class BaseAssistant(ABC):
     async def _process_update(self, update: Any) -> list[BaseModel] | None:
         if update[1] == "custom":
             # Custom streams come from a tool call
+            # If it's a LangGraph-based chunk, we remove the first two elements, which are "custom" and the parent graph namespace
             update = update[2]
+
         update = update[1:]  # we remove the first element, which is the node/subgraph node name
         if is_state_update(update):
             _, new_state = update
-            self._state = validate_state_update(new_state)
+            self._state = validate_state_update(new_state, self._state_type)
         elif is_value_update(update) and (new_messages := self._process_value_update(update)):
             return new_messages
         elif is_message_update(update) and (new_message := self._process_message_update(update)):
@@ -350,16 +350,14 @@ class BaseAssistant(ABC):
 
             node_name: MaxNodeName = intersected_nodes.pop()
             node_val = state_update[node_name]
-            if not isinstance(node_val, (MaxGraphState | MaxPartialGraphState)):
+            if not isinstance(node_val, get_args(AssistantMaxGraphState | AssistantMaxPartialGraphState)):
                 return None
             if node_val.messages:
                 return list(node_val.messages)
-            elif node_val.intermediate_steps:
-                return [AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)]
 
         for node_name in self.VERBOSE_NODES:
             if node_val := state_update.get(node_name):
-                if isinstance(node_val, self._partial_state_type) and node_val.messages:
+                if isinstance(node_val, get_args(AssistantMaxPartialGraphState)) and node_val.messages:
                     self._chunks = AIMessageChunk(content="")
                     _messages: list[BaseModel] = []
                     for candidate_message in node_val.messages:
@@ -385,8 +383,11 @@ class BaseAssistant(ABC):
         if not isinstance(langchain_message, AIMessageChunk):
             return None
 
-        node_name: MaxNodeName = langgraph_state["langgraph_node"]
+        node_name = cast(MaxNodeName, langgraph_state["langgraph_node"])
 
+        # Check for commentary in tool call chunks first
+        if commentary := self._extract_commentary_from_tool_call_chunk(langchain_message):
+            return AssistantMessage(content=commentary)
         # Check for reasoning content first (for all nodes that support it)
         if reasoning := langchain_message.additional_kwargs.get("reasoning"):
             if reasoning_headline := self._chunk_reasoning_headline(reasoning):
@@ -397,7 +398,7 @@ class BaseAssistant(ABC):
             return None
 
         # Merge message chunks
-        self._merge_message_chunk(langchain_message)
+        self._chunks = merge_message_chunk(self._chunks, langchain_message)
 
         # Extract and process content
         message_content = extract_content_from_ai_message(self._chunks)
@@ -405,24 +406,6 @@ class BaseAssistant(ABC):
             return None
 
         return AssistantMessage(content=message_content)
-
-    def _merge_message_chunk(self, langchain_message: AIMessageChunk) -> None:
-        """Merge a new message chunk with existing chunks, handling content format compatibility.
-
-        # This is because we reset to AIMessageChunk(content="") in a few places,
-        # but if we're switching between reasoning and non-reasoning models between different nodes,
-        # the format of the content will change, and we need to reset the chunks to the right format.
-        """
-
-        current_is_list = isinstance(self._chunks.content, list)
-        new_is_list = isinstance(langchain_message.content, list)
-
-        if current_is_list != new_is_list:
-            # Content types are incompatible - reset with new chunk
-            self._chunks = langchain_message
-        else:
-            # Compatible types - merge normally
-            self._chunks += langchain_message  # type: ignore
 
     def _chunk_reasoning_headline(self, reasoning: dict[str, Any]) -> Optional[str]:
         """Process a chunk of OpenAI `reasoning`, and if a new headline was just finalized, return it."""
@@ -464,6 +447,61 @@ class BaseAssistant(ABC):
             self._last_reasoning_headline = self._reasoning_headline_chunk
             self._reasoning_headline_chunk = None
             return self._last_reasoning_headline
+
+        return None
+
+    def _extract_commentary_from_tool_call_chunk(self, langchain_message: AIMessageChunk) -> Optional[str]:
+        """Extract commentary from tool call chunks.
+
+        Handles partial JSON parsing for "commentary": "some text" patterns
+        Returns the commentary content when a complete or partial one is found.
+        """
+        if not langchain_message.tool_call_chunks:
+            return None
+
+        for chunk in langchain_message.tool_call_chunks:
+            if not chunk or not chunk.get("args"):
+                continue
+
+            args_chunk = chunk["args"]
+            if not isinstance(args_chunk, str):
+                continue
+
+            # Accumulate chunks
+            if self._commentary_chunk is None:
+                self._commentary_chunk = args_chunk
+            else:
+                self._commentary_chunk = self._commentary_chunk + args_chunk
+
+            # Try to extract commentary from accumulated chunks
+            current_buffer = self._commentary_chunk
+
+            # Look for "commentary": pattern
+            commentary_pattern = '"commentary":'
+            if commentary_pattern in current_buffer:
+                # Find the start of the commentary value
+                start_idx = current_buffer.find(commentary_pattern) + len(commentary_pattern)
+                remaining = current_buffer[start_idx:].lstrip()
+
+                if remaining.startswith('"'):
+                    # We have the opening quote
+                    value_start = 1
+                    value_buffer = remaining[value_start:]
+
+                    # Check if we have a closing quote
+                    closing_quote_idx = value_buffer.find('"')
+
+                    if closing_quote_idx != -1:
+                        # Complete commentary found
+                        commentary = value_buffer[:closing_quote_idx]
+                        # Reset buffer for next commentary
+                        self._commentary_chunk = None
+                        return commentary
+                    else:
+                        # Partial commentary - return what we have so far
+                        # But only if there's actual content
+                        if value_buffer:
+                            return value_buffer
 
         return None
 

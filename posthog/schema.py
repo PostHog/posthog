@@ -197,8 +197,11 @@ class AssistantMessageType(StrEnum):
     AI = "ai"
     AI_REASONING = "ai/reasoning"
     AI_VIZ = "ai/viz"
+    AI_MULTI_VIZ = "ai/multi_viz"
     AI_FAILURE = "ai/failure"
     AI_NOTEBOOK = "ai/notebook"
+    AI_PLANNING = "ai/planning"
+    AI_TASK_EXECUTION = "ai/task_execution"
 
 
 class AssistantNavigateUrls(StrEnum):
@@ -1990,6 +1993,12 @@ class PersonType(BaseModel):
     uuid: Optional[str] = None
 
 
+class PlanningStepStatus(StrEnum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+
+
 class PropertyFilterType(StrEnum):
     META = "meta"
     EVENT = "event"
@@ -2574,6 +2583,13 @@ class SurveyWidgetType(StrEnum):
     BUTTON = "button"
     TAB = "tab"
     SELECTOR = "selector"
+
+
+class TaskExecutionStatus(StrEnum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 
 class TaxonomicFilterGroupType(StrEnum):
@@ -4094,6 +4110,14 @@ class PersonPropertyFilter(BaseModel):
     value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
+class PlanningStep(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    status: PlanningStepStatus
+
+
 class QueryResponseAlternative8(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4787,6 +4811,27 @@ class TableSettings(BaseModel):
     )
     columns: Optional[list[ChartAxis]] = None
     conditionalFormatting: Optional[list[ConditionalFormattingRule]] = None
+
+
+class TaskExecutionItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact_ids: Optional[list[str]] = None
+    description: str
+    id: str
+    progress_text: Optional[str] = None
+    prompt: str
+    status: TaskExecutionStatus
+
+
+class TaskExecutionMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: Optional[str] = None
+    tasks: list[TaskExecutionItem]
+    type: Literal["ai/task_execution"] = "ai/task_execution"
 
 
 class TeamTaxonomyItem(BaseModel):
@@ -8908,6 +8953,15 @@ class PersonsNode(BaseModel):
     search: Optional[str] = None
     tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class PlanningMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: Optional[str] = None
+    steps: list[PlanningStep]
+    type: Literal["ai/planning"] = "ai/planning"
 
 
 class PropertyGroupFilterValue(BaseModel):
@@ -13380,6 +13434,19 @@ class QueryResponseAlternative(
     ]
 
 
+class VisualizationItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answer: Union[
+        Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery],
+        Union[TrendsQuery, FunnelsQuery, RetentionQuery, HogQLQuery],
+    ]
+    initiator: Optional[str] = None
+    plan: Optional[str] = None
+    query: Optional[str] = ""
+
+
 class VisualizationMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13470,6 +13537,16 @@ class InsightVizNode(BaseModel):
     suppressSessionAnalysisWarning: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
     vizSpecificOptions: Optional[VizSpecificOptions] = None
+
+
+class MultiVisualizationMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    commentary: Optional[str] = None
+    id: Optional[str] = None
+    type: Literal["ai/multi_viz"] = "ai/multi_viz"
+    visualizations: list[VisualizationItem]
 
 
 class WebVitalsQuery(BaseModel):
@@ -14496,22 +14573,28 @@ class RootAssistantMessage(
     RootModel[
         Union[
             VisualizationMessage,
+            MultiVisualizationMessage,
             ReasoningMessage,
             AssistantMessage,
             HumanMessage,
             FailureMessage,
             NotebookUpdateMessage,
+            PlanningMessage,
+            TaskExecutionMessage,
             RootAssistantMessage1,
         ]
     ]
 ):
     root: Union[
         VisualizationMessage,
+        MultiVisualizationMessage,
         ReasoningMessage,
         AssistantMessage,
         HumanMessage,
         FailureMessage,
         NotebookUpdateMessage,
+        PlanningMessage,
+        TaskExecutionMessage,
         RootAssistantMessage1,
     ]
 

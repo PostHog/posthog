@@ -22,9 +22,12 @@ from posthog.schema import (
     FunnelsQuery,
     HogQLQuery,
     HumanMessage,
+    MultiVisualizationMessage,
     NotebookUpdateMessage,
+    PlanningMessage,
     ReasoningMessage,
     RetentionQuery,
+    TaskExecutionMessage,
     TrendsQuery,
     VisualizationMessage,
 )
@@ -37,6 +40,9 @@ AIMessageUnion = Union[
     FailureMessage,
     ReasoningMessage,
     AssistantToolCallMessage,
+    PlanningMessage,
+    TaskExecutionMessage,
+    MultiVisualizationMessage,
 ]
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion, NotebookUpdateMessage]
 AssistantMessageOrStatusUnion = Union[AssistantMessageUnion, AssistantGenerationStatusEvent]
@@ -51,10 +57,30 @@ AnyAssistantGeneratedQuery = (
     AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
 )
 AnyAssistantSupportedQuery = TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery
+# We define this since AssistantMessageUnion is a type and wouldn't work with isinstance()
+ASSISTANT_MESSAGE_TYPES = (
+    HumanMessage,
+    NotebookUpdateMessage,
+    AssistantMessage,
+    VisualizationMessage,
+    FailureMessage,
+    ReasoningMessage,
+    AssistantToolCallMessage,
+    PlanningMessage,
+    TaskExecutionMessage,
+    MultiVisualizationMessage,
+)
 
 
-def merge(_: Any | None, right: Any | None) -> Any | None:
+def replace(_: Any | None, right: Any | None) -> Any | None:
     return right
+
+
+def append(left: Sequence, right: Sequence) -> Sequence:
+    """
+    Appends the right value to the state field.
+    """
+    return [*left, *right]
 
 
 def add_and_merge_messages(
@@ -172,7 +198,7 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     A clarifying question asked during the onboarding process.
     """
 
-    memory_collection_messages: Annotated[Optional[Sequence[LangchainBaseMessage]], merge] = Field(default=None)
+    memory_collection_messages: Annotated[Optional[Sequence[LangchainBaseMessage]], replace] = Field(default=None)
     """
     The messages with tool calls to collect memory in the `MemoryCollectorToolsNode`.
     """
@@ -217,9 +243,9 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     Whether to use current filters from user's UI to find relevant sessions.
     """
-    notebook_id: Optional[str] = Field(default=None)
+    notebook_short_id: Optional[str] = Field(default=None)
     """
-    The ID of the notebook being used.
+    The short ID of the notebook being used.
     """
 
 
@@ -270,3 +296,24 @@ class AssistantNodeName(StrEnum):
 class AssistantMode(StrEnum):
     ASSISTANT = "assistant"
     INSIGHTS_TOOL = "insights_tool"
+    DEEP_RESEARCH = "deep_research"
+
+
+class WithCommentary(BaseModel):
+    """
+    Use this class as a mixin to your tool calls, so that the `Assistant` class can parse the commentary from the tool call chunks stream.
+    """
+
+    commentary: str = Field(
+        description="A commentary on what you are doing, using the first person: 'I am doing this because...'"
+    )
+
+
+class InsightArtifact(BaseModel):
+    """
+    An artifacts created by a task.
+    """
+
+    id: str
+    query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
+    description: str

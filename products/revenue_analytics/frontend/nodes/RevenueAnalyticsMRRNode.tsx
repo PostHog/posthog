@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconGraph } from '@posthog/icons'
@@ -7,7 +7,6 @@ import { LemonButton, LemonSegmentedButton, LemonSegmentedButtonOption } from '@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
-import { InsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -37,47 +36,44 @@ export function RevenueAnalyticsMRRNode(props: {
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `RevenueAnalyticsMRR.${uniqueNode++}`)
-    const logic = dataNodeLogic({
-        query: props.query,
-        key,
-        cachedResults: props.cachedResults,
-        loadPriority,
-        onData,
-        dataNodeCollectionId: dataNodeCollectionId ?? key,
-    })
-
-    const { response, responseLoading, queryId } = useValues(logic)
 
     return (
         <BindLogic logic={insightLogic} props={props.context.insightProps ?? {}}>
             <BindLogic logic={insightVizDataLogic} props={props.context.insightProps ?? {}}>
-                <Tile
-                    response={response as RevenueAnalyticsMRRQueryResponse}
-                    responseLoading={responseLoading}
-                    queryId={queryId ?? ''}
-                    context={props.context}
-                />
+                <BindLogic
+                    logic={dataNodeLogic}
+                    props={{
+                        query: props.query,
+                        key,
+                        cachedResults: props.cachedResults,
+                        loadPriority,
+                        onData,
+                        dataNodeCollectionId: dataNodeCollectionId ?? key,
+                    }}
+                >
+                    <Tile context={props.context} />
+                </BindLogic>
+
                 <MRRBreakdownModal />
             </BindLogic>
         </BindLogic>
     )
 }
 
-const Tile = ({
-    response,
-    responseLoading,
-    queryId,
-    context,
-}: TileProps<RevenueAnalyticsMRRQueryResponse>): JSX.Element => {
+const Tile = ({ context }: TileProps): JSX.Element => {
     const { baseCurrency, breakdownProperties, mrrMode } = useValues(revenueAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const logic = useMountedLogic(dataNodeLogic)
+    const { response, responseLoading } = useValues(logic)
+    const castResponse = response as RevenueAnalyticsMRRQueryResponse | null
 
     const { setMRRMode } = useActions(revenueAnalyticsLogic)
     const { openModal } = useActions(mrrBreakdownModalLogic)
 
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
-    const results = (response?.results?.map((mrr) => mrr.total) as GraphDataset[]) ?? []
+    const results = (castResponse?.results?.map((mrr) => mrr.total) as GraphDataset[]) ?? []
 
     const { labels, datasets } = extractLabelAndDatasets(results)
 
@@ -93,13 +89,14 @@ const Tile = ({
     }))
 
     const handleBreakdownClick = (): void => {
-        if (response) {
-            openModal(response.results)
+        if (castResponse) {
+            openModal(castResponse.results)
         }
     }
 
     return (
         <TileWrapper
+            context={context}
             title={mrrMode === 'mrr' ? 'MRR' : 'ARR'}
             tooltip="MRR is the total amount of recurring revenue generated from all sources, including all products and services in the last 30 days. ARR is that value multiplied by 12."
             extra={
@@ -127,9 +124,7 @@ const Tile = ({
                 </div>
             }
         >
-            {responseLoading ? (
-                <InsightLoadingState queryId={queryId} key={queryId} insightProps={context.insightProps ?? {}} />
-            ) : (
+            {() => (
                 <RevenueAnalyticsLineGraph
                     data-attr="revenue-analytics-mrr-tile-graph"
                     datasets={mappedDatasets}
