@@ -147,7 +147,7 @@ export function getHogFlowStep<T extends HogFlowAction['type']>(
     isDarkModeOn = false
 ): HogFlowStep<T> | undefined {
     const type = action.type
-    const builder = HogFlowStepConfigs[type]
+    const builder = HogFlowStepConfigs[type] as HogFlowStepBuilder<T> | undefined
     if (!builder) {
         return undefined
     }
