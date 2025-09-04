@@ -131,7 +131,11 @@ function SortableSceneTab({ tab }: { tab: SceneTab }): JSX.Element {
                         <SceneTabComponent tab={tab} isDragging={isDragging} />
                     </SceneTabContextMenu>
                 </HoverCardTrigger>
-                <HoverCardContent className="break-all">
+                <HoverCardContent
+                    className="break-all"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                >
                     <div className="flex flex-col gap-1">
                         <span className="text-primary text-sm font-semibold">{tab.title}</span>
                         <span className="text-secondary text-xs flex items-center gap-1">
