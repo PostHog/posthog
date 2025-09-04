@@ -190,6 +190,8 @@ export const saveToDatasetButtonLogic = kea<saveToDatasetButtonLogicType>([
         setDropdownVisible: ({ dropdownVisible }) => {
             if (dropdownVisible) {
                 asyncActions.loadDatasets(true)
+            } else {
+                actions.setSearchFormValue('search', '')
             }
         },
     })),
