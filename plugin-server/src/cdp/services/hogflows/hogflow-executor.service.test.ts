@@ -164,13 +164,15 @@ describe('Hogflow Executor', () => {
             // First step: should process trigger and move to function_id_1, but not complete
             const result1 = await executor.execute(invocation)
             expect(result1.finished).toBe(false)
-            expect(result1.invocation.state.currentAction.id).toBe('function_id_1')
-            expect(result1.logs.some((log) => log.message.includes("Workflow moved to action 'function_id_1"))).toBe(true)
+            expect(result1.invocation.state.currentAction?.id).toBe('function_id_1')
+            expect(result1.logs.some((log) => log.message.includes("Workflow moved to action 'function_id_1"))).toBe(
+                true
+            )
 
             // Second step: should process function_id_1 and move to exit, but not complete
             const result2 = await executor.execute(result1.invocation)
             expect(result2.finished).toBe(false)
-            expect(result2.invocation.state.currentAction.id).toBe('exit')
+            expect(result2.invocation.state.currentAction?.id).toBe('exit')
             expect(result2.logs.some((log) => log.message.includes("Workflow moved to action 'exit"))).toBe(true)
         })
 
@@ -412,7 +414,7 @@ describe('Hogflow Executor', () => {
         }
 
         describe('early exit conditions', () => {
-            it ('should not exit early if exit condition is exit_only_at_end', async() => {
+            it('should not exit early if exit condition is exit_only_at_end', async () => {
                 // Setup: exit if person no longer matches trigger filters
                 const hogFlow = new FixtureHogFlowBuilder()
                     .withExitCondition('exit_only_at_end')
@@ -489,9 +491,7 @@ describe('Hogflow Executor', () => {
                 const result2 = await executor.execute(invocation2 as any)
                 expect(result2.finished).toBe(true)
                 expect(
-                    result2.logs.some((log) =>
-                        log.message.includes('Workflow exited early due to exit condition')
-                    )
+                    result2.logs.some((log) => log.message.includes('Workflow exited early due to exit condition'))
                 ).toBe(false)
                 expect(result2.metrics.some((metric) => metric.metric_name === 'filtered')).toBe(false)
             })
@@ -568,9 +568,7 @@ describe('Hogflow Executor', () => {
                 const result2 = await executor.execute(invocation2 as any)
                 expect(result2.finished).toBe(true)
                 expect(
-                    result2.logs.some((log) =>
-                        log.message.includes('Workflow exited early due to exit condition')
-                    )
+                    result2.logs.some((log) => log.message.includes('Workflow exited early due to exit condition'))
                 ).toBe(true)
             })
 
@@ -625,9 +623,7 @@ describe('Hogflow Executor', () => {
                 expect(result1.finished).toBe(false)
                 // Should NOT exit early on first invocation
                 expect(
-                    result1.logs.some((log) =>
-                        log.message.includes('Workflow exited early due to exit condition')
-                    )
+                    result1.logs.some((log) => log.message.includes('Workflow exited early due to exit condition'))
                 ).toBe(false)
 
                 // Step 2: event does NOT match trigger filters
@@ -653,9 +649,7 @@ describe('Hogflow Executor', () => {
                 const result2 = await executor.execute(invocation2 as any)
                 expect(result2.finished).toBe(true)
                 expect(
-                    result2.logs.some((log) =>
-                        log.message.includes('Workflow exited early due to exit condition')
-                    )
+                    result2.logs.some((log) => log.message.includes('Workflow exited early due to exit condition'))
                 ).toBe(true)
                 expect(result2.metrics.some((metric) => metric.metric_name === 'filtered')).toBe(true)
             })
@@ -735,9 +729,7 @@ describe('Hogflow Executor', () => {
                 const result2 = await executor.execute(invocation2 as any)
                 expect(result2.finished).toBe(true)
                 expect(
-                    result2.logs.some((log) =>
-                        log.message.includes('Workflow exited early due to exit condition')
-                    )
+                    result2.logs.some((log) => log.message.includes('Workflow exited early due to exit condition'))
                 ).toBe(true)
                 expect(result2.metrics.some((metric) => metric.metric_name === 'filtered')).toBe(true)
 
@@ -757,13 +749,9 @@ describe('Hogflow Executor', () => {
                 const result3 = await executor.execute(invocation3 as any)
                 expect(result3.finished).toBe(true)
                 expect(
-                    result3.logs.some((log) =>
-                        log.message.includes('Workflow exited early due to exit condition')
-                    )
+                    result3.logs.some((log) => log.message.includes('Workflow exited early due to exit condition'))
                 ).toBe(true)
             })
-
-            
         })
 
         describe('per action runner tests', () => {
