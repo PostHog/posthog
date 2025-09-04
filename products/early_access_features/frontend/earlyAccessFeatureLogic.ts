@@ -6,8 +6,6 @@ import { router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -47,14 +45,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     props({} as EarlyAccessFeatureLogicProps),
     key(({ id }) => id),
     connect(() => ({
-        values: [
-            teamLogic,
-            ['currentTeamId'],
-            earlyAccessFeaturesLogic,
-            ['earlyAccessFeatures'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
+        values: [teamLogic, ['currentTeamId'], earlyAccessFeaturesLogic, ['earlyAccessFeatures']],
     })),
     actions({
         setEarlyAccessFeatureMissing: true,
@@ -186,7 +177,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             },
         ],
     }),
-    selectors(({ values, actions }) => ({
+    selectors(({ actions }) => ({
         breadcrumbs: [
             (s) => [s.earlyAccessFeature, s.isEditingFeature],
             (earlyAccessFeature: EarlyAccessFeatureType, isEditingFeature: boolean): Breadcrumb[] => [
@@ -199,10 +190,9 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                     key: ['EarlyAccessFeature', earlyAccessFeature.id || 'new'],
                     name: earlyAccessFeature.name,
                     forceEditMode: isEditingFeature,
-                    onRename:
-                        isEditingFeature || !!values.featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
-                            ? async (newName) => actions.setEarlyAccessFeatureValue('name', newName)
-                            : undefined,
+                    onRename: isEditingFeature
+                        ? async (newName) => actions.setEarlyAccessFeatureValue('name', newName)
+                        : undefined,
                 },
             ],
         ],
