@@ -23,8 +23,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
         return <></>
     }
 
-    const metricsState = isSecondary ? secondaryMetricsState : primaryMetricsState
-    const metrics = metricsState.metrics
+    const metrics = isSecondary ? secondaryMetricsState : primaryMetricsState
 
     const showResultDetails =
         metrics.length === 1 && metrics[0].result !== null && hasMinimumExposureForResults && !isSecondary

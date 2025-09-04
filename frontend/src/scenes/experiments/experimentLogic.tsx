@@ -71,7 +71,7 @@ import {
     TrendExperimentVariant,
 } from '~/types'
 
-import { MetricsGroupState, processMetricsGroup } from './MetricsView/shared/metricsState'
+import { MetricState, processMetrics } from './MetricsView/shared/metricsState'
 import { getDefaultMetricTitle } from './MetricsView/shared/utils'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
@@ -2065,9 +2065,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 primaryMetricsResultsErrors,
                 primaryMetricsResultsLoading,
                 experiment
-            ): MetricsGroupState => {
+            ): MetricState[] => {
                 const primaryMetrics = getOrderedMetrics(false)
-                return processMetricsGroup(
+                return processMetrics(
                     primaryMetrics,
                     primaryMetricsResults,
                     primaryMetricsResultsErrors,
@@ -2090,9 +2090,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 secondaryMetricsResultsErrors,
                 secondaryMetricsResultsLoading,
                 experiment
-            ): MetricsGroupState => {
+            ): MetricState[] => {
                 const secondaryMetrics = getOrderedMetrics(true)
-                return processMetricsGroup(
+                return processMetrics(
                     secondaryMetrics,
                     secondaryMetricsResults,
                     secondaryMetricsResultsErrors,
