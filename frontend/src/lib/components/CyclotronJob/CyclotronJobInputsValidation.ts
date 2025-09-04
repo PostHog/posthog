@@ -28,8 +28,11 @@ const validateInput = (input: CyclotronJobInputType, inputSchema: CyclotronJobIn
     }
 
     const missing = value === undefined || value === null || value === ''
-    if (inputSchema.required && missing) {
-        return 'This field is required'
+    if (missing) {
+        if (inputSchema.required) {
+            return 'This field is required'
+        }
+        return undefined
     }
 
     if (inputSchema.type === 'string' && typeof value !== 'string') {
