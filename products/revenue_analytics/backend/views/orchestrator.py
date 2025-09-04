@@ -42,6 +42,7 @@ def _iter_source_handles(team: Team, timings: HogQLTimings) -> Iterable[SourceHa
             )
             .exclude(deleted=True)
             .prefetch_related(Prefetch("schemas", queryset=ExternalDataSchema.objects.prefetch_related("table")))
+            .prefetch_related(Prefetch("revenue_analytics_config"))
         )
 
         for source in queryset:

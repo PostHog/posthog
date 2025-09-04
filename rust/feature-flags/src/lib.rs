@@ -2,6 +2,8 @@ pub mod api;
 pub mod billing_limiters;
 pub mod cohorts;
 pub mod config;
+pub mod database;
+pub mod database_pools;
 pub mod db_monitor;
 pub mod flags;
 pub mod handler;

@@ -54,7 +54,9 @@ class HubspotSource(BaseSource[HubspotSourceConfig | HubspotSourceOldConfig], OA
 
         return HubspotSourceOldConfig.from_dict(job_inputs)
 
-    def get_schemas(self, config: HubspotSourceConfig | HubspotSourceOldConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: HubspotSourceConfig | HubspotSourceOldConfig, team_id: int, with_counts: bool = False
+    ) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,
