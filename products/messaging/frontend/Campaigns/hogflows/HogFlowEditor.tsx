@@ -49,7 +49,7 @@ function HogFlowEditorContent(): JSX.Element {
 
     useEffect(() => {
         setReactFlowWrapper(reactFlowWrapper)
-    }, [reactFlowWrapper, setReactFlowWrapper])
+    }, [setReactFlowWrapper])
 
     return (
         <div ref={reactFlowWrapper} className="w-full h-full">
