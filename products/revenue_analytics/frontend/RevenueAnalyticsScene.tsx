@@ -1,16 +1,10 @@
 import { BindLogic, useValues } from 'kea'
-import { router } from 'kea-router'
 
-import { IconPlus } from '@posthog/icons'
-import { LemonBanner, LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
@@ -37,7 +31,6 @@ export const PRODUCT_DESCRIPTION =
 export const PRODUCT_THING_NAME = 'revenue source'
 
 export function RevenueAnalyticsScene(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { dataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
     const { revenueEnabledDataWarehouseSources } = useValues(revenueAnalyticsLogic)
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
@@ -45,31 +38,6 @@ export function RevenueAnalyticsScene(): JSX.Element {
     const sourceRunningForTheFirstTime = revenueEnabledDataWarehouseSources?.find(
         (source) => source.status === 'Running' && !source.last_run_at
     )
-
-    if (!featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]) {
-        return (
-            <ProductIntroduction
-                isEmpty
-                productName={PRODUCT_NAME}
-                productKey={PRODUCT_KEY}
-                thingName={PRODUCT_THING_NAME}
-                description={PRODUCT_DESCRIPTION}
-                titleOverride="Revenue Analytics is in open beta."
-                actionElementOverride={
-                    <LemonButton
-                        type="primary"
-                        icon={<IconPlus />}
-                        onClick={() => {
-                            router.actions.push(urls.settings('user-feature-previews'))
-                        }}
-                        data-attr="activate-revenue-analytics"
-                    >
-                        Activate revenue analytics
-                    </LemonButton>
-                }
-            />
-        )
-    }
 
     // Wait before binding/mounting the logics until we've finished loading the data warehouse sources
     if (dataWarehouseSources === null) {
