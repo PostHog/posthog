@@ -33,12 +33,10 @@ const REVENUE_SOURCE_TYPES: ExternalDataSourceType[] = ['Stripe', 'Chargebee', '
 const AVAILABLE_REVENUE_SOURCE_TYPES: Set<ExternalDataSourceType> = new Set(['Stripe'])
 
 export function InlineSetup({ initialSetupView }: InlineSetupProps): JSX.Element {
-    const { events, dataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
+    const { events, enabledDataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
 
     const hasEvents = events.length > 0
-
-    const enabledSources = dataWarehouseSources?.results.filter((source) => source.revenue_analytics_enabled) ?? []
-    const hasSources = enabledSources.length > 0
+    const hasSources = enabledDataWarehouseSources.length > 0
 
     const [currentView, setCurrentView] = useState<InlineSetupView>(initialSetupView ?? 'overview')
     const [selectedSource, setSelectedSource] = useState<ExternalDataSourceType | null>(null)
@@ -48,7 +46,7 @@ export function InlineSetup({ initialSetupView }: InlineSetupProps): JSX.Element
         id: source_type,
         description: `Import revenue data from ${source_type}`,
         isAvailable: AVAILABLE_REVENUE_SOURCE_TYPES.has(source_type),
-        isConnected: enabledSources.some((source) => source.source_type === source_type),
+        isConnected: enabledDataWarehouseSources.some((source) => source.source_type === source_type),
     }))
 
     const handleSourceSelect = (sourceId: ExternalDataSourceType): void => {
