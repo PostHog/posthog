@@ -22,8 +22,10 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     create_schedule,
     delete_schedule,
+    pause_schedule,
     schedule_exists,
     trigger_schedule,
+    unpause_schedule,
     update_schedule,
 )
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
@@ -98,6 +100,16 @@ def delete_saved_query_schedule(schedule_id: str):
         if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
             return
         raise
+
+
+def pause_saved_query_schedule(id: str) -> None:
+    temporal = sync_connect()
+    pause_schedule(temporal, schedule_id=id)
+
+
+def unpause_saved_query_schedule(id: str) -> None:
+    temporal = sync_connect()
+    unpause_schedule(temporal, schedule_id=id)
 
 
 def saved_query_workflow_exists(id: str) -> bool:

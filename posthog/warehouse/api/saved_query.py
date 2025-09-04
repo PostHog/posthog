@@ -38,10 +38,12 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.temporal.common.client import sync_connect
 from posthog.warehouse.data_load.saved_query_service import (
     delete_saved_query_schedule,
+    pause_saved_query_schedule,
     recreate_model_paths,
     saved_query_workflow_exists,
     sync_saved_query_workflow,
     trigger_saved_query_schedule,
+    unpause_saved_query_schedule,
 )
 from posthog.warehouse.models import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -248,7 +250,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError("The query was modified by someone else.")
 
             if sync_frequency == "never":
-                delete_saved_query_schedule(str(locked_instance.id))
+                pause_saved_query_schedule(str(locked_instance.id))
                 locked_instance.sync_frequency_interval = None
                 validated_data["sync_frequency_interval"] = None
                 validated_data["is_materialized"] = True
@@ -325,6 +327,8 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
         if was_sync_frequency_updated:
             schedule_exists = saved_query_workflow_exists(str(instance.id))
+            if schedule_exists and before_update and before_update.sync_frequency_interval is None:
+                unpause_saved_query_schedule(str(instance.id))
             sync_saved_query_workflow(view, create=not schedule_exists)
 
         return view
