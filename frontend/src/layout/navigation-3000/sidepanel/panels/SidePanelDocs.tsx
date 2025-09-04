@@ -79,7 +79,7 @@ export const SidePanelDocs = (): JSX.Element => {
                         size="small"
                         value={activeMenuName ?? ''}
                         options={menuOptions.map(({ name, url }) => ({ label: name, value: url }))}
-                        className="shrink whitespace-nowrap overflow-hidden"
+                        className="ml-1 shrink whitespace-nowrap overflow-hidden"
                     />
                 )}
 
