@@ -8,7 +8,7 @@ export const StepFunctionSlack: HogFlowStep<'function_slack'> = {
     name: 'Slack',
     description: 'Send a message to a Slack channel.',
     icon: <IconSlack />,
-    brandColor: '#4A154B',
+    color: '#4A154B',
     renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
     create: () => {
         return {

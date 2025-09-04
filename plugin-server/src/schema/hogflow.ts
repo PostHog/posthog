@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { CyclotronInputSchema } from './cyclotron'
+
 const _commonActionFields = {
     id: z.string(),
     name: z.string(),
@@ -93,23 +95,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             message_category_id: z.string().uuid().optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
-            inputs: z.object({
-                email: z.object({
-                    value: z.object({
-                        to: z.object({
-                            email: z.string(),
-                        }),
-                        from: z.object({
-                            email: z.string().email(),
-                            name: z.string().min(1).max(100).optional(),
-                        }),
-                        preheader: z.string().optional(),
-                        subject: z.string().min(1),
-                        text: z.string().min(1),
-                        html: z.string().min(1),
-                    }),
-                }),
-            }),
+            inputs: z.record(CyclotronInputSchema),
         }),
     }),
 
@@ -130,23 +116,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             message_category_id: z.string().uuid().optional(),
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-twilio'),
-            inputs: z.object({
-                twilio_account: z.object({}),
-                from_number: z.object({
-                    // Min 5 because of 5-digit shortcodes
-                    value: z.string().min(5),
-                }),
-                to_number: z.object({
-                    // Min 5 because of 5-digit shortcodes
-                    value: z.string().min(5),
-                }),
-                message: z.object({
-                    value: z.string().min(1).max(1600),
-                }),
-                debug: z.object({
-                    value: z.boolean(),
-                }),
-            }),
+            inputs: z.record(CyclotronInputSchema),
         }),
     }),
     z.object({
@@ -155,14 +125,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-slack'),
-            inputs: z.object({
-                slack_workspace: z.object({
-                    value: z.number().positive(),
-                }),
-                slack_channel: z.object({
-                    value: z.number().positive(),
-                }),
-            }),
+            inputs: z.record(CyclotronInputSchema),
         }),
     }),
     z.object({
@@ -171,11 +134,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-webhook'),
-            inputs: z.object({
-                url: z.object({
-                    value: z.string().url(),
-                }),
-            }),
+            inputs: z.record(CyclotronInputSchema),
         }),
     }),
 
