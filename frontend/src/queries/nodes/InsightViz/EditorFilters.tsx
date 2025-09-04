@@ -20,7 +20,6 @@ import { PathsHogQL } from 'scenes/insights/EditorFilters/PathsHogQL'
 import { PathsTargetEnd, PathsTargetStart } from 'scenes/insights/EditorFilters/PathsTarget'
 import { PathsV2GroupEventsBy } from 'scenes/insights/EditorFilters/PathsV2GroupEventsBy'
 import { PathsV2SessionWindow } from 'scenes/insights/EditorFilters/PathsV2SessionWindow'
-import { PathsV2Steps } from 'scenes/insights/EditorFilters/PathsV2Steps'
 import { PathsWildcardGroups } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
 import { PoeFilter } from 'scenes/insights/EditorFilters/PoeFilter'
 import { RetentionCondition } from 'scenes/insights/EditorFilters/RetentionCondition'
@@ -185,7 +184,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     : []),
                 ...(isPathsV2
                     ? [
-                          { key: 'steps', label: 'Steps', component: PathsV2Steps },
                           { key: 'session-window', label: 'Session Window', component: PathsV2SessionWindow },
                           { key: 'group-events-by', label: 'Expand events by', component: PathsV2GroupEventsBy },
                       ]
