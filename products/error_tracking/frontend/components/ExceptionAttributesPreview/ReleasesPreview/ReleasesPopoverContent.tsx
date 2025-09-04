@@ -1,9 +1,13 @@
+import { useValues } from 'kea'
+
 import { IconCopy, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { ExceptionRelease } from 'lib/components/Errors/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
+import { releasePreviewLogic } from './releasePreviewLogic'
 
 export interface ReleasesPopoverContentProps {
     releases: ExceptionRelease[]
@@ -53,9 +57,7 @@ function SimplePropertyRow({ label, value }: { label: string; value?: string }):
 }
 
 function ReleaseListItem({ release }: { release: ExceptionRelease }): JSX.Element {
-    // const { kaboomFrameRecord } = useValues(releasePreviewLogic)
-
-    // Keep: local computation previously used, but now derive from releasePreviewLogic (kaboomFrameRecord)
+    const { release: computedRelease } = useValues(releasePreviewLogic)
 
     return (
         <div className="space-y-2">
@@ -95,8 +97,8 @@ function ReleaseListItem({ release }: { release: ExceptionRelease }): JSX.Elemen
             <SimplePropertyRow label="Repository" value={release.repositoryName} />
             <SimplePropertyRow label="Branch" value={release.branch} />
             <div>
-                <span>Kaboom stack frame record:</span>
-                {/* <span>{kaboomFrameRecord?.contents?.line ?? '—'}</span> */}
+                <span>Release:</span>
+                <span>{computedRelease}</span>
             </div>
         </div>
     )

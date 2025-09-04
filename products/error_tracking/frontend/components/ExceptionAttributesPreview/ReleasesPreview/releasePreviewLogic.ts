@@ -3,6 +3,8 @@ import { loaders } from 'node_modules/kea-loaders/lib'
 import { subscriptions } from 'node_modules/kea-subscriptions/lib'
 
 import { ErrorPropertiesLogicProps, errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
+import 'lib/components/Errors/stackFrameLogic'
+import { ErrorTrackingStackFrame } from 'lib/components/Errors/types'
 
 import type { releasePreviewLogicType } from './releasePreviewLogicType'
 
@@ -18,18 +20,18 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
     ]),
     props({} as ErrorPropertiesLogicProps),
 
-    connect((props: ErrorPropertiesLogicProps) => {
-        return {
-            values: [errorPropertiesLogic(props), ['frames']],
-        }
-    }),
+    connect((props: ErrorPropertiesLogicProps) => ({
+        values: [errorPropertiesLogic(props), ['frames']],
+    })),
 
     selectors({
         // todo:ab - actually compute the kaboom frame
         kaboomFrame: [
             (s) => [s.frames],
-            (frames) => {
-                return frames[0]
+            (frames: ErrorTrackingStackFrame[]) => {
+                const kaboomFrame = frames.findLast((frame) => frame.in_app && frame.resolved)
+
+                return kaboomFrame
             },
         ],
     }),
@@ -40,7 +42,7 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
             {
                 loadRelease: async () => {
                     await new Promise((resolve) => setTimeout(resolve, 1_000))
-                    return values.release + ' updated'
+                    return values.kaboomFrame?.raw_id ?? 'unDEfiNeD'
                 },
             },
         ],
