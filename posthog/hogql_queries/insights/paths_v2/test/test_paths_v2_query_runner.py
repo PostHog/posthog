@@ -414,10 +414,6 @@ class TestPathsV2BaseEventsQuery(SharedSetup):
             [(datetime(2023, 3, 12, 12, 0, tzinfo=pytz.UTC), UUID("c6d7a3d6-6307-9297-248b-3569c2ae4c93"), "event1")],
         )
 
-    @pytest.mark.skip(reason="TODO: pending start and end event implementation")
-    def test_start_and_end_event(self):
-        pass
-
 
 class TestPathsV2PathsPerActorAsArrayQuery(SharedSetup):
     maxDiff = None

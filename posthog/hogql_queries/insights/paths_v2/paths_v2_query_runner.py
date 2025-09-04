@@ -5,7 +5,6 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property import apply_path_cleaning, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.paths_v2.utils import interval_unit_to_sql
-from posthog.hogql_queries.insights.utils.entities import entity_to_expr
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
@@ -110,13 +109,13 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
 
     def _event_base_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         """
-        - Applies property and date filters.
+        - Applies property, test account and date filters.
         - Extracts "path items" i.e. strings representing the current step in the sequence of events.
 
         Example:
-        ┌──────────────────timestamp─┬─actor_id─────────────────────────────┬─path_item────┐ series_entities_flags
-        │ 2023-03-11 11:30:00.000000 │ 631e1988-3971-79a2-02ae-b09da769be2e │ Landing Page │ (true, false, true)
-        │ 2023-03-11 11:32:00.000000 │ 631e1988-3971-79a2-02ae-b09da769be2e │ Search       │ (false, false, true)
+        ┌──────────────────timestamp─┬─actor_id─────────────────────────────┬─path_item────┐
+        │ 2023-03-11 11:30:00.000000 │ 631e1988-3971-79a2-02ae-b09da769be2e │ Landing Page │
+        │ 2023-03-11 11:32:00.000000 │ 631e1988-3971-79a2-02ae-b09da769be2e │ Search       │
         │ 2023-03-11 11:35:00.000000 │ 631e1988-3971-79a2-02ae-b09da769be2e │ Product View │
         │ 2023-03-11 11:38:00.000000 │ 631e1988-3971-79a2-02ae-b09da769be2e │ Add to Cart  │
         │ 2023-03-11 11:42:00.000000 │ 631e1988-3971-79a2-02ae-b09da769be2e │ Checkout     │
@@ -173,26 +172,8 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
             placeholders={
                 "filters": ast.And(exprs=event_filters),
                 "path_item": apply_path_cleaning(ast.Field(chain=["properties", "$pathname"]), self.team),
-                # ast.Field(chain=["event"]),
             },
         )
-
-        # append start and end event flags
-        series_entities_flags = []
-
-        if self.query.series is not None and len(self.query.series) > 0:
-            for entity in self.query.series:
-                series_entities_flags.append(entity_to_expr(entity, self.team))
-
-            query.select.append(ast.Alias(alias="series_entities_flags", expr=ast.Tuple(exprs=series_entities_flags)))
-        else:
-            # query.select.append(ast.Alias(alias="series_entities_flags", expr=ast.Call(name="array", args=[])))
-            query.select.append(
-                ast.Alias(
-                    alias="series_entities_flags",
-                    expr=ast.Tuple(exprs=[ast.Constant(value=None), ast.Constant(value=None)]),
-                )
-            )
 
         return query
 
