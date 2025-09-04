@@ -51,6 +51,7 @@ class ThresholdSerializer(serializers.ModelSerializer):
 
 class AlertCheckSerializer(serializers.ModelSerializer):
     targets_notified = serializers.SerializerMethodField()
+    detector_result = serializers.SerializerMethodField()
 
     class Meta:
         model = AlertCheck
@@ -60,11 +61,16 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "calculated_value",
             "state",
             "targets_notified",
+            "detector_result",
         ]
         read_only_fields = fields
 
     def get_targets_notified(self, instance: AlertCheck) -> bool:
         return instance.targets_notified != {}
+
+    def get_detector_result(self, instance: AlertCheck):
+        """Return the typed detector result if available."""
+        return instance.detector_result
 
 
 class AlertSubscriptionSerializer(serializers.ModelSerializer):
@@ -102,6 +108,7 @@ class AlertSerializer(serializers.ModelSerializer):
         allow_empty=True,
     )
     snoozed_until = RelativeDateTimeField(allow_null=True, required=False)
+    detector_config = serializers.JSONField(required=False, allow_null=True)
 
     class Meta:
         model = AlertConfiguration
@@ -124,6 +131,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "calculation_interval",
             "snoozed_until",
             "skip_weekend",
+            "detector_config",
         ]
         read_only_fields = [
             "id",
@@ -250,6 +258,20 @@ class AlertSerializer(serializers.ModelSerializer):
         for user in value:
             if not user.teams.filter(pk=self.context["team_id"]).exists():
                 raise ValidationError("User does not belong to the same organization as the alert's team.")
+        return value
+
+    def validate_detector_config(self, value):
+        """Validate the detector configuration."""
+        if value is None:
+            return value
+
+        try:
+            from posthog.schema import DetectorConfig
+
+            DetectorConfig.model_validate(value)
+        except Exception as e:
+            raise ValidationError(f"Invalid detector configuration: {e}")
+
         return value
 
     def validate(self, attrs):

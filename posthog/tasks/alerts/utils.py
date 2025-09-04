@@ -21,6 +21,7 @@ logger = structlog.get_logger(__name__)
 class AlertEvaluationResult:
     value: float | None
     breaches: list[str] | None
+    detector_result: dict | None = None  # Optional detector result for enhanced alerts
 
 
 WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]
