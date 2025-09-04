@@ -176,6 +176,8 @@ function HogFunctionTemplatesChooser(): JSX.Element {
         loadHogFunctionTemplates()
     }, [loadHogFunctionTemplates])
 
+    // TODO: For now hide all templates that have secret values...
+
     const actions = useMemo(
         () =>
             filteredTemplates
@@ -199,20 +201,25 @@ function HogFunctionTemplatesChooser(): JSX.Element {
                 closeOnClickInside={false}
                 visible={popoverOpen}
                 onClickOutside={() => setPopoverOpen(false)}
-                placement="left"
+                placement="bottom-end"
                 overlay={
-                    <div className="flex flex-col min-h-100 w-120 max-h-[vh50]">
-                        <LemonInput value={filters.search ?? ''} onChange={(e) => setFilters({ search: e })} />
+                    <div className="flex flex-col w-100 h-120 flex-1 overflow-hidden gap-1">
+                        <LemonInput
+                            placeholder="Search..."
+                            value={filters.search ?? ''}
+                            onChange={(e) => setFilters({ search: e })}
+                            autoFocus
+                        />
 
                         {loading ? (
                             <SpinnerOverlay />
                         ) : (
-                            <ul>
+                            <ul className="overflow-y-auto flex-1">
                                 {actions.map((template) => (
                                     <li key={template.type}>
                                         <HogFlowEditorToolbarNode
                                             action={template}
-                                            onDragStart={() => setPopoverOpen(false)}
+                                            // onDragStart={() => setPopoverOpen(false)}
                                         />
                                     </li>
                                 ))}
