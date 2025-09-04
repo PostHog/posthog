@@ -792,7 +792,7 @@ class TestTaskListUtilities(APIBaseTest):
 
 class TestSummaryNotebookIntermediateState(APIBaseTest):
     def test_initialization(self) -> None:
-        state = SummaryNotebookIntermediateState(team_name="Test Team", summary_name="test summary")
+        state = SummaryNotebookIntermediateState(team_name="Test Team", summary_title="test summary")
 
         assert state.team_name == "Test Team"
         assert len(state.plan_items) == 3
@@ -806,7 +806,7 @@ class TestSummaryNotebookIntermediateState(APIBaseTest):
 
     def test_race_condition_late_arriving_updates(self) -> None:
         """Test that late-arriving updates for previous steps are handled correctly."""
-        state = SummaryNotebookIntermediateState(team_name="Test Team", summary_name="test summary")
+        state = SummaryNotebookIntermediateState(team_name="Test Team", summary_title="test summary")
 
         # Simulate UI moving to FINDING_PATTERNS step
         ui_content: dict[str, Any] = {
@@ -840,7 +840,7 @@ class TestSummaryNotebookIntermediateState(APIBaseTest):
 
     def test_update_step_progress_same_step(self) -> None:
         """Test updating content for the current step."""
-        state = SummaryNotebookIntermediateState(team_name="Test Team", summary_name="test summary")
+        state = SummaryNotebookIntermediateState(team_name="Test Team", summary_title="test summary")
 
         test_content: dict[str, Any] = {
             "type": "doc",
@@ -853,7 +853,7 @@ class TestSummaryNotebookIntermediateState(APIBaseTest):
 
     def test_step_transition(self) -> None:
         """Test that transitioning to a new step marks the previous step as completed."""
-        state = SummaryNotebookIntermediateState(team_name="Test Team", summary_name="test summary")
+        state = SummaryNotebookIntermediateState(team_name="Test Team", summary_title="test summary")
 
         # Add content for the first step
         content_step_one: dict[str, Any] = {
@@ -890,7 +890,7 @@ class TestSummaryNotebookIntermediateState(APIBaseTest):
         assert completed["Watch sessions"] == content_step_one
 
     def test_complete_multiple_steps(self) -> None:
-        state = SummaryNotebookIntermediateState(team_name="Test Team", summary_name="test summary")
+        state = SummaryNotebookIntermediateState(team_name="Test Team", summary_title="test summary")
 
         # Complete first step
         content_step_one: dict[str, Any] = {"type": "doc", "content": [{"type": "text", "text": "Sessions watched"}]}
@@ -914,7 +914,7 @@ class TestSummaryNotebookIntermediateState(APIBaseTest):
         assert completed["Find initial patterns"] == content_step_two
 
     def test_format_initial_state(self) -> None:
-        state = SummaryNotebookIntermediateState(team_name="Test Team", summary_name="test summary")
+        state = SummaryNotebookIntermediateState(team_name="Test Team", summary_title="test summary")
 
         formatted: dict[str, Any] = state.format_intermediate_state()
 
@@ -940,7 +940,7 @@ class TestSummaryNotebookIntermediateState(APIBaseTest):
             assert text.startswith("[ ]")
 
     def test_format_state_with_current_progress(self) -> None:
-        state = SummaryNotebookIntermediateState(team_name="Test Team", summary_name="test summary")
+        state = SummaryNotebookIntermediateState(team_name="Test Team", summary_title="test summary")
 
         # Add progress to current step
         progress_content: dict[str, Any] = {
@@ -963,7 +963,7 @@ class TestSummaryNotebookIntermediateState(APIBaseTest):
         assert "Step: Watch sessions (In progress)" in formatted_str
 
     def test_format_state_with_completed_steps(self) -> None:
-        state = SummaryNotebookIntermediateState(team_name="Test Team", summary_name="test summary")
+        state = SummaryNotebookIntermediateState(team_name="Test Team", summary_title="test summary")
 
         # Complete first step
         content_step_one: dict[str, Any] = {
@@ -1000,7 +1000,7 @@ class TestSummaryNotebookIntermediateState(APIBaseTest):
         assert "Analyzing behaviors" in content_str
 
     def test_e2e_workflow(self) -> None:
-        state = SummaryNotebookIntermediateState(team_name="PostHog", summary_name="test summary")
+        state = SummaryNotebookIntermediateState(team_name="PostHog", summary_title="test summary")
 
         # Initial state - just the plan
         initial_formatted: dict[str, Any] = state.format_intermediate_state()

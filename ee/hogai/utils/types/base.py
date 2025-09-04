@@ -232,7 +232,7 @@ class _SharedAssistantState(BaseState):
     """
     Whether to use current filters from user's UI to find relevant sessions.
     """
-    summary_name: Optional[str] = Field(default=None)
+    summary_title: Optional[str] = Field(default=None)
     """
     The name of the summary to generate, based on the user's query and/or current filters.
     """

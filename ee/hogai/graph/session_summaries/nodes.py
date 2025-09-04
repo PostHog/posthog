@@ -217,14 +217,14 @@ class SessionSummarizationNode(AssistantNode):
         state: AssistantState,
         writer: StreamWriter | None,
         notebook: Notebook | None,
-        summary_name: str | None,
+        summary_title: str | None,
     ) -> str:
         """Summarize sessions as a group (for larger sets)."""
         min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self._team)
 
         # Initialize intermediate state with plan
         self._intermediate_state = SummaryNotebookIntermediateState(
-            team_name=self._team.name, summary_name=summary_name
+            team_name=self._team.name, summary_title=summary_title
         )
 
         # Stream initial plan
@@ -277,7 +277,7 @@ class SessionSummarizationNode(AssistantNode):
                     session_ids=session_ids,
                     project_name=self._team.name,
                     team_id=self._team.id,
-                    summary_name=summary_name,
+                    summary_title=summary_title,
                 )
                 self._stream_notebook_content(summary_content, state, writer, partial=False)
                 # Update the notebook through BE for cases where the chat was closed
@@ -317,7 +317,7 @@ class SessionSummarizationNode(AssistantNode):
             return self._create_error_response(self._base_error_instructions, state)
         # If the current filters were marked as relevant, but not present in the context
         current_filters = self._get_contextual_tools(config).get("search_session_recordings", {}).get("current_filters")
-        summary_name = state.summary_name
+        summary_title = state.summary_title
         try:
             # Use current filters, if provided
             if state.should_use_current_filters:
@@ -371,7 +371,7 @@ class SessionSummarizationNode(AssistantNode):
                 notebook = None
                 if not state.notebook_short_id:
                     notebook = await create_empty_notebook_for_summary(
-                        user=self._user, team=self._team, summary_name=summary_name
+                        user=self._user, team=self._team, summary_title=summary_title
                     )
                     # Could be moved to a separate "create notebook" node (or reuse the one from deep research)
                     state.notebook_short_id = notebook.short_id
@@ -382,7 +382,7 @@ class SessionSummarizationNode(AssistantNode):
                     writer=writer,
                 )
                 summaries_content = await self._summarize_sessions_as_group(
-                    session_ids=session_ids, state=state, writer=writer, notebook=notebook, summary_name=summary_name
+                    session_ids=session_ids, state=state, writer=writer, notebook=notebook, summary_title=summary_title
                 )
             return PartialAssistantState(
                 messages=[
