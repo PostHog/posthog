@@ -28,7 +28,9 @@ import { panelLayoutLogic } from './panelLayoutLogic'
 
 export function OrganizationDropdownMenu({
     buttonProps = { className: 'font-semibold' },
+    showName = true,
 }: {
+    showName?: boolean
     buttonProps?: ButtonPrimitiveProps
 }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
@@ -66,7 +68,7 @@ export function OrganizationDropdownMenu({
                                 size={isLayoutNavCollapsed ? 'medium' : 'xsmall'}
                             />
                         )}
-                        {!isLayoutNavCollapsed && (
+                        {!isLayoutNavCollapsed && showName && (
                             <>
                                 <span className="truncate font-semibold">
                                     {currentOrganization ? currentOrganization.name : 'Select organization'}

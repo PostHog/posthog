@@ -2,6 +2,7 @@ import ssl
 import json
 import uuid
 import typing
+import asyncio
 import datetime as dt
 import operator
 import dataclasses
@@ -537,10 +538,18 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
             inputs.records_completed if inputs.records_completed is not None else "no",
         )
 
-    await try_produce_run_status_app_metrics(batch_export_run.status, inputs.team_id, inputs.batch_export_id)
+    await try_produce_app_metrics(
+        batch_export_run.status, inputs.team_id, inputs.batch_export_id, inputs.id, inputs.records_completed or 0
+    )
 
 
-async def try_produce_run_status_app_metrics(status: BatchExportRun.Status | str, team_id: int, batch_export_id: str):
+async def try_produce_app_metrics(
+    status: BatchExportRun.Status | str,
+    team_id: int,
+    batch_export_id: str,
+    batch_export_run_id: str,
+    rows_exported: int,
+):
     """Attempt to produce batch export run status to app_metrics2.
 
     The metric name and kind will depend on the reported status.
@@ -564,28 +573,48 @@ async def try_produce_run_status_app_metrics(status: BatchExportRun.Status | str
             metric_kind = "failure"
             metric_name = "failed"
 
+    run_metric = json.dumps(
+        {
+            "team_id": team_id,
+            "app_source": "batch_export",
+            "app_source_id": batch_export_id,
+            "count": 1,
+            "metric_kind": metric_kind,
+            "metric_name": metric_name,
+            "timestamp": dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S"),
+        }
+    ).encode("utf-8")
+    rows_metric = json.dumps(
+        {
+            "team_id": team_id,
+            "app_source": "batch_export",
+            "app_source_id": batch_export_id,
+            "instance_id": batch_export_run_id,
+            "count": rows_exported,
+            "metric_kind": "rows",
+            "metric_name": "rows_exported",
+            "timestamp": dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S"),
+        }
+    ).encode("utf-8")
+
     async with producer:
-        fut = await producer.send(
-            KAFKA_APP_METRICS2,
-            json.dumps(
-                {
-                    "team_id": team_id,
-                    "app_source": "batch_export",
-                    "app_source_id": batch_export_id,
-                    "count": 1,
-                    "metric_kind": metric_kind,
-                    "metric_name": metric_name,
-                    "timestamp": dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S"),
-                }
-            ).encode("utf-8"),
-        )
-        try:
-            await fut
-            await producer.flush()
-        except Exception:
-            LOGGER.exception(
-                "Metrics production failed", team_id=team_id, batch_export_id=batch_export_id, metric_kind=metric_kind
-            )
+
+        async def send(message: bytes):
+            try:
+                fut = await producer.send(KAFKA_APP_METRICS2, message)
+                await fut
+                await producer.flush()
+            except Exception:
+                LOGGER.exception(
+                    "Metrics production failed",
+                    team_id=team_id,
+                    batch_export_id=batch_export_id,
+                    metric_kind=metric_kind,
+                )
+
+        async with asyncio.TaskGroup() as tg:
+            for metric in (run_metric, rows_metric):
+                _ = tg.create_task(send(metric))
 
 
 def configure_default_ssl_context():

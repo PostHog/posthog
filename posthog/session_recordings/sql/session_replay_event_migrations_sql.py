@@ -222,6 +222,25 @@ DROP_RETENTION_PERIOD_SESSION_REPLAY_EVENTS_TABLE_SQL = (
     )
 )
 
+# migration to add a TTL policy to the session replay tables
+ALTER_SESSION_REPLAY_ADD_TTL = """
+    ALTER TABLE {table_name}
+        MODIFY TTL addDays(dateTrunc('day', min_first_timestamp), 1) + toIntervalDay(coalesce(retention_period_days, 365))
+"""
+
+ADD_TTL_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_TTL.format(
+    table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+)
+
+ALTER_SESSION_REPLAY_SET_TTL_ONLY_DROP_PARTS = """
+    ALTER TABLE {table_name}
+        MODIFY SETTING ttl_only_drop_parts=1
+"""
+
+SET_TTL_ONLY_DROP_PARTS_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_SET_TTL_ONLY_DROP_PARTS.format(
+    table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+)
+
 # =========================
 # MIGRATION: Add block columns to support session recording v2 implementation
 # This migration adds block_url to the kafka table, and block_first_timestamps, block_last_timestamps, and block_urls

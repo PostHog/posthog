@@ -28,3 +28,9 @@ export const personPropertiesSizeHistogram = new Histogram({
     labelNames: ['at'],
     buckets: [1024, 8192, 65536, 131072, 262144, 524288, 1048576, 2097152, 8388608],
 })
+
+export const postgresErrorCounter = new Counter({
+    name: 'plugin_server_postgres_errors',
+    help: 'Count of Postgres errors by type',
+    labelNames: ['error_type', 'database_use'],
+})

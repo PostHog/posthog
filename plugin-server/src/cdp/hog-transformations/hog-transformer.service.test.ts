@@ -271,6 +271,9 @@ describe('HogTransformer', () => {
                 if (typeof x.value.message === 'string' && x.value.message.includes('Function completed in')) {
                     x.value.message = 'Function completed in [REPLACED]'
                 }
+                if (typeof x.value.message === 'string' && x.value.message.includes('geoip location data for ip')) {
+                    x.value.message = 'geoip location data for ip: [REPLACED]'
+                }
             })
             expect(forSnapshot(messages)).toMatchSnapshot()
         })

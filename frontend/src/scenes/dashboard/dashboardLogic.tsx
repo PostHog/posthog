@@ -1593,6 +1593,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 values.dashboard?.persisted_filters?.date_to !== values.effectiveEditBarFilters.date_to
             ) {
                 eventUsageLogic.actions.reportDashboardDateRangeChanged(
+                    values.dashboard,
                     values.effectiveEditBarFilters.date_from,
                     values.effectiveEditBarFilters.date_to
                 )
@@ -1601,7 +1602,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 JSON.stringify(values.dashboard?.persisted_filters?.properties) !==
                 JSON.stringify(values.effectiveEditBarFilters.properties)
             ) {
-                eventUsageLogic.actions.reportDashboardPropertiesChanged()
+                eventUsageLogic.actions.reportDashboardPropertiesChanged(values.dashboard)
             }
         },
         setDashboardMode: async ({ mode, source }) => {
@@ -1640,7 +1641,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             if (mode) {
-                eventUsageLogic.actions.reportDashboardModeToggled(mode, source)
+                eventUsageLogic.actions.reportDashboardModeToggled(values.dashboard, mode, source)
             }
         },
         setAutoRefresh: () => {

@@ -11,6 +11,7 @@ import {
     IconShortcut,
 } from '@posthog/icons'
 
+import { linkToLogic } from 'lib/components/FileSystem/LinkTo/linkToLogic'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -129,6 +130,7 @@ export function ProjectTree({
         setSearchTerm,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
     const { openMoveToModal } = useActions(moveToLogic)
+    const { openLinkToModal } = useActions(linkToLogic)
 
     const { setPanelTreeRef, resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
@@ -386,6 +388,26 @@ export function ProjectTree({
                         }}
                     >
                         <ButtonPrimitive menuItem>Move to...</ButtonPrimitive>
+                    </MenuItem>
+                ) : null}
+
+                {(item.id.startsWith('project/') || item.id.startsWith('project://')) &&
+                item.record?.type !== 'folder' ? (
+                    <MenuItem
+                        asChild
+                        onClick={(e: any) => {
+                            e.stopPropagation()
+                            if (
+                                checkedItemsArray.length > 0 &&
+                                checkedItemsArray.find(({ id }) => id === item.record?.id)
+                            ) {
+                                openLinkToModal(checkedItemsArray)
+                            } else {
+                                openLinkToModal([item.record as unknown as FileSystemEntry])
+                            }
+                        }}
+                    >
+                        <ButtonPrimitive menuItem>Create shortcut in...</ButtonPrimitive>
                     </MenuItem>
                 ) : null}
 
@@ -850,6 +872,43 @@ export function ProjectTree({
             sortDropdown={
                 showSortDropdown ? <TreeSortDropdownMenu sortMethod={sortMethod} setSortMethod={setSortMethod} /> : null
             }
+            panelActionsNewSceneLayout={[
+                {
+                    ...(root === 'project://' &&
+                        sortMethod !== 'recent' && {
+                            tooltip: 'New root folder',
+                            'data-attr': 'tree-panel-new-root-folder-button',
+                            onClick: () => createFolder(''),
+                            children: (
+                                <>
+                                    <IconFolderPlus className="text-tertiary size-3" />
+                                    New root folder
+                                </>
+                            ),
+                        }),
+                },
+                {
+                    ...(root === 'project://' &&
+                        sortMethod !== 'recent' && {
+                            tooltip: selectMode === 'default' ? 'Enable multi-select' : 'Disable multi-select',
+                            'data-attr': 'tree-panel-enable-multi-select-button',
+                            onClick: () => setSelectMode(selectMode === 'default' ? 'multi' : 'default'),
+                            active: selectMode === 'multi',
+                            'aria-pressed': selectMode === 'multi',
+                            children: (
+                                <>
+                                    <IconCheckbox
+                                        className={cn('size-3', {
+                                            'text-tertiary': selectMode === 'default',
+                                            'text-primary': selectMode === 'multi',
+                                        })}
+                                    />
+                                    {selectMode === 'default' ? 'Enable multi-select' : 'Disable multi-select'}
+                                </>
+                            ),
+                        }),
+                },
+            ]}
             panelActions={
                 root === 'project://' ? (
                     <>
