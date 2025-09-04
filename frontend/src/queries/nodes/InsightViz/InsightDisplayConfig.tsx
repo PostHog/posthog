@@ -16,6 +16,7 @@ import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
 import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
@@ -94,11 +95,12 @@ export function InsightDisplayConfig(): JSX.Element {
     )
 
     const advancedOptions: LemonMenuItems = [
-        ...((isTrends || isRetention) && display !== ChartDisplayType.CalendarHeatmap
+        ...(((isTrends || isRetention) && display !== ChartDisplayType.CalendarHeatmap) || isLifecycle
             ? [
                   {
                       title: 'Display',
                       items: [
+                          ...(isLifecycle ? [{ label: () => <LifecycleStackingFilter /> }] : []),
                           ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
                           ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
                           ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),

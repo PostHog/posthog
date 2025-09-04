@@ -13,8 +13,6 @@ import { Label, LabelProps } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
 import { SceneConfig } from 'scenes/sceneTypes'
 
-import { SceneTabs } from '~/layout/scenes/SceneTabs'
-
 import { SceneHeader } from './SceneHeader'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
 
@@ -96,7 +94,7 @@ export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren
 export function SceneLayout({ children, className, layoutConfig }: SceneLayoutProps): JSX.Element {
     const { registerScenePanelElement, setScenePanelOpen, setSceneContainerRef, setForceScenePanelClosedWhenRelative } =
         useActions(sceneLayoutLogic)
-    const { scenePanelIsPresent, scenePanelOpen, useSceneTabs, scenePanelIsRelative, sceneContainerRect } =
+    const { scenePanelIsPresent, scenePanelOpen, scenePanelIsRelative, sceneContainerRect } =
         useValues(sceneLayoutLogic)
     const sceneLayoutContainer = useRef<HTMLDivElement>(null)
 
@@ -129,14 +127,9 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                             scenePanelIsPresent && scenePanelIsRelative && scenePanelOpen,
                     })}
                 >
-                    {useSceneTabs ? <SceneTabs /> : null}
-                    {layoutConfig?.layout !== 'app-raw-no-header' && (
-                        <SceneHeader className="row-span-1 col-span-1 min-w-0" />
-                    )}
-
                     <div
                         className={cn(
-                            'flex-1 flex flex-col p-4 pb-16 w-full order-1 row-span-1 col-span-1 col-start-1 relative min-w-0',
+                            'flex flex-1 flex-col pt-0 pb-16 w-full order-1 row-span-1 col-span-1 col-start-1 relative min-w-0',
                             {
                                 'p-0 h-screen': layoutConfig?.layout === 'app-raw-no-header',
                                 'p-0 h-[calc(100vh-var(--scene-layout-header-height))]':
@@ -144,7 +137,16 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                             }
                         )}
                     >
-                        {children}
+                        {layoutConfig?.layout !== 'app-raw-no-header' && (
+                            <SceneHeader className="row-span-1 col-span-1 min-w-0" />
+                        )}
+                        <ScrollableShadows
+                            direction="vertical"
+                            className="h-[calc(100vh-var(--scene-layout-header-height))]"
+                            innerClassName="bg-primary px-4 pb-4"
+                        >
+                            {children}
+                        </ScrollableShadows>
                     </div>
                 </div>
 
@@ -207,7 +209,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                                     setScenePanelOpen(false)
                                 }}
                                 aria-hidden="true"
-                                className="z-[var(--z-top-navigation-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-100"
+                                className="z-[var(--z-scene-layout-content-panel-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-100"
                             />
                         )}
                     </>

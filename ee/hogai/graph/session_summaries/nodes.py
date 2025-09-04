@@ -212,13 +212,20 @@ class SessionSummarizationNode(AssistantNode):
         return "\n".join(summaries)
 
     async def _summarize_sessions_as_group(
-        self, session_ids: list[str], state: AssistantState, writer: StreamWriter | None, notebook: Notebook | None
+        self,
+        session_ids: list[str],
+        state: AssistantState,
+        writer: StreamWriter | None,
+        notebook: Notebook | None,
+        summary_title: str | None,
     ) -> str:
         """Summarize sessions as a group (for larger sets)."""
         min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self._team)
 
         # Initialize intermediate state with plan
-        self._intermediate_state = SummaryNotebookIntermediateState(team_name=self._team.name)
+        self._intermediate_state = SummaryNotebookIntermediateState(
+            team_name=self._team.name, summary_title=summary_title
+        )
 
         # Stream initial plan
         initial_state = self._intermediate_state.format_intermediate_state()
@@ -266,7 +273,11 @@ class SessionSummarizationNode(AssistantNode):
                 # Replace the intermediate state with final report
                 summary = data
                 summary_content = generate_notebook_content_from_summary(
-                    summary=summary, session_ids=session_ids, project_name=self._team.name, team_id=self._team.id
+                    summary=summary,
+                    session_ids=session_ids,
+                    project_name=self._team.name,
+                    team_id=self._team.id,
+                    summary_title=summary_title,
                 )
                 self._stream_notebook_content(summary_content, state, writer, partial=False)
                 # Update the notebook through BE for cases where the chat was closed
@@ -306,6 +317,7 @@ class SessionSummarizationNode(AssistantNode):
             return self._create_error_response(self._base_error_instructions, state)
         # If the current filters were marked as relevant, but not present in the context
         current_filters = self._get_contextual_tools(config).get("search_session_recordings", {}).get("current_filters")
+        summary_title = state.summary_title
         try:
             # Use current filters, if provided
             if state.should_use_current_filters:
@@ -358,7 +370,9 @@ class SessionSummarizationNode(AssistantNode):
                 # Check if the notebook is provided, create a notebook to fill if not
                 notebook = None
                 if not state.notebook_short_id:
-                    notebook = await create_empty_notebook_for_summary(user=self._user, team=self._team)
+                    notebook = await create_empty_notebook_for_summary(
+                        user=self._user, team=self._team, summary_title=summary_title
+                    )
                     # Could be moved to a separate "create notebook" node (or reuse the one from deep research)
                     state.notebook_short_id = notebook.short_id
                 # For large groups, process in detail, searching for patterns
@@ -368,7 +382,7 @@ class SessionSummarizationNode(AssistantNode):
                     writer=writer,
                 )
                 summaries_content = await self._summarize_sessions_as_group(
-                    session_ids=session_ids, state=state, writer=writer, notebook=notebook
+                    session_ids=session_ids, state=state, writer=writer, notebook=notebook, summary_title=summary_title
                 )
             return PartialAssistantState(
                 messages=[

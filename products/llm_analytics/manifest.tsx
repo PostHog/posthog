@@ -92,6 +92,7 @@ export const manifest: ProductManifest = {
             params?: {
                 event?: string
                 timestamp?: string
+                exception_ts?: string
                 search?: string
             }
         ): string => {

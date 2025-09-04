@@ -319,7 +319,8 @@ export class SessionRecordingIngester {
 
     public isHealthy(): boolean {
         // TODO: Maybe extend this to check if we are shutting down so we don't get killed early.
-        return this.kafkaConsumer.isHealthy()
+        const result = this.kafkaConsumer.isHealthy()
+        return result.healthy
     }
 
     private get assignedTopicPartitions(): TopicPartition[] {
