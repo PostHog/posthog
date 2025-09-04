@@ -147,11 +147,13 @@ function SortableSceneTab({ tab }: { tab: SceneTab }): JSX.Element {
                             <ButtonPrimitive
                                 iconOnly
                                 size="xs"
-                                tooltip="Copy URL"
+                                tooltip="Copy tab URL with pathname, search, and hash"
                                 className="text-primary"
                                 onClick={() => {
                                     try {
-                                        navigator.clipboard.writeText(`${window.location.origin}${tab.pathname}${tab.search}${tab.hash}`)
+                                        navigator.clipboard.writeText(
+                                            `${window.location.origin}${tab.pathname}${tab.search}${tab.hash}`
+                                        )
                                         lemonToast.success('URL copied to clipboard')
                                     } catch (error) {
                                         lemonToast.error(`Failed to copy URL to clipboard ${error}`)
