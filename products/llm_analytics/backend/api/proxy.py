@@ -30,7 +30,7 @@ from posthog.settings import SERVER_GATEWAY_INTERFACE
 
 from products.llm_analytics.backend.providers.anthropic import AnthropicConfig, AnthropicProvider
 from products.llm_analytics.backend.providers.codestral import CodestralConfig, CodestralProvider
-from products.llm_analytics.backend.providers.formatters.tools_handler import LLMToolsHandler
+from products.llm_analytics.backend.providers.formatters.tools_handler import LLMToolsHandler, ToolFormat
 from products.llm_analytics.backend.providers.gemini import GeminiConfig, GeminiProvider
 from products.llm_analytics.backend.providers.inkeep import InkeepConfig, InkeepProvider
 from products.llm_analytics.backend.providers.openai import OpenAIConfig, OpenAIProvider
@@ -167,14 +167,14 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
                 # Convert tools to appropriate format based on provider type
                 if isinstance(provider, OpenAIProvider):
-                    processed_tools = tools_handler.convert_to("openai")
+                    processed_tools = tools_handler.convert_to(ToolFormat.OPENAI)
                 elif isinstance(provider, AnthropicProvider):
-                    processed_tools = tools_handler.convert_to("anthropic")
+                    processed_tools = tools_handler.convert_to(ToolFormat.ANTHROPIC)
                 elif isinstance(provider, GeminiProvider):
-                    processed_tools = tools_handler.convert_to("gemini")
+                    processed_tools = tools_handler.convert_to(ToolFormat.GEMINI)
                 else:
-                    # For other providers (like Inkeep), use the raw tools data
-                    processed_tools = tools_handler.tools_data
+                    # For other providers (like Inkeep), we don't have tools support yet
+                    processed_tools = None
 
                 # Build kwargs common to all providers
                 stream_kwargs: dict[str, Any] = {

@@ -1,171 +1,224 @@
-from typing import Any, Literal
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any
 
-FormatType = Literal["openai", "anthropic", "gemini"]
+
+@dataclass
+class Tool:
+    """Internal representation of a tool/function"""
+
+    name: str
+    description: str
+    parameters: dict[str, Any]
 
 
-class LLMToolsHandler:
-    def __init__(self, tools_data: dict[str, Any] | list[dict[str, Any]] | None):
-        if tools_data is None:
-            self.tools_data = None
-        elif isinstance(tools_data, dict):
-            self.tools_data = list(tools_data.values())
-        else:
-            self.tools_data = tools_data
+class ToolFormat(Enum):
+    OPENAI = "openai"
+    ANTHROPIC = "anthropic"
+    GEMINI = "gemini"
 
-    def detect_format(self) -> FormatType | None:
-        if self.tools_data is None or not self.tools_data:
-            return None
 
-        if not isinstance(self.tools_data, list) or not self.tools_data:
-            raise ValueError("Tools data must be a non-empty list")
+class ToolFormatter(ABC):
+    """Abstract base class for tool format parsers and serializers"""
 
-        first_tool = self.tools_data[0]
-        if not isinstance(first_tool, dict):
-            raise ValueError("Each tool must be a dictionary")
+    @abstractmethod
+    def can_parse(self, tool_data: dict[str, Any]) -> bool:
+        """Check if this formatter can parse the given tool data"""
+        pass
 
-        # OpenAI format detection
-        if "type" in first_tool and first_tool.get("type") == "function":
-            if "function" in first_tool:
-                function = first_tool["function"]
-                if "name" in function and "parameters" in function:
-                    return "openai"
+    @abstractmethod
+    def parse(self, tools_data: list[dict[str, Any]]) -> list[Tool]:
+        """Parse tool data into internal Tool objects"""
+        pass
 
-        # Anthropic format detection
-        if "name" in first_tool and "input_schema" in first_tool:
-            return "anthropic"
+    @abstractmethod
+    def serialize(self, tools: list[Tool]) -> list[dict[str, Any]]:
+        """Serialize Tool objects into format-specific data"""
+        pass
 
-        # Gemini format detection
-        if "functionDeclarations" in first_tool:
-            return "gemini"
 
-        # Check if it's a direct function declaration (Gemini style but not wrapped)
-        # This includes tools with just name and description, or with parameters
-        if "name" in first_tool and "input_schema" not in first_tool:
-            return "gemini"
+class OpenAIToolFormatter(ToolFormatter):
+    """OpenAI tool format: {"type": "function", "function": {...}}"""
 
-        raise ValueError(f"Unknown tool format: {first_tool}")
+    def can_parse(self, tool_data: dict[str, Any]) -> bool:
+        return (
+            tool_data.get("type") == "function"
+            and "function" in tool_data
+            and "name" in tool_data["function"]
+            and "parameters" in tool_data["function"]
+        )
 
-    def convert_to(self, format: FormatType) -> list[dict[str, Any]] | None:
-        if self.tools_data is None:
-            return None
+    def parse(self, tools_data: list[dict[str, Any]]) -> list[Tool]:
+        return [
+            Tool(
+                name=tool_data["function"]["name"],
+                description=tool_data["function"].get("description", ""),
+                parameters=tool_data["function"]["parameters"],
+            )
+            for tool_data in tools_data
+        ]
 
-        current_format = self.detect_format()
-        if current_format is None:
-            return None
-
-        if current_format == format:
-            return self.tools_data
-
-        # Convert to OpenAI first, then to target format
-        openai_tools = self._convert_to_openai(current_format)
-
-        if format == "openai":
-            return openai_tools
-        elif format == "anthropic":
-            return self._openai_to_anthropic(openai_tools)
-        elif format == "gemini":
-            return self._openai_to_gemini(openai_tools)
-
-        raise ValueError(f"Unsupported target format: {format}")
-
-    def _convert_to_openai(self, current_format: FormatType) -> list[dict[str, Any]]:
-        if current_format == "openai":
-            return self.tools_data
-        elif current_format == "anthropic":
-            return self._anthropic_to_openai(self.tools_data)
-        elif current_format == "gemini":
-            return self._gemini_to_openai(self.tools_data)
-
-        raise ValueError(f"Unsupported source format: {current_format}")
-
-    def _anthropic_to_openai(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        openai_tools = []
-        for tool in tools:
-            openai_tool = {
+    def serialize(self, tools: list[Tool]) -> list[dict[str, Any]]:
+        return [
+            {
                 "type": "function",
                 "function": {
-                    "name": tool["name"],
-                    "description": tool.get("description", ""),
-                    "parameters": tool["input_schema"],
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters,
                 },
             }
-            openai_tools.append(openai_tool)
-        return openai_tools
+            for tool in tools
+        ]
 
-    def _gemini_to_openai(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        openai_tools = []
-        for tool in tools:
-            # Handle wrapped format
-            if "functionDeclarations" in tool:
-                for func_decl in tool["functionDeclarations"]:
-                    openai_tool = {
-                        "type": "function",
-                        "function": {
-                            "name": func_decl["name"],
-                            "description": func_decl.get("description", ""),
-                            "parameters": func_decl.get("parameters", {"type": "object", "properties": {}}),
-                        },
-                    }
-                    openai_tools.append(openai_tool)
+
+class AnthropicToolFormatter(ToolFormatter):
+    """Anthropic tool format: {"name": ..., "description": ..., "input_schema": ...}"""
+
+    def can_parse(self, tool_data: dict[str, Any]) -> bool:
+        return "name" in tool_data and "input_schema" in tool_data
+
+    def parse(self, tools_data: list[dict[str, Any]]) -> list[Tool]:
+        return [
+            Tool(
+                name=tool_data["name"],
+                description=tool_data.get("description", ""),
+                parameters=tool_data["input_schema"],
+            )
+            for tool_data in tools_data
+        ]
+
+    def serialize(self, tools: list[Tool]) -> list[dict[str, Any]]:
+        return [
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "input_schema": tool.parameters,
+            }
+            for tool in tools
+        ]
+
+
+class GeminiToolFormatter(ToolFormatter):
+    """Gemini tool format: wrapped or direct function declarations"""
+
+    def can_parse(self, tool_data: dict[str, Any]) -> bool:
+        # Wrapped format
+        if "functionDeclarations" in tool_data:
+            return True
+        # Direct format (has name but not input_schema to distinguish from Anthropic)
+        return "name" in tool_data and "input_schema" not in tool_data
+
+    def parse(self, tools_data: list[dict[str, Any]]) -> list[Tool]:
+        tools = []
+        for tool_data in tools_data:
+            if "functionDeclarations" in tool_data:
+                tools.extend(self._parse_wrapped(tool_data))
             else:
-                # Direct function declaration format
-                openai_tool = {
-                    "type": "function",
-                    "function": {
-                        "name": tool["name"],
-                        "description": tool.get("description", ""),
-                        "parameters": tool.get("parameters", {"type": "object", "properties": {}}),
-                    },
-                }
-                openai_tools.append(openai_tool)
-        return openai_tools
+                tools.append(self._parse_direct(tool_data))
+        return tools
 
-    def _openai_to_anthropic(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        anthropic_tools = []
-        for tool in tools:
-            function = tool["function"]
-            anthropic_tool = {
-                "name": function["name"],
-                "description": function.get("description", ""),
-                "input_schema": function["parameters"],
+    def _parse_wrapped(self, tool_data: dict[str, Any]) -> list[Tool]:
+        """Parse wrapped Gemini format with functionDeclarations"""
+        return [
+            Tool(
+                name=func_decl["name"],
+                description=func_decl.get("description", ""),
+                parameters=func_decl.get("parameters", {"type": "object", "properties": {}}),
+            )
+            for func_decl in tool_data["functionDeclarations"]
+        ]
+
+    def _parse_direct(self, tool_data: dict[str, Any]) -> Tool:
+        """Parse direct Gemini format"""
+        return Tool(
+            name=tool_data["name"],
+            description=tool_data.get("description", ""),
+            parameters=tool_data.get("parameters", {"type": "object", "properties": {}}),
+        )
+
+    def serialize(self, tools: list[Tool]) -> list[dict[str, Any]]:
+        function_declarations = [
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": self._clean_schema_for_gemini(tool.parameters),
             }
-            anthropic_tools.append(anthropic_tool)
-        return anthropic_tools
-
-    def _openai_to_gemini(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        function_declarations = []
-        for tool in tools:
-            function = tool["function"]
-            func_decl = {
-                "name": function["name"],
-                "description": function.get("description", ""),
-                "parameters": self._clean_schema_for_gemini(function["parameters"]),
-            }
-            function_declarations.append(func_decl)
-
+            for tool in tools
+        ]
         return [{"functionDeclarations": function_declarations}]
 
     def _clean_schema_for_gemini(self, schema: dict[str, Any]) -> dict[str, Any]:
         """Clean JSON Schema to be compatible with Gemini's OpenAPI 3.0 format"""
-        if not isinstance(schema, dict):
-            return schema
-
-        # Fields that are not allowed in OpenAPI 3.0/Gemini
         forbidden_fields = {"$schema", "additionalProperties", "$id", "$ref", "definitions", "$defs"}
 
-        cleaned = {}
+        cleaned: dict[str, Any] = {}
         for key, value in schema.items():
             if key in forbidden_fields:
                 continue
 
-            # Recursively clean nested objects
             if isinstance(value, dict):
                 cleaned[key] = self._clean_schema_for_gemini(value)
             elif isinstance(value, list):
-                cleaned[key] = [
-                    self._clean_schema_for_gemini(item) if isinstance(item, dict) else item for item in value
-                ]
+                cleaned_list = []
+                for item in value:
+                    if isinstance(item, dict):
+                        cleaned_list.append(self._clean_schema_for_gemini(item))
+                    else:
+                        cleaned_list.append(item)
+                cleaned[key] = cleaned_list
             else:
                 cleaned[key] = value
 
         return cleaned
+
+
+class LLMToolsHandler:
+    """Handler for converting between different LLM tool formats"""
+
+    _formatters = {
+        ToolFormat.OPENAI: OpenAIToolFormatter(),
+        ToolFormat.ANTHROPIC: AnthropicToolFormatter(),
+        ToolFormat.GEMINI: GeminiToolFormatter(),
+    }
+
+    def __init__(self, tools_data: Any):
+        normalized_data = self._normalize_input(tools_data)
+        if normalized_data is None:
+            self.tools = None
+            self.format = None
+        else:
+            self.format = self._detect_format(normalized_data)
+            self.tools = self._formatters[self.format].parse(normalized_data)
+
+    def convert_to(self, format: ToolFormat) -> list[dict[str, Any]] | None:
+        """Convert tools to the specified format"""
+        if self.tools is None:
+            return None
+
+        formatter = self._formatters[format]
+        return formatter.serialize(self.tools)
+
+    def _normalize_input(self, tools_data: Any) -> list[dict[str, Any]] | None:
+        """Normalize input to a consistent list format"""
+        if tools_data is None or tools_data == [] or tools_data == {}:
+            return None
+        # Some people store tools in a dictionary mapped by id or name, so we extract the values
+        if isinstance(tools_data, dict):
+            return list(tools_data.values())
+        if isinstance(tools_data, list):
+            return tools_data
+        raise ValueError(f"Tools data is an unknown format: {type(tools_data)}")
+
+    def _detect_format(self, tools_data: list[dict[str, Any]]) -> ToolFormat:
+        """Detect which format the tools data uses"""
+        first_tool = tools_data[0]
+        if not isinstance(first_tool, dict):
+            raise ValueError("Each tool must be a dictionary")
+
+        for format_type, formatter in self._formatters.items():
+            if formatter.can_parse(first_tool):
+                return format_type
+
+        raise ValueError(f"Unknown tool format: {first_tool}")

@@ -2,7 +2,7 @@ import pytest
 
 from parameterized import parameterized
 
-from products.llm_analytics.backend.providers.formatters.tools_handler import LLMToolsHandler
+from products.llm_analytics.backend.providers.formatters.tools_handler import LLMToolsHandler, ToolFormat
 
 
 class TestLLMToolsHandler:
@@ -15,16 +15,16 @@ class TestLLMToolsHandler:
     )
     def test_detect_format_returns_none_for_empty_input(self, tools_data, expected):
         handler = LLMToolsHandler(tools_data)
-        assert handler.detect_format() == expected
+        assert handler.format == expected
 
     @parameterized.expand(
         [
-            (None, "openai", None),
-            (None, "anthropic", None),
-            (None, "gemini", None),
-            ([], "openai", None),
-            ([], "anthropic", None),
-            ([], "gemini", None),
+            (None, ToolFormat.OPENAI, None),
+            (None, ToolFormat.ANTHROPIC, None),
+            (None, ToolFormat.GEMINI, None),
+            ([], ToolFormat.OPENAI, None),
+            ([], ToolFormat.ANTHROPIC, None),
+            ([], ToolFormat.GEMINI, None),
         ]
     )
     def test_convert_to_returns_none_for_empty_input(self, tools_data, target_format, expected):
@@ -37,37 +37,43 @@ class TestLLMToolsHandler:
             "tool2": {"name": "test2", "input_schema": {"type": "object"}},
         }
         handler = LLMToolsHandler(tools_dict)
-        assert len(handler.tools_data) == 2
-        assert handler.tools_data[0]["name"] == "test1"
-        assert handler.tools_data[1]["name"] == "test2"
+        assert len(handler.tools) == 2
+        assert handler.tools[0].name == "test1"
+        assert handler.tools[1].name == "test2"
 
     @parameterized.expand(
         [
-            ([{"type": "function", "function": {"name": "get_weather", "parameters": {"type": "object"}}}], "openai"),
-            ([{"name": "get_weather", "input_schema": {"type": "object"}}], "anthropic"),
-            ([{"functionDeclarations": [{"name": "get_weather", "parameters": {"type": "object"}}]}], "gemini"),
-            ([{"name": "get_weather", "parameters": {"type": "object"}}], "gemini"),
+            (
+                [{"type": "function", "function": {"name": "get_weather", "parameters": {"type": "object"}}}],
+                ToolFormat.OPENAI,
+            ),
+            ([{"name": "get_weather", "input_schema": {"type": "object"}}], ToolFormat.ANTHROPIC),
+            (
+                [{"functionDeclarations": [{"name": "get_weather", "parameters": {"type": "object"}}]}],
+                ToolFormat.GEMINI,
+            ),
+            ([{"name": "get_weather", "parameters": {"type": "object"}}], ToolFormat.GEMINI),
         ]
     )
     def test_format_detection(self, tools_data, expected_format):
         handler = LLMToolsHandler(tools_data)
-        assert handler.detect_format() == expected_format
+        assert handler.format == expected_format
 
     def test_detect_format_raises_error_for_unknown_format(self):
-        handler = LLMToolsHandler([{"unknown": "format"}])
         with pytest.raises(ValueError, match="Unknown tool format"):
-            handler.detect_format()
+            LLMToolsHandler([{"unknown": "format"}])
 
     def test_detect_format_raises_error_for_invalid_structure(self):
-        handler = LLMToolsHandler(["not_a_dict"])
         with pytest.raises(ValueError, match="Each tool must be a dictionary"):
-            handler.detect_format()
+            LLMToolsHandler(["not_a_dict"])
 
     def test_skip_conversion_when_already_in_target_format(self):
-        openai_tools = [{"type": "function", "function": {"name": "test", "parameters": {"type": "object"}}}]
+        openai_tools = [
+            {"type": "function", "function": {"name": "test", "description": "", "parameters": {"type": "object"}}}
+        ]
         handler = LLMToolsHandler(openai_tools)
-        result = handler.convert_to("openai")
-        assert result is openai_tools
+        result = handler.convert_to(ToolFormat.OPENAI)
+        assert result == openai_tools
 
     def test_anthropic_to_openai_conversion(self):
         anthropic_tools = [
@@ -83,7 +89,7 @@ class TestLLMToolsHandler:
         ]
 
         handler = LLMToolsHandler(anthropic_tools)
-        result = handler.convert_to("openai")
+        result = handler.convert_to(ToolFormat.OPENAI)
 
         expected = [
             {
@@ -119,7 +125,7 @@ class TestLLMToolsHandler:
         ]
 
         handler = LLMToolsHandler(openai_tools)
-        result = handler.convert_to("anthropic")
+        result = handler.convert_to(ToolFormat.ANTHROPIC)
 
         expected = [
             {
@@ -152,7 +158,7 @@ class TestLLMToolsHandler:
         ]
 
         handler = LLMToolsHandler(openai_tools)
-        result = handler.convert_to("gemini")
+        result = handler.convert_to(ToolFormat.GEMINI)
 
         expected = [
             {
@@ -190,7 +196,7 @@ class TestLLMToolsHandler:
         ]
 
         handler = LLMToolsHandler(gemini_tools)
-        result = handler.convert_to("openai")
+        result = handler.convert_to(ToolFormat.OPENAI)
 
         expected = [
             {
@@ -223,7 +229,7 @@ class TestLLMToolsHandler:
         ]
 
         handler = LLMToolsHandler(gemini_tools)
-        result = handler.convert_to("openai")
+        result = handler.convert_to(ToolFormat.OPENAI)
 
         expected = [
             {
@@ -256,7 +262,7 @@ class TestLLMToolsHandler:
         ]
 
         handler = LLMToolsHandler(anthropic_tools)
-        result = handler.convert_to("gemini")
+        result = handler.convert_to(ToolFormat.GEMINI)
 
         expected = [
             {
@@ -294,7 +300,7 @@ class TestLLMToolsHandler:
         ]
 
         handler = LLMToolsHandler(gemini_tools)
-        result = handler.convert_to("anthropic")
+        result = handler.convert_to(ToolFormat.ANTHROPIC)
 
         expected = [
             {
@@ -328,7 +334,7 @@ class TestLLMToolsHandler:
         ]
 
         handler = LLMToolsHandler(anthropic_tools)
-        result = handler.convert_to("openai")
+        result = handler.convert_to(ToolFormat.OPENAI)
 
         assert len(result) == 2
         assert result[0]["function"]["name"] == "get_weather"
@@ -338,7 +344,7 @@ class TestLLMToolsHandler:
         anthropic_tools = [{"name": "get_weather", "input_schema": {"type": "object"}}]
 
         handler = LLMToolsHandler(anthropic_tools)
-        result = handler.convert_to("openai")
+        result = handler.convert_to(ToolFormat.OPENAI)
 
         assert result[0]["function"]["description"] == ""
 
@@ -346,23 +352,19 @@ class TestLLMToolsHandler:
         gemini_tools = [{"name": "get_weather", "description": "Get current weather"}]
 
         handler = LLMToolsHandler(gemini_tools)
-        result = handler.convert_to("openai")
+        result = handler.convert_to(ToolFormat.OPENAI)
 
         assert result[0]["function"]["parameters"] == {"type": "object", "properties": {}}
 
-    def test_convert_to_raises_error_for_unsupported_format(self):
-        handler = LLMToolsHandler([{"name": "test", "input_schema": {"type": "object"}}])
-        with pytest.raises(ValueError, match="Unsupported target format"):
-            handler.convert_to("unsupported_format")
+    def test_tools_property_exposed(self):
+        tools_data = [{"name": "test", "input_schema": {"type": "object"}}]
+        handler = LLMToolsHandler(tools_data)
+        assert len(handler.tools) == 1
+        assert handler.tools[0].name == "test"
 
-    def test_tools_data_property_exposed(self):
-        tools = [{"name": "test", "input_schema": {"type": "object"}}]
-        handler = LLMToolsHandler(tools)
-        assert handler.tools_data == tools
-
-    def test_tools_data_none_property_exposed(self):
+    def test_tools_none_property_exposed(self):
         handler = LLMToolsHandler(None)
-        assert handler.tools_data is None
+        assert handler.tools is None
 
     def test_openai_to_gemini_cleans_schema_fields(self):
         openai_tools = [
@@ -385,7 +387,7 @@ class TestLLMToolsHandler:
         ]
 
         handler = LLMToolsHandler(openai_tools)
-        result = handler.convert_to("gemini")
+        result = handler.convert_to(ToolFormat.GEMINI)
 
         # Check that forbidden fields are removed
         parameters = result[0]["functionDeclarations"][0]["parameters"]
