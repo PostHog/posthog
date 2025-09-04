@@ -278,7 +278,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                     return {
                         id: action.id,
-                        type: action.type,
+                        type: 'action',
                         data: action,
                         position: { x: 0, y: 0 },
                         handles: Object.values(handlesByIdByNodeId[action.id] ?? {}),

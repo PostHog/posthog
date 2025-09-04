@@ -1,7 +1,6 @@
 import { IconBolt } from '@posthog/icons'
 
 import { StepFunctionConfiguration } from './StepFunction'
-import { StepView } from './components/StepView'
 import { HogFlowStep } from './types'
 
 export const StepFunctionPostHogCapture: HogFlowStep<'function_posthog_capture'> = {
@@ -10,7 +9,6 @@ export const StepFunctionPostHogCapture: HogFlowStep<'function_posthog_capture'>
     description: 'Capture an event to PostHog.',
     icon: <IconBolt className="text-[#005841]" />,
     color: '#005841',
-    renderNode: ({ data }) => <StepView action={data} />,
     renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
     create: () => {
         return {
@@ -34,7 +32,6 @@ export const StepFunctionPostHogGroupIdentify: HogFlowStep<'function_posthog_gro
     description: 'Set properties of a group in PostHog.',
     icon: <IconBolt className="text-[#005841]" />,
     color: '#005841',
-    renderNode: ({ data }) => <StepView action={data} />,
     renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
     create: () => {
         return {
@@ -58,7 +55,6 @@ export const StepFunctionPostHogUpdatePersonProperties: HogFlowStep<'function_po
     description: 'Update properties of a person in PostHog.',
     icon: <IconBolt className="text-[#005841]" />,
     color: '#005841',
-    renderNode: ({ data }) => <StepView action={data} />,
     renderConfiguration: (node) => <StepFunctionConfiguration node={node} />,
     create: () => {
         return {
