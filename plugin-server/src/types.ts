@@ -96,10 +96,16 @@ export const stringToPluginServerMode = Object.fromEntries(
     ])
 ) as Record<string, PluginServerMode>
 
+export interface HealthCheckResult {
+    healthy: boolean
+    message?: string
+    details?: Record<string, any>
+}
+
 export type PluginServerService = {
     id: string
     onShutdown: () => Promise<any>
-    healthcheck: () => boolean | Promise<boolean>
+    healthcheck: () => boolean | HealthCheckResult | Promise<boolean | HealthCheckResult>
 }
 
 export type CdpConfig = {
@@ -156,7 +162,6 @@ export type CdpConfig = {
 
     HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
     HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
-    HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC: string
 
     CDP_EMAIL_TRACKING_URL: string
 }
@@ -250,6 +255,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     CONSUMER_BATCH_SIZE: number // Primarily for kafka consumers the batch size to use
     CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: number // Primarily for kafka consumers the max heartbeat interval to use after which it will be considered unhealthy
+    CONSUMER_LOOP_STALL_THRESHOLD_MS: number // Threshold in ms after which the consumer loop is considered stalled
+    KAFKA_CONSUMER_LOOP_BASED_HEALTH_CHECK: boolean // Use consumer loop monitoring for health checks instead of heartbeats
     CONSUMER_MAX_BACKGROUND_TASKS: number
     CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean
     CONSUMER_AUTO_CREATE_TOPICS: boolean
