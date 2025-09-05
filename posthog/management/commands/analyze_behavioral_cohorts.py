@@ -103,7 +103,13 @@ class Command(BaseCommand):
     ) -> list[dict[str, Any]]:
         """Get unique condition hashes from ClickHouse with optional limit"""
 
-        where_clauses = ["date >= now() - INTERVAL %s DAY"]
+        # Basic validation for reasonable bounds
+        if not isinstance(days, int) or days < 0 or days > 365:
+            raise ValueError(f"Invalid days value: {days}")
+        if limit is not None and (not isinstance(limit, int) or limit < 1 or limit > 100000):
+            raise ValueError(f"Invalid limit value: {limit}")
+
+        where_clauses = ["date >= now() - toIntervalDay(%s)"]
         params: list[Any] = [days]
 
         if team_id:
@@ -119,7 +125,7 @@ class Command(BaseCommand):
         where_clause = " AND ".join(where_clauses)
 
         # Add LIMIT clause if specified
-        limit_clause = f"LIMIT {limit}" if limit else ""
+        limit_clause = f"LIMIT {int(limit)}" if limit else ""
         query = f"""
             SELECT DISTINCT
                 team_id,
@@ -152,6 +158,12 @@ class Command(BaseCommand):
     ) -> list[tuple[int, str, int]]:
         """Get all cohort memberships (team_id, person_id, cohort_id) for persons with minimum matches"""
 
+        # Basic validation for reasonable bounds
+        if not isinstance(days, int) or days < 0 or days > 365:
+            raise ValueError(f"Invalid days value: {days}")
+        if not isinstance(min_matches, int) or min_matches < 0:
+            raise ValueError(f"Invalid min_matches value: {min_matches}")
+
         memberships = []
         total_conditions = len(condition_hashes)
 
@@ -174,7 +186,7 @@ class Command(BaseCommand):
                     team_id = %s
                     AND cohort_id = %s
                     AND condition = %s
-                    AND date >= now() - INTERVAL %s DAY
+                    AND date >= now() - toIntervalDay(%s)
                     AND matches >= %s
                 LIMIT 100000
             """
