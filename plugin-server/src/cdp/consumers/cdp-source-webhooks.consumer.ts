@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { ModifiedRequest } from '~/api/router'
 import { instrumented } from '~/common/tracing/tracing-utils'
 
-import { Hub } from '../../types'
+import { HealthCheckResult, HealthCheckResultOk, Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { UUID, UUIDT } from '../../utils/utils'
@@ -251,8 +251,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         await super.stop()
     }
 
-    public isHealthy() {
+    public isHealthy(): HealthCheckResult {
         // TODO: What should we consider healthy / unhealthy here? kafka?
-        return true
+        return new HealthCheckResultOk()
     }
 }
