@@ -311,8 +311,8 @@ export class DestinationTester {
 
     constructor(private template: NativeTemplate) {
         this.template = template
-        this.executor = new NativeDestinationExecutorService({} as any)
-        this.inputsService = new HogInputsService({} as any)
+        this.executor = new NativeDestinationExecutorService(defaultConfig)
+        this.inputsService = new HogInputsService(defaultConfig as Hub)
 
         this.executor.fetch = this.mockFetch
 

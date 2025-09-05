@@ -1,10 +1,27 @@
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
-import { PostgresUse } from '~/utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
 import { UUIDT } from '~/utils/utils'
 
 import { RecipientGetArgs, RecipientsManagerService } from './recipients-manager.service'
+
+export const createRecipient = async (
+    postgres: PostgresRouter,
+    teamId: number,
+    identifier: string,
+    preferences: Record<string, string> = {}
+) => {
+    const id = new UUIDT().toString()
+    await postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `INSERT INTO posthog_messagerecipientpreference (id, team_id, identifier, preferences, created_at, updated_at, deleted)
+         VALUES ($1, $2, $3, $4, NOW(), NOW(), false)`,
+        [id, teamId, identifier, JSON.stringify(preferences)],
+        'testInsertRecipient'
+    )
+    return id
+}
 
 describe('RecipientsManager', () => {
     let hub: Hub
@@ -25,18 +42,6 @@ describe('RecipientsManager', () => {
         await closeHub(hub)
     })
 
-    async function createRecipient(teamId: number, identifier: string, preferences: Record<string, string> = {}) {
-        const id = new UUIDT().toString()
-        await hub.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `INSERT INTO posthog_messagerecipientpreference (id, team_id, identifier, preferences, created_at, updated_at, deleted)
-             VALUES ($1, $2, $3, $4, NOW(), NOW(), false)`,
-            [id, teamId, identifier, JSON.stringify(preferences)],
-            'testInsertRecipient'
-        )
-        return id
-    }
-
     describe('get', () => {
         it('should return null when recipient does not exist', async () => {
             const args: RecipientGetArgs = { teamId: team.id, identifier: 'nonexistent@example.com' }
@@ -46,7 +51,7 @@ describe('RecipientsManager', () => {
 
         it('should return recipient when it exists', async () => {
             const preferences = { 'category-1': 'OPTED_IN', 'category-2': 'OPTED_OUT' }
-            const id = await createRecipient(team.id, 'user@example.com', preferences)
+            const id = await createRecipient(hub, team.id, 'user@example.com', preferences)
 
             const args: RecipientGetArgs = { teamId: team.id, identifier: 'user@example.com' }
             const result = await manager.get(args)
