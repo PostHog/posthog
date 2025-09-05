@@ -83,21 +83,19 @@ export const dataTableSavedFiltersLogic = kea<dataTableSavedFiltersLogicType>([
         ],
     })),
 
-    listeners(({ props, actions }) => ({
+    listeners(({ props, actions, values }) => ({
         applySavedFilter: ({ filter }) => {
             props.setQuery(filter.query)
             actions.setAppliedSavedFilter(filter)
         },
 
-        createSavedFilter: ({ name }) => {
-            const filter = {
-                id: uuidv4(),
-                name,
-                query: props.query,
-                createdAt: new Date().toISOString(),
-                lastModifiedAt: new Date().toISOString(),
+        createSavedFilter: () => {
+            // Get the filter that was just created by the reducer
+            // It will be the last one in the array since we append new filters
+            const createdFilter = values.savedFilters[values.savedFilters.length - 1]
+            if (createdFilter) {
+                actions.setAppliedSavedFilter(createdFilter)
             }
-            actions.setAppliedSavedFilter(filter)
         },
     })),
 

@@ -258,6 +258,12 @@ describe('dataTableSavedFiltersLogic', () => {
                 expectLogic(logic).toMatchValues({
                     appliedSavedFilter: savedFilter,
                 })
+
+                // Verify no data inconsistency - applied filter should be the exact same object
+                const appliedFilter = logic.values.appliedSavedFilter
+                expect(appliedFilter).toBe(savedFilter) // Same reference, not a duplicate
+                expect(appliedFilter?.id).toBe(savedFilter.id) // Same UUID
+                expect(appliedFilter?.createdAt).toBe(savedFilter.createdAt) // Same timestamp
             })
         })
 
