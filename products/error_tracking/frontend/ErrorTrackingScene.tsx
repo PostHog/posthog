@@ -1,5 +1,6 @@
 import { BindLogic, useValues } from 'kea'
 import { posthog } from 'posthog-js'
+import { useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, Link, Tooltip } from '@posthog/lemon-ui'
@@ -42,6 +43,7 @@ export const scene: SceneExport = {
 }
 
 export function ErrorTrackingScene(): JSX.Element {
+    const [showSuggestions, setShowSuggestions] = useState<boolean>(false)
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(errorIngestionLogic)
     const { query } = useValues(errorTrackingSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -78,11 +80,29 @@ export function ErrorTrackingScene(): JSX.Element {
                     {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
                     <div>
                         <ErrorFilters.Root>
-                            <ErrorFilters.DateRange />
+                            <div className="flex gap-2 justify-between">
+                                <div className="flex gap-2">
+                                    <ErrorFilters.DateRange />
+                                    <ErrorFilters.Status />
+                                    <ErrorFilters.Assignee />
+                                </div>
+                                <ErrorFilters.InternalAccounts />
+                            </div>
                             <ErrorFilters.FilterGroup />
-                            <ErrorFilters.InternalAccounts />
+                            <LemonDivider
+                                label={
+                                    <LemonButton size="xsmall" onClick={() => setShowSuggestions(!showSuggestions)}>
+                                        or ask Max
+                                    </LemonButton>
+                                }
+                            />
+                            {showSuggestions && (
+                                <div className="flex">
+                                    <LemonButton>Show me issues impacting signup</LemonButton>
+                                    <LemonButton>Find issues that happen on the pricing page</LemonButton>
+                                </div>
+                            )}
                         </ErrorFilters.Root>
-                        <LemonDivider className="mt-2" />
                         <ErrorTrackingListOptions />
                         <Query query={query} context={context} />
                     </div>
