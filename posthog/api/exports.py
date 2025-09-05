@@ -69,6 +69,18 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             timeout_message = f"Export failed without throwing an exception. Please try to rerun this export and contact support if it fails to complete multiple times."
             data["exception"] = timeout_message
 
+            posthoganalytics.capture(
+                distinct_id=self.context["request"].user.distinct_id
+                if "request" in self.context and self.context["request"].user
+                else str(instance.team.uuid),
+                event="export timeout error returned",
+                properties={
+                    **instance.get_analytics_metadata(),
+                    "timeout_message": timeout_message,
+                    "stuck_duration_seconds": (now() - instance.created_at).total_seconds(),
+                },
+            )
+
         return data
 
     def validate(self, data: dict) -> dict:
