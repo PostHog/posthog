@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { dataTableSavedFiltersLogic } from './dataTableSavedFiltersLogic'
 
@@ -31,10 +32,10 @@ const mockQueryWithFilters: DataTableNode = {
         },
         properties: [
             {
-                type: 'event',
+                type: PropertyFilterType.Event,
                 key: 'test',
                 value: 'value',
-                operator: 'exact',
+                operator: PropertyOperator.Exact,
             },
         ],
         filterTestAccounts: true,
