@@ -206,7 +206,6 @@ export const formatHogInput = async (
 }
 
 const formatLiquidInput = (value: unknown, globals: HogFunctionInvocationGlobalsWithInputs, key?: string): any => {
-    console.log('formatLiquidInput', value, globals, key)
     if (value === null || value === undefined) {
         return value
     }
