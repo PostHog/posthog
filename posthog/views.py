@@ -323,13 +323,11 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     if not team_id or not identifier:
         return render(request, "message_preferences/error.html", {"error": "Invalid recipient"}, status=400)
 
-    recipient = None
-
     try:
         recipient = MessageRecipientPreference.objects.get(team_id=team_id, identifier=identifier)
     except MessageRecipientPreference.DoesNotExist:
         # A first-time preferences page visitor will not have a recipient in Postgres yet.
-        pass
+        recipient = None
 
     # Only fetch active categories and their preferences
     categories = MessageCategory.objects.filter(deleted=False, team=team_id, category_type="marketing").order_by("name")
@@ -373,10 +371,12 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
     if not team_id or not identifier:
         return JsonResponse({"error": "Invalid recipient"}, status=400)
 
+    recipient = None
+
     try:
         recipient = MessageRecipientPreference.objects.get(team_id=team_id, identifier=identifier)
     except MessageRecipientPreference.DoesNotExist:
-        pass
+        recipient = MessageRecipientPreference(team_id=team_id, identifier=identifier)
 
     try:
         preferences = request.POST.getlist("preferences[]")
@@ -402,9 +402,10 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
 
         # Update all preferences with a single DB write
         recipient.preferences = preferences_dict
-        recipient.save(update_fields=["preferences", "updated_at"])
+        recipient.save()
 
         return JsonResponse({"success": True})
 
-    except Exception:
+    except Exception as e:
+        capture_exception(e)
         return JsonResponse({"error": "Failed to update preferences"}, status=400)
