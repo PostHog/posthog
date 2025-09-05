@@ -172,6 +172,11 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev --directory ..
 
+            - name: Download MaxMind Database
+              if: needs.changes.outputs.rust == 'true'
+              run: |
+                  cd ../ && ./bin/download-mmdb
+
             - name: Set up databases
               if: needs.changes.outputs.rust == 'true'
               env:
@@ -180,11 +185,6 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: cd ../ && python manage.py setup_test_environment
-
-            - name: Download MaxMind Database
-              if: needs.changes.outputs.rust == 'true'
-              run: |
-                  cd ../ && ./bin/download-mmdb
 
             - name: Run cargo test
               if: needs.changes.outputs.rust == 'true'
