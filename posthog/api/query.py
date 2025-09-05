@@ -259,7 +259,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def get_query_log(self, request: Request, pk: str, *args, **kwargs) -> Response:
         try:
             query = HogQLQuery(
-                query="select * from query_log where query_id = '{client_query_id}'",
+                query="select * from query_log where query_id = {client_query_id}",
                 values={
                     "client_query_id": pk,
                 },
