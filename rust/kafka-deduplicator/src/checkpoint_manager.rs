@@ -85,11 +85,35 @@ impl CheckpointManager {
 
                         // Flush and update metrics for each store
                         for (partition, store) in snapshot {
+                            // Check if store still exists (might have been removed during rebalancing)
+                            if store_manager.get(partition.topic(), partition.partition_number()).is_none() {
+                                debug!(
+                                    "Skipping flush for removed store {}:{}",
+                                    partition.topic(),
+                                    partition.partition_number()
+                                );
+                                continue;
+                            }
+
                             debug!("Flushing store {}:{}", partition.topic(), partition.partition_number());
 
                             // Flush the store
                             if let Err(e) = store.flush() {
-                                error!("Failed to flush store {}:{}: {}", partition.topic(), partition.partition_number(), e);
+                                // Build the complete error chain
+                                let mut error_chain = vec![format!("{:?}", e)];
+                                let mut source = e.source();
+                                while let Some(err) = source {
+                                    error_chain.push(format!("Caused by: {err:?}"));
+                                    source = err.source();
+                                }
+
+                                error!(
+                                    "Failed to flush store {}:{} - {}",
+                                    partition.topic(),
+                                    partition.partition_number(),
+                                    error_chain.join(" -> ")
+                                );
+
                                 continue;
                             }
 

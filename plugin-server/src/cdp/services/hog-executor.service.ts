@@ -13,8 +13,7 @@ import {
 import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/utils/request'
 import { tryCatch } from '~/utils/try-catch'
 
-import { buildIntegerMatcher } from '../../config/config'
-import { Hub, PluginsServerConfig, ValueMatcher } from '../../types'
+import { Hub, PluginsServerConfig } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
@@ -114,14 +113,12 @@ export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
 }
 
 export class HogExecutorService {
-    private telemetryMatcher: ValueMatcher<number>
     private hogInputsService: HogInputsService
     private emailService: EmailService
 
     constructor(private hub: Hub) {
         this.hogInputsService = new HogInputsService(hub)
         this.emailService = new EmailService(hub)
-        this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
     }
 
     async buildInputsWithGlobals(
@@ -156,8 +153,6 @@ export class HogExecutorService {
                 fn: hogFunction,
                 filters,
                 filterGlobals,
-                eventUuid: triggerGlobals.event.uuid,
-                enabledTelemetry: this.telemetryMatcher(hogFunction.team_id),
             })
 
             // Add any generated metrics and logs to our collections

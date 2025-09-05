@@ -8,6 +8,7 @@ import { IconListCheck, IconX } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label, LabelProps } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
@@ -103,6 +104,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
     const { scenePanelIsPresent, scenePanelOpen, scenePanelIsRelative, sceneContainerRect } =
         useValues(sceneLayoutLogic)
     const sceneLayoutContainer = useRef<HTMLDivElement>(null)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     // Set container ref so we can measure the width of the scene layout in logic
     useEffect(() => {
@@ -113,10 +115,8 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
 
     // Set layout config
     useEffect(() => {
-        if (sceneLayoutContainer.current) {
-            if (layoutConfig) {
-                setSceneLayoutConfig(layoutConfig)
-            }
+        if (layoutConfig) {
+            setSceneLayoutConfig(layoutConfig)
         }
     }, [layoutConfig, setSceneLayoutConfig])
 
@@ -131,38 +131,34 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
             }
         >
             <div
-                className={cn('relative min-h-screen', {
-                    'w-[calc(100%-var(--scene-layout-panel-width))]':
-                        scenePanelIsPresent && scenePanelIsRelative && scenePanelOpen,
-                    block: layoutConfig?.layout === 'app-raw-no-header',
-                })}
+                className={cn(
+                    'flex flex-1 flex-col pt-0 pb-16 w-full order-1 row-span-1 col-span-1 col-start-1 relative min-w-0',
+                    {
+                        'p-0 h-screen':
+                            layoutConfig?.layout === 'app-raw-no-header' || layoutConfig?.layout === 'app-raw',
+                        'w-[calc(100%-var(--scene-layout-panel-width))]':
+                            scenePanelIsPresent && scenePanelIsRelative && scenePanelOpen,
+                        block: layoutConfig?.layout === 'app-raw-no-header',
+                    }
+                )}
             >
-                <div
+                {layoutConfig?.layout !== 'app-raw-no-header' && (
+                    <SceneHeader className="row-span-1 col-span-1 min-w-0" />
+                )}
+                <ScrollableShadows
+                    direction="vertical"
                     className={cn(
-                        'flex flex-1 flex-col pt-0 pb-16 w-full order-1 row-span-1 col-span-1 col-start-1 relative min-w-0',
-                        {
-                            'p-0 h-screen': layoutConfig?.layout === 'app-raw-no-header',
-                            'p-0 h-[calc(100vh-var(--scene-layout-header-height))]': layoutConfig?.layout === 'app-raw',
-                        }
+                        'h-[calc(100vh-var(--scene-layout-header-height))]',
+                        newSceneLayout && 'h-[calc(100vh-var(--scene-layout-header-height-with-tabs))]',
+                        layoutConfig?.layout === 'app-raw-no-header' && 'h-screen'
+                    )}
+                    innerClassName={cn(
+                        'bg-primary px-4 pb-4',
+                        (layoutConfig?.layout === 'app-raw-no-header' || layoutConfig?.layout === 'app-raw') && 'p-0'
                     )}
                 >
-                    {layoutConfig?.layout !== 'app-raw-no-header' && (
-                        <SceneHeader className="row-span-1 col-span-1 min-w-0" />
-                    )}
-                    <ScrollableShadows
-                        direction="vertical"
-                        className={cn(
-                            'h-[calc(100vh-var(--scene-layout-header-height))]',
-                            layoutConfig?.layout === 'app-raw-no-header' && 'h-screen'
-                        )}
-                        innerClassName={cn(
-                            'bg-primary px-4 pb-4',
-                            layoutConfig?.layout === 'app-raw-no-header' && 'p-0'
-                        )}
-                    >
-                        {children}
-                    </ScrollableShadows>
-                </div>
+                    {children}
+                </ScrollableShadows>
             </div>
 
             {scenePanelIsPresent && (
