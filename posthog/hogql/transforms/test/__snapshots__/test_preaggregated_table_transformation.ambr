@@ -173,6 +173,13 @@
      FROM web_pre_aggregated_stats)
   '''
 # ---
+# name: TestPreaggregatedTableTransformation.test_enable_for_integer_team_timezones
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats)
+  '''
+# ---
 # name: TestPreaggregatedTableTransformation.test_equals_function
   '''
   sql

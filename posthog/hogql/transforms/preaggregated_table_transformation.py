@@ -17,7 +17,10 @@ Exports:
 * do_preaggregated_table_transforms
 """
 
+from datetime import datetime
 from typing import Optional, TypeVar, cast
+
+import pytz
 
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
@@ -553,11 +556,29 @@ class PreaggregatedTableTransformer(CloningVisitor):
         return _shallow_transform_select(transformed_with_ctes, self.context)
 
 
+def is_integer_timezone(timezone: str) -> bool:
+    # we make an assumption that if the timezone offset at the current time is non-integer, it always is, and vice versa
+    # this is currently true for all timezones in the tz database
+    try:
+        parsed = pytz.timezone(timezone)
+    except pytz.UnknownTimeZoneError:
+        return False
+    now = datetime.now()
+    offset = parsed.utcoffset(now)
+    return offset.total_seconds() % 3600 == 0
+
+
 def do_preaggregated_table_transforms(node: _T_AST, context: HogQLContext) -> _T_AST:
     """
     This function checks if the query can be transformed to use preaggregated tables.
     If it can, it returns the modified query; otherwise, it returns the original query.
     """
+
+    # Only support the transformation if the team's timezone is set and is an integer number of hours offset
+    timezone = context.team.timezone if context.team else None
+    if not timezone or not is_integer_timezone(timezone):
+        return node
+
     # Only transform SelectQuery nodes and their nested queries
     if not isinstance(node, ast.SelectQuery | ast.SelectSetQuery):
         return node

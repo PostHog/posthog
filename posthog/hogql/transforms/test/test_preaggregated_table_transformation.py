@@ -15,6 +15,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.transforms.preaggregated_table_transformation import (
     PREAGGREGATED_TABLE_NAME,
     do_preaggregated_table_transforms,
+    is_integer_timezone,
 )
 
 from posthog.clickhouse.client import sync_execute
@@ -67,7 +68,7 @@ class TestPreaggregatedTableTransformation(BaseTest, QueryMatchingTest):
 
     def _parse_and_transform(self, query: str):
         node = parse_select(query)
-        context = HogQLContext(team_id=self.team.pk)
+        context = HogQLContext(team_id=self.team.pk, team=self.team)
         transformed = do_preaggregated_table_transforms(node, context)
         return str(transformed)
 
@@ -301,7 +302,7 @@ class TestPreaggregatedTableTransformation(BaseTest, QueryMatchingTest):
 
         # The assertions here are pretty odd, as debug printing of hogql queries with CTEs does not work.
         node = parse_select(original_query)
-        context = HogQLContext(team_id=self.team.pk)
+        context = HogQLContext(team_id=self.team.pk, team=self.team)
         transformed = do_preaggregated_table_transforms(node, context)
         assert isinstance(transformed, SelectQuery)
 
@@ -770,6 +771,36 @@ GROUP BY date
         query = self._parse_and_transform(original_query)
         assert PREAGGREGATED_TABLE_NAME in query
         self.assertQueryMatchesSnapshot(query)
+
+    def test_integer_timezones(self):
+        assert is_integer_timezone("UTC")
+        assert is_integer_timezone("Europe/London")
+        assert is_integer_timezone("America/New_York")
+        assert not is_integer_timezone("Asia/Kathmandu")  # UTC+5:45
+        assert not is_integer_timezone("Asia/Kolkata")  # UTC+5:30
+        assert not is_integer_timezone("Australia/Adelaide")  # UTC+9:30
+
+    def test_enable_for_integer_team_timezones(self):
+        self.team.timezone = "Europe/London"
+        self.team.save()
+        original_query = "select count(), uniq(person_id) from events where event = '$pageview'"
+        query = self._parse_and_transform(original_query)
+        assert PREAGGREGATED_TABLE_NAME in query
+        self.assertQueryMatchesSnapshot(query)
+
+    def test_disable_for_non_integer_team_timezones(self):
+        self.team.timezone = "Asia/Kathmandu"
+        self.team.save()
+        original_query = "select count(), uniq(person_id) from events where event = '$pageview'"
+        query = self._parse_and_transform(original_query)
+        assert PREAGGREGATED_TABLE_NAME not in query
+
+    def test_disable_for_invalid_team_timezones(self):
+        self.team.timezone = "Not/A Timezone"
+        self.team.save()
+        original_query = "select count(), uniq(person_id) from events where event = '$pageview'"
+        query = self._parse_and_transform(original_query)
+        assert PREAGGREGATED_TABLE_NAME not in query
 
 
 @snapshot_clickhouse_queries
