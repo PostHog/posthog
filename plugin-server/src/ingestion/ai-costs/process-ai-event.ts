@@ -103,6 +103,19 @@ const calculateInputCost = (event: PluginEvent, cost: ModelRow) => {
         const totalCacheCost = bigDecimal.add(writeCost, cacheReadCost)
         const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, inputTokens)
         return bigDecimal.add(totalCacheCost, uncachedCost)
+    } else if (event.properties['$ai_provider'] && event.properties['$ai_provider'].toLowerCase() === 'gemini') {
+        const cacheReadTokens = event.properties['$ai_cache_read_input_tokens'] || 0
+        const inputTokens = event.properties['$ai_input_tokens'] || 0
+        const regularTokens = bigDecimal.subtract(inputTokens, cacheReadTokens)
+
+        // Use actual cache read cost if available, otherwise fall back to 0.25 multiplier
+        const cacheReadCost =
+            cost.cost.cache_read_token !== undefined
+                ? bigDecimal.multiply(cost.cost.cache_read_token, cacheReadTokens)
+                : bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.25), cacheReadTokens)
+
+        const regularCost = bigDecimal.multiply(cost.cost.prompt_token, regularTokens)
+        return bigDecimal.add(cacheReadCost, regularCost)
     }
     return bigDecimal.multiply(cost.cost.prompt_token, event.properties['$ai_input_tokens'] || 0)
 }

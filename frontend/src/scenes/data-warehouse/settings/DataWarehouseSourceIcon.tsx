@@ -24,6 +24,7 @@ import IconMetaAds from 'public/services/meta-ads.png'
 import IconMySQL from 'public/services/mysql.png'
 import IconPolar from 'public/services/polar.png'
 import IconPostgres from 'public/services/postgres.png'
+import IconReddit from 'public/services/reddit.png'
 import IconRedshift from 'public/services/redshift.png'
 import IconRevenueCat from 'public/services/revenuecat.png'
 import IconSalesforce from 'public/services/salesforce.png'
@@ -103,6 +104,7 @@ export const DATA_WAREHOUSE_SOURCE_ICON_MAP: Record<string, string> = {
     TemporalIO: IconTemporalIO,
     DoIt: IconDoIt,
     LinkedinAds: IconLinkedIn,
+    RedditAds: IconReddit,
 }
 
 export function DataWarehouseSourceIcon({

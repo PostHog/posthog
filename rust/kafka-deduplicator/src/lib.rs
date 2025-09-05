@@ -11,3 +11,4 @@ pub mod processor_rebalance_handler;
 pub mod rocksdb;
 pub mod service;
 pub mod store_manager;
+pub mod utils;
