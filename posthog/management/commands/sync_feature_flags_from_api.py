@@ -49,7 +49,8 @@ class Command(BaseCommand):
                 total_flags = len(data["flags"])
                 undeleted_count = 0
                 created_count = 0
-                updated_count = 0
+                activated_count = 0
+                deactivated_count = 0
                 unchanged_count = 0
 
                 for flag_key, flag_data in data["flags"].items():
@@ -80,22 +81,26 @@ class Command(BaseCommand):
                         if ff and ff.active != is_enabled:
                             ff.active = is_enabled
                             ff.save()
-                            self.stdout.write(f"Updated feature flag '{flag_key}' active status to {is_enabled}")
-                            updated_count += 1
+                            if is_enabled:
+                                self.stdout.write(f"Activated feature flag '{flag_key}'")
+                                activated_count += 1
+                            else:
+                                self.stdout.write(f"Deactivated feature flag '{flag_key}'")
+                                deactivated_count += 1
                         else:
                             unchanged_count += 1
 
                 # Print summary for this project
                 self.stdout.write("\nProject Summary")
                 self.stdout.write("-" * 20)
-                self.stdout.write(f"Total flags from API: {total_flags}")
-                self.stdout.write(f"Existing flags before sync: {len(existing_flags)}")
-                self.stdout.write(f"Previously deleted flags: {len(deleted_flags)}")
-                self.stdout.write(f"Flags undeleted: {undeleted_count}")
-                self.stdout.write(f"New flags created: {created_count}")
-                self.stdout.write(f"Flags updated: {updated_count}")
-                self.stdout.write(f"Flags unchanged: {unchanged_count}")
-                self.stdout.write(f"Total flags after sync: {len(existing_flags) + created_count}")
+                self.stdout.write(f"Total from API: {total_flags}")
+                self.stdout.write(f"Existing: {len(existing_flags)}")
+                self.stdout.write(f"Undeleted: {undeleted_count}")
+                self.stdout.write(f"Created: {created_count}")
+                self.stdout.write(f"Activated: {activated_count}")
+                self.stdout.write(f"Deactivated: {deactivated_count}")
+                self.stdout.write(f"Unchanged: {unchanged_count}")
+                self.stdout.write(f"Total after sync: {len(existing_flags) + created_count}")
 
         except requests.exceptions.RequestException as e:
             self.stdout.write(f"Failed to fetch feature flags: {str(e)}")
