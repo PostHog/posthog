@@ -9,6 +9,7 @@ import {
 import { InsightType } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'
+import { insertMetricIntoOrderingArray } from '../../utils'
 import { type ExperimentVariantResult, getVariantInterval } from '../shared/utils'
 import { MetricRowGroup } from './MetricRowGroup'
 import { TableHeader } from './TableHeader'
@@ -30,8 +31,8 @@ export function MetricsTable({
     getInsightType,
     showDetailsModal = true,
 }: MetricsTableProps): JSX.Element {
-    const { experiment, hasMinimumExposureForResults } = useValues(experimentLogic)
-    const { duplicateMetric, updateExperimentMetrics } = useActions(experimentLogic)
+    const { experiment, hasMinimumExposureForResults, exposuresLoading } = useValues(experimentLogic)
+    const { duplicateMetric, updateExperimentMetrics, setExperiment } = useActions(experimentLogic)
 
     // Calculate shared axisRange across all metrics
     const maxAbsValue = Math.max(
@@ -87,15 +88,32 @@ export function MetricsTable({
                                 isLastMetric={index === metrics.length - 1}
                                 isAlternatingRow={index % 2 === 1}
                                 onDuplicateMetric={() => {
-                                    if (!metric.uuid) {
+                                    if (!metric.uuid || !experiment) {
                                         return
                                     }
-                                    duplicateMetric({ uuid: metric.uuid, isSecondary })
+
+                                    const newUuid = crypto.randomUUID()
+
+                                    duplicateMetric({ uuid: metric.uuid, isSecondary, newUuid })
+
+                                    const newOrderingArray = insertMetricIntoOrderingArray(
+                                        experiment,
+                                        newUuid,
+                                        metric.uuid,
+                                        isSecondary
+                                    )
+                                    setExperiment({
+                                        [isSecondary
+                                            ? 'secondary_metrics_ordered_uuids'
+                                            : 'primary_metrics_ordered_uuids']: newOrderingArray,
+                                    })
+
                                     updateExperimentMetrics()
                                 }}
                                 error={error}
                                 isLoading={isLoading}
                                 hasMinimumExposureForResults={hasMinimumExposureForResults}
+                                exposuresLoading={exposuresLoading}
                                 showDetailsModal={showDetailsModal}
                             />
                         )

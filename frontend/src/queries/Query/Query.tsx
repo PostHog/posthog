@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react'
 
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { HogDebug } from 'scenes/debug/HogDebug'
-import { WebActiveHoursHeatmap } from 'scenes/web-analytics/WebActiveHoursHeatmap/WebActiveHoursHeatmap'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
@@ -25,7 +24,6 @@ import { QueryContext } from '~/queries/types'
 
 import {
     RevenueAnalyticsGrossRevenueNode,
-    RevenueAnalyticsGrowthRateNode,
     RevenueAnalyticsMRRNode,
     RevenueAnalyticsMetricsNode,
     RevenueAnalyticsOverviewNode,
@@ -36,13 +34,11 @@ import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualiza
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
 import { WebVitalsPathBreakdown } from '../nodes/WebVitals/WebVitalsPathBreakdown'
 import {
-    isCalendarHeatmapQuery,
     isDataTableNode,
     isDataVisualizationNode,
     isHogQuery,
     isInsightVizNode,
     isRevenueAnalyticsGrossRevenueQuery,
-    isRevenueAnalyticsGrowthRateQuery,
     isRevenueAnalyticsMRRQuery,
     isRevenueAnalyticsMetricsQuery,
     isRevenueAnalyticsOverviewQuery,
@@ -72,6 +68,8 @@ export interface QueryProps<Q extends Node> {
     embedded?: boolean
     /** Disables modals and other things */
     inSharedMode?: boolean
+    /** Can you edit the insight */
+    editMode?: boolean
     /** Dashboard filters to override the ones in the query */
     filtersOverride?: DashboardFilter | null
     /** Dashboard variables to override the ones in the query */
@@ -92,6 +90,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         variablesOverride,
         inSharedMode,
         dataAttr,
+        editMode,
     } = props
 
     const [localQuery, localSetQuery] = useState(propsQuery)
@@ -146,6 +145,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 uniqueKey={uniqueKey}
                 context={queryContext}
                 readOnly={readOnly}
+                editMode={!!editMode}
                 variablesOverride={props.variablesOverride}
             />
         )
@@ -156,6 +156,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 query={query}
                 context={queryContext}
                 readOnly={readOnly}
+                editMode={!!editMode}
                 embedded={embedded}
             />
         )
@@ -167,6 +168,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 setQuery={setQuery as unknown as (query: InsightVizNode) => void}
                 context={queryContext}
                 readOnly={readOnly}
+                editMode={!!editMode}
                 uniqueKey={uniqueKey}
                 embedded={embedded}
                 inSharedMode={inSharedMode}
@@ -181,10 +183,6 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 cachedResults={props.cachedResults}
                 context={queryContext}
             />
-        )
-    } else if (isRevenueAnalyticsGrowthRateQuery(query)) {
-        component = (
-            <RevenueAnalyticsGrowthRateNode query={query} cachedResults={props.cachedResults} context={queryContext} />
         )
     } else if (isRevenueAnalyticsMetricsQuery(query)) {
         component = (
@@ -212,8 +210,6 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         component = <WebVitalsPathBreakdown query={query} cachedResults={props.cachedResults} context={queryContext} />
     } else if (isHogQuery(query)) {
         component = <HogDebug query={query} setQuery={setQuery as (query: any) => void} queryKey={String(uniqueKey)} />
-    } else if (isCalendarHeatmapQuery(query)) {
-        component = <WebActiveHoursHeatmap query={query} context={queryContext} cachedResults={props.cachedResults} />
     } else {
         component = <DataNode attachTo={props.attachTo} query={query} cachedResults={props.cachedResults} />
     }

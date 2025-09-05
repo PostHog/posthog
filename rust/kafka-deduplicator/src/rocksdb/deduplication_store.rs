@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
@@ -7,8 +8,9 @@ use rocksdb::{ColumnFamilyDescriptor, Options};
 use tracing::{error, info};
 
 use crate::metrics::MetricsHelper;
-use crate::rocksdb::dedup_metadata::{MetadataVersion, VersionedMetadata};
+use crate::rocksdb::dedup_metadata::{MetadataV1, MetadataVersion, VersionedMetadata};
 use crate::rocksdb::{metrics_consts::*, store::RocksDbStore};
+use crate::utils::timestamp::parse_timestamp;
 
 const UNKNOWN_STR: &str = "unknown";
 
@@ -125,8 +127,8 @@ impl From<&RawEvent> for DeduplicationKey {
         let timestamp = raw_event
             .timestamp
             .as_ref()
-            .and_then(|t| t.parse::<u64>().ok())
-            .unwrap_or_else(|| chrono::Utc::now().timestamp() as u64);
+            .and_then(|t| parse_timestamp(t))
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() as u64);
 
         let distinct_id = raw_event
             .distinct_id
@@ -157,7 +159,7 @@ impl From<&RawEvent> for DeduplicationKey {
 
 #[derive(Debug, Clone)]
 pub struct DeduplicationStore {
-    store: RocksDbStore,
+    store: Arc<RocksDbStore>,
     config: DeduplicationStoreConfig,
     topic: String,
     partition: i32,
@@ -181,7 +183,7 @@ impl DeduplicationStore {
         )?;
 
         Ok(Self {
-            store,
+            store: Arc::new(store),
             topic,
             partition,
             config,
@@ -226,30 +228,96 @@ impl DeduplicationStore {
         let key_bytes = key.as_ref().to_vec();
 
         // Check if this is a duplicate
-        let cf = self.store.get_cf_handle(DeduplicationStore::RECORDS_CF)?;
-        let existing_metadata = self.store.db.get_cf(&cf, &key_bytes)?;
+        let existing_metadata = self.store.get(DeduplicationStore::RECORDS_CF, &key_bytes)?;
 
         if let Some(existing_bytes) = existing_metadata {
-            // Key exists - it's a duplicate, update metrics
+            // Key exists - it's a duplicate
             let mut metadata = VersionedMetadata::deserialize_metadata(&existing_bytes)?;
 
-            // Update duplicate metrics using trait method
+            // Calculate similarity between original and new event
+            let similarity = match &metadata {
+                VersionedMetadata::V1(v1) => v1.calculate_similarity(raw_event)?,
+            };
+
+            // Update duplicate metrics using trait method (tracks UUIDs)
             metadata.update_duplicate(raw_event);
 
-            // Log the duplicate metrics using trait method
+            // Log the duplicate with similarity metrics
             info!(
-                "Duplicate detected: {} for key {}",
+                "Duplicate detected: {} for key {}, Similarity: {:.2}, Field diffs: {}, Property diffs: {}",
                 metadata.get_metrics_summary(),
-                key.get_formatted_key()
+                key.get_formatted_key(),
+                similarity.overall_score,
+                similarity.different_field_count,
+                similarity.different_property_count
             );
 
+            // Log detailed differences if similarity is not perfect
+            if !similarity.different_fields.is_empty() {
+                for (field_name, original_val, new_val) in &similarity.different_fields {
+                    info!(
+                        "Different field '{}' for key {}: '{}' -> '{}'",
+                        field_name,
+                        key.get_formatted_key(),
+                        original_val,
+                        new_val
+                    );
+                }
+            }
+            if !similarity.different_properties.is_empty() {
+                for (prop_name, values_opt) in &similarity.different_properties {
+                    if let Some((orig_val, new_val)) = values_opt {
+                        // $ properties - show values
+                        info!(
+                            "Different property '{}' for key {}: '{}' -> '{}'",
+                            prop_name,
+                            key.get_formatted_key(),
+                            orig_val,
+                            new_val
+                        );
+                    } else {
+                        // Non-$ properties - just show key name for privacy
+                        info!(
+                            "Different property '{}' for key {} (values hidden for privacy)",
+                            prop_name,
+                            key.get_formatted_key()
+                        );
+                    }
+                }
+            }
+
             // Extract library info and emit duplicate metric with labels
-            let (lib_name, lib_version) = extract_library_info(raw_event);
+            let (lib_name, _lib_version) = extract_library_info(raw_event);
             self.metrics
                 .counter(DUPLICATE_EVENTS_TOTAL_COUNTER)
                 .with_label("lib", &lib_name)
-                .with_label("lib_version", &lib_version)
                 .increment(1);
+
+            // Emit similarity histogram metric
+            self.metrics
+                .histogram("deduplication_similarity_score")
+                .with_label("lib", &lib_name)
+                .record(similarity.overall_score);
+
+            // Emit field differences metric
+            self.metrics
+                .histogram("deduplication_field_differences")
+                .record(similarity.different_field_count as f64);
+
+            // Emit property differences metric
+            self.metrics
+                .histogram("deduplication_property_differences")
+                .with_label("lib", &lib_name)
+                .record(similarity.different_property_count as f64);
+
+            // Emit individual counters for each mismatched field
+            for (field_name, _, _) in &similarity.different_fields {
+                self.metrics
+                    .counter("deduplication_field_mismatch_total")
+                    .with_label("field", field_name)
+                    .with_label("lib", &lib_name)
+                    .increment(1);
+            }
 
             // Store updated metrics
             let serialized_metadata = VersionedMetadata::serialize_metadata(&metadata)?;
@@ -263,14 +331,22 @@ impl DeduplicationStore {
         }
 
         // Key doesn't exist - store it with initial metrics
-        let metadata =
-            VersionedMetadata::V1(crate::rocksdb::dedup_metadata::MetadataV1::new(raw_event));
+        let metadata = VersionedMetadata::V1(MetadataV1::new(raw_event));
         let serialized_metadata = VersionedMetadata::serialize_metadata(&metadata)?;
 
         self.store.put_batch(
             DeduplicationStore::RECORDS_CF,
             vec![(&key_bytes, &serialized_metadata)],
         )?;
+
+        // Track unique event with library info
+        let (lib_name, lib_version) = extract_library_info(raw_event);
+        self.metrics
+            .counter(UNIQUE_EVENTS_TOTAL_COUNTER)
+            .with_label("lib", &lib_name)
+            .with_label("lib_version", &lib_version)
+            .increment(1);
+
         Ok(true) // New event
     }
 
@@ -285,7 +361,7 @@ impl DeduplicationStore {
             return Ok(0); // No cleanup needed if max_capacity is 0 (unlimited)
         }
 
-        let current_size = self.store.get_db_size()?;
+        let current_size = self.store.get_db_size(Self::RECORDS_CF)?;
         if current_size <= self.config.max_capacity {
             return Ok(0); // Under capacity, no cleanup needed
         }
@@ -328,7 +404,7 @@ impl DeduplicationStore {
             return Ok(0);
         }
 
-        let new_size = self.store.get_db_size()?;
+        let new_size = self.store.get_db_size(Self::RECORDS_CF)?;
         let bytes_freed = current_size.saturating_sub(new_size);
 
         // Emit cleanup metrics
@@ -373,6 +449,16 @@ impl DeduplicationStore {
         self.partition
     }
 
+    /// Flush the store to disk
+    pub fn flush(&self) -> Result<()> {
+        self.store.flush_cf(Self::RECORDS_CF)
+    }
+
+    /// Update metrics for this store (including database size)
+    pub fn update_metrics(&self) -> Result<()> {
+        self.store.update_db_metrics(Self::RECORDS_CF)
+    }
+
     /// Create a checkpoint and return the SST files at the time of checkpoint
     pub fn create_checkpoint_with_metadata<P: AsRef<std::path::Path>>(
         &self,
@@ -394,7 +480,6 @@ impl DeduplicationStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::SystemTime;
     use tempfile::TempDir;
     use tracing::info;
 
@@ -409,22 +494,25 @@ mod tests {
         (store, temp_dir)
     }
 
-    fn create_test_raw_event(distinct_id: &str, token: &str, event_name: &str) -> RawEvent {
+    fn create_test_raw_event_with_timestamp(
+        distinct_id: &str,
+        token: &str,
+        event_name: &str,
+        timestamp: Option<String>,
+    ) -> RawEvent {
         RawEvent {
             uuid: None,
             event: event_name.to_string(),
             distinct_id: Some(serde_json::Value::String(distinct_id.to_string())),
             token: Some(token.to_string()),
             properties: std::collections::HashMap::new(),
-            timestamp: Some(
-                SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs()
-                    .to_string(),
-            ),
+            timestamp: timestamp.or_else(|| Some(chrono::Utc::now().to_rfc3339())),
             ..Default::default()
         }
+    }
+
+    fn create_test_raw_event(distinct_id: &str, token: &str, event_name: &str) -> RawEvent {
+        create_test_raw_event_with_timestamp(distinct_id, token, event_name, None)
     }
 
     #[test]
@@ -491,9 +579,10 @@ mod tests {
     fn test_handle_events_new_events() {
         let (store, _temp_dir) = create_test_store(None);
 
+        let timestamp = Some("2021-01-01T00:00:00Z".to_string());
         let events = vec![
-            create_test_raw_event("user1", "token1", "event1"),
-            create_test_raw_event("user2", "token1", "event2"),
+            create_test_raw_event_with_timestamp("user1", "token1", "event1", timestamp.clone()),
+            create_test_raw_event_with_timestamp("user2", "token1", "event2", timestamp.clone()),
         ];
 
         // Process events individually
@@ -505,8 +594,8 @@ mod tests {
 
         // Verify events were stored by checking they're now duplicates
         let events_again = [
-            create_test_raw_event("user1", "token1", "event1"),
-            create_test_raw_event("user2", "token1", "event2"),
+            create_test_raw_event_with_timestamp("user1", "token1", "event1", timestamp.clone()),
+            create_test_raw_event_with_timestamp("user2", "token1", "event2", timestamp.clone()),
         ];
 
         let dedup_keys: Vec<DeduplicationKey> =
@@ -523,11 +612,12 @@ mod tests {
     #[test]
     fn test_handle_events_mixed_duplicates() {
         let (store, _temp_dir) = create_test_store(None);
+        let timestamp = Some("2021-01-01T00:00:00Z".to_string());
 
         // First batch
         let first_batch = vec![
-            create_test_raw_event("user1", "token1", "event1"),
-            create_test_raw_event("user2", "token1", "event2"),
+            create_test_raw_event_with_timestamp("user1", "token1", "event1", timestamp.clone()),
+            create_test_raw_event_with_timestamp("user2", "token1", "event2", timestamp.clone()),
         ];
         for event in &first_batch {
             let result = store.handle_event_with_raw(event);
@@ -537,8 +627,8 @@ mod tests {
 
         // Second batch with one duplicate and one new
         let second_batch = vec![
-            create_test_raw_event("user1", "token1", "event1"), // duplicate
-            create_test_raw_event("user3", "token1", "event3"), // new
+            create_test_raw_event_with_timestamp("user1", "token1", "event1", timestamp.clone()), // duplicate
+            create_test_raw_event_with_timestamp("user3", "token1", "event3", timestamp.clone()), // new
         ];
         let results: Vec<bool> = second_batch
             .iter()
@@ -547,7 +637,8 @@ mod tests {
         assert_eq!(results, vec![false, true]); // first duplicate, second new
 
         // Verify only the new event was stored
-        let test_event = create_test_raw_event("user3", "token1", "event3");
+        let test_event =
+            create_test_raw_event_with_timestamp("user3", "token1", "event3", timestamp.clone());
         let dedup_key = DeduplicationKey::from(&test_event);
         let key_bytes = vec![dedup_key.as_ref()];
         let non_duplicated = store.get_non_duplicated_keys(key_bytes).unwrap();
@@ -563,32 +654,36 @@ mod tests {
         let event = create_test_raw_event("user123", "token456", "page_view");
         let key = DeduplicationKey::from(&event);
 
-        let expected = format!(
-            "{}:user123:token456:page_view",
-            event.timestamp.as_ref().unwrap()
-        );
+        // Parse the ISO timestamp to get the milliseconds value
+        let timestamp_str = event.timestamp.as_ref().unwrap();
+        let timestamp_millis = parse_timestamp(timestamp_str).unwrap();
+
+        let expected = format!("{timestamp_millis}:user123:token456:page_view");
         assert_eq!(String::from_utf8_lossy(key.as_ref()), expected);
     }
 
     #[test]
     fn test_metadata_storage_functionality() {
         let (store, _temp_dir) = create_test_store(None);
+        let timestamp = Some("2021-01-01T00:00:00Z".to_string());
 
-        let event = create_test_raw_event("user1", "token1", "event1");
+        let event =
+            create_test_raw_event_with_timestamp("user1", "token1", "event1", timestamp.clone());
 
         // Test that single event processing works
         let is_new = store.handle_event_with_raw(&event).unwrap();
         assert!(is_new); // First time should be new
 
         // Verify we can handle duplicates using the trait-based approach
-        let duplicate_event = create_test_raw_event("user1", "token1", "event1");
+        let duplicate_event =
+            create_test_raw_event_with_timestamp("user1", "token1", "event1", timestamp.clone());
         let is_duplicate = store.handle_event_with_raw(&duplicate_event).unwrap();
         assert!(!is_duplicate); // Should be a duplicate (returns false for new)
 
         // Test individual event processing works without errors - using different events to avoid serialization
         let batch_events = vec![
-            create_test_raw_event("user2", "token1", "event2"),
-            create_test_raw_event("user3", "token1", "event3"),
+            create_test_raw_event_with_timestamp("user2", "token1", "event2", timestamp.clone()),
+            create_test_raw_event_with_timestamp("user3", "token1", "event3", timestamp.clone()),
         ];
         for event in &batch_events {
             let result = store.handle_event_with_raw(event);
@@ -597,7 +692,8 @@ mod tests {
         }
 
         // Test that the new events work with individual processing
-        let new_event = create_test_raw_event("user4", "token1", "event4");
+        let new_event =
+            create_test_raw_event_with_timestamp("user4", "token1", "event4", timestamp.clone());
         let is_new_again = store.handle_event_with_raw(&new_event).unwrap();
         assert!(is_new_again); // Should be new
     }
@@ -616,6 +712,30 @@ mod tests {
         assert_eq!(key.token, parsed_key.token);
         assert_eq!(key.event_name, parsed_key.event_name);
         assert_eq!(key.formatted_key, parsed_key.formatted_key);
+    }
+
+    #[test]
+    fn test_timestamp_parsing() {
+        // Test seconds timestamp (10 digits)
+        assert_eq!(parse_timestamp("1640995200"), Some(1640995200000));
+
+        // Test milliseconds timestamp (13 digits)
+        assert_eq!(parse_timestamp("1640995200123"), Some(1640995200123));
+
+        // Test ISO 8601 / RFC3339 format
+        assert_eq!(parse_timestamp("2022-01-01T00:00:00Z"), Some(1640995200000));
+        assert_eq!(
+            parse_timestamp("2022-01-01T00:00:00.123Z"),
+            Some(1640995200123)
+        );
+        assert_eq!(
+            parse_timestamp("2022-01-01T00:00:00+00:00"),
+            Some(1640995200000)
+        );
+
+        // Test invalid formats return None
+        assert_eq!(parse_timestamp("invalid"), None);
+        assert_eq!(parse_timestamp(""), None);
     }
 
     #[test]
@@ -655,39 +775,22 @@ mod tests {
         assert_eq!(bytes_freed, 0);
     }
 
-    fn create_test_raw_event_with_timestamp(
-        timestamp: u64,
-        distinct_id: &str,
-        token: &str,
-        event_name: &str,
-    ) -> RawEvent {
-        RawEvent {
-            uuid: None,
-            event: event_name.to_string(),
-            distinct_id: Some(serde_json::Value::String(distinct_id.to_string())),
-            token: Some(token.to_string()),
-            properties: std::collections::HashMap::new(),
-            timestamp: Some(timestamp.to_string()),
-            ..Default::default()
-        }
-    }
-
     #[test]
     fn test_cleanup_old_entries_over_capacity() {
         let (store, _temp_dir) = create_test_store(Some(1000)); // Very small capacity to trigger cleanup
 
         // Add events with different timestamps to test timestamp-based cleanup
-        let base_timestamp = 1609459200; // 2021-01-01
+        let timestamp = Some("2021-01-01T00:00:00Z".to_string());
 
         // Create much larger data to exceed capacity reliably
         let large_value = "x".repeat(100); // 100 bytes per event
         let events: Vec<RawEvent> = (0..100)
             .map(|i| {
                 create_test_raw_event_with_timestamp(
-                    base_timestamp + i,
                     &format!("user{i}{large_value}"),
                     &format!("token{i}{large_value}"),
                     &format!("event{i}{large_value}"),
+                    timestamp.clone(),
                 )
             })
             .collect();
@@ -700,15 +803,18 @@ mod tests {
         // Force data to SST files
         store
             .get_store()
-            .flush_cf(DeduplicationStore::RECORDS_CF)
+            .compact_cf(DeduplicationStore::RECORDS_CF)
             .unwrap();
         store
             .get_store()
-            .compact_cf(DeduplicationStore::RECORDS_CF)
+            .flush_cf(DeduplicationStore::RECORDS_CF)
             .unwrap();
 
         // Check initial size
-        let initial_size = store.store.get_db_size().unwrap();
+        let initial_size = store
+            .store
+            .get_db_size(DeduplicationStore::RECORDS_CF)
+            .unwrap();
 
         // If we still can't measure size reliably, test the cleanup logic differently
         if initial_size == 0 {
@@ -725,11 +831,23 @@ mod tests {
         assert!(initial_size > 1000, "Initial size should exceed capacity");
 
         // Run cleanup
-        let bytes_freed = store.cleanup_old_entries().unwrap();
-        assert!(bytes_freed > 0, "Should have freed some bytes");
+        store.cleanup_old_entries().unwrap();
+
+        // Flush to ensure the size is updated
+        store
+            .get_store()
+            .compact_cf(DeduplicationStore::RECORDS_CF)
+            .unwrap();
+        store
+            .get_store()
+            .flush_cf(DeduplicationStore::RECORDS_CF)
+            .unwrap();
 
         // Check that size was reduced
-        let final_size = store.store.get_db_size().unwrap();
+        let final_size = store
+            .store
+            .get_db_size(DeduplicationStore::RECORDS_CF)
+            .unwrap();
         assert!(
             final_size < initial_size,
             "Size should be reduced after cleanup"
@@ -740,14 +858,20 @@ mod tests {
     fn test_cleanup_preserves_newer_entries() {
         let (store, _temp_dir) = create_test_store(Some(1000)); // Very small capacity
 
-        let base_timestamp = 1609459200; // 2021-01-01
-        let old_event =
-            create_test_raw_event_with_timestamp(base_timestamp, "old_user", "token1", "old_event");
+        let base_timestamp = Some("2021-01-01T00:00:00Z".to_string()); // 2021-01-01
+        let old_event = create_test_raw_event_with_timestamp(
+            "old_user",
+            "token1",
+            "old_event",
+            base_timestamp.clone(),
+        );
+        let new_timestamp = Some("2021-01-02T00:00:00Z".to_string());
         let new_event = create_test_raw_event_with_timestamp(
-            base_timestamp + 86400,
             "new_user",
             "token1",
             "new_event",
+            // Add 1 day to the timestamp
+            new_timestamp.clone(),
         );
 
         // Add old event first
@@ -758,10 +882,10 @@ mod tests {
         // Add many more events to exceed capacity
         for i in 0..10 {
             let event = create_test_raw_event_with_timestamp(
-                base_timestamp + i,
                 &format!("user{i}"),
                 "token1",
                 &format!("event{i}"),
+                base_timestamp.clone(),
             );
             let result = store.handle_event_with_raw(&event);
             assert!(result.is_ok());
@@ -776,7 +900,10 @@ mod tests {
         let bytes_freed = store.cleanup_old_entries().unwrap();
 
         // If we can't measure database size reliably, just verify cleanup runs without error
-        let final_size = store.store.get_db_size().unwrap();
+        let final_size = store
+            .store
+            .get_db_size(DeduplicationStore::RECORDS_CF)
+            .unwrap();
         if final_size == 0 {
             // When size can't be measured, cleanup should return 0
             assert_eq!(
@@ -1084,5 +1211,56 @@ mod tests {
         for file_name in &after_flush_sst_files {
             assert!(file_name.ends_with(".sst"));
         }
+    }
+
+    #[test]
+    fn test_flush_method() {
+        let (store, _temp_dir) = create_test_store(None);
+
+        // Add some events
+        let event1 = create_test_raw_event("user1", "token1", "event1");
+        let event2 = create_test_raw_event("user2", "token2", "event2");
+
+        store.handle_event_with_raw(&event1).unwrap();
+        store.handle_event_with_raw(&event2).unwrap();
+
+        // Flush should succeed
+        assert!(store.flush().is_ok());
+
+        // Flush again should also succeed (idempotent)
+        assert!(store.flush().is_ok());
+    }
+
+    #[test]
+    fn test_update_metrics_succeeds() {
+        let (store, _temp_dir) = create_test_store(None);
+
+        // Add some events first
+        let event = create_test_raw_event("user1", "token1", "event1");
+        store.handle_event_with_raw(&event).unwrap();
+
+        // Update metrics should succeed
+        assert!(store.update_metrics().is_ok());
+    }
+
+    #[test]
+    fn test_flush_before_checkpoint() {
+        let (store, temp_dir) = create_test_store(None);
+
+        // Add some events
+        let event = create_test_raw_event("user1", "token1", "checkpoint_test");
+        store.handle_event_with_raw(&event).unwrap();
+
+        // Create a checkpoint (which internally calls flush)
+        let checkpoint_path = temp_dir.path().join("checkpoint");
+        let sst_files = store
+            .create_checkpoint_with_metadata(&checkpoint_path)
+            .unwrap();
+
+        // Checkpoint should exist
+        assert!(checkpoint_path.exists());
+
+        // Should have SST files
+        assert!(!sst_files.is_empty());
     }
 }

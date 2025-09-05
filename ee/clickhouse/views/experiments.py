@@ -72,6 +72,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "_create_in_folder",
             "conclusion",
             "conclusion_comment",
+            "primary_metrics_ordered_uuids",
+            "secondary_metrics_ordered_uuids",
         ]
         read_only_fields = [
             "id",
@@ -342,6 +344,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "stats_config",
             "conclusion",
             "conclusion_comment",
+            "primary_metrics_ordered_uuids",
+            "secondary_metrics_ordered_uuids",
         }
         given_keys = set(validated_data.keys())
         extra_keys = given_keys - expected_keys
@@ -544,6 +548,8 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
             "exposure_criteria": source_experiment.exposure_criteria,
             "saved_metrics_ids": saved_metrics_data,
             "feature_flag_key": feature_flag_key,  # Use provided key or fall back to existing
+            "primary_metrics_ordered_uuids": source_experiment.primary_metrics_ordered_uuids,
+            "secondary_metrics_ordered_uuids": source_experiment.secondary_metrics_ordered_uuids,
             # Reset fields for new experiment
             "start_date": None,
             "end_date": None,

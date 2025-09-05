@@ -3,7 +3,7 @@
 Adding a new source should be pretty simple. We've refactored the sources so that you need to only add your source logic and update a minimal amount of other files. Below is a step-by-step guide:
 
 1. Add a new enum value to `ExternalDataSourceType` (posthog/warehouse/types.py). The key should be fully capitalized and the value should be in pascal case.
-2. Run django migrations - `DEBUG=1 ./bin/migrate`
+2. Run django migrations - `DEBUG=1 python manage.py makemigrations && ./bin/migrate`
 3. Add a new folder in `posthog/temporal/data_imports/sources` for your source, add a new file within this folder called `source.py` using the template below
 4. Define the fields you'd like to collect via the `get_source_config()` method. Look at the other sources in `posthog/temporal/data_imports/sources` for examples. More info on the type of fields available is below
 5. Generate the config class by running `pnpm generate:source-configs`. This will add a new class to the `posthog/temporal/data_imports/sources/generated_configs.py` file. Update all references of `Config` in the below template to your new generated class
@@ -43,7 +43,7 @@ class TemplateSource(BaseSource[Config]): # Replace this after config generation
     def validate_credentials(self, config: Config, team_id: int) -> tuple[bool, str | None]: # Replace `Config` with your config class
       return True, None # Implement logic to validate the credentials of your source, e.g. check the validity of API keys. Return a tuple of whether the credentials are valid, and if not, return an error message to return to the user
 
-    def get_schemas(self, config: Config, team_id: int) -> list[SourceSchema]: # Replace `Config` with your config class
+    def get_schemas(self, config: Config, team_id: int, with_counts: bool = False) -> list[SourceSchema]: # Replace `Config` with your config class
       return [] # Implement your source schema logic here
 
     def source_for_pipeline(self, config: Config, inputs: SourceInputs) -> SourceResponse: # Replace `Config` with your config class

@@ -346,6 +346,7 @@ export function filterToMetricSource(
             math: events[0].math || ExperimentMetricMathType.TotalCount,
             math_property: events[0].math_property,
             math_hogql: events[0].math_hogql,
+            math_group_type_index: events[0].math_group_type_index,
             properties: events[0].properties,
         }
     }
@@ -358,6 +359,7 @@ export function filterToMetricSource(
             math: actions[0].math || ExperimentMetricMathType.TotalCount,
             math_property: actions[0].math_property,
             math_hogql: actions[0].math_hogql,
+            math_group_type_index: actions[0].math_group_type_index,
             properties: actions[0].properties,
         }
     }
@@ -373,6 +375,7 @@ export function filterToMetricSource(
             math: data_warehouse[0].math || ExperimentMetricMathType.TotalCount,
             math_property: data_warehouse[0].math_property,
             math_hogql: data_warehouse[0].math_hogql,
+            math_group_type_index: data_warehouse[0].math_group_type_index,
             properties: data_warehouse[0].properties,
         }
     }

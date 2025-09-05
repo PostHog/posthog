@@ -89,7 +89,7 @@ class CreateSurveyTool(MaxTool):
                 if not result.questions:
                     return "❌ Survey must have at least one question", {
                         "error": "validation_failed",
-                        "details": "No questions provided",
+                        "error_message": "No questions were created from the survey instructions.",
                     }
 
                 # Apply appearance defaults and prepare survey data
@@ -111,7 +111,7 @@ class CreateSurveyTool(MaxTool):
             except Exception as validation_error:
                 return f"❌ Survey validation failed: {str(validation_error)}", {
                     "error": "validation_failed",
-                    "details": str(validation_error),
+                    "error_message": str(validation_error),
                 }
 
         except Exception as e:

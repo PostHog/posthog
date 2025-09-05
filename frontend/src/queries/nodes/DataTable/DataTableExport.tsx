@@ -1,27 +1,21 @@
 import { useActions, useValues } from 'kea'
-import Papa from 'papaparse'
 
 import { IconDownload } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonMenu, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonMenu } from '@posthog/lemon-ui'
 
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { asDisplay } from 'scenes/persons/person-utils'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '~/queries/nodes/DataTable/clipboardUtils'
 import {
     shouldOptimizeForExport,
     transformColumnsForExport,
     transformQuerySourceForExport,
 } from '~/queries/nodes/DataTable/exportTransformers'
-import {
-    defaultDataTableColumns,
-    extractExpressionComment,
-    removeExpressionComment,
-} from '~/queries/nodes/DataTable/utils'
+import { defaultDataTableColumns, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { getPersonsEndpoint } from '~/queries/query'
 import { DataNode, DataTableNode } from '~/queries/schema/schema-general'
 import {
@@ -34,7 +28,7 @@ import {
 } from '~/queries/utils'
 import { ExporterFormat } from '~/types'
 
-import { DataTableRow, dataTableLogic } from './dataTableLogic'
+import { dataTableLogic } from './dataTableLogic'
 
 // Sync with posthog/hogql/constants.py
 export const MAX_SELECT_RETURNED_ROWS = 50000
@@ -89,7 +83,6 @@ export async function startDownload(
         }
 
         columns = columns.filter((n: string) => !columnDisallowList.includes(n))
-
         exportContext['columns'] = columns
     }
     if (fileNameForExport != null) {
@@ -99,149 +92,6 @@ export async function startDownload(
         export_format: format,
         export_context: exportContext,
     })
-}
-
-const getCsvTableData = (dataTableRows: DataTableRow[], columns: string[], query: DataTableNode): string[][] => {
-    if (isPersonsNode(query.source)) {
-        const filteredColumns = columns.filter((n) => !columnDisallowList.includes(n))
-
-        const csvData = dataTableRows.map((n) => {
-            const record = n.result as Record<string, any> | undefined
-            const recordWithPerson = { ...record, person: record?.name }
-
-            return filteredColumns.map((n) => recordWithPerson[n])
-        })
-
-        return [filteredColumns, ...csvData]
-    }
-
-    if (isEventsQuery(query.source)) {
-        const filteredColumns = columns
-            .filter((n) => !columnDisallowList.includes(n))
-            .map((n) => extractExpressionComment(n))
-
-        const csvData = dataTableRows.map((n) => {
-            return columns
-                .map((col, colIndex) => {
-                    if (columnDisallowList.includes(col)) {
-                        return null
-                    }
-
-                    if (col === 'person') {
-                        return asDisplay(n.result?.[colIndex])
-                    }
-
-                    return n.result?.[colIndex]
-                })
-                .filter(Boolean)
-        })
-
-        return [filteredColumns, ...csvData]
-    }
-
-    if (isHogQLQuery(query.source) || isMarketingAnalyticsTableQuery(query.source)) {
-        return [columns, ...dataTableRows.map((n) => (n.result as any[]) ?? [])]
-    }
-
-    return []
-}
-
-const getJsonTableData = (
-    dataTableRows: DataTableRow[],
-    columns: string[],
-    query: DataTableNode
-): Record<string, any>[] => {
-    if (isPersonsNode(query.source)) {
-        const filteredColumns = columns.filter((n) => !columnDisallowList.includes(n))
-
-        return dataTableRows.map((n) => {
-            const record = n.result as Record<string, any> | undefined
-            const recordWithPerson = { ...record, person: record?.name }
-
-            return filteredColumns.reduce(
-                (acc, cur) => {
-                    acc[cur] = recordWithPerson[cur]
-                    return acc
-                },
-                {} as Record<string, any>
-            )
-        })
-    }
-
-    if (isEventsQuery(query.source)) {
-        return dataTableRows.map((n) => {
-            return columns.reduce(
-                (acc, col, colIndex) => {
-                    if (columnDisallowList.includes(col)) {
-                        return acc
-                    }
-
-                    if (col === 'person') {
-                        acc[col] = asDisplay(n.result?.[colIndex])
-                        return acc
-                    }
-
-                    const colName = extractExpressionComment(col)
-
-                    acc[colName] = n.result?.[colIndex]
-
-                    return acc
-                },
-                {} as Record<string, any>
-            )
-        })
-    }
-
-    if (isHogQLQuery(query.source) || isMarketingAnalyticsTableQuery(query.source)) {
-        return dataTableRows.map((n) => {
-            const data = n.result ?? {}
-            return columns.reduce(
-                (acc, cur, index) => {
-                    acc[cur] = data[index]
-                    return acc
-                },
-                {} as Record<string, any>
-            )
-        })
-    }
-
-    return []
-}
-
-function copyTableToCsv(dataTableRows: DataTableRow[], columns: string[], query: DataTableNode): void {
-    try {
-        const tableData = getCsvTableData(dataTableRows, columns, query)
-
-        const csv = Papa.unparse(tableData)
-
-        void copyToClipboard(csv, 'table')
-    } catch {
-        lemonToast.error('Copy failed!')
-    }
-}
-
-function copyTableToJson(dataTableRows: DataTableRow[], columns: string[], query: DataTableNode): void {
-    try {
-        const tableData = getJsonTableData(dataTableRows, columns, query)
-
-        const json = JSON.stringify(tableData, null, 4)
-
-        void copyToClipboard(json, 'table')
-    } catch {
-        lemonToast.error('Copy failed!')
-    }
-}
-
-function copyTableToExcel(dataTableRows: DataTableRow[], columns: string[], query: DataTableNode): void {
-    try {
-        const tableData = getCsvTableData(dataTableRows, columns, query)
-
-        const tsv = Papa.unparse(tableData, { delimiter: '\t' })
-
-        void copyToClipboard(tsv, 'table')
-    } catch {
-        lemonToast.error('Copy failed!')
-    }
 }
 
 interface DataTableExportProps {

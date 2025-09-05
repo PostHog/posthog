@@ -6,6 +6,7 @@ import { Properties } from '@posthog/plugin-scaffold'
 import {
     Group,
     GroupTypeIndex,
+    ProjectId,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     RawGroup,
@@ -17,6 +18,8 @@ import { GroupRepositoryTransaction } from './group-repository-transaction.inter
 import { GroupRepository } from './group-repository.interface'
 import { PostgresGroupRepositoryTransaction } from './postgres-group-repository-transaction'
 import { RawPostgresGroupRepository } from './raw-postgres-group-repository.interface'
+
+const MAX_GROUP_TYPES_PER_TEAM = 5
 
 export class PostgresGroupRepository
     implements GroupRepository, RawPostgresGroupRepository, GroupRepositoryTransaction
@@ -51,6 +54,48 @@ export class PostgresGroupRepository
             const rawGroup: RawGroup = selectResult.rows[0]
             return this.toGroup(rawGroup)
         }
+    }
+
+    async fetchGroupsByKeys(
+        teamIds: TeamId[],
+        groupTypeIndexes: GroupTypeIndex[],
+        groupKeys: string[],
+        tx?: TransactionClient
+    ): Promise<
+        {
+            team_id: TeamId
+            group_type_index: GroupTypeIndex
+            group_key: string
+            group_properties: Record<string, any>
+        }[]
+    > {
+        if (teamIds.length === 0 || groupTypeIndexes.length === 0 || groupKeys.length === 0) {
+            return []
+        }
+
+        const { rows } = await this.postgres.query(
+            tx ?? PostgresUse.PERSONS_READ,
+            `SELECT team_id, group_type_index, group_key, group_properties
+             FROM posthog_group
+             WHERE team_id = ANY($1) AND group_type_index = ANY($2) AND group_key = ANY($3)`,
+            [teamIds, groupTypeIndexes, groupKeys],
+            'fetchGroupsByKeys'
+        )
+
+        return rows.map((row) => {
+            if (row.group_type_index < 0 || row.group_type_index > 4) {
+                throw new Error(
+                    `Invalid group_type_index ${row.group_type_index} for team ${row.team_id}. Must be between 0 and 4.`
+                )
+            }
+
+            return {
+                team_id: row.team_id as TeamId,
+                group_type_index: row.group_type_index as GroupTypeIndex,
+                group_key: row.group_key,
+                group_properties: row.group_properties,
+            }
+        })
     }
 
     async insertGroup(
@@ -173,6 +218,128 @@ export class PostgresGroupRepository
         }
 
         return Number(result.rows[0].version || 0)
+    }
+
+    async fetchGroupTypesByProjectIds(
+        projectIds: ProjectId[],
+        tx?: TransactionClient
+    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
+        if (projectIds.length === 0) {
+            return {}
+        }
+
+        const { rows } = await this.postgres.query(
+            tx ?? PostgresUse.PERSONS_READ,
+            `SELECT project_id, group_type, group_type_index FROM posthog_grouptypemapping WHERE project_id = ANY($1)`,
+            [projectIds],
+            'fetchGroupTypesByProjectIds'
+        )
+
+        const response: Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]> = {}
+
+        // Initialize empty arrays for all requested project IDs
+        for (const projectId of projectIds) {
+            response[projectId.toString()] = []
+        }
+
+        // Group the results by project_id
+        for (const row of rows) {
+            const projectIdStr = row.project_id.toString()
+            if (!response[projectIdStr]) {
+                response[projectIdStr] = []
+            }
+
+            if (row.group_type_index < 0 || row.group_type_index > 4) {
+                throw new Error(
+                    `Invalid group_type_index ${row.group_type_index} for team ${row.team_id}, project ${row.project_id}. Must be between 0 and 4.`
+                )
+            }
+
+            response[projectIdStr].push({
+                group_type: row.group_type,
+                group_type_index: row.group_type_index as GroupTypeIndex,
+            })
+        }
+
+        return response
+    }
+
+    async fetchGroupTypesByTeamIds(
+        teamIds: TeamId[],
+        tx?: TransactionClient
+    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
+        if (teamIds.length === 0) {
+            return {}
+        }
+
+        const { rows } = await this.postgres.query(
+            tx ?? PostgresUse.PERSONS_READ,
+            `SELECT team_id, group_type, group_type_index FROM posthog_grouptypemapping WHERE team_id = ANY($1)`,
+            [teamIds],
+            'fetchGroupTypesByTeamIds'
+        )
+
+        const response: Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]> = {}
+
+        for (const teamId of teamIds) {
+            response[teamId.toString()] = []
+        }
+
+        for (const row of rows) {
+            const teamIdStr = row.team_id.toString()
+            if (!response[teamIdStr]) {
+                response[teamIdStr] = []
+            }
+
+            if (row.group_type_index < 0 || row.group_type_index > 4) {
+                throw new Error(
+                    `Invalid group_type_index ${row.group_type_index} for team ${row.team_id}. Must be between 0 and 4.`
+                )
+            }
+
+            response[teamIdStr].push({
+                group_type: row.group_type,
+                group_type_index: row.group_type_index as GroupTypeIndex,
+            })
+        }
+
+        return response
+    }
+
+    async insertGroupType(
+        teamId: TeamId,
+        projectId: ProjectId,
+        groupType: string,
+        index: number,
+        tx?: TransactionClient
+    ): Promise<[GroupTypeIndex | null, boolean]> {
+        if (index < 0 || index >= MAX_GROUP_TYPES_PER_TEAM) {
+            return [null, false]
+        }
+
+        const insertGroupTypeResult = await this.postgres.query(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            `
+            WITH insert_result AS (
+                INSERT INTO posthog_grouptypemapping (team_id, project_id, group_type, group_type_index, created_at)
+                VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT DO NOTHING
+                RETURNING group_type_index
+            )
+            SELECT group_type_index, 1 AS is_insert FROM insert_result
+            UNION
+            SELECT group_type_index, 0 AS is_insert FROM posthog_grouptypemapping WHERE project_id = $2 AND group_type = $3;
+            `,
+            [teamId, projectId, groupType, index, new Date()],
+            'insertGroupType'
+        )
+
+        if (insertGroupTypeResult.rows.length == 0) {
+            return await this.insertGroupType(teamId, projectId, groupType, index + 1, tx)
+        }
+
+        const { group_type_index, is_insert } = insertGroupTypeResult.rows[0]
+        return [group_type_index, is_insert === 1]
     }
 
     async inTransaction<T>(

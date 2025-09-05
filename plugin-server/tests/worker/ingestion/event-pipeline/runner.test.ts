@@ -4,6 +4,7 @@ import { v4 } from 'uuid'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { forSnapshot } from '~/tests/helpers/snapshots'
+import { dlq, redirect, success } from '~/worker/ingestion/event-pipeline/pipeline-step-result'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
 import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 
@@ -27,7 +28,7 @@ import * as metrics from '../../../../src/worker/ingestion/event-pipeline/metric
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
-import { PersonMergeLimitExceededError } from '../../../../src/worker/ingestion/persons/person-merge-service'
+import { PersonMergeLimitExceededError } from '../../../../src/worker/ingestion/persons/person-merge-types'
 import { PostgresPersonRepository } from '../../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 
 jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonsStep')
@@ -148,10 +149,12 @@ describe('EventPipelineRunner', () => {
 
     const mockProducer: jest.Mocked<KafkaProducerWrapper> = {
         queueMessages: jest.fn() as any,
+        produce: jest.fn() as any,
     } as any
 
     beforeEach(() => {
         jest.mocked(mockProducer.queueMessages).mockImplementation(() => Promise.resolve())
+        jest.mocked(mockProducer.produce).mockImplementation(() => Promise.resolve())
 
         hub = {
             kafkaProducer: mockProducer,
@@ -183,11 +186,13 @@ describe('EventPipelineRunner', () => {
             groupStoreForBatch
         )
 
-        // @ts-expect-error this is just a mock
-        jest.mocked(processPersonsStep).mockResolvedValue([
-            pluginEvent,
-            { person, personUpdateProperties: {}, get: () => Promise.resolve(person) } as any,
-        ])
+        jest.mocked(processPersonsStep).mockResolvedValue(
+            success([
+                pluginEvent,
+                { person, personUpdateProperties: {}, get: () => Promise.resolve(person) } as any,
+                Promise.resolve(),
+            ])
+        )
         jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
 
         // @ts-expect-error TODO: Check why expect never
@@ -319,24 +324,48 @@ describe('EventPipelineRunner', () => {
             it('emits DLQ when merge limit is exceeded during processPersonsStep', async () => {
                 const pipelineStepDLQCounterSpy = jest.spyOn(metrics.pipelineStepDLQCounter, 'labels')
 
-                // Make processPersonsStep throw the merge-limit error
-                jest.mocked(processPersonsStep).mockRejectedValueOnce(
-                    new PersonMergeLimitExceededError('person_merge_move_limit_hit')
+                // Make processPersonsStep return a DLQ result instead of throwing
+                jest.mocked(processPersonsStep).mockResolvedValueOnce(
+                    dlq('Merge limit exceeded', new PersonMergeLimitExceededError('person_merge_move_limit_hit'))
                 )
 
                 await runner.runEventPipeline(pluginEvent, team)
 
-                // Verify one DLQ message was produced
-                expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
-                const call = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
-                expect(call.topic).toEqual('events_dead_letter_queue_test')
-                const value = parseJSON(call.messages[0].value as string)
+                // Verify DLQ messages were produced (ingestion warning + main DLQ)
+                expect(mockProducer.queueMessages).toHaveBeenCalledTimes(2)
+
+                // Check the main DLQ message
+                const dlqCall = mockProducer.queueMessages.mock.calls.find(
+                    ([msg]) => (msg as TopicMessage).topic === 'events_dead_letter_queue_test'
+                )?.[0] as TopicMessage
+                expect(dlqCall).toBeDefined()
+                const value = parseJSON(dlqCall.messages[0].value as string)
                 expect(value).toMatchObject({
                     team_id: 2,
                     distinct_id: 'my_id',
                     error_location: 'plugin_server_ingest_event:processPersonsStep',
                 })
                 expect(pipelineStepDLQCounterSpy).toHaveBeenCalledWith('processPersonsStep')
+            })
+
+            it('redirects event when merge limit is exceeded in async mode during processPersonsStep', async () => {
+                // Make processPersonsStep return a redirect result
+                jest.mocked(processPersonsStep).mockResolvedValueOnce(
+                    redirect('Event redirected to async merge topic', 'async-merge-topic')
+                )
+
+                await runner.runEventPipeline(pluginEvent, team)
+
+                // Verify the event was redirected to the async topic
+                expect(mockProducer.produce).toHaveBeenCalledWith({
+                    topic: 'async-merge-topic',
+                    key: `${pluginEvent.team_id}:${pluginEvent.distinct_id}`,
+                    value: expect.any(Buffer),
+                    headers: {
+                        distinct_id: pluginEvent.distinct_id,
+                        team_id: pluginEvent.team_id.toString(),
+                    },
+                })
             })
         })
 

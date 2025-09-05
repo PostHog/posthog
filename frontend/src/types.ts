@@ -21,7 +21,8 @@ import {
     OrganizationMembershipLevel,
     PROPERTY_MATCH_TYPE,
     PluginsAccessLevel,
-    RETENTION_FIRST_TIME,
+    RETENTION_FIRST_EVER_OCCURRENCE,
+    RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
     RETENTION_MEAN_NONE,
     RETENTION_RECURRING,
     ShownAsValue,
@@ -37,6 +38,7 @@ import {
 } from 'scenes/experiments/RunningTimeCalculator/runningTimeCalculatorLogic'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
+import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
@@ -66,6 +68,7 @@ import type {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import { CyclotronInputType } from 'products/messaging/frontend/Campaigns/hogflows/steps/types'
 import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
 
 // Type alias for number to be reflected as integer in json-schema.
@@ -233,7 +236,6 @@ export enum ProductKey {
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     LINKS = 'links',
-    MCP_SERVER = 'mcp_server',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -336,6 +338,7 @@ export interface UserType extends UserBaseType {
     anonymize_data: boolean
     toolbar_mode: 'disabled' | 'toolbar'
     has_password: boolean
+    id: number
     is_staff: boolean
     is_impersonated: boolean
     is_impersonated_until?: string
@@ -348,6 +351,7 @@ export interface UserType extends UserBaseType {
     pending_email?: string | null
     is_2fa_enabled: boolean
     has_social_auth: boolean
+    has_sso_enforcement: boolean
     has_seen_product_intro_for?: Record<string, boolean>
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
@@ -2412,6 +2416,7 @@ export enum ChartDisplayType {
     ActionsBarValue = 'ActionsBarValue',
     ActionsTable = 'ActionsTable',
     WorldMap = 'WorldMap',
+    CalendarHeatmap = 'CalendarHeatmap',
 }
 export enum ChartDisplayCategory {
     TimeSeries = 'TimeSeries',
@@ -2429,6 +2434,7 @@ export type BreakdownType =
     | 'hogql'
     | 'data_warehouse'
     | 'data_warehouse_person_property'
+    | 'revenue_analytics'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 export type SimpleIntervalType = 'day' | 'month'
 export type SmoothingType = number
@@ -2443,7 +2449,6 @@ export enum InsightType {
     JSON = 'JSON',
     SQL = 'SQL',
     HOG = 'HOG',
-    CALENDAR_HEATMAP = 'CALENDAR_HEATMAP',
 }
 
 export enum PathType {
@@ -2465,7 +2470,10 @@ export enum FunnelVizType {
     Trends = 'trends',
 }
 
-export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_TIME
+export type RetentionType =
+    | typeof RETENTION_RECURRING
+    | typeof RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS
+    | typeof RETENTION_FIRST_EVER_OCCURRENCE
 
 export enum RetentionPeriod {
     Hour = 'Hour',
@@ -2656,11 +2664,6 @@ export interface PathsFilterType extends FilterType {
     path_dropoff_key?: string // Paths People Dropoff Key
 }
 
-export interface CalendarHeatmapFilterType extends FilterType {
-    // Reserved for future filter properties
-    dummy?: string
-}
-
 export type RetentionEntityKind = NodeKind.ActionsNode | NodeKind.EventsNode
 
 export interface RetentionEntity {
@@ -2715,7 +2718,6 @@ export type AnyFilterType =
     | StickinessFilterType
     | FunnelsFilterType
     | PathsFilterType
-    | CalendarHeatmapFilterType
     | RetentionFilterType
     | LifecycleFilterType
     | FilterType
@@ -2728,7 +2730,6 @@ export type AnyPartialFilterType =
     | Partial<RetentionFilterType>
     | Partial<LifecycleFilterType>
     | Partial<FilterType>
-    | Partial<CalendarHeatmapFilterType>
 
 export interface EventsListQueryParams {
     event?: string
@@ -3015,6 +3016,8 @@ export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     filtersOverride?: DashboardFilter | null
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
+    /** The tab of the scene if the insight is a full scene insight */
+    tabId?: string | null
 }
 
 export interface SetInsightOptions {
@@ -3818,6 +3821,8 @@ export interface Experiment {
     filters: TrendsFilterType | FunnelsFilterType
     metrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     metrics_secondary: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    primary_metrics_ordered_uuids: string[] | null
+    secondary_metrics_ordered_uuids: string[] | null
     saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
     saved_metrics: any[]
     parameters: {
@@ -4180,7 +4185,14 @@ export enum ExperimentMetricMathType {
     Min = 'min',
     Max = 'max',
     Avg = 'avg',
+    UniqueUsers = 'dau',
+    UniqueGroup = 'unique_group',
     HogQL = 'hogql',
+}
+
+export enum ExperimentMetricGoal {
+    Increase = 'increase',
+    Decrease = 'decrease',
 }
 
 export enum ActorGroupType {
@@ -4345,6 +4357,9 @@ export enum ExporterFormat {
     PDF = 'application/pdf',
     JSON = 'application/json',
     XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    WEBM = 'video/webm',
+    MP4 = 'video/mp4',
+    GIF = 'image/gif',
 }
 
 /** Exporting directly from the browser to a file */
@@ -4374,6 +4389,8 @@ export interface ReplayExportContext {
     width?: number
     height?: number
     filename?: string
+    duration?: number
+    mode?: SessionRecordingPlayerMode
 }
 
 export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext | ReplayExportContext
@@ -4660,6 +4677,7 @@ export interface DataWarehouseSavedQuery {
     status?: string
     latest_error: string | null
     latest_history_id?: string
+    is_materialized?: boolean
 }
 
 export interface DataWarehouseSavedQueryDraft {
@@ -4703,6 +4721,11 @@ export const manualLinkSources = ['aws', 'google-cloud', 'cloudflare-r2', 'azure
 
 export type ManualLinkSourceType = (typeof manualLinkSources)[number]
 
+export interface ExternalDataSourceRevenueAnalyticsConfig {
+    enabled: boolean
+    include_invoiceless_charges: boolean
+}
+
 export interface ExternalDataSourceCreatePayload {
     source_type: ExternalDataSourceType
     prefix: string
@@ -4717,10 +4740,10 @@ export interface ExternalDataSource {
     prefix: string
     latest_error: string | null
     last_run_at?: Dayjs
-    revenue_analytics_enabled: boolean
     schemas: ExternalDataSourceSchema[]
     sync_frequency: DataWarehouseSyncInterval
     job_inputs: Record<string, any>
+    revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig
 }
 
 export interface DataModelingJob {
@@ -5234,13 +5257,6 @@ export type CyclotronJobInputSchemaType = {
     requiredScopes?: string
 }
 
-export type CyclotronJobInputType = {
-    value: any
-    templating?: 'hog' | 'liquid'
-    secret?: boolean
-    bytecode?: any
-}
-
 export type CyclotronJobMasking = {
     ttl: number | null
     threshold?: number | null
@@ -5283,11 +5299,13 @@ export interface CyclotronJobFiltersType {
     bytecode_error?: string
 }
 
+export type CyclotronJobInputType = CyclotronInputType
+
 export interface HogFunctionMappingType {
     name: string
     disabled?: boolean
     inputs_schema?: CyclotronJobInputSchemaType[]
-    inputs?: Record<string, CyclotronJobInputType> | null
+    inputs?: Record<string, CyclotronInputType> | null
     filters?: CyclotronJobFiltersType | null
 }
 export interface HogFunctionMappingTemplateType extends HogFunctionMappingType {
@@ -5317,7 +5335,7 @@ export type HogFunctionType = {
     hog: string
     execution_order?: number
     inputs_schema?: CyclotronJobInputSchemaType[]
-    inputs?: Record<string, CyclotronJobInputType> | null
+    inputs?: Record<string, CyclotronInputType> | null
     mappings?: HogFunctionMappingType[] | null
     masking?: CyclotronJobMasking | null
     filters?: CyclotronJobFiltersType | null
@@ -5541,12 +5559,19 @@ export enum ConversationStatus {
     Canceling = 'canceling',
 }
 
+export enum ConversationType {
+    Assistant = 'assistant',
+    ToolCall = 'tool_call',
+    DeepResearch = 'deep_research',
+}
+
 export interface Conversation {
     id: string
     status: ConversationStatus
     title: string | null
     created_at: string | null
     updated_at: string | null
+    type: ConversationType
 }
 
 export interface ConversationDetail extends Conversation {
@@ -5714,4 +5739,32 @@ export enum OnboardingStepKey {
     AUTHORIZED_DOMAINS = 'authorized_domains',
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
+}
+
+export interface Dataset {
+    id: string
+    name: string
+    description: string | null
+    metadata: Record<string, any> | null
+    team: number
+    created_at: string
+    updated_at: string
+    created_by: UserBasicType
+    deleted: boolean
+}
+
+export interface DatasetItem {
+    id: string
+    dataset: string
+    team: number
+    input: Record<string, any> | null
+    output: Record<string, any> | null
+    metadata: Record<string, any> | null
+    ref_trace_id: string | null
+    ref_timestamp: string | null
+    ref_source_id: string | null
+    created_by: UserBasicType
+    updated_at: string
+    created_at: string
+    deleted: boolean
 }

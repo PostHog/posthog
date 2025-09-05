@@ -347,14 +347,9 @@ impl AmplitudeEvent {
             if context.generate_identify_events {
                 if let (Some(user_id), Some(device_id)) = (&amp.user_id, &amp.device_id) {
                     // Check cache to see if we've seen this user-device combination
-                    let cache_result = tokio::task::block_in_place(|| {
-                        tokio::runtime::Handle::current().block_on(async {
-                            context
-                                .identify_cache
-                                .has_seen_user_device(team_id, user_id, device_id)
-                                .await
-                        })
-                    });
+                    let cache_result = context
+                        .identify_cache
+                        .has_seen_user_device(team_id, user_id, device_id);
 
                     match cache_result {
                         Ok(has_seen) => {
@@ -367,19 +362,15 @@ impl AmplitudeEvent {
                                     user_id,
                                     device_id,
                                     identify_uuid,
+                                    timestamp,
                                 )?;
 
                                 events.push(identify_event);
 
                                 // Mark as seen in cache
-                                let mark_result = tokio::task::block_in_place(|| {
-                                    tokio::runtime::Handle::current().block_on(async {
-                                        context
-                                            .identify_cache
-                                            .mark_seen_user_device(team_id, user_id, device_id)
-                                            .await
-                                    })
-                                });
+                                let mark_result = context
+                                    .identify_cache
+                                    .mark_seen_user_device(team_id, user_id, device_id);
 
                                 if let Err(e) = mark_result {
                                     error!("Failed to mark seen in identify cache for team {} user {} device {}: {}", team_id, user_id, device_id, e);
@@ -805,8 +796,8 @@ mod tests {
         assert!(result.is_empty());
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_amplitude_identify_injection_first_time() {
+    #[test]
+    fn test_amplitude_identify_injection_first_time() {
         use crate::cache::MockIdentifyCache;
         use crate::parse::content::TransformContext;
         use std::collections::HashMap;
@@ -863,6 +854,9 @@ mod tests {
         assert_eq!(identify_data["properties"]["historical_migration"], true);
         assert_eq!(identify_data["properties"]["analytics_source"], "amplitude");
 
+        // Verify identify event uses the same timestamp as the original event
+        assert_eq!(identify_data["timestamp"], "2023-10-15T14:30:00+00:00");
+
         // Second event should be original event
         let original_event = &result[1];
         assert_eq!(original_event.team_id, 123);
@@ -872,8 +866,8 @@ mod tests {
         assert_eq!(original_data["distinct_id"], "user123");
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_amplitude_identify_injection_duplicate() {
+    #[test]
+    fn test_amplitude_identify_injection_duplicate() {
         use crate::cache::MockIdentifyCache;
         use crate::parse::content::TransformContext;
         use std::sync::Arc;
@@ -924,8 +918,8 @@ mod tests {
         assert_eq!(original_data["event"], "test_event2");
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_amplitude_identify_injection_disabled() {
+    #[test]
+    fn test_amplitude_identify_injection_disabled() {
         use crate::cache::MockIdentifyCache;
         use crate::parse::content::TransformContext;
         use std::sync::Arc;
@@ -961,8 +955,8 @@ mod tests {
         assert_eq!(data["distinct_id"], "user123");
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_amplitude_identify_with_cache_failure() {
+    #[test]
+    fn test_amplitude_identify_with_cache_failure() {
         use crate::cache::MockIdentifyCache;
         use crate::parse::content::TransformContext;
         use std::sync::Arc;
@@ -994,8 +988,8 @@ mod tests {
         // This would require mocking cache failures or using a cache that can fail
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_amplitude_mixed_events_with_identify() {
+    #[test]
+    fn test_amplitude_mixed_events_with_identify() {
         use crate::cache::MockIdentifyCache;
         use crate::parse::content::TransformContext;
         use std::sync::Arc;
@@ -1076,8 +1070,8 @@ mod tests {
         assert_eq!(data["event"], "event_neither");
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_amplitude_identify_import_events_disabled() {
+    #[test]
+    fn test_amplitude_identify_import_events_disabled() {
         use crate::cache::MockIdentifyCache;
         use crate::parse::content::TransformContext;
         use std::sync::Arc;

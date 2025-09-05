@@ -541,6 +541,19 @@ class PropertyDefinitionViewSet(
         if val.get("virtual", False)
     ]
 
+    _BUILTIN_VIRTUAL_GROUP_PROPERTIES = [
+        {
+            "id": "$builtin_" + key,
+            "name": key,
+            "is_numerical": val["type"] == "Numeric",
+            "property_type": val["type"],
+            "tags": val.get("tags", []),
+            "virtual": True,
+        }
+        for (key, val) in CORE_FILTER_DEFINITIONS_BY_GROUP["groups"].items()
+        if val.get("virtual", False)
+    ]
+
     def dangerously_get_queryset(self):
         queryset: Union[QuerySet[PropertyDefinition], Manager[PropertyDefinition]] = PropertyDefinition.objects.all()
         property_definition_fields = ", ".join(
@@ -693,25 +706,31 @@ class PropertyDefinitionViewSet(
     def list(self, request, *args, **kwargs):
         response = super().list(request, *args, **kwargs)
 
-        # Inject virtual person properties to the end of the results
-        if request.query_params.get("type", "event") == "person":
+        event_type = request.query_params.get("type", "event")
+
+        # Inject virtual person/group properties to the end of the results
+        if event_type in ["person", "group"]:
             paginator = self.paginator
             assert isinstance(paginator, NotCountingLimitOffsetPaginator)
 
             query = PropertyDefinitionQuerySerializer(data=request.query_params)
             query.is_valid(raise_exception=True)
 
-            matching_virtual_props = [
-                p for p in self._BUILTIN_VIRTUAL_PERSON_PROPERTIES if self._filter_virtual_property(p, query)
-            ]
+            virtual_properties = (
+                self._BUILTIN_VIRTUAL_PERSON_PROPERTIES
+                if event_type == "person"
+                else self._BUILTIN_VIRTUAL_GROUP_PROPERTIES
+            )
+
+            matching_virtual_props = [p for p in virtual_properties if self._filter_virtual_property(p, query)]
 
             db_count = response.data["count"]
             page_end_index = (paginator.offset or 0) + len(response.data["results"])
             is_last_page = page_end_index >= db_count
 
+            # Add virtual properties to the end of the results
+            # Technically, this means that the last page can be longer than the others, but as the number of virtual properties is small, this is acceptable
             if is_last_page:
-                # Add virtual properties to the end of the results
-                # Technically, this means that the last page can be longer than the others, but as the number of virtual properties is small, this is acceptable
                 response.data["results"].extend(matching_virtual_props)
 
             response.data["count"] = db_count + len(matching_virtual_props)
@@ -722,8 +741,8 @@ class PropertyDefinitionViewSet(
         # Reimplement filtering logic in python for virtual properties
         v = q.validated_data
 
-        # Virtual properties only exist for person type
-        if v.get("type") != "person":
+        # Virtual properties only exist for person and groups
+        if v.get("type") not in ["person", "group"]:
             return False
 
         # explicit name filter  (?properties=a,b,c)
