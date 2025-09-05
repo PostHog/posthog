@@ -323,6 +323,8 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     if not team_id or not identifier:
         return render(request, "message_preferences/error.html", {"error": "Invalid recipient"}, status=400)
 
+    recipient = None
+
     try:
         recipient = MessageRecipientPreference.objects.get(team_id=team_id, identifier=identifier)
     except MessageRecipientPreference.DoesNotExist:

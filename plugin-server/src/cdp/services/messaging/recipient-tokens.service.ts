@@ -44,6 +44,6 @@ export class RecipientTokensService {
 
     public generatePreferencesUrl(recipient: Pick<RecipientManagerRecipient, 'team_id' | 'identifier'>): string {
         const token = this.generatePreferencesToken(recipient)
-        return `${this.hub.SITE_URL}/messaging-preferences/${token}`
+        return `${this.hub.SITE_URL}/messaging-preferences/${token}/` // NOTE: Trailing slash is required for the preferences page to work
     }
 }
