@@ -22,6 +22,7 @@ envconfig = { workspace = true }
 futures = { workspace = true }
 health = { path = "../common/health" }
 metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
 num_cpus = "1.17.0"
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }

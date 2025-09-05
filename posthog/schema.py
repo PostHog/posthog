@@ -1237,6 +1237,7 @@ class ExternalDataSourceType(StrEnum):
     TEMPORAL_IO = "TemporalIO"
     DO_IT = "DoIt"
     LINKEDIN_ADS = "LinkedinAds"
+    REDDIT_ADS = "RedditAds"
 
 
 class ExternalQueryErrorCode(StrEnum):
