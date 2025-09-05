@@ -69,7 +69,7 @@ export const SaveToDatasetButton = React.memo(function SaveToDatasetButton({
                             }
                             setDropdownVisible(!dropdownVisible)
                         },
-                        tooltip: 'Add span to dataset and edit it',
+                        tooltip: 'Add to dataset and edit it',
                     }}
                     onClick={() => {
                         setDropdownVisible(!dropdownVisible)

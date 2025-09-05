@@ -31,7 +31,7 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
                     e.preventDefault() // Prevents scroll
                 }
             } else if (e.key === 'ArrowUp') {
-                if (focusedItemIndex >= 0) {
+                if (focusedItemIndex > 0) {
                     focus(focusedItemIndex - 1)
                     setFocusedItemIndex(focusedItemIndex - 1)
                     e.preventDefault() // Prevents scroll

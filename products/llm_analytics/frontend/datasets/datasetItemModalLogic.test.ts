@@ -190,7 +190,6 @@ describe('datasetItemModalLogic', () => {
             logic.actions.submitDatasetItemForm()
         }).toFinishAllListeners()
 
-        // Verify form values were reset to default (line 98 behavior)
         expect(logic.values.datasetItemForm).toEqual({
             input: EMPTY_JSON,
             output: EMPTY_JSON,
