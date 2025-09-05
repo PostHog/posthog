@@ -1257,6 +1257,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 if (props.dashboard) {
                     // If we already have dashboard data, use it. Should the data turn out to be stale,
                     // the loadDashboardSuccess listener will initiate a refresh
+                    // Ensure loading state is properly initialized for shared dashboards
+                    actions.loadingDashboardItemsStarted(DashboardLoadAction.InitialLoad)
                     actions.loadDashboardSuccess(props.dashboard)
                 } else {
                     if (!(SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams)) {

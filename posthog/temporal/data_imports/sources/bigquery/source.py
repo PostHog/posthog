@@ -37,7 +37,7 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.BIGQUERY
 
-    def get_schemas(self, config: BigQuerySourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: BigQuerySourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         bq_schemas = get_bigquery_schemas(
             config,
             logger=None,

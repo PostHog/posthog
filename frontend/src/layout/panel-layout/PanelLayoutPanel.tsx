@@ -228,7 +228,6 @@ export function PanelLayoutPanel({
                                 )}
                             </div>
                         </div>
-                        <div className="border-b border-primary h-px" />
                     </>
                 ) : null}
 

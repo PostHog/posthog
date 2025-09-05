@@ -97,7 +97,7 @@ class MySQLSource(BaseSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabas
             ),
         )
 
-    def get_schemas(self, config: MySQLSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: MySQLSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         schemas = []
 
         with self.with_ssh_tunnel(config) as (host, port):

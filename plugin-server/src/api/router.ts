@@ -2,7 +2,7 @@ import * as prometheus from 'prom-client'
 import express, { Request, Response } from 'ultimate-express'
 
 import { corsMiddleware } from '~/api/middleware/cors'
-import { PluginServerService } from '~/types'
+import { HealthCheckResultError, PluginServerService } from '~/types'
 import { logger } from '~/utils/logger'
 
 prometheus.collectDefaultMetrics()
@@ -65,40 +65,26 @@ const buildGetHealth =
         //     ...
         //   }
         // }
-        const checkResults = await Promise.all(
-            // Note that we do not use `Promise.allSettled` here so we can
-            // assume that all promises have resolved. If there was a
-            // rejected promise, the http server should catch it and return
-            // a 500 status code.
-            services.map(async (service) => {
-                try {
-                    const result = await service.healthcheck()
-
-                    // Handle both boolean and HealthCheckResult returns
-                    if (typeof result === 'boolean') {
-                        return {
-                            service: service.id,
-                            status: result ? 'ok' : 'error',
-                        }
-                    } else {
-                        return {
-                            service: service.id,
-                            status: result.healthy ? 'ok' : 'error',
-                            message: result.message,
-                            details: result.details,
-                        }
-                    }
-                } catch (error) {
-                    return {
-                        service: service.id,
-                        status: 'error',
-                        message: error.message || 'Unknown error',
-                    }
+        const healthCheckPromises = services.map(async (service) => {
+            try {
+                const result = await service.healthcheck()
+                return { service, result }
+            } catch (error) {
+                // If healthcheck throws, create an error result
+                return {
+                    service,
+                    result: new HealthCheckResultError(error instanceof Error ? error.message : 'Unknown error', {}),
                 }
-            })
-        )
+            }
+        })
 
-        const statusCode = checkResults.every((result) => result.status === 'ok') ? 200 : 503
+        const healthChecks = await Promise.all(healthCheckPromises)
+
+        // Convert to response format for API
+        const checkResults = healthChecks.map(({ service, result }) => result.toResponse(service.id))
+
+        // Use isError() method to determine status code
+        const statusCode = healthChecks.every(({ result }) => !result.isError()) ? 200 : 503
 
         const checkResultsMapping = Object.fromEntries(
             checkResults.map((result) => [
@@ -116,7 +102,7 @@ const buildGetHealth =
                 failedServices: failedServices.map((s) => ({
                     service: s.service,
                     message: s.message,
-                    details: s.details,
+                    details: 'details' in s ? s.details : undefined,
                 })),
             })
         }

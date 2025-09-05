@@ -7,7 +7,7 @@ import { Action, ActionManagerCDP } from '~/utils/action-manager-cdp'
 
 import { KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES, KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
-import { Hub, RawClickHouseEvent } from '../../types'
+import { HealthCheckResult, Hub, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { HogFunctionFilterGlobals } from '../types'
@@ -231,7 +231,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         logger.info('💤', 'Behavioural events consumer stopped!')
     }
 
-    public isHealthy() {
+    public isHealthy(): HealthCheckResult {
         return this.kafkaConsumer.isHealthy()
     }
 }

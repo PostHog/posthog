@@ -15,7 +15,7 @@ import {
 import { hostname } from 'os'
 import { Gauge, Histogram } from 'prom-client'
 
-import { HealthCheckResult } from '~/types'
+import { HealthCheckResult, HealthCheckResultDegraded, HealthCheckResultError, HealthCheckResultOk } from '~/types'
 import { isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
 
@@ -195,7 +195,7 @@ export class KafkaConsumer {
             'metadata.max.age.ms': 30000, // Refresh metadata every 30s - Relevant for leader loss (MSK Security Patches)
             'socket.timeout.ms': 30000,
             // Only enable statistics when using loop-based health check
-            ...(defaultConfig.KAFKA_CONSUMER_LOOP_BASED_HEALTH_CHECK
+            ...(defaultConfig.CONSUMER_LOOP_BASED_HEALTH_CHECK
                 ? { 'statistics.interval.ms': STATISTICS_INTERVAL_MS }
                 : {}),
             // Custom settings and overrides - this is where most configuration overrides should be done
@@ -228,13 +228,20 @@ export class KafkaConsumer {
 
     public isHealthy(): HealthCheckResult {
         // Use legacy heartbeat-based health check if feature flag is disabled
-        if (!defaultConfig.KAFKA_CONSUMER_LOOP_BASED_HEALTH_CHECK) {
+        if (!defaultConfig.CONSUMER_LOOP_BASED_HEALTH_CHECK) {
             // this is called as a readiness and a liveness probe
             const isWithinInterval = Date.now() - this.lastHeartbeatTime < this.maxHealthHeartbeatIntervalMs
             const isConnected = this.rdKafkaConsumer.isConnected()
-            return {
-                healthy: isConnected && isWithinInterval,
-                message: isConnected && isWithinInterval ? 'Healthy' : 'Unhealthy',
+
+            if (isConnected && isWithinInterval) {
+                return new HealthCheckResultOk()
+            } else {
+                return new HealthCheckResultError('Consumer unhealthy', {
+                    isConnected,
+                    isWithinInterval,
+                    lastHeartbeatTime: this.lastHeartbeatTime,
+                    maxHealthHeartbeatIntervalMs: this.maxHealthHeartbeatIntervalMs,
+                })
             }
         }
 
@@ -247,26 +254,21 @@ export class KafkaConsumer {
 
         // 1. Basic connectivity check
         if (!this.rdKafkaConsumer.isConnected()) {
-            return {
-                healthy: false,
-                message: 'Consumer not connected to Kafka broker',
-                details,
-            }
+            return new HealthCheckResultError('Consumer not connected to Kafka broker', details)
         }
 
         // 2. Consumer loop liveness check (ensure loop is not stalled)
         const timeSinceLastLoop = Date.now() - this.lastConsumerLoopTime
         if (this.lastConsumerLoopTime > 0 && timeSinceLastLoop > this.consumerLoopStallThresholdMs) {
-            return {
-                healthy: false,
-                message: `Consumer loop appears stalled (no activity for ${Math.round(timeSinceLastLoop / 1000)}s)`,
-                details: {
+            return new HealthCheckResultError(
+                `Consumer loop appears stalled (no activity for ${Math.round(timeSinceLastLoop / 1000)}s)`,
+                {
                     ...details,
                     lastConsumerLoopTime: this.lastConsumerLoopTime,
                     timeSinceLastLoop,
                     threshold: this.consumerLoopStallThresholdMs,
-                },
-            }
+                }
+            )
         }
 
         // Build status message with warnings
@@ -308,11 +310,12 @@ export class KafkaConsumer {
             details.assignmentError = error.message
         }
 
-        return {
-            healthy: true,
-            message: warnings.length > 0 ? `Healthy with warnings: ${warnings.join(', ')}` : 'Healthy',
-            details,
+        // Return degraded if there are warnings, otherwise healthy
+        if (warnings.length > 0) {
+            return new HealthCheckResultDegraded(`Healthy with warnings: ${warnings.join(', ')}`, details)
         }
+
+        return new HealthCheckResultOk()
     }
 
     public assignments(): Assignment[] {

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonCheckbox, LemonSelect, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonSelect, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -83,6 +83,15 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
         { title: 'Count', dataIndex: 'count' },
     ] as LemonTableColumns<ErrorTrackingIssueFingerprint>
 
+    const disabledReason =
+        selectedFingerprints.length === fingerprints.length
+            ? 'You must leave at least one fingerprint associated with the issue'
+            : selectedFingerprints.length === 0
+              ? 'Select at least one fingerprint'
+              : fingerprints.length === 1
+                ? 'You cannot split an issue that only has one fingerprint'
+                : undefined
+
     return (
         <ErrorTrackingSetupPrompt>
             <div className="space-y-2">
@@ -91,17 +100,28 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
                     created for each of the fingerprints.
                 </div>
 
-                <LemonSelect
-                    size="small"
-                    type="primary"
-                    placeholder="Split"
-                    disabledReason={selectedFingerprints.length === 0 ? 'Select at least one fingerprint' : undefined}
-                    options={[
-                        { value: false, label: 'Split into a single issue' },
-                        { value: true, label: 'Split into multiple issues' },
-                    ]}
-                    onSelect={(value) => split(value)}
-                />
+                {selectedFingerprints.length <= 1 ? (
+                    <LemonButton
+                        size="small"
+                        type="primary"
+                        disabledReason={disabledReason}
+                        onClick={() => split(true)}
+                    >
+                        Split
+                    </LemonButton>
+                ) : (
+                    <LemonSelect
+                        size="small"
+                        type="primary"
+                        placeholder="Split"
+                        options={[
+                            { value: false, label: 'Split fingerprints into a single issue' },
+                            { value: true, label: 'Split fingerprints into individual issues' },
+                        ]}
+                        onSelect={(value) => split(value)}
+                        disabledReason={disabledReason}
+                    />
+                )}
 
                 <LemonTable
                     className="w-full"

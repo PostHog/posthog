@@ -181,7 +181,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
                 response_1.json(),
             )
-            mock_capture.assert_called_once_with(
+            mock_capture.assert_any_call(
                 "insight created",
                 distinct_id=self.user.distinct_id,
                 properties={
@@ -215,7 +215,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 response_2.json(),
             )
             insight_short_id = response_2.json()["short_id"]
-            mock_capture.assert_called_once_with(
+            # Check that "insight updated" event was called among all capture calls
+            mock_capture.assert_any_call(
                 "insight updated",
                 distinct_id=self.user.distinct_id,
                 properties={

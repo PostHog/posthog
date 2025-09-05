@@ -43,7 +43,7 @@ class TemplateSource(BaseSource[Config]): # Replace this after config generation
     def validate_credentials(self, config: Config, team_id: int) -> tuple[bool, str | None]: # Replace `Config` with your config class
       return True, None # Implement logic to validate the credentials of your source, e.g. check the validity of API keys. Return a tuple of whether the credentials are valid, and if not, return an error message to return to the user
 
-    def get_schemas(self, config: Config, team_id: int) -> list[SourceSchema]: # Replace `Config` with your config class
+    def get_schemas(self, config: Config, team_id: int, with_counts: bool = False) -> list[SourceSchema]: # Replace `Config` with your config class
       return [] # Implement your source schema logic here
 
     def source_for_pipeline(self, config: Config, inputs: SourceInputs) -> SourceResponse: # Replace `Config` with your config class

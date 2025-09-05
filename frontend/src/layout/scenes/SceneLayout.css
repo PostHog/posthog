@@ -1,7 +1,7 @@
 .scene-layout {
     container-name: scenelayout;
     container-type: size;
-    min-height: calc(100vh - var(--scene-layout-header-height));
+    min-height: 100vh;
 }
 
 .scene-layout__content-panel {

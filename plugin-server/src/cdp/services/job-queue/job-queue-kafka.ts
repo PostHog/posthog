@@ -8,7 +8,7 @@ import { compress, uncompress } from 'snappy'
 
 import { KafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
-import { PluginsServerConfig } from '../../../types'
+import { HealthCheckResult, HealthCheckResultError, PluginsServerConfig } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
@@ -59,8 +59,11 @@ export class CyclotronJobQueueKafka {
         await this.kafkaProducer?.disconnect()
     }
 
-    public isHealthy() {
-        return this.kafkaConsumer?.isHealthy() ?? false
+    public isHealthy(): HealthCheckResult {
+        if (!this.kafkaConsumer) {
+            return new HealthCheckResultError('Kafka consumer not initialized', {})
+        }
+        return this.kafkaConsumer.isHealthy()
     }
 
     public async queueInvocations(invocations: CyclotronJobInvocation[]) {

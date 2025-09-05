@@ -240,8 +240,12 @@ class MarketingSourceFactory:
 
     def build_union_query(self, adapters: list[MarketingSourceAdapter]) -> str:
         """Build union query from all valid adapters"""
+        # Sort adapters by source_id to ensure deterministic UNION ALL ordering
+        # This prevents flaky tests where query optimizer reorders UNION ALL clauses
+        sorted_adapters = sorted(adapters, key=lambda adapter: adapter.config.source_id)
+
         queries = []
-        for adapter in adapters:
+        for adapter in sorted_adapters:
             try:
                 query = adapter.build_query_string()
                 if query:
