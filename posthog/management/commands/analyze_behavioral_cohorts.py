@@ -110,7 +110,7 @@ class Command(BaseCommand):
             raise ValueError(f"Invalid limit value: {limit}")
 
         where_clauses = ["date >= now() - toIntervalDay(%(days)s)"]
-        params = {"days": days}
+        params: dict[str, Any] = {"days": days}
 
         if team_id:
             where_clauses.append("team_id = %(team_id)s")
