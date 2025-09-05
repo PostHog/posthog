@@ -105,7 +105,7 @@ NON_RETRYABLE_ERROR_TYPES = (
     # Raised when a Warehouse is suspended.
     "SnowflakeWarehouseSuspendedError",
     # Raised when the destination table schema is incompatible with the schema of the file we are trying to load.
-    "SnowflakeDestinationTableIncompatibleSchemaError",
+    "SnowflakeIncompatibleSchemaError",
 )
 
 
@@ -166,10 +166,13 @@ class InvalidPrivateKeyError(Exception):
         super().__init__(message)
 
 
-class SnowflakeDestinationTableIncompatibleSchemaError(Exception):
+class SnowflakeIncompatibleSchemaError(Exception):
     """Raised when the destination table schema is incompatible with the schema of the file we are trying to load."""
 
-    pass
+    def __init__(self, err_msg: str):
+        super().__init__(
+            f"The data being loaded into the destination table is incompatible with the schema of the destination table: {err_msg}"
+        )
 
 
 @dataclasses.dataclass
@@ -653,9 +656,7 @@ class SnowflakeClient:
                     err_msg += f": {e.msg}"
                 raise SnowflakeWarehouseSuspendedError(err_msg)
             elif e.errno == 904 and e.msg is not None and "invalid identifier" in e.msg:
-                raise SnowflakeDestinationTableIncompatibleSchemaError(
-                    f"The data being loaded into the destination table does not match the schema of the destination table: {e.msg}"
-                )
+                raise SnowflakeIncompatibleSchemaError(e.msg)
 
             raise SnowflakeFileNotLoadedError(
                 table_name,
