@@ -41,7 +41,10 @@ def calculate_table_size_activity(inputs: CalculateTableSizeActivityInputs) -> N
         return
 
     folder_name = schema.folder_path()
-    s3_folder = f"{settings.BUCKET_URL}/{folder_name}/{schema.normalized_name}"
+    if table.format == DataWarehouseTable.TableFormat.DeltaS3Wrapper:
+        s3_folder = f"{settings.BUCKET_URL}/{folder_name}/{schema.normalized_name}__query"
+    else:
+        s3_folder = f"{settings.BUCKET_URL}/{folder_name}/{schema.normalized_name}"
 
     total_mib = get_size_of_folder(s3_folder)
 

@@ -6,7 +6,7 @@ use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot;
 use tokio::time::timeout;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 use crate::kafka::types::Partition;
 
@@ -172,7 +172,16 @@ impl StatefulKafkaConsumer {
         let partition = Partition::new(topic.to_string(), partition_num);
 
         if !self.tracker.is_partition_active(&partition).await {
-            warn!(
+            // Increment metric instead of logging to reduce noise
+            metrics::counter!(
+                crate::kafka::metrics_consts::MESSAGES_SKIPPED_REVOKED,
+                "topic" => topic.to_string(),
+                "partition" => partition_num.to_string()
+            )
+            .increment(1);
+
+            // Only log occasionally for debugging
+            debug!(
                 "Skipping message from revoked partition {}:{} offset {}",
                 topic, partition_num, offset
             );

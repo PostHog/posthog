@@ -19,7 +19,7 @@ export function StepConditionalBranchConfiguration({
     const action = node.data
     const { conditions } = action.config
 
-    const { edgesByActionId } = useValues(hogFlowEditorLogic)
+    const { edgesByActionId, selectedNodeCanBeDeleted } = useValues(hogFlowEditorLogic)
     const { setCampaignAction, setCampaignActionEdges } = useActions(hogFlowEditorLogic)
 
     const nodeEdges = edgesByActionId[action.id]
@@ -89,7 +89,12 @@ export function StepConditionalBranchConfiguration({
                 <div key={index} className="flex flex-col gap-2 p-2 rounded border">
                     <div className="flex justify-between items-center">
                         <LemonLabel>Condition {index + 1}</LemonLabel>
-                        <LemonButton size="xsmall" icon={<IconX />} onClick={() => removeCondition(index)} />
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconX />}
+                            onClick={() => removeCondition(index)}
+                            disabledReason={selectedNodeCanBeDeleted ? undefined : 'Clean up branching steps first'}
+                        />
                     </div>
 
                     <HogFlowFilters

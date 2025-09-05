@@ -124,7 +124,7 @@ def _create_ai_span_event(
     input_state: Any,
     output_state: Any,
     span_id: str | None = None,
-    parent_id: str | None = None,
+    parent_id: str | int | None = None,
     span_name: str | None = None,
     team: Team | None = None,
     distinct_id: str | None = None,
@@ -1212,3 +1212,83 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results), 1)
         # Should be None when no names exist in any events
         self.assertIsNone(response.results[0].traceName)
+
+    def test_mixed_type_parent_trace_comparison(self):
+        """Test that parent_id and trace_id comparison works with mixed types (string vs float)."""
+        _create_person(distinct_ids=["person1"], team=self.team)
+        trace_id = "12345"  # String trace ID
+
+        # Create a span with numeric parent_id that equals trace_id
+        _create_ai_span_event(
+            trace_id=trace_id,
+            span_id="span1",
+            parent_id=12345,  # Numeric parent_id
+            span_name="root_span",
+            input_state={},
+            output_state={},
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+            distinct_id="person1",
+            properties={
+                "$ai_latency": 5.0,
+                "$ai_parent_id": 12345,  # Ensure it's stored as number
+            },
+        )
+
+        # Create another span with string parent_id
+        _create_ai_span_event(
+            trace_id=trace_id,
+            span_id="span2",
+            parent_id="12345",  # String parent_id matching trace_id
+            span_name="child_span",
+            input_state={},
+            output_state={},
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 1),
+            distinct_id="person1",
+            properties={
+                "$ai_latency": 3.0,
+                "$ai_parent_id": "12345",  # Ensure it's stored as string
+            },
+        )
+
+        # Create a generation event with trace_id as parent
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 2),
+            properties={
+                "$ai_latency": 2.0,
+                "$ai_parent_id": trace_id,  # Parent is the trace itself
+            },
+        )
+
+        # Query should work despite type mismatches
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z"),
+            ),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, trace_id)
+
+        # Total latency should count all root-level items (where parent_id = trace_id)
+        # With toString() fix: span1 (5.0) + span2 (3.0) + generation (2.0) = 10.0
+        # All three have parent_id that equals trace_id when converted to string
+        self.assertEqual(response.results[0].totalLatency, 10.0)
+
+        # Query for full trace details
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                traceId=trace_id,
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z"),
+            ),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        # Should have all 3 events in the full trace
+        self.assertEqual(len(response.results[0].events), 3)

@@ -69,6 +69,8 @@ const NEW_CAMPAIGN: HogFlow = {
     version: 1,
     status: 'draft',
     team_id: -1,
+    created_at: '',
+    updated_at: '',
 }
 
 export const campaignLogic = kea<campaignLogicType>([
@@ -273,9 +275,7 @@ export const campaignLogic = kea<campaignLogicType>([
             actions.setCampaignValues({ edges: [...newEdges, ...edges] })
         },
     })),
-    afterMount(({ actions, props }) => {
-        if (props.id && props.id !== 'new') {
-            actions.loadCampaign()
-        }
+    afterMount(({ actions }) => {
+        actions.loadCampaign()
     }),
 ])
