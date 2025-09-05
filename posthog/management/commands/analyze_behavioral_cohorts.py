@@ -1,3 +1,4 @@
+import json
 import time
 import logging
 from typing import Any
@@ -135,8 +136,18 @@ class Command(BaseCommand):
             ORDER BY team_id, cohort_id, condition
             {limit_clause}
         """
+        log_comment = json.dumps(
+            {
+                "source": "analyze_behavioral_cohorts",
+                "operation": "get_unique_conditions",
+                "test": True,
+                "days": days,
+                "limit": limit,
+            }
+        )
+
         try:
-            results = sync_execute(query, params)
+            results = sync_execute(query, params, settings={"log_comment": log_comment})
             return [
                 {
                     "team_id": row[0],
@@ -186,6 +197,18 @@ class Command(BaseCommand):
                     AND matches >= %(min_matches)s
                 LIMIT 100000
             """
+            log_comment = json.dumps(
+                {
+                    "source": "analyze_behavioral_cohorts",
+                    "operation": "get_cohort_memberships",
+                    "test": True,
+                    "condition_idx": idx,
+                    "total_conditions": total_conditions,
+                    "team_id": team_id,
+                    "cohort_id": cohort_id,
+                }
+            )
+
             try:
                 results = sync_execute(
                     query,
@@ -196,6 +219,7 @@ class Command(BaseCommand):
                         "days": days,
                         "min_matches": min_matches,
                     },
+                    settings={"log_comment": log_comment},
                 )
 
                 for row in results:
