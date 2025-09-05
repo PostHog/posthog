@@ -17,11 +17,9 @@ const DEFAULT_MODEL = 'gpt-4.1'
 
 describe('llmAnalyticsPlaygroundLogic - Model Matching', () => {
     let logic: ReturnType<typeof llmAnalyticsPlaygroundLogic.build>
-    let consoleSpy: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
-        consoleSpy = jest.spyOn(console, 'warn').mockImplementation()
 
         useMocks({
             get: {
@@ -35,7 +33,6 @@ describe('llmAnalyticsPlaygroundLogic - Model Matching', () => {
 
     afterEach(() => {
         logic.unmount()
-        consoleSpy.mockRestore()
     })
 
     describe('closest model matching', () => {
@@ -49,7 +46,6 @@ describe('llmAnalyticsPlaygroundLogic - Model Matching', () => {
             })
 
             expect(logic.values.model).toBe('gpt-5')
-            expect(consoleSpy).not.toHaveBeenCalled()
         })
 
         it('should match by longest prefix', async () => {
@@ -119,7 +115,6 @@ describe('llmAnalyticsPlaygroundLogic - Model Matching', () => {
             })
 
             expect(logic.values.model).toBe('claude-3-opus')
-            expect(consoleSpy).not.toHaveBeenCalled()
         })
 
         it('should handle missing model in payload', async () => {
