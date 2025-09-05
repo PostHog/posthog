@@ -222,7 +222,7 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                 <div className="flex flex-col flex-1 gap-2 p-2">
                     <h3 className="mb-0">Test results</h3>
                     {!testResult ? (
-                        <div className="flex flex-col gap-2">Results will appear here</div>
+                        <div className="text-muted text-sm">No tests run yet</div>
                     ) : (
                         <>
                             <LemonBanner
