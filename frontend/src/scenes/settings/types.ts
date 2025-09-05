@@ -157,7 +157,7 @@ export type Setting = {
     title: JSX.Element | string
     description?: JSX.Element | string
     component: JSX.Element
-    stringValue?: string
+    searchTerm?: string
     /**
      * Feature flag to gate the setting being shown.
      * If prefixed with !, the condition is inverted - the setting will only be shown if the is flag false.

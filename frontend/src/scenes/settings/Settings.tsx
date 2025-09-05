@@ -147,16 +147,15 @@ export function Settings({
                     {showOptions ? (
                         <div className="Settings__sections">
                             {!settingsInSidebar && (
-                                <div className="px-2 pb-2">
-                                    <LemonInput
-                                        type="search"
-                                        placeholder="Search settings..."
-                                        value={searchTerm}
-                                        onChange={setSearchTerm}
-                                        size="small"
-                                        className="w-full"
-                                    />
-                                </div>
+                                <LemonInput
+                                    type="search"
+                                    placeholder="Search settings..."
+                                    value={searchTerm}
+                                    onChange={setSearchTerm}
+                                    size="small"
+                                    fullWidth
+                                    className="mb-2"
+                                />
                             )}
                             <OptionGroup options={options} />
                         </div>

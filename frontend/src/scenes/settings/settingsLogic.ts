@@ -19,8 +19,8 @@ export interface SettingsFuse extends FuseClass<Setting> {}
 export interface SectionsFuse extends FuseClass<SettingSection> {}
 
 const getSettingStringValue = (setting: Setting): string => {
-    if (setting.stringValue) {
-        return setting.stringValue
+    if (setting.searchTerm) {
+        return setting.searchTerm
     }
     if (typeof setting.title === 'string') {
         return setting.title
