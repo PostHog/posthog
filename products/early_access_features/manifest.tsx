@@ -2,7 +2,7 @@ import { IconRocket } from '@posthog/icons'
 
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Early access features',
@@ -50,6 +50,11 @@ export const manifest: ProductManifest = {
             path: `Early access feature`,
             type: 'early_access_feature',
             href: urls.earlyAccessFeature('new'),
+            icon: <IconRocket />,
+            iconColor: [
+                'var(--color-product-early-access-features-light)',
+                'var(--color-product-early-access-features-dark)',
+            ] as FileSystemIconColor,
         },
     ],
     treeItemsProducts: [

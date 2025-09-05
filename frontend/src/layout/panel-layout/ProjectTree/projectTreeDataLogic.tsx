@@ -1,7 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { IconPlus } from '@posthog/icons'
+import { IconDatabase, IconPeople, IconPlus } from '@posthog/icons'
 
 import api from 'lib/api'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
@@ -35,7 +35,7 @@ import {
 import { FEATURE_FLAGS } from '~/lib/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
-import { UserBasicType } from '~/types'
+import { FileSystemIconColor, UserBasicType } from '~/types'
 
 import type { projectTreeDataLogicType } from './projectTreeDataLogicType'
 
@@ -571,7 +571,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                           {
                               path: 'Groups',
                               category: 'Groups',
-                              iconType: 'cohort',
+                              icon: <IconPeople />,
                               href: urls.groups(0),
                               visualOrder: 30,
                           },
@@ -579,7 +579,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     : Array.from(groupTypes.values()).map((groupType) => ({
                           path: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
                           category: 'Groups',
-                          iconType: 'cohort',
+                          icon: <IconPeople />,
                           href: urls.groups(groupType.group_type_index),
                           visualOrder: 30 + groupType.group_type_index,
                       }))
@@ -594,7 +594,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                               path: shortcut.path,
                               type: shortcut.type,
                               category: 'Saved Views',
-                              iconType: 'database' as const,
+                              icon: <IconDatabase />,
+                              iconColor: ['var(--color-product-data-warehouse-light)'] as FileSystemIconColor,
                               href: shortcut.href || '',
                               visualOrder: 100,
                               shortcut: true,

@@ -8,7 +8,7 @@ import { RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
-import { iconForType } from './defaultTree'
+import { ProductIconWrapper, iconForType } from './defaultTree'
 import { FolderState } from './types'
 
 export interface ConvertProps {
@@ -101,7 +101,17 @@ export function convertFileSystemEntryToTreeDataItem({
         const displayName = <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />
         const user: UserBasicType | undefined = item.meta?.created_by ? users?.[item.meta.created_by] : undefined
 
-        const icon = iconForType('iconType' in item ? item.iconType : item.type)
+        const icon =
+            'icon' in item && item.icon ? (
+                <ProductIconWrapper type={item.type} colorOverride={item.iconColor}>
+                    {item.icon}
+                </ProductIconWrapper>
+            ) : (
+                iconForType(
+                    'iconType' in item ? item.iconType : item.type,
+                    'iconColor' in item ? item.iconColor : undefined
+                )
+            )
         const node: TreeDataItem = {
             id: nodeId,
             name: itemName,

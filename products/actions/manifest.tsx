@@ -2,7 +2,7 @@ import { IconCursor } from '@posthog/icons'
 
 import { urls } from 'scenes/urls'
 
-import { ActionType, ProductManifest } from '../../frontend/src/types'
+import { ActionType, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Actions',
@@ -47,9 +47,10 @@ export const manifest: ProductManifest = {
     fileSystemTypes: {
         action: {
             name: 'Action',
-            icon: <IconCursor />,
             href: (ref: string) => urls.action(ref),
             filterKey: 'action',
+            icon: <IconCursor />,
+            iconColor: ['var(--color-product-actions-light)'] as FileSystemIconColor,
         },
     },
     treeItemsNew: [
@@ -57,14 +58,17 @@ export const manifest: ProductManifest = {
             type: 'action',
             path: 'Action',
             href: urls.createAction(),
+            icon: <IconCursor />,
+            iconColor: ['var(--color-product-actions-light)'] as FileSystemIconColor,
         },
     ],
     treeItemsMetadata: [
         {
             path: 'Actions',
             category: 'Definitions',
-            iconType: 'cursor',
             href: urls.actions(),
+            icon: <IconCursor />,
+            iconColor: ['var(--color-product-actions-light)'] as FileSystemIconColor,
         },
     ],
 }

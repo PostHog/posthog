@@ -17,7 +17,7 @@ import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 
 import { ButtonPrimitive } from '../Button/ButtonPrimitives'
-import { TextInputPrimitive } from '../TextInputPrimitive/TextInputPrimitive'
+import { TextInputPrimitive, TextInputPrimitiveProps } from '../TextInputPrimitive/TextInputPrimitive'
 
 interface ComboboxContextType {
     searchValue: string
@@ -26,6 +26,7 @@ interface ComboboxContextType {
     unregisterGroup: (id: string) => void
     getVisibleSearchableGroupCount: () => number
     insideMenu?: boolean
+    searchSize?: TextInputPrimitiveProps['size']
 }
 
 const ComboboxContext = createContext<ComboboxContextType | null>(null)
@@ -33,6 +34,7 @@ const ComboboxContext = createContext<ComboboxContextType | null>(null)
 interface ComboboxProps extends React.HTMLAttributes<HTMLDivElement> {
     children: ReactNode
     insideMenu?: boolean
+    searchSize?: TextInputPrimitiveProps['size']
 }
 
 type Action =
@@ -42,7 +44,7 @@ type Action =
 type State = Map<string, { visible: boolean; isSearchable: boolean }>
 
 const InnerCombobox = forwardRef<ListBoxHandle, ComboboxProps>(
-    ({ children, className, insideMenu = false, ...props }, ref) => {
+    ({ children, className, insideMenu = false, searchSize = 'default', ...props }, ref) => {
         const listboxRef = useRef<ListBoxHandle>(null)
         const [searchValue, setSearchValue] = useState('')
 
@@ -88,8 +90,9 @@ const InnerCombobox = forwardRef<ListBoxHandle, ComboboxProps>(
                 unregisterGroup,
                 getVisibleSearchableGroupCount,
                 insideMenu,
+                searchSize,
             }),
-            [searchValue, registerGroup, unregisterGroup, getVisibleSearchableGroupCount, insideMenu]
+            [searchValue, registerGroup, unregisterGroup, getVisibleSearchableGroupCount, insideMenu, searchSize]
         )
 
         useImperativeHandle(ref, () => ({
@@ -115,7 +118,7 @@ const InnerCombobox = forwardRef<ListBoxHandle, ComboboxProps>(
                     style={
                         {
                             // Match text input base height with p-1 padding
-                            '--combobox-search-height': 'calc(var(--text-input-height-base) + (var(--spacing) * 2))',
+                            '--combobox-search-height': `calc(var(--text-input-height-${searchSize}) + (var(--spacing) * 2))`,
                         } as React.CSSProperties
                     }
                 >
@@ -132,9 +135,10 @@ interface SearchProps {
     placeholder?: string
     className?: string
     autoFocus?: boolean
+    inputProps?: Omit<TextInputPrimitiveProps, 'size'>
 }
 
-const Search = ({ placeholder = 'Search...', className, autoFocus = true }: SearchProps): JSX.Element => {
+const Search = ({ placeholder = 'Search...', className, autoFocus = true, inputProps }: SearchProps): JSX.Element => {
     const context = useContext(ComboboxContext)
     if (!context) {
         throw new Error('Combobox.Search must be used inside Combobox')
@@ -147,10 +151,10 @@ const Search = ({ placeholder = 'Search...', className, autoFocus = true }: Sear
                 value={context.searchValue}
                 onChange={(e) => context.setSearchValue(e.target.value)}
                 className={cn(className, 'w-full')}
-                placeholder={placeholder}
-                autoFocus={autoFocus}
+                placeholder={inputProps?.placeholder ?? placeholder}
+                autoFocus={inputProps?.autoFocus ?? autoFocus}
                 role="combobox"
-                size="default"
+                size={context.searchSize ?? 'default'}
                 aria-controls="combobox-listbox"
             />
         </div>
@@ -212,9 +216,10 @@ const Empty = ({ children }: EmptyProps): JSX.Element | null => {
 interface ContentProps {
     children: ReactNode
     className?: string
+    innerClassName?: string
 }
 
-const Content = ({ className, children }: ContentProps): JSX.Element => {
+const Content = ({ className, children, innerClassName }: ContentProps): JSX.Element => {
     const context = useContext(ComboboxContext)
     if (!context) {
         throw new Error('Combobox.Content must be used inside Combobox')
@@ -228,7 +233,7 @@ const Content = ({ className, children }: ContentProps): JSX.Element => {
                 'max-h-[calc(var(--radix-popover-content-available-height)-var(--combobox-search-height)-var(--radix-popper-anchor-height))] h-full max-w-none border-transparent overflow-y-auto',
                 className
             )}
-            innerClassName={cn('flex flex-col gap-px p-1', context.insideMenu && 'px-0 pb-0')}
+            innerClassName={cn('flex flex-col gap-px p-1', context.insideMenu && 'px-0 pb-0', innerClassName)}
         >
             {children}
         </ScrollableShadows>

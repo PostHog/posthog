@@ -4,7 +4,7 @@ import { IconRewindPlay } from '@posthog/icons'
 
 import { urls } from 'scenes/urls'
 
-import { ProductManifest, RecordingUniversalFilters, ReplayTabs } from '../../frontend/src/types'
+import { FileSystemIconColor, ProductManifest, RecordingUniversalFilters, ReplayTabs } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Replay',
@@ -39,6 +39,11 @@ export const manifest: ProductManifest = {
             path: `Replay playlist`,
             type: 'session_recording_playlist',
             href: urls.replayPlaylist('new'),
+            icon: <IconRewindPlay />,
+            iconColor: [
+                'var(--color-product-session-replay-light)',
+                'var(--color-product-session-replay-dark)',
+            ] as FileSystemIconColor,
         },
     ],
     treeItemsProducts: [

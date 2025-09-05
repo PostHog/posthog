@@ -156,7 +156,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Login]: { onlyUnauthenticated: true },
     [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw', hideProjectNotice: true },
     [Scene.MoveToPostHogCloud]: { name: 'Move to PostHog Cloud', hideProjectNotice: true },
-    [Scene.NewTab]: { projectBased: true, name: 'New tab' },
+    [Scene.NewTab]: { projectBased: true, name: 'New tab', hideProjectNotice: true, layout: 'app-raw' },
     [Scene.Notebook]: {
         projectBased: true,
         hideProjectNotice: true,

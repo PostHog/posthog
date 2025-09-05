@@ -5,7 +5,7 @@ import { urls } from 'scenes/urls'
 
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Experiments',
@@ -40,6 +40,8 @@ export const manifest: ProductManifest = {
             path: `Experiment`,
             type: 'experiment',
             href: urls.experiment('new'),
+            icon: <IconFlask />,
+            iconColor: ['var(--color-product-experiments-light)'] as FileSystemIconColor,
         },
     ],
     treeItemsProducts: [
