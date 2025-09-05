@@ -19,8 +19,6 @@ export class TriggerHandler implements ActionHandler {
             eventUuid: invocation.state.event.uuid,
         })
 
-        console.log('filterResults', filterResults)
-
         if (!filterResults.match) {
             return { finished: true }
         }
