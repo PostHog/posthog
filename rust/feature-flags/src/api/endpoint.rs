@@ -199,12 +199,36 @@ pub async fn flags(
         .instrument(_span)
         .await?;
 
-    let versioned_response: Result<ServiceResponse, FlagError> = match version {
-        Some(v) if v >= 2 => Ok(ServiceResponse::V2(response)),
-        _ => Ok(ServiceResponse::Default(
-            LegacyFlagsResponse::from_response(response),
-        )),
-    };
+    // Check for legacy_decide_v parameter first
+    let legacy_decide_version = query_params
+        .legacy_decide_v
+        .as_deref()
+        .and_then(|v| v.parse::<i32>().ok());
+
+    let versioned_response: Result<ServiceResponse, FlagError> =
+        if let Some(legacy_v) = legacy_decide_version {
+            // Handle legacy decide versions (v1 and v2)
+            match legacy_v {
+                1 => Ok(ServiceResponse::DecideV1(
+                    crate::api::types::DecideV1Response::from_response(response),
+                )),
+                2 => Ok(ServiceResponse::DecideV2(
+                    crate::api::types::DecideV2Response::from_response(response),
+                )),
+                // If an unsupported legacy version is requested, fall back to default
+                _ => Ok(ServiceResponse::Default(
+                    LegacyFlagsResponse::from_response(response),
+                )),
+            }
+        } else {
+            // Use normal version handling
+            match version {
+                Some(v) if v >= 2 => Ok(ServiceResponse::V2(response)),
+                _ => Ok(ServiceResponse::Default(
+                    LegacyFlagsResponse::from_response(response),
+                )),
+            }
+        };
 
     Ok(Json(versioned_response?).into_response())
 }
@@ -373,6 +397,7 @@ mod tests {
             lib_version: None,
             sent_at: None,
             only_evaluate_survey_feature_flags: None,
+            legacy_decide_v: None,
         };
 
         if params_both_none.version.is_none() && params_both_none.config.is_none() {
@@ -391,6 +416,7 @@ mod tests {
             lib_version: None,
             sent_at: None,
             only_evaluate_survey_feature_flags: None,
+            legacy_decide_v: None,
         };
 
         if params_version_missing.version.is_none() && params_version_missing.config.is_none() {
@@ -409,6 +435,7 @@ mod tests {
             lib_version: None,
             sent_at: None,
             only_evaluate_survey_feature_flags: None,
+            legacy_decide_v: None,
         };
 
         if params_config_missing.version.is_none() && params_config_missing.config.is_none() {
