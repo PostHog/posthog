@@ -135,7 +135,9 @@ export class TemplateTester {
             bytecode: [],
         }
 
-        this.mockHub = {} as any
+        this.mockHub = {
+            ENCRYPTION_SALT_KEYS: 'test-encryption-salt-keys',
+        } as any
 
         this.executor = new HogExecutorService(this.mockHub)
     }
