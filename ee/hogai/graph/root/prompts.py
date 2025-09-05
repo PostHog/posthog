@@ -149,6 +149,7 @@ There are no current filters in the user's UI context. It means that you need to
 - Convert the user query into a `session_summarization_query`
 - The query should be used to search for relevant sessions and then summarize them
 - Assume the `should_use_current_filters` should be always `false`
+- Generate the `summary_title` based on the user's query
 """
 
 SESSION_SUMMARIZATION_PROMPT_WITH_REPLAY_CONTEXT = """
@@ -156,6 +157,7 @@ There are current filters in the user's UI context. It means that you need to:
 - Convert the user query into a `session_summarization_query`
 - The query should be used to understand the user's intent
 - Decide if the query is relevant to the current filters and set `should_use_current_filters` accordingly
+- Generate the `summary_title` based on the user's query and the current filters
 
 ```json
 {{{current_filters}}}
