@@ -55,7 +55,7 @@ class Command(BaseCommand):
                 for flag_key, flag_data in data["flags"].items():
                     is_enabled = flag_data.get("enabled", False)
                     if flag_key in deleted_flags:
-                        ff = FeatureFlag.objects.filter(team__project_id=project.id, key=flag_key)[0]
+                        ff = FeatureFlag.objects.get(team__project_id=project.id, key=flag_key)
                         ff.deleted = False
                         ff.active = is_enabled
                         ff.save()
