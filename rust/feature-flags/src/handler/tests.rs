@@ -164,6 +164,7 @@ async fn test_evaluate_feature_flags() {
         ensure_experience_continuity: Some(false),
         version: Some(1),
         evaluation_runtime: Some("all".to_string()),
+        evaluation_tags: None,
     };
 
     let feature_flag_list = FeatureFlagList { flags: vec![flag] };
@@ -250,6 +251,7 @@ async fn test_evaluate_feature_flags_with_errors() {
         ensure_experience_continuity: Some(false),
         version: Some(1),
         evaluation_runtime: Some("all".to_string()),
+        evaluation_tags: None,
     }];
 
     let feature_flag_list = FeatureFlagList { flags };
@@ -623,6 +625,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         },
         FeatureFlag {
             name: Some("Flag 2".to_string()),
@@ -646,6 +649,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         },
     ];
 
@@ -720,6 +724,7 @@ async fn test_evaluate_feature_flags_details() {
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         },
         FeatureFlag {
             name: Some("Flag 2".to_string()),
@@ -743,6 +748,7 @@ async fn test_evaluate_feature_flags_details() {
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         },
     ];
 
@@ -884,6 +890,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
         ensure_experience_continuity: Some(false),
         version: Some(1),
         evaluation_runtime: Some("all".to_string()),
+        evaluation_tags: None,
     };
     let feature_flag_list = FeatureFlagList { flags: vec![flag] };
 
@@ -976,6 +983,7 @@ async fn test_long_distinct_id() {
         ensure_experience_continuity: Some(false),
         version: Some(1),
         evaluation_runtime: Some("all".to_string()),
+        evaluation_tags: None,
     };
 
     let feature_flag_list = FeatureFlagList { flags: vec![flag] };
@@ -1142,6 +1150,7 @@ async fn test_fetch_and_filter_flags() {
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         },
         FeatureFlag {
             name: Some("Survey Flag 2".to_string()),
@@ -1154,6 +1163,7 @@ async fn test_fetch_and_filter_flags() {
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         },
         FeatureFlag {
             name: Some("Regular Flag 1".to_string()),
@@ -1166,6 +1176,7 @@ async fn test_fetch_and_filter_flags() {
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         },
         FeatureFlag {
             name: Some("Regular Flag 2".to_string()),
@@ -1178,6 +1189,7 @@ async fn test_fetch_and_filter_flags() {
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         },
     ];
 
@@ -1203,6 +1215,7 @@ async fn test_fetch_and_filter_flags() {
         &query_params,
         &axum::http::HeaderMap::new(),
         None,
+        None,
     )
     .await
     .unwrap();
@@ -1224,6 +1237,7 @@ async fn test_fetch_and_filter_flags() {
         &query_params,
         &axum::http::HeaderMap::new(),
         None,
+        None,
     )
     .await
     .unwrap();
@@ -1237,6 +1251,7 @@ async fn test_fetch_and_filter_flags() {
         team.project_id,
         &query_params,
         &axum::http::HeaderMap::new(),
+        None,
         None,
     )
     .await
@@ -1259,6 +1274,7 @@ async fn test_fetch_and_filter_flags() {
         team.project_id,
         &query_params,
         &axum::http::HeaderMap::new(),
+        None,
         None,
     )
     .await

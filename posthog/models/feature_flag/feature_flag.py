@@ -86,6 +86,13 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         help_text="Specifies where this feature flag should be evaluated",
     )
 
+    # Cache projection: evaluation_tag_names is stored in Redis but isn't a DB field.
+    # This allows us to include evaluation tags in the cached flag data without
+    # modifying the FeatureFlag model schema. The Redis cache stores the serialized
+    # JSON including evaluation_tags, and when we deserialize, we store them here
+    # temporarily to avoid N+1 queries when accessing evaluation tags.
+    _evaluation_tag_names: Optional[list[str]] = None
+
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
 
@@ -175,6 +182,24 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             for tile in self.usage_dashboard.tiles.all()
             if tile.insight
         )
+
+    @property
+    def evaluation_tag_names(self) -> list[str] | None:
+        """
+        Returns evaluation tag names for this flag.
+
+        Preferred source is the cache-populated list from Redis (set on instances
+        as `_evaluation_tag_names`). If not present, falls back to the DB relation
+        via `evaluation_tags` → `Tag.name`.
+        """
+        cached = getattr(self, "_evaluation_tag_names", None)
+        if cached is not None:
+            return cached
+
+        try:
+            return [et.tag.name for et in self.evaluation_tags.select_related("tag").all()]
+        except Exception:
+            return None
 
     def get_filters(self) -> dict:
         if isinstance(self.filters, dict) and "groups" in self.filters:
@@ -463,16 +488,40 @@ def set_feature_flags_for_team_in_cache(
     feature_flags: Optional[list[FeatureFlag]] = None,
     using_database: str = "default",
 ) -> list[FeatureFlag]:
+    from django.contrib.postgres.aggregates import ArrayAgg
+    from django.db.models import Q
+
     from posthog.api.feature_flag import MinimalFeatureFlagSerializer
 
     if feature_flags is not None:
         all_feature_flags = feature_flags
     else:
-        all_feature_flags = list(
-            FeatureFlag.objects.db_manager(using_database).filter(
-                team__project_id=project_id, active=True, deleted=False
+        # Single-shot query: flags plus evaluation tag names aggregated to a string array.
+        # We use ArrayAgg to fetch all evaluation tag names in one query instead of
+        # doing a separate query per flag. This is crucial for performance when we have
+        # many flags. The evaluation tags are stored as a many-to-many relationship
+        # through FeatureFlagEvaluationTag, but we aggregate them here for efficiency.
+        qs = (
+            FeatureFlag.objects.db_manager(using_database)
+            .filter(team__project_id=project_id, active=True, deleted=False)
+            .annotate(
+                evaluation_tag_names_agg=ArrayAgg(
+                    "evaluation_tags__tag__name",
+                    filter=Q(evaluation_tags__isnull=False),
+                    distinct=True,
+                )
             )
         )
+        all_feature_flags = list(qs)
+        # Transfer the aggregated tag names to the _evaluation_tag_names attribute
+        # so the serializer can access them without additional queries. This is a
+        # cache projection pattern - we're storing derived data on the model instance
+        # that will be serialized to Redis.
+        for _flag in all_feature_flags:
+            try:
+                _flag._evaluation_tag_names = getattr(_flag, "evaluation_tag_names_agg", None)
+            except Exception:
+                pass
 
     serialized_flags = MinimalFeatureFlagSerializer(all_feature_flags, many=True).data
 
@@ -497,7 +546,21 @@ def get_feature_flags_for_team_in_cache(project_id: int) -> Optional[list[Featur
     if flag_data is not None:
         try:
             parsed_data = json.loads(flag_data)
-            return [FeatureFlag(**flag) for flag in parsed_data]
+            flags = []
+            for flag_data in parsed_data:
+                # Cache projection pattern: evaluation_tags is included in the Redis cache
+                # even though it's not a field on the FeatureFlag model. We extract it
+                # before creating the model instance and store it as a temporary attribute.
+                # This avoids N+1 queries when the Rust service needs to access evaluation
+                # tags for many flags at once.
+                evaluation_tags_list = flag_data.pop("evaluation_tags", None)
+                flag = FeatureFlag(**flag_data)
+                # Store the evaluation tags as a private attribute. The evaluation_tag_names
+                # property will check this first before falling back to a database query.
+                # This makes cache retrieval extremely fast - no DB queries needed.
+                flag._evaluation_tag_names = evaluation_tags_list
+                flags.append(flag)
+            return flags
         except Exception as e:
             logger.exception("Error parsing flags from cache")
             capture_exception(e)
@@ -519,3 +582,25 @@ class FeatureFlagDashboards(models.Model):
                 name="unique feature flag for a dashboard",
             )
         ]
+
+
+class FeatureFlagEvaluationTag(models.Model):
+    """
+    Marks an existing tag as also being an evaluation constraint for a feature flag.
+    When a tag is marked as an evaluation tag, it serves dual purpose:
+    1. It remains an organizational tag (via the TaggedItem relationship)
+    2. It acts as an evaluation constraint - the flag will only evaluate when
+       the SDK/client provides matching environment tags
+    This allows for user-specified evaluation environments like "docs-page",
+    "marketing-site", "app", etc.
+    """
+
+    feature_flag = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE, related_name="evaluation_tags")
+    tag = models.ForeignKey("Tag", on_delete=models.CASCADE, related_name="evaluation_flags")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [["feature_flag", "tag"]]
+
+    def __str__(self) -> str:
+        return f"{self.feature_flag.key} - {self.tag.name}"

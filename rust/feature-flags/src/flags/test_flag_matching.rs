@@ -1271,6 +1271,7 @@ mod tests {
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         }
     }
 
@@ -4240,6 +4241,7 @@ mod tests {
             ensure_experience_continuity: Some(false),
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         };
 
         // Test user "11" - should get first-variant

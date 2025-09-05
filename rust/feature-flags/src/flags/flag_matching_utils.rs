@@ -964,6 +964,7 @@ mod tests {
             ensure_experience_continuity: flag.ensure_experience_continuity,
             version: flag.version,
             evaluation_runtime: flag.evaluation_runtime,
+            evaluation_tags: flag.evaluation_tags,
         };
 
         // Insert the feature flag into the database
@@ -1073,6 +1074,7 @@ mod tests {
                 ensure_experience_continuity: Some(true),
                 version: Some(1),
                 evaluation_runtime: None,
+                evaluation_tags: None,
             };
             insert_flag_for_team_in_pg(writer.clone(), team.id, Some(flag_row))
                 .await
@@ -1195,6 +1197,7 @@ mod tests {
                 ensure_experience_continuity: Some(true),
                 version: Some(1),
                 evaluation_runtime: None,
+                evaluation_tags: None,
             };
             insert_flag_for_team_in_pg(writer.clone(), team.id, Some(flag_row))
                 .await
@@ -1322,6 +1325,7 @@ mod tests {
             ensure_experience_continuity: Some(true),
             version: Some(1),
             evaluation_runtime: None,
+            evaluation_tags: None,
         };
 
         let inactive_flag = FeatureFlagRow {
@@ -1335,6 +1339,7 @@ mod tests {
             ensure_experience_continuity: Some(true),
             version: Some(1),
             evaluation_runtime: None,
+            evaluation_tags: None,
         };
 
         let deleted_flag = FeatureFlagRow {
@@ -1348,6 +1353,7 @@ mod tests {
             ensure_experience_continuity: Some(true),
             version: Some(1),
             evaluation_runtime: None,
+            evaluation_tags: None,
         };
 
         let no_continuity_flag = FeatureFlagRow {
@@ -1361,6 +1367,7 @@ mod tests {
             ensure_experience_continuity: Some(false), // No experience continuity
             version: Some(1),
             evaluation_runtime: None,
+            evaluation_tags: None,
         };
 
         insert_flag_for_team_in_pg(writer.clone(), team.id, Some(active_flag))
@@ -1456,6 +1463,7 @@ mod tests {
             ensure_experience_continuity: Some(true),
             version: Some(1),
             evaluation_runtime: None,
+            evaluation_tags: None,
         };
         insert_flag_for_team_in_pg(writer.clone(), team.id, Some(flag_row))
             .await
@@ -1559,6 +1567,7 @@ mod tests {
             ensure_experience_continuity: Some(true),
             version: Some(1),
             evaluation_runtime: None,
+            evaluation_tags: None,
         };
         insert_flag_for_team_in_pg(writer.clone(), team.id, Some(flag_row))
             .await
