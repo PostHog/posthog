@@ -45,11 +45,9 @@ class BaseSource(ABC, Generic[ConfigType]):
 
         return config
 
-    @abstractmethod
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
         raise NotImplementedError()
 
-    @abstractmethod
     def get_schemas(self, config: ConfigType, team_id: int) -> list[SourceSchema]:
         raise NotImplementedError()
 

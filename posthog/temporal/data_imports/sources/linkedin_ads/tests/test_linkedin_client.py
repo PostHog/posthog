@@ -19,7 +19,7 @@ class TestLinkedinAdsClient:
         with pytest.raises(ValueError, match="Access token required"):
             LinkedinAdsClient("")
 
-    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.client.RestliClient")
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
     def test_get_accounts_success(self, mock_restli_client):
         """Test successful accounts retrieval."""
         mock_response = mock.MagicMock()
@@ -35,7 +35,7 @@ class TestLinkedinAdsClient:
         assert result == [{"id": "123", "name": "Test Account"}]
         mock_client_instance.finder.assert_called_once()
 
-    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.client.RestliClient")
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
     def test_get_accounts_api_error(self, mock_restli_client):
         """Test accounts retrieval with API error."""
         mock_response = mock.MagicMock()
@@ -50,7 +50,7 @@ class TestLinkedinAdsClient:
         with pytest.raises(Exception, match="LinkedIn API error \\(401\\): Unauthorized"):
             client.get_accounts()
 
-    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.client.RestliClient")
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
     def test_get_campaigns_pagination(self, mock_restli_client):
         """Test successful campaigns retrieval with pagination."""
         # First page response
@@ -76,7 +76,7 @@ class TestLinkedinAdsClient:
         assert pages[1] == [{"id": "camp2", "name": "Campaign 2"}]
         assert mock_client_instance.finder.call_count == 2
 
-    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.client.RestliClient")
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
     def test_get_analytics_success(self, mock_restli_client):
         """Test successful analytics retrieval."""
         mock_response = mock.MagicMock()

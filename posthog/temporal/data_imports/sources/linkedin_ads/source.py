@@ -14,7 +14,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
+from posthog.temporal.data_imports.sources.generated_configs import BaseSourceConfig, LinkedinAdsSourceConfig
 from posthog.warehouse.types import ExternalDataSourceType
 
 from .linkedin_ads import (
@@ -70,7 +70,7 @@ class LinkedInAdsSource(BaseSource[LinkedinAdsSourceConfig]):
             capture_exception(e)
             return False, f"Failed to validate LinkedIn Ads credentials: {str(e)}"
 
-    def get_schemas(self, config: LinkedinAdsSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: BaseSourceConfig, team_id: int) -> list[SourceSchema]:
         linkedin_ads_schemas = get_linkedin_ads_schemas()
         ads_incremental_fields = get_linkedin_ads_incremental_fields()
 
