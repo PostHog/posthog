@@ -211,8 +211,8 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             },
         ],
         overviewItems: [
-            (s) => [s.sessionPlayerMetaData, s.startTime, s.recordingPropertiesById],
-            (sessionPlayerMetaData, startTime, recordingPropertiesById) => {
+            (s) => [s.sessionPlayerMetaData, s.startTime, s.recordingPropertiesById, s.sessionTTLDays],
+            (sessionPlayerMetaData, startTime, recordingPropertiesById, sessionTTLDays) => {
                 const items: OverviewItem[] = []
                 if (startTime) {
                     items.push({
@@ -235,18 +235,14 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                         type: 'text',
                     })
                 }
-                if (sessionPlayerMetaData?.retention_period_days && sessionPlayerMetaData?.start_time) {
+                if (sessionPlayerMetaData?.retention_period_days) {
                     items.push({
                         label: 'Retention Period',
                         value: `${sessionPlayerMetaData.retention_period_days}d`,
                         type: 'text',
                     })
-
-                    const sessionTTLDays = calculateTTL(
-                        sessionPlayerMetaData.start_time,
-                        sessionPlayerMetaData.retention_period_days
-                    )
-
+                }
+                if (sessionTTLDays !== null) {
                     items.push({
                         icon: <IconHourglass />,
                         label: 'TTL',

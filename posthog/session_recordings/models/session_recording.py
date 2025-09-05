@@ -202,7 +202,7 @@ class SessionRecording(UUIDTModel):
             recording.set_start_url_from_urls(ch_recording.get("urls", None), ch_recording.get("first_url", None))
             recording.ongoing = bool(ch_recording.get("ongoing", False))
             recording.activity_score = ch_recording.get("activity_score", None)
-            recording.retention_period_days = ch_recording.get("retention_period_day", None)
+            recording.retention_period_days = ch_recording.get("retention_period_days", None)
 
             recordings.append(recording)
 

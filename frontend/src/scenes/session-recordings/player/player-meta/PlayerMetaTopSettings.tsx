@@ -25,6 +25,8 @@ import {
 
 import { playerMetaLogic } from './playerMetaLogic'
 
+const TTL_WARNING_THRESHOLD_DAYS = 10
+
 function SetPlaybackSpeed(): JSX.Element {
     const { speed, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { setSpeed } = useActions(sessionRecordingPlayerLogic)
@@ -92,7 +94,7 @@ function TTLWarning(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { sessionTTLDays } = useValues(playerMetaLogic(logicProps))
 
-    if (sessionTTLDays === null || sessionTTLDays > 10) {
+    if (sessionTTLDays === null || sessionTTLDays > TTL_WARNING_THRESHOLD_DAYS) {
         return <></>
     }
 
@@ -102,6 +104,7 @@ function TTLWarning(): JSX.Element {
                 status="danger"
                 size="xsmall"
                 className={cn('rounded-[0px]')}
+                data-attr="recording-ttl-dialog"
                 onClick={() => {
                     LemonDialog.open({
                         title: 'Recording about to expire',
