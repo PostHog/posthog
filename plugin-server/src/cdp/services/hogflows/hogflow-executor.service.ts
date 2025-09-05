@@ -82,28 +82,6 @@ export class HogFlowExecutorService {
         }
     }
 
-    private initializeActionHandlers(): Map<HogFlowAction['type'], ActionHandler> {
-        const handlers = new Map<HogFlowAction['type'], ActionHandler>()
-        handlers.set('conditional_branch', new ConditionalBranchHandler())
-        handlers.set('wait_until_condition', new ConditionalBranchHandler())
-        handlers.set('delay', new DelayHandler())
-        handlers.set('wait_until_time_window', new WaitUntilTimeWindowHandler())
-        handlers.set('random_cohort_branch', new RandomCohortBranchHandler())
-
-        const hogFunctionHandler = new HogFunctionHandler(
-            this.hub,
-            this.hogFunctionExecutor,
-            this.hogFunctionTemplateManager,
-            this.recipientPreferencesService
-        )
-        handlers.set('function', hogFunctionHandler)
-        handlers.set('function_sms', hogFunctionHandler)
-        handlers.set('function_email', hogFunctionHandler)
-
-        handlers.set('exit', new ExitHandler())
-        return handlers
-    }
-
     async buildHogFlowInvocations(
         hogFlows: HogFlow[],
         triggerGlobals: HogFunctionInvocationGlobals
