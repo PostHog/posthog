@@ -134,6 +134,7 @@ export function Editor(): JSX.Element {
         MentionsExtension,
         NotebookNodePersonFeed,
         NotebookNodeMap,
+        NotebookNodeTaskCreate,
     ]
 
     if (hasCollapsibleSections) {
