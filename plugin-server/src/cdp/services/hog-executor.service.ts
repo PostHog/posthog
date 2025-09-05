@@ -35,6 +35,7 @@ import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '..
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { HogInputsService } from './hog-inputs.service'
 import { EmailService } from './messaging/email.service'
+import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
 const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
@@ -117,10 +118,12 @@ export class HogExecutorService {
     private telemetryMatcher: ValueMatcher<number>
     private hogInputsService: HogInputsService
     private emailService: EmailService
+    private recipientTokensService: RecipientTokensService
 
     constructor(private hub: Hub) {
         this.hogInputsService = new HogInputsService(hub)
         this.emailService = new EmailService(hub)
+        this.recipientTokensService = new RecipientTokensService(hub)
         this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
     }
 
@@ -381,6 +384,14 @@ export class HogExecutorService {
                                 timestamp: DateTime.now(),
                                 message: sanitizeLogMessage(args, sensitiveValues),
                             })
+                        },
+                        generateMessagingPreferencesUrl: (identifier): string | null => {
+                            return identifier && typeof identifier === 'string'
+                                ? this.recipientTokensService.generatePreferencesUrl({
+                                      team_id: invocation.teamId,
+                                      identifier,
+                                  })
+                                : null
                         },
                         postHogCapture: (event) => {
                             const distinctId = event.distinct_id || globals.event?.distinct_id

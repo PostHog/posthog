@@ -101,23 +101,6 @@ export class HogFunctionHandler implements ActionHandler {
             person: invocation.person,
         }
 
-        // Set unsubscribe_url before creating hogFunctionInvocation
-        if (action.type === 'function_email') {
-            const unsubscribeUrl = await this.recipientPreferencesService.buildUnsubscribeUrl(
-                {
-                    ...invocation,
-                    hogFunction,
-                    state: invocation.state.currentAction?.hogFunctionState ?? {
-                        globals: await this.hogFunctionExecutor.buildInputsWithGlobals(hogFunction, globals),
-                        timings: [],
-                        attempts: 0,
-                    },
-                },
-                action
-            )
-            globals.unsubscribe_url = unsubscribeUrl
-        }
-
         const hogFunctionInvocation: CyclotronJobInvocationHogFunction = {
             ...invocation,
             hogFunction,

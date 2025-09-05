@@ -1,24 +1,15 @@
-import { Hub } from '~/types'
 import { logger } from '~/utils/logger'
 
 import { HogFlowAction } from '../../../schema/hogflow'
 import { CyclotronJobInvocationHogFunction } from '../../types'
-import { JWT } from '../../utils/jwt-utils'
-import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
+import { RecipientsManagerService } from '../managers/recipients-manager.service'
 
 type MessageFunctionActionType = 'function_email' | 'function_sms'
 
 type MessageAction = Extract<HogFlowAction, { type: MessageFunctionActionType }>
 
 export class RecipientPreferencesService {
-    private jwt: JWT
-
-    constructor(
-        protected hub: Hub,
-        private recipientsManager: RecipientsManagerService
-    ) {
-        this.jwt = new JWT(hub.ENCRYPTION_SALT_KEYS)
-    }
+    constructor(private recipientsManager: RecipientsManagerService) {}
 
     public async shouldSkipAction(
         invocation: CyclotronJobInvocationHogFunction,
@@ -81,62 +72,5 @@ export class RecipientPreferencesService {
             logger.error(`Failed to fetch recipient preferences for ${identifier}:`, error)
             return false
         }
-    }
-
-    public validatePreferencesToken(
-        token: string
-    ): { valid: false } | { valid: true; team_id: number; identifier: string } {
-        try {
-            const decoded = this.jwt.verify(token, { ignoreVerificationErrors: true, maxAge: '7d' })
-            if (!decoded) {
-                return { valid: false }
-            }
-
-            const { team_id, identifier } = decoded as { team_id: number; identifier: string }
-            return { valid: true, team_id, identifier }
-        } catch (error) {
-            logger.error('Error validating preferences token:', error)
-            return { valid: false }
-        }
-    }
-
-    /**
-     * Generate a secure, time-limited token for accessing preferences
-     * This mirrors the Django implementation in message_preferences.py
-     */
-    public generatePreferencesToken(recipient: Pick<RecipientManagerRecipient, 'team_id' | 'identifier'>): string {
-        // Only identifier is encoded, as per JWT class
-        // If you want to encode more, update JWT class to accept an object
-        return this.jwt.sign(
-            {
-                team_id: recipient.team_id,
-                identifier: recipient.identifier,
-            },
-            { expiresIn: '7d' }
-        )
-    }
-
-    public async buildUnsubscribeUrl(
-        invocation: CyclotronJobInvocationHogFunction,
-        action: Extract<HogFlowAction, { type: 'function_email' }>
-    ): Promise<string> {
-        const identifier = action.config.inputs?.email?.value?.to
-        if (!identifier) {
-            throw new Error(`No identifier found for email action ${action.id}`)
-        }
-
-        const recipient = await this.recipientsManager.get({
-            teamId: invocation.teamId,
-            identifier,
-        })
-
-        if (!recipient) {
-            throw new Error(
-                `Could not generate unsubscribe URL, recipient not found for team ${invocation.teamId} and identifier: ${identifier}`
-            )
-        }
-
-        const token = this.generatePreferencesToken(recipient)
-        return `${this.hub.SITE_URL}/messaging-preferences/${token}`
     }
 }
