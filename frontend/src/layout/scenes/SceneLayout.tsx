@@ -101,7 +101,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
         setForceScenePanelClosedWhenRelative,
         setSceneLayoutConfig,
     } = useActions(sceneLayoutLogic)
-    const { scenePanelIsPresent, scenePanelOpen, scenePanelIsRelative, sceneContainerRect, sceneLayoutConfig } =
+    const { scenePanelIsPresent, scenePanelOpen, scenePanelIsRelative, sceneContainerRect } =
         useValues(sceneLayoutLogic)
     const sceneLayoutContainer = useRef<HTMLDivElement>(null)
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
