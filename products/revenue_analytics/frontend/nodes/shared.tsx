@@ -158,6 +158,7 @@ export const RevenueAnalyticsLineGraph = (
             legend={{ display: props.datasets.length > 1, position: 'right' }}
             trendsFilter={{ aggregationAxisFormat: 'numeric' }}
             labelGroupType="none"
+            goalLines={props.goalLines || props.trendsFilter?.goalLines}
             {...props}
         />
     )
