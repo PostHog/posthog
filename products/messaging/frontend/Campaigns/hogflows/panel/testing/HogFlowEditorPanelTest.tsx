@@ -141,7 +141,7 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
             <LemonDivider className="my-0" />
             <div className="flex flex-col flex-1 overflow-y-auto">
                 {/* Event Information */}
-                <div className="flex-0 p-2">
+                <div className="flex-0">
                     <LemonCollapse
                         embedded
                         panels={[
