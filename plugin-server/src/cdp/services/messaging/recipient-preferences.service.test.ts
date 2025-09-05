@@ -113,7 +113,7 @@ describe('RecipientPreferencesService', () => {
                                 html: 'Test HTML',
                             },
                         },
-                    } as any,
+                    },
                 },
                 created_at: Date.now(),
                 updated_at: Date.now(),

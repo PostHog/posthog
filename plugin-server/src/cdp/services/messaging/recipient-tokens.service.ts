@@ -31,13 +31,7 @@ export class RecipientTokensService {
         }
     }
 
-    /**
-     * Generate a secure, time-limited token for accessing preferences
-     * This mirrors the Django implementation in message_preferences.py
-     */
     public generatePreferencesToken(recipient: Pick<RecipientManagerRecipient, 'team_id' | 'identifier'>): string {
-        // Only identifier is encoded, as per JWT class
-        // If you want to encode more, update JWT class to accept an object
         return this.jwt.sign(
             {
                 team_id: recipient.team_id,
