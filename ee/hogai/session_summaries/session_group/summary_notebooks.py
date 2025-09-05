@@ -87,9 +87,10 @@ def format_patterns_assignment_progress() -> TipTapNode:
 class SummaryNotebookIntermediateState:
     """Manages the intermediate state of a notebook during session group summarization."""
 
-    def __init__(self, team_name: str):
+    def __init__(self, team_name: str, summary_title: str | None):
         """Initialize the intermediate state with a plan."""
         self.team_name = team_name
+        self.summary_title = summary_title
         # Using dict to maintain order (Python 3.7+ guarantees order)
         self.plan_items: dict[SessionSummaryStep, tuple[str, bool]] = {
             SessionSummaryStep.WATCHING_SESSIONS: ("Watch sessions", False),
@@ -161,7 +162,11 @@ class SummaryNotebookIntermediateState:
         content = []
 
         # Add main title
-        content.append(create_heading_with_text(_create_notebook_title(team_name=self.team_name), 1))
+        content.append(
+            create_heading_with_text(
+                _create_notebook_title(team_name=self.team_name, summary_title=self.summary_title), 1
+            )
+        )
         content.append(create_empty_paragraph())
 
         # Add plan section
@@ -190,15 +195,20 @@ class SummaryNotebookIntermediateState:
         return {"type": "doc", "content": content}
 
 
-def _create_notebook_title(team_name: str) -> str:
-    return f"Session Summaries Report - {team_name} ({timezone.now().strftime('%Y-%m-%d')})"
+def _create_notebook_title(team_name: str, summary_title: str | None) -> str:
+    title = f"Session summaries report - {team_name}"
+    timestamp = timezone.now().strftime("%Y-%m-%d")
+    if summary_title:
+        title += f" - {summary_title}"
+    title += f" ({timestamp})"
+    return title
 
 
-async def create_empty_notebook_for_summary(user: User, team: Team) -> Notebook:
+async def create_empty_notebook_for_summary(user: User, team: Team, summary_title: str | None) -> Notebook:
     """Create an empty notebook for a summary."""
     notebook = await Notebook.objects.acreate(
         team=team,
-        title=_create_notebook_title(team_name=team.name),
+        title=_create_notebook_title(team_name=team.name, summary_title=summary_title),
         content="",
         created_by=user,
         last_modified_by=user,
@@ -206,11 +216,13 @@ async def create_empty_notebook_for_summary(user: User, team: Team) -> Notebook:
     return notebook
 
 
-async def create_notebook_from_summary_content(user: User, team: Team, summary_content: TipTapNode) -> Notebook:
+async def create_notebook_from_summary_content(
+    user: User, team: Team, summary_content: TipTapNode, summary_title: str | None
+) -> Notebook:
     """Create a notebook with session summary patterns."""
     notebook = await Notebook.objects.acreate(
         team=team,
-        title=_create_notebook_title(team_name=team.name),
+        title=_create_notebook_title(team_name=team.name, summary_title=summary_title),
         content=summary_content,
         created_by=user,
         last_modified_by=user,
@@ -232,7 +244,11 @@ async def update_notebook_from_summary_content(
 
 
 def generate_notebook_content_from_summary(
-    summary: EnrichedSessionGroupSummaryPatternsList, session_ids: list[str], project_name: str, team_id: int
+    summary: EnrichedSessionGroupSummaryPatternsList,
+    session_ids: list[str],
+    project_name: str,
+    team_id: int,
+    summary_title: str | None,
 ) -> TipTapNode:
     """Convert summary data to notebook structure."""
     patterns = summary.patterns
@@ -241,7 +257,9 @@ def generate_notebook_content_from_summary(
         return {
             "type": "doc",
             "content": [
-                create_heading_with_text(_create_notebook_title(team_name=project_name), 1),
+                create_heading_with_text(
+                    _create_notebook_title(team_name=project_name, summary_title=summary_title), 1
+                ),
                 create_paragraph_with_text("No patterns found."),
                 create_paragraph_with_text(f"Sessions covered: {', '.join(session_ids)}"),
             ],
@@ -250,7 +268,9 @@ def generate_notebook_content_from_summary(
     # Sort patterns by severity: critical, high, medium, low
     content = []
     # Title
-    content.append(create_heading_with_text(_create_notebook_title(team_name=project_name), 1))
+    content.append(
+        create_heading_with_text(_create_notebook_title(team_name=project_name, summary_title=summary_title), 1)
+    )
     # Issues to review summary
     session_text = "session" if total_sessions == 1 else "sessions"
     content.append(create_heading_with_text(f"Issues to review – based on {total_sessions} {session_text}", 2))

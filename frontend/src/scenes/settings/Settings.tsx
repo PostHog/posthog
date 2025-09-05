@@ -5,8 +5,8 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import React from 'react'
 
-import { IconExternal } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonButtonProps, LemonDivider } from '@posthog/lemon-ui'
+import { IconChevronDown, IconExternal } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonButtonProps, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
@@ -36,12 +36,15 @@ export function Settings({
         selectedLevel,
         selectedSettingId,
         selectedSetting,
-        sections,
         settings,
         isCompactNavigationOpen,
-        levels,
+        searchTerm,
+        filteredLevels,
+        filteredSections,
+        collapsedLevels,
     } = useValues(settingsLogic(props))
-    const { selectSection, selectLevel, selectSetting, openCompactNavigation } = useActions(settingsLogic(props))
+    const { selectSection, selectLevel, selectSetting, openCompactNavigation, setSearchTerm, toggleLevelCollapse } =
+        useActions(settingsLogic(props))
     const { currentTeam } = useValues(teamLogic)
 
     const { ref, size } = useResizeBreakpoints(
@@ -80,41 +83,53 @@ export function Settings({
                   </OptionButton>
               ),
           }))
-        : levels.map((level) => ({
-              key: level,
-              content: (
-                  <OptionButton
-                      to={urls.settings(level)}
-                      handleLocally={handleLocally}
-                      active={selectedLevel === level && !selectedSectionId}
-                      onClick={() => selectLevel(level)}
-                  >
-                      <span className="text-secondary">{SettingLevelNames[level]}</span>
-                  </OptionButton>
-              ),
-              items: sections
-                  .filter((x) => x.level === level)
-                  .map((section) => ({
-                      key: section.id,
-                      content: (
-                          <OptionButton
-                              to={section.to ?? urls.settings(section.id)}
-                              handleLocally={handleLocally}
-                              active={selectedSectionId === section.id}
-                              isLink={!!section.to}
-                              onClick={() => {
-                                  if (section.to) {
-                                      router.actions.push(section.to)
-                                  } else {
-                                      selectSection(section.id, level)
-                                  }
-                              }}
-                          >
-                              {section.title}
-                          </OptionButton>
-                      ),
-                  })),
-          }))
+        : filteredLevels.map((level) => {
+              const levelSections = filteredSections.filter((x) => x.level === level)
+              const isCollapsed = collapsedLevels[level]
+              const hasItems = levelSections.length > 0
+
+              return {
+                  key: level,
+                  content: (
+                      <OptionButton
+                          handleLocally={handleLocally}
+                          active={selectedLevel === level && !selectedSectionId}
+                          onClick={() => {
+                              if (hasItems) {
+                                  toggleLevelCollapse(level)
+                              } else {
+                                  selectLevel(level)
+                              }
+                          }}
+                          sideIcon={hasItems ? isCollapsed ? <IconChevronRight /> : <IconChevronDown /> : undefined}
+                      >
+                          <span className="text-secondary">{SettingLevelNames[level]}</span>
+                      </OptionButton>
+                  ),
+                  items: !isCollapsed
+                      ? levelSections.map((section) => ({
+                            key: section.id,
+                            content: (
+                                <OptionButton
+                                    to={section.to ?? urls.settings(section.id)}
+                                    handleLocally={handleLocally}
+                                    active={selectedSectionId === section.id}
+                                    isLink={!!section.to}
+                                    onClick={() => {
+                                        if (section.to) {
+                                            router.actions.push(section.to)
+                                        } else {
+                                            selectSection(section.id, level)
+                                        }
+                                    }}
+                                >
+                                    {section.title}
+                                </OptionButton>
+                            ),
+                        }))
+                      : [],
+              }
+          })
 
     const compactNavigationContent: JSX.Element = settingsInSidebar ? (
         <>{selectedSetting.title}</>
@@ -131,6 +146,17 @@ export function Settings({
                 <>
                     {showOptions ? (
                         <div className="Settings__sections">
+                            {!settingsInSidebar && (
+                                <LemonInput
+                                    type="search"
+                                    placeholder="Search settings..."
+                                    value={searchTerm}
+                                    onChange={setSearchTerm}
+                                    size="small"
+                                    fullWidth
+                                    className="mb-2"
+                                />
+                            )}
                             <OptionGroup options={options} />
                         </div>
                     ) : (
@@ -230,10 +256,12 @@ const OptionButton = ({
     children,
     handleLocally,
     isLink = false,
+    sideIcon,
 }: Pick<LemonButtonProps, 'to' | 'children' | 'active'> & {
     handleLocally: boolean
     onClick: () => void
     isLink?: boolean
+    sideIcon?: JSX.Element
 }): JSX.Element => {
     return (
         <LemonButton
@@ -247,7 +275,7 @@ const OptionButton = ({
                     : undefined
             }
             size="small"
-            sideIcon={isLink ? <IconExternal /> : undefined}
+            sideIcon={isLink ? <IconExternal /> : sideIcon}
             fullWidth
             active={active}
         >
