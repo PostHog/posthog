@@ -203,8 +203,6 @@ class Command(BaseCommand):
                     person_id = row[0]
                     memberships.append((team_id, person_id, cohort_id))
 
-                # Removed per-condition logging to reduce spam
-
             except Exception as e:
                 logger.exception("Error processing condition", condition=condition_hash[:16] + "...", error=str(e))
                 continue
