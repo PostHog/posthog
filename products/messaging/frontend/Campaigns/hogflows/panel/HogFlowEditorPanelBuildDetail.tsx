@@ -52,7 +52,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
             {isOptOutEligibleAction(action) && (
                 <>
                     <LemonDivider className="my-0" />
-                    <div className="flex flex-col p-2">
+                    <div className="flex flex-col px-2 py-1">
                         <LemonLabel htmlFor="Message category" className="flex gap-2 justify-between items-center">
                             <span>Message category</span>
                             <div className="flex gap-2">
