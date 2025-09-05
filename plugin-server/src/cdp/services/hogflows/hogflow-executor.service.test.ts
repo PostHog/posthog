@@ -223,7 +223,7 @@ describe('Hogflow Executor', () => {
                     {
                         level: 'info',
                         timestamp: expect.any(DateTime),
-                        message: "Workflow moved to action 'exit (exit)'",
+                        message: 'Workflow moved to action [Action:exit]',
                     },
                     {
                         level: 'info',
@@ -297,7 +297,7 @@ describe('Hogflow Executor', () => {
                   "[Action:function_id_1] Fetch 3, 200",
                   "[Action:function_id_1] All fetches done!",
                   "[Action:function_id_1] Function completed in REPLACEDms. Sync: 0ms. Mem: 0.099kb. Ops: 32. Event: 'http://localhost:8000/events/1'",
-                  "Workflow moved to action 'exit (exit)'",
+                  "Workflow moved to action [Action:exit]",
                   "Workflow completed",
                 ]
             `)
@@ -379,7 +379,7 @@ describe('Hogflow Executor', () => {
                 expect(result1.finished).toBe(false)
                 expect(result1.invocation.state.currentAction?.id).toBe('function_id_1')
                 expect(result1.logs.map((log) => log.message)).toEqual([
-                    "Workflow moved to action 'function (function_id_1)'",
+                    'Workflow moved to action [Action:function_id_1]',
                 ])
 
                 // Second step: should process function_id_1 and move to exit, but not complete
@@ -390,7 +390,7 @@ describe('Hogflow Executor', () => {
                     '[Action:function_id_1] Hello, Mr Debug User!',
                     '[Action:function_id_1] Fetch 1, 200',
                     expect.stringContaining('[Action:function_id_1] Function completed in'),
-                    "Workflow moved to action 'exit (exit)'",
+                    'Workflow moved to action [Action:exit]',
                     'Workflow completed',
                 ])
             })
