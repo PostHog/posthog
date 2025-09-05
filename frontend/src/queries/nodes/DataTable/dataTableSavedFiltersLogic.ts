@@ -101,7 +101,7 @@ export const dataTableSavedFiltersLogic = kea<dataTableSavedFiltersLogicType>([
         },
     })),
 
-    selectors({
+    selectors(() => ({
         hasUnsavedFilterChanges: [
             (s) => [s.appliedSavedFilter, (_, props) => props.query],
             (appliedSavedFilter, currentQuery): boolean => {
@@ -111,5 +111,5 @@ export const dataTableSavedFiltersLogic = kea<dataTableSavedFiltersLogicType>([
                 return JSON.stringify(appliedSavedFilter.query) !== JSON.stringify(currentQuery)
             },
         ],
-    }),
+    })),
 ])

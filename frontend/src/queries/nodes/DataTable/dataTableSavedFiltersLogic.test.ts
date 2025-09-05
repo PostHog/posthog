@@ -96,9 +96,15 @@ describe('dataTableSavedFiltersLogic', () => {
             })
 
             it('should update an existing saved filter', () => {
+                // Use fake timers to ensure timestamps differ
+                jest.useFakeTimers()
+
                 // First create a filter
                 logic.actions.createSavedFilter('Original Filter')
                 const originalFilter = logic.values.savedFilters[0]
+
+                // Advance time to ensure different timestamp
+                jest.advanceTimersByTime(1000)
 
                 // Update it
                 logic.actions.updateSavedFilter(originalFilter.id, {
@@ -119,6 +125,8 @@ describe('dataTableSavedFiltersLogic', () => {
 
                 const updatedFilter = logic.values.savedFilters[0]
                 expect(updatedFilter.lastModifiedAt).not.toBe(originalFilter.lastModifiedAt)
+
+                jest.useRealTimers()
             })
 
             it('should delete a saved filter', () => {
@@ -196,14 +204,18 @@ describe('dataTableSavedFiltersLogic', () => {
                     hasUnsavedFilterChanges: false,
                 })
 
-                // Change the query
+                // Change the query - unmount first logic and create new one with different query
+                logic.unmount()
                 logic = dataTableSavedFiltersLogic({
                     uniqueKey: 'test-table',
                     query: mockQueryWithFilters,
                     setQuery: mockSetQuery,
                 })
                 logic.mount()
-                logic.actions.setAppliedSavedFilter(savedFilter)
+
+                // Get the saved filter from the new logic instance (loaded from localStorage)
+                const reloadedFilter = logic.values.savedFilters[0]
+                logic.actions.setAppliedSavedFilter(reloadedFilter)
 
                 // Now there should be unsaved changes
                 expectLogic(logic).toMatchValues({
