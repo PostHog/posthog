@@ -60,7 +60,7 @@ export abstract class CdpConsumerBase {
         this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(this.hub)
 
         this.recipientsManager = new RecipientsManagerService(this.hub)
-        this.recipientPreferencesService = new RecipientPreferencesService(this.hub, this.recipientsManager)
+        this.recipientPreferencesService = new RecipientPreferencesService(this.recipientsManager)
         this.hogFlowExecutor = new HogFlowExecutorService(
             this.hub,
             this.hogExecutor,
