@@ -40,7 +40,7 @@ export class HogInputsService {
             inputs: {},
         }
 
-        const formatInput = async (input: CyclotronInputType, key: string): Promise<any> => {
+        const _formatInput = async (input: CyclotronInputType, key: string): Promise<any> => {
             const templating = input.templating ?? 'hog'
 
             if (templating === 'liquid') {
@@ -61,7 +61,7 @@ export class HogInputsService {
 
         if (emailInputSchema && emailInput) {
             // If we have an email value then we template it out to get the email address
-            const emailValue = await formatInput(emailInput, emailInputSchema.key)
+            const emailValue = await _formatInput(emailInput, emailInputSchema.key)
             if (emailValue?.to?.email) {
                 newGlobals.unsubscribe_url = this.recipientTokensService.generatePreferencesUrl({
                     team_id: hogFunction.team_id,
@@ -79,15 +79,7 @@ export class HogInputsService {
                 continue
             }
 
-            newGlobals.inputs[key] = input.value
-
-            const templating = input.templating ?? 'hog'
-
-            if (templating === 'liquid') {
-                newGlobals.inputs[key] = formatLiquidInput(input.value, newGlobals, key)
-            } else if (templating === 'hog' && input?.bytecode) {
-                newGlobals.inputs[key] = await formatHogInput(input.bytecode, newGlobals, key)
-            }
+            newGlobals.inputs[key] = await _formatInput(input, key)
         }
 
         return newGlobals.inputs
