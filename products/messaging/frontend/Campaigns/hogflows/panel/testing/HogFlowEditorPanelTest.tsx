@@ -2,19 +2,22 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useEffect } from 'react'
 
-import { IconPlay, IconPlayFilled, IconRedo } from '@posthog/icons'
+import { IconInfo, IconPlay, IconPlayFilled, IconRedo } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
     LemonCollapse,
     LemonDivider,
     LemonLabel,
+    LemonSwitch,
     Link,
     ProfilePicture,
     Spinner,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LogsViewerTable } from 'scenes/hog-functions/logs/LogsViewer'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { urls } from 'scenes/urls'
@@ -65,6 +68,32 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
             className="flex overflow-hidden flex-col flex-1"
         >
             <div className="flex gap-2 items-center p-2">
+                <LemonField name="mock_async_functions" className="flex-1">
+                    {({ value, onChange }) => (
+                        <LemonSwitch
+                            onChange={(v) => onChange(!v)}
+                            checked={!value}
+                            data-attr="toggle-workflow-test-panel-new-mocking"
+                            className="whitespace-nowrap"
+                            size="small"
+                            label={
+                                <Tooltip
+                                    title={
+                                        <>
+                                            When disabled, message deliveries and other async actions will not be
+                                            called. Instead they will be mocked out and logged.
+                                        </>
+                                    }
+                                >
+                                    <span className="flex gap-2">
+                                        Make real HTTP requests
+                                        <IconInfo className="text-lg" />
+                                    </span>
+                                </Tooltip>
+                            }
+                        />
+                    )}
+                </LemonField>
                 {testResult ? (
                     <>
                         <div className="flex-1" />
@@ -95,32 +124,6 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                     <>
                         <div className="flex-1" />
 
-                        {/* <LemonField name="mock_async_functions" className="flex-1">
-                                    {({ value, onChange }) => (
-                                        <LemonSwitch
-                                            onChange={(v) => onChange(!v)}
-                                            checked={!value}
-                                            data-attr="toggle-workflow-test-panel-new-mocking"
-                                            label={
-                                                <Tooltip
-                                                    title={
-                                                        <>
-                                                            When disabled, message deliveries and other async actions
-                                                            will not be called. Instead they will be mocked out and
-                                                            logged.
-                                                        </>
-                                                    }
-                                                >
-                                                    <span className="flex gap-2">
-                                                        Make real HTTP requests
-                                                        <IconInfo className="text-lg" />
-                                                    </span>
-                                                </Tooltip>
-                                            }
-                                        />
-                                    )}
-                                </LemonField> */}
-
                         <LemonButton
                             type="primary"
                             data-attr="test-workflow-panel-new"
@@ -138,7 +141,7 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
             <LemonDivider className="my-0" />
             <div className="flex flex-col flex-1 overflow-y-auto">
                 {/* Event Information */}
-                <div className="flex-0">
+                <div className="flex-0 p-2">
                     <LemonCollapse
                         embedded
                         panels={[
