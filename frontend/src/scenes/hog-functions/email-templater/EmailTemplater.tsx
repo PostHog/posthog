@@ -191,7 +191,6 @@ function NativeEmailIntegrationChoice({
                         })),
                     },
                     {
-                        // title: '',
                         options: [
                             {
                                 label: 'Add new email sender',
