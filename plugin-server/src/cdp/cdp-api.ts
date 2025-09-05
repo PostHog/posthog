@@ -19,6 +19,7 @@ import { HogFunctionTemplateManagerService } from './services/managers/hog-funct
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
+import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
@@ -45,6 +46,7 @@ export class CdpApi {
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
     private emailTrackingService: EmailTrackingService
     private recipientPreferencesService: RecipientPreferencesService
+    private recipientTokensService: RecipientTokensService
 
     constructor(private hub: Hub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
@@ -53,7 +55,8 @@ export class CdpApi {
         this.recipientsManager = new RecipientsManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
 
-        this.recipientPreferencesService = new RecipientPreferencesService(this.hub, this.recipientsManager)
+        this.recipientPreferencesService = new RecipientPreferencesService(this.recipientsManager)
+        this.recipientTokensService = new RecipientTokensService(hub)
         this.hogFlowExecutor = new HogFlowExecutorService(
             hub,
             this.hogExecutor,
@@ -577,7 +580,7 @@ export class CdpApi {
                 return res.status(400).json({ error: 'Team ID and identifier are required' })
             }
 
-            const token = this.recipientPreferencesService.generatePreferencesToken({
+            const token = this.recipientTokensService.generatePreferencesToken({
                 team_id,
                 identifier,
             })
@@ -594,7 +597,7 @@ export class CdpApi {
                     return res.status(400).json({ error: 'Token is required' })
                 }
 
-                const result = this.recipientPreferencesService.validatePreferencesToken(token)
+                const result = this.recipientTokensService.validatePreferencesToken(token)
 
                 if (!result.valid) {
                     return res.status(400).json({ error: 'Invalid or expired token' })
