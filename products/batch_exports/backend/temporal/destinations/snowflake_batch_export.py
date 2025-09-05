@@ -635,6 +635,8 @@ class SnowflakeClient:
         try:
             result = await execute_copy_into(query, poll_interval=1.0)
         except snowflake.connector.errors.ProgrammingError as e:
+            self.logger.exception(f"Error executing COPY INTO query: {e}")
+
             if e.errno == 608:
                 err_msg = (
                     f"Failed to execute COPY INTO query after {max_attempts} attempts due to warehouse being suspended"
@@ -643,7 +645,6 @@ class SnowflakeClient:
                     err_msg += f": {e.msg}"
                 raise SnowflakeWarehouseSuspendedError(err_msg)
 
-            self.logger.exception(f"Error executing COPY INTO query: {e}")
             raise SnowflakeFileNotLoadedError(
                 table_name,
                 "NO STATUS",
