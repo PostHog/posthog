@@ -15,7 +15,6 @@ from rest_framework.response import Response
 from posthog.schema import (
     HogQLQuery,
     HogQLQueryModifiers,
-    HogQLVariable,
     QueryRequest,
     QueryResponseAlternative,
     QueryStatusResponse,
@@ -104,6 +103,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def get_throttles(self):
         if self.action == "draft_sql":
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+        if self.action == "get_query_log":
+            return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
         if (
             self.team_id in settings.API_QUERIES_PER_TEAM
             or (settings.API_QUERIES_ENABLED and self.check_team_api_queries_concurrency())
@@ -258,11 +259,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def get_query_log(self, request: Request, pk: str, *args, **kwargs) -> Response:
         try:
             query = HogQLQuery(
-                query="select * from query_log where query_id = '{variables.client_query_id}'",
-                variables={
-                    "client_query_id": HogQLVariable(
-                        code_name="client_query_id", variableId="client_query_id", value=str(pk)
-                    )
+                query="select * from query_log where query_id = '{client_query_id}'",
+                values={
+                    "client_query_id": pk,
                 },
                 name="get_query_log",
             )
@@ -274,9 +273,11 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             )
             result = hogql_runner.calculate()
             return Response(result.model_dump(), status=200)
+        except ConcurrencyLimitExceeded as c:
+            raise Throttled(detail=str(c))
         except Exception as e:
             capture_exception(e)
-            return Response({"error": str(e)}, status=400)
+            raise
 
     def handle_column_ch_error(self, error):
         if getattr(error, "message", None):
