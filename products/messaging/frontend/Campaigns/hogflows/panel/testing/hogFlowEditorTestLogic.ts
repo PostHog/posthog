@@ -23,22 +23,13 @@ import {
 
 import { CampaignLogicProps, campaignLogic } from '../../../campaignLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
+import { HogflowTestResult } from '../../steps/types'
 import { HogFlow } from '../../types'
 import type { hogFlowEditorTestLogicType } from './hogFlowEditorTestLogicType'
 
 export interface HogflowTestInvocation {
     globals: string
     mock_async_functions: boolean
-}
-
-export interface HogflowTestResult {
-    status: 'success' | 'error' | 'skipped'
-    result?: any
-    logs?: Array<{
-        timestamp: string
-        level: string
-        message: string
-    }>
 }
 
 export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
@@ -56,6 +47,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         setSampleGlobalsError: (error: string | null) => ({ error }),
         cancelSampleGlobalsLoading: true,
         receiveExampleGlobals: (globals: object | null) => ({ globals }),
+        setNextActionId: (nextActionId: string | null) => ({ nextActionId }),
     }),
     reducers({
         testResult: [
@@ -82,6 +74,12 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             {
                 loadSampleGlobals: () => false,
                 cancelSampleGlobalsLoading: () => true,
+            },
+        ],
+        nextActionId: [
+            null as string | null,
+            {
+                setNextActionId: (_, { nextActionId }) => nextActionId,
             },
         ],
     }),
@@ -254,8 +252,20 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         current_action_id: values.selectedNodeId ?? undefined,
                     })
 
-                    actions.setTestResult(apiResponse)
-                    actions.setSelectedNodeId(values.testResult?.result?.invocation?.state?.currentAction?.id)
+                    const result: HogflowTestResult = {
+                        ...apiResponse,
+                        logs: apiResponse.logs?.map((log) => ({
+                            ...log,
+                            instanceId: 'test',
+                            timestamp: dayjs(log.timestamp),
+                        })),
+                    }
+
+                    actions.setTestResult(result)
+                    const nextActionId = result.nextActionId
+                    if (nextActionId && nextActionId !== values.selectedNodeId) {
+                        actions.setNextActionId(nextActionId)
+                    }
 
                     return values.testInvocation
                 } catch (error: any) {
