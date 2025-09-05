@@ -189,6 +189,31 @@ function NativeEmailIntegrationChoice({
     )
 }
 
+function LiquidSupportedText({
+    value,
+    onChange,
+    globals,
+}: {
+    value: string
+    onChange: (value?: string) => void
+    globals: any
+}): JSX.Element {
+    return (
+        <span className="flex grow group relative justify-between">
+            <span className="absolute top-0 right-2 z-20 p-px opacity-0 transition-opacity group-hover:opacity-100">
+                <CyclotronJobTemplateSuggestionsButton
+                    templating="liquid"
+                    value={value}
+                    onOptionSelect={(option) => {
+                        onChange?.(`${value || ''}${option.example}`)
+                    }}
+                />
+            </span>
+            <CodeEditorInline embedded className="flex-1" globals={globals} value={value} onChange={onChange} />
+        </span>
+    )
+}
+
 function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Element {
     const { unlayerEditorProjectId, logicProps, appliedTemplate, templates, templatesLoading, mergeTags } =
         useValues(emailTemplaterLogic)
@@ -226,43 +251,16 @@ function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Elem
                                 {field.key === 'from' ? (
                                     <NativeEmailIntegrationChoice value={value} onChange={onChange} />
                                 ) : field.key === 'to' ? (
-                                    <span className="flex grow relative justify-between">
-                                        <span className="absolute top-0 right-2 z-20 p-px opacity-0 transition-opacity hover:opacity-100">
-                                            <CyclotronJobTemplateSuggestionsButton
-                                                templating="liquid"
-                                                value={value}
-                                                onOptionSelect={(option) => {
-                                                    onChange?.(`${value || ''}${option.example}`)
-                                                }}
-                                            />
-                                        </span>
-                                        <CodeEditorInline
-                                            embedded
-                                            className="flex-1"
-                                            globals={logicProps.variables}
-                                            value={value?.email}
-                                            onChange={(email) => onChange({ ...value, email })}
-                                        />
-                                    </span>
+                                    <NativeEmailIntegrationChoice
+                                        value={value?.email}
+                                        onChange={(email) => onChange({ ...value, email })}
+                                    />
                                 ) : (
-                                    <span className="flex grow relative justify-between">
-                                        <span className="absolute top-0 right-2 z-20 p-px opacity-0 transition-opacity hover:opacity-100">
-                                            <CyclotronJobTemplateSuggestionsButton
-                                                templating="liquid"
-                                                value={value}
-                                                onOptionSelect={(option) => {
-                                                    onChange?.(`${value || ''}${option.example}`)
-                                                }}
-                                            />
-                                        </span>
-                                        <CodeEditorInline
-                                            embedded
-                                            className="flex-1"
-                                            globals={logicProps.variables}
-                                            value={value}
-                                            onChange={onChange}
-                                        />
-                                    </span>
+                                    <LiquidSupportedText
+                                        value={value}
+                                        onChange={onChange}
+                                        globals={logicProps.variables}
+                                    />
                                 )}
                             </div>
                         )}

@@ -17,11 +17,7 @@ export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
         description: 'Send an email to the user.',
         config: {
             template_id: 'template-email',
-            inputs: {
-                email: {
-                    templating: 'liquid',
-                },
-            },
+            inputs: {},
         },
     },
     {
@@ -30,10 +26,7 @@ export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
         description: 'Send an SMS to the user.',
         config: {
             template_id: 'template-twilio',
-            inputs: {
-                to_number: { templating: 'liquid' },
-                message: { templating: 'liquid' },
-            },
+            inputs: {},
         },
     },
     {
