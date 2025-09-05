@@ -279,7 +279,7 @@ function PageTabs(): JSX.Element {
 }
 export function SessionsRecordings(): JSX.Element {
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent forceNewSpacing className="h-full">
             <Header />
             <PageTabs />
             <MainPanel />
