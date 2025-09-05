@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconBookmark, IconFilter, IconPlus, IconShare, IconTrash } from '@posthog/icons'
+import { IconBookmark, IconFilter, IconPlusSmall, IconShare, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumn, lemonToast } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -144,7 +144,7 @@ export function DataTableSavedFilters({ uniqueKey, query, setQuery }: DataTableS
                                     <LemonButton
                                         type="secondary"
                                         size="small"
-                                        icon={<IconPlus />}
+                                        icon={<IconPlusSmall />}
                                         onClick={() => setIsSaveModalOpen(true)}
                                     >
                                         Save as new
@@ -155,7 +155,7 @@ export function DataTableSavedFilters({ uniqueKey, query, setQuery }: DataTableS
                                 <LemonButton
                                     type="secondary"
                                     size="small"
-                                    icon={<IconPlus />}
+                                    icon={<IconPlusSmall />}
                                     onClick={() => setIsSaveModalOpen(true)}
                                 >
                                     Save current filters
