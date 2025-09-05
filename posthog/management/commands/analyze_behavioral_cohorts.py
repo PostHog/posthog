@@ -112,22 +112,15 @@ class Command(BaseCommand):
         where_clauses = ["date >= now() - toIntervalDay(%(days)s)"]
         params = {"days": days}
 
-        param_counter = 0
         if team_id:
-            param_name = f"team_id_{param_counter}"
-            where_clauses.append(f"team_id = %({param_name})s")
-            params[param_name] = team_id
-            param_counter += 1
+            where_clauses.append("team_id = %(team_id)s")
+            params["team_id"] = team_id
         if cohort_id:
-            param_name = f"cohort_id_{param_counter}"
-            where_clauses.append(f"cohort_id = %({param_name})s")
-            params[param_name] = cohort_id
-            param_counter += 1
+            where_clauses.append("cohort_id = %(cohort_id)s")
+            params["cohort_id"] = cohort_id
         if condition:
-            param_name = f"condition_{param_counter}"
-            where_clauses.append(f"condition = %({param_name})s")
-            params[param_name] = condition
-            param_counter += 1
+            where_clauses.append("condition = %(condition)s")
+            params["condition"] = condition
 
         where_clause = " AND ".join(where_clauses)
 
