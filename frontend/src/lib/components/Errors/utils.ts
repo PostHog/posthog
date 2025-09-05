@@ -126,6 +126,18 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
     const handled = exceptionList?.[0]?.mechanism?.handled ?? false
     const runtime: ErrorTrackingRuntime = getRuntimeFromLib(lib)
 
+    const gitReleasesMeta = (Object.values(releases) as ExceptionReleaseFromEvent[])
+        .filter((release: any) => release.metadata?.git)
+        .map(
+            (release: any) =>
+                ({
+                    commitSha: release.metadata?.git?.commit_id,
+                    repositoryUrl: release.metadata?.git?.remote_url,
+                    repositoryName: release.metadata?.git?.repo_name,
+                    branch: release.metadata?.git?.branch,
+                }) satisfies ExceptionReleaseGitMeta
+        )
+
     return {
         type,
         value,
@@ -142,7 +154,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         handled,
         level,
         ingestionErrors,
-        gitReleasesMeta: undefined,
+        gitReleasesMeta,
     }
 }
 
