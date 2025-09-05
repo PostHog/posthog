@@ -31,6 +31,11 @@ import { ensureCurrentAction, findContinueAction, shouldSkipAction } from './hog
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
 
+// Special format which the frontend understands and can render as a link
+const actionIdForLogging = (action: HogFlowAction) => {
+    return `[Action:${action.id}]`
+}
+
 export class HogFlowExecutorService {
     private readonly actionHandlers: Record<HogFlowAction['type'], ActionHandler>
 
@@ -324,7 +329,7 @@ export class HogFlowExecutorService {
         result.logs.push({
             level: 'info',
             timestamp: DateTime.now(),
-            message: `Workflow moved to action '${nextAction.name} (${nextAction.id})'`,
+            message: `Workflow moved to action ${actionIdForLogging(nextAction)}`,
         })
 
         this.trackActionMetric(result, currentAction, reason === 'filtered' ? 'filtered' : 'succeeded')
@@ -357,7 +362,7 @@ export class HogFlowExecutorService {
         level: LogEntryLevel,
         message: string
     ): void {
-        this.log(result, level, `[Action:${action.id}] ${message}`)
+        this.log(result, level, `${actionIdForLogging(action)} ${message}`)
     }
 
     private log(
