@@ -66,7 +66,7 @@ export const LOGIC_NODES_TO_SHOW: CreateActionType[] = [
     {
         type: 'conditional_branch',
         name: 'Conditional branch',
-        description: 'Branch based on a condition such as the event trigger or a person property.',
+        description: 'Branch using conditions on event or person properties.',
         branchEdges: 1,
         config: {
             conditions: [
