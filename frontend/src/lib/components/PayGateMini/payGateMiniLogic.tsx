@@ -1,5 +1,7 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -29,6 +31,8 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             ['user', 'hasAvailableFeature', 'availableFeature'],
             preflightLogic,
             ['isCloudOrDev'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [],
     })),
@@ -39,10 +43,19 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
                 setBypassPaywall: (_, { bypassPaywall }) => bypassPaywall,
             },
         ],
+        addonTrialModalOpen: [
+            false,
+            {
+                openAddonTrialModal: () => true,
+                closeAddonTrialModal: () => false,
+            },
+        ],
     }),
     actions({
         setGateVariant: (gateVariant: GateVariantType) => ({ gateVariant }),
         setBypassPaywall: (bypassPaywall: boolean) => ({ bypassPaywall }),
+        openAddonTrialModal: true,
+        closeAddonTrialModal: true,
     }),
     selectors(({ values, props }) => ({
         productWithFeature: [
@@ -113,9 +126,9 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             (nextPlanWithFeature) => nextPlanWithFeature?.features.find((f) => f.key === props.feature),
         ],
         isTrialEligible: [
-            (s) => [s.productWithFeature],
-            (productWithFeature) => {
-                return !!productWithFeature?.trial
+            (s) => [s.productWithFeature, s.billing],
+            (productWithFeature, billing) => {
+                return !billing?.trial && !!productWithFeature?.trial
             },
         ],
         gateVariant: [
@@ -151,13 +164,7 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
         ],
         ctaLink: [
             (s) => [s.gateVariant, s.isAddonProduct, s.productWithFeature, s.featureInfo, s.scrollToProduct],
-            (
-                gateVariant: GateVariantType,
-                isAddonProduct: boolean | undefined,
-                productWithFeature: BillingProductV2Type | BillingProductV2AddonType | undefined,
-                featureInfo: any,
-                scrollToProduct: boolean
-            ) => {
+            (gateVariant, isAddonProduct, productWithFeature, featureInfo, scrollToProduct) => {
                 if (gateVariant === 'add-card' && !isAddonProduct && productWithFeature) {
                     return getUpgradeProductLink({
                         product: productWithFeature as BillingProductV2Type,
@@ -174,11 +181,15 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             },
         ],
         ctaLabel: [
-            (s) => [s.gateVariant],
-            (gateVariant: GateVariantType): string => {
+            (s) => [s.gateVariant, s.isTrialFlow],
+            (gateVariant, isTrialFlow): string => {
+                if (isTrialFlow) {
+                    return 'Start trial'
+                }
                 if (gateVariant === 'add-card') {
                     return 'Upgrade now'
-                } else if (gateVariant === 'contact-sales') {
+                }
+                if (gateVariant === 'contact-sales') {
                     return 'Contact sales'
                 }
                 return 'Move to PostHog Cloud'
@@ -186,8 +197,18 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
         ],
         isPaymentEntryFlow: [
             (s) => [s.gateVariant, s.isAddonProduct],
-            (gateVariant: GateVariantType, isAddonProduct: boolean | undefined): boolean =>
-                gateVariant === 'add-card' && !isAddonProduct,
+            (gateVariant, isAddonProduct): boolean => gateVariant === 'add-card' && !isAddonProduct,
+        ],
+        isTrialFlow: [
+            (s) => [s.gateVariant, s.billing, s.isTrialEligible, s.featureFlags],
+            (gateVariant, billing, isTrialEligible, featureFlags): boolean => {
+                if (gateVariant !== 'add-card') {
+                    return false
+                }
+                const isPaidOrg = billing?.subscription_level !== 'free'
+                const isTestGroup = featureFlags[FEATURE_FLAGS.PLATFORM_START_TRIAL_CTA] === 'test'
+                return isTestGroup && isPaidOrg && isTrialEligible
+            },
         ],
     })),
 ])
