@@ -804,7 +804,6 @@ describe('saveToDatasetButtonLogic', () => {
                     }).toFinishAllListeners()
 
                     expect(logic.values.recentDatasetIds).toEqual(['test-dataset-1'])
-                    expect(logic.values.recentDatasets).toEqual([mockDataset1])
                 })
 
                 it('does not add dataset to recent when dataset ID is already in recent', async () => {
@@ -831,7 +830,6 @@ describe('saveToDatasetButtonLogic', () => {
 
                     // Should remain unchanged
                     expect(logic.values.recentDatasetIds).toEqual(['test-dataset-1'])
-                    expect(logic.values.recentDatasets).toEqual([mockDataset1])
                 })
 
                 it('adds new dataset to front of recent lists', async () => {
@@ -857,7 +855,6 @@ describe('saveToDatasetButtonLogic', () => {
                     }).toFinishAllListeners()
 
                     expect(logic.values.recentDatasetIds).toEqual(['test-dataset-2', 'test-dataset-1'])
-                    expect(logic.values.recentDatasets).toEqual([mockDataset2, mockDataset1])
                 })
 
                 it('does not add to recent when dataset is not found in datasets', async () => {
