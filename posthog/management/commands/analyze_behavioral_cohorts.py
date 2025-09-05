@@ -103,14 +103,14 @@ class Command(BaseCommand):
     ) -> list[dict[str, Any]]:
         """Get unique condition hashes from ClickHouse with optional limit"""
 
-        # Validate and sanitize integer inputs to prevent SQL injection
+        # Basic validation for reasonable bounds
         if not isinstance(days, int) or days < 0 or days > 365:
             raise ValueError(f"Invalid days value: {days}")
         if limit is not None and (not isinstance(limit, int) or limit < 1 or limit > 100000):
             raise ValueError(f"Invalid limit value: {limit}")
 
-        where_clauses = [f"date >= now() - INTERVAL {int(days)} DAY"]
-        params: list[Any] = []
+        where_clauses = ["date >= dateAdd('day', -%s, now())"]
+        params: list[Any] = [days]
 
         if team_id:
             where_clauses.append("team_id = %s")
@@ -158,7 +158,7 @@ class Command(BaseCommand):
     ) -> list[tuple[int, str, int]]:
         """Get all cohort memberships (team_id, person_id, cohort_id) for persons with minimum matches"""
 
-        # Validate inputs to prevent SQL injection
+        # Basic validation for reasonable bounds
         if not isinstance(days, int) or days < 0 or days > 365:
             raise ValueError(f"Invalid days value: {days}")
         if not isinstance(min_matches, int) or min_matches < 0:
@@ -178,7 +178,7 @@ class Command(BaseCommand):
                 cohort_id=cohort_id,
                 condition=condition_hash[:16] + "...",
             )
-            query = f"""
+            query = """
                 SELECT
                     person_id
                 FROM behavioral_cohorts_matches
@@ -186,12 +186,12 @@ class Command(BaseCommand):
                     team_id = %s
                     AND cohort_id = %s
                     AND condition = %s
-                    AND date >= now() - INTERVAL {int(days)} DAY
+                    AND date >= dateAdd('day', -%s, now())
                     AND matches >= %s
                 LIMIT 100000
             """
             try:
-                results = sync_execute(query, [team_id, cohort_id, condition_hash, min_matches])
+                results = sync_execute(query, [team_id, cohort_id, condition_hash, days, min_matches])
 
                 for row in results:
                     person_id = row[0]
