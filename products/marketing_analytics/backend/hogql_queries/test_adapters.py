@@ -852,6 +852,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert validation_result.is_valid, f"Validation failed: {validation_result.errors}"
 
         query = adapter.build_query()
+        assert query is not None, "Expected adapter to build a valid query"
         results = self._execute_query_and_validate(query)
 
         total_cost = sum(float(row[4] or 0) for row in results)
