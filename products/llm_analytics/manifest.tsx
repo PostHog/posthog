@@ -39,6 +39,22 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             defaultDocsPath: '/docs/llm-analytics/installation',
         },
+        LLMAnalyticsDatasets: {
+            import: () => import('./frontend/datasets/LLMAnalyticsDatasetsScene'),
+            projectBased: true,
+            name: 'LLM analytics datasets',
+            activityScope: 'LLMAnalytics',
+            layout: 'app-container',
+            defaultDocsPath: '/docs/llm-analytics/installation',
+        },
+        LLMAnalyticsDataset: {
+            import: () => import('./frontend/datasets/LLMAnalyticsDatasetScene'),
+            projectBased: true,
+            name: 'LLM analytics dataset',
+            activityScope: 'LLMAnalytics',
+            layout: 'app-container',
+            defaultDocsPath: '/docs/llm-analytics/installation',
+        },
     },
     routes: {
         '/llm-analytics': ['LLMAnalytics', 'llmAnalytics'],
@@ -48,6 +64,8 @@ export const manifest: ProductManifest = {
         '/llm-analytics/traces/:id': ['LLMAnalyticsTrace', 'llmAnalytics'],
         '/llm-analytics/users': ['LLMAnalytics', 'llmAnalyticsUsers'],
         '/llm-analytics/playground': ['LLMAnalytics', 'llmAnalyticsPlayground'],
+        '/llm-analytics/datasets': ['LLMAnalytics', 'llmAnalyticsDatasets'],
+        '/llm-analytics/datasets/:id': ['LLMAnalyticsDataset', 'llmAnalyticsDataset'],
     },
     redirects: {
         '/llm-observability': (_params, searchParams, hashParams) =>
@@ -74,6 +92,7 @@ export const manifest: ProductManifest = {
             params?: {
                 event?: string
                 timestamp?: string
+                exception_ts?: string
                 search?: string
             }
         ): string => {
@@ -83,6 +102,9 @@ export const manifest: ProductManifest = {
         },
         llmAnalyticsUsers: (): string => '/llm-analytics/users',
         llmAnalyticsPlayground: (): string => '/llm-analytics/playground',
+        llmAnalyticsDatasets: (): string => '/llm-analytics/datasets',
+        llmAnalyticsDataset: (id: string, params?: { item?: string }): string =>
+            combineUrl(`/llm-analytics/datasets/${id}`, params).url,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

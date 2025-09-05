@@ -289,12 +289,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: true,
     },
-    [NodeKind.RevenueAnalyticsGrowthRateQuery]: {
-        name: 'Revenue Analytics Growth Rate',
-        description: 'View revenue analytics growth rate.',
-        icon: IconPiggyBank,
-        inMenu: true,
-    },
     [NodeKind.RevenueAnalyticsMetricsQuery]: {
         name: 'Revenue Analytics Metrics',
         description: 'View revenue analytics customer, subscription count, ARPU, and LTV.',
