@@ -92,8 +92,7 @@ impl<P: MessageProcessor + Clone + 'static> ProcessorPool<P> {
                     let msg_offset = send_error.0.kafka_message().offset();
 
                     error!(
-                        "CRITICAL: Worker {} channel closed (worker likely panicked), message offset: {}. Shutting down.",
-                        worker_id, msg_offset
+                        "CRITICAL: Worker {worker_id} channel closed (worker likely panicked), message offset: {msg_offset}. Shutting down.",
                     );
 
                     // Don't try to recover - fail fast and let the system restart
@@ -372,9 +371,8 @@ mod tests {
 
         assert!(
             max_concurrent >= num_workers / 2,
-            "Expected at least {} concurrent processing, got {}",
-            num_workers / 2,
-            max_concurrent
+            "Expected at least {} concurrent processing, got {max_concurrent}",
+            num_workers / 2
         );
 
         assert!(

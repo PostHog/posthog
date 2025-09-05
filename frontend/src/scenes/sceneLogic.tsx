@@ -389,7 +389,16 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
         sceneId: [(s) => [s.activeTab], (activeTab) => activeTab?.sceneId],
         sceneKey: [(s) => [s.activeTab], (activeTab) => activeTab?.sceneKey],
-        sceneConfig: [(s) => [s.sceneId], (sceneId: Scene): SceneConfig | null => sceneConfigurations[sceneId] || null],
+        sceneConfig: [
+            (s) => [s.sceneId, s.featureFlags],
+            (sceneId: Scene, featureFlags): SceneConfig | null => {
+                const config = sceneConfigurations[sceneId] || null
+                if (sceneId === Scene.SQLEditor && featureFlags[FEATURE_FLAGS.SCENE_TABS]) {
+                    return { ...config, layout: 'app-raw' }
+                }
+                return config
+            },
+        ],
         sceneParams: [
             (s) => [s.activeTab],
             (activeTab): SceneParams => activeTab?.sceneParams || { params: {}, searchParams: {}, hashParams: {} },
@@ -960,9 +969,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 actions.setTabs(newTabs)
             }
             if (!process?.env?.STORYBOOK) {
-                // This persists the changed tab titles in location.history without a replace/push action
-                // Somehow it messes up storybook.
-                router.actions.refreshRouterState()
+                // This persists the changed tab titles in location.history without a replace/push action.
+                // We'll do it outside the action's event loop to avoid race conditions with subscribing.
+                // Somehow it messes up Storybook, so disabled for it.
+                window.setTimeout(() => router.actions.refreshRouterState(), 1)
             }
         },
         tabs: () => {

@@ -37,15 +37,19 @@ function HogFlowEditorContent(): JSX.Element {
         onDragStart,
         onDragOver,
         onDrop,
+        setReactFlowWrapper,
     } = useActions(hogFlowEditorLogic)
 
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
-
     const reactFlowInstance = useReactFlow()
 
     useEffect(() => {
         setReactFlowInstance(reactFlowInstance)
     }, [reactFlowInstance, setReactFlowInstance])
+
+    useEffect(() => {
+        setReactFlowWrapper(reactFlowWrapper)
+    }, [setReactFlowWrapper])
 
     return (
         <div ref={reactFlowWrapper} className="w-full h-full">

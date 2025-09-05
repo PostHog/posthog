@@ -37,7 +37,10 @@ class GoogleAdsSource(BaseSource[GoogleAdsSourceConfig | GoogleAdsServiceAccount
         return GoogleAdsServiceAccountSourceConfig.from_dict(job_inputs)
 
     def get_schemas(
-        self, config: GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, team_id: int
+        self,
+        config: GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
     ) -> list[SourceSchema]:
         google_ads_schemas = get_google_ads_schemas(
             config,
