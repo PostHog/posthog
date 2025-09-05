@@ -172,6 +172,16 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev --directory ..
 
+            - name: Download MaxMind Database
+              if: needs.changes.outputs.rust == 'true'
+              run: |
+                  cd ../ && ./bin/download-mmdb
+
+            - name: Wait for services to be ready
+              if: needs.changes.outputs.rust == 'true'
+              run: |
+                  cd ../ && bin/check_kafka_clickhouse_up
+
             - name: Set up databases
               if: needs.changes.outputs.rust == 'true'
               env:
@@ -180,11 +190,6 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: cd ../ && python manage.py setup_test_environment
-
-            - name: Download MaxMind Database
-              if: needs.changes.outputs.rust == 'true'
-              run: |
-                  cd ../ && ./bin/download-mmdb
 
             - name: Run cargo test
               if: needs.changes.outputs.rust == 'true'
@@ -276,21 +281,28 @@ jobs:
         needs: [changes, build, test, linting, shear]
         runs-on: ubuntu-24.04
         if: |
-            always() &&
             needs.changes.outputs.rust == 'true' && 
-            github.ref != 'refs/heads/master' &&
-            needs.build.result == 'success' &&
-            needs.test.result == 'success' &&
-            needs.linting.result == 'success' &&
-            needs.shear.result == 'success'
+            github.ref != 'refs/heads/master' && 
+            github.ref != 'refs/heads/main'
         steps:
+            - name: Check test results
+              if: |
+                  needs.build.result != 'success' ||
+                  needs.test.result != 'success' ||
+                  needs.linting.result != 'success' ||
+                  needs.shear.result != 'success'
+              run: |
+                  echo "Tests failed! Build: ${{ needs.build.result }}, Test: ${{ needs.test.result }}, Linting: ${{ needs.linting.result }}, Shear: ${{ needs.shear.result }}"
+                  exit 1
             - name: Tests passed
               run: echo "All tests passed, proceeding to Docker build"
 
     docker-images:
         name: Build Docker image - ${{ matrix.image }}
         needs: [changes, wait-for-tests]
-        # Always run if tests passed or were skipped (master branch)
+        # Run if:
+        # - On master/main: wait-for-tests is skipped (runs immediately)
+        # - On other branches: wait-for-tests succeeded (tests passed)
         if: |
             always() && 
             needs.changes.outputs.rust == 'true' && 
@@ -434,9 +446,10 @@ jobs:
         name: Deploy ${{ matrix.release }}
         runs-on: ubuntu-24.04
         needs: docker-images
-        # Only deploy from master branches
+        # Only deploy from master branches when docker images succeeded
         if: |
-            github.ref == 'refs/heads/master'
+            github.ref == 'refs/heads/master' &&
+            needs.docker-images.result == 'success'
         strategy:
             matrix:
                 include:
