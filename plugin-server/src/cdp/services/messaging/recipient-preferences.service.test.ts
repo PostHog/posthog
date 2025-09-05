@@ -33,7 +33,7 @@ describe('RecipientPreferencesService', () => {
             'getAllMarketingMessagingPreference'
         )
 
-        service = new RecipientPreferencesService(hub, mockRecipientsManager)
+        service = new RecipientPreferencesService(mockRecipientsManager)
     })
 
     afterEach(async () => {
