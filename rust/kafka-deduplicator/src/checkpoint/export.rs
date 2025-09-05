@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
-use tokio::time;
 use tracing::{debug, error, info, warn};
 
 use super::{CheckpointConfig, CheckpointUploader};
@@ -40,26 +39,6 @@ impl CheckpointExporter {
         }
     }
 
-    /// Start the checkpoint loop that triggers checkpoints based on the configured interval
-    // TBD: might remove this and integrate with CheckpointManager's flush loop instead
-    pub async fn start_checkpoint_loop(&self, store: Arc<DeduplicationStore>) {
-        let mut interval = time::interval(self.config.checkpoint_interval);
-
-        info!(
-            "Starting checkpoint loop with interval: {:?}",
-            self.config.checkpoint_interval
-        );
-
-        loop {
-            interval.tick().await;
-
-            if let Err(e) = self.maybe_checkpoint(&store).await {
-                error!("Checkpoint failed: {}", e);
-                metrics::counter!(CHECKPOINT_ERRORS_COUNTER).increment(1);
-            }
-        }
-    }
-
     /// Trigger a checkpoint if one is not already in progress
     pub async fn maybe_checkpoint(&self, store: &DeduplicationStore) -> Result<bool> {
         // Try to acquire the checkpoint lock - if already locked, skip
@@ -86,7 +65,19 @@ impl CheckpointExporter {
             is_checkpointing.remove(&partition);
         }
 
-        result.map(|_| true)
+        if let Err(e) = result {
+            let topic_name = store.get_topic().to_string();
+            error!(
+                "Checkpoint for store {}:{} failed: {}",
+                topic_name,
+                store.get_partition(),
+                e
+            );
+            metrics::counter!(CHECKPOINT_ERRORS_COUNTER, "topic" => topic_name).increment(1);
+            return Err(e);
+        }
+
+        Ok(true);
     }
 
     /// Get the timestamp of the last checkpoint
