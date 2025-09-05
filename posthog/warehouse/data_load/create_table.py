@@ -31,7 +31,7 @@ async def calculate_table_size(saved_query: DataWarehouseSavedQuery, team_id: in
     await logger.adebug("Calculating table size in S3")
 
     folder_name = saved_query.folder_path
-    s3_folder = f"{settings.BUCKET_URL}/{folder_name}/{saved_query.name}"
+    s3_folder = f"{settings.BUCKET_URL}/{folder_name}/{saved_query.name}__query"
 
     total_mib = get_size_of_folder(s3_folder)
 

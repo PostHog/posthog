@@ -163,6 +163,7 @@ import {
     UserType,
 } from '~/types'
 
+import { HogflowTestResult } from 'products/messaging/frontend/Campaigns/hogflows/steps/types'
 import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
 import { OptOutEntry } from 'products/messaging/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
@@ -3920,7 +3921,7 @@ const api = {
                 invocation_id?: string
                 current_action_id?: string
             }
-        ): Promise<any> {
+        ): Promise<HogflowTestResult> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('invocations').create({ data })
         },
     },
