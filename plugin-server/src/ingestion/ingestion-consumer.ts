@@ -221,7 +221,8 @@ export class IngestionConsumer {
     }
 
     public isHealthy(): boolean {
-        return this.kafkaConsumer?.isHealthy()
+        const result = this.kafkaConsumer?.isHealthy()
+        return result?.healthy ?? false
     }
 
     private runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {

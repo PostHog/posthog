@@ -479,7 +479,7 @@ export class SessionRecordingIngester {
             logger.info('🔁', 'blob_ingester_consumer - rebalancing', {
                 err,
                 topicPartitions,
-                connected: this.kafkaConsumer.isHealthy(),
+                connected: this.kafkaConsumer.isHealthy().healthy,
             })
             /**
              * see https://github.com/Blizzard/node-rdkafka#rebalancing
@@ -543,7 +543,8 @@ export class SessionRecordingIngester {
 
     public isHealthy() {
         // TODO: Maybe extend this to check if we are shutting down so we don't get killed early.
-        return this.kafkaConsumer.isHealthy()
+        const result = this.kafkaConsumer.isHealthy()
+        return result.healthy
     }
 
     private async reportPartitionMetrics() {

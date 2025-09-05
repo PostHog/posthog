@@ -318,11 +318,12 @@ def _get_clickhouse_s3_staging_folder_url(
     container.
     """
     bucket = settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET
+    region = settings.BATCH_EXPORT_OBJECT_STORAGE_REGION
     # in these environments this will be a URL for MinIO
     if settings.DEBUG or settings.TEST:
         base_url = f"{settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT}/{bucket}/"
     else:
-        base_url = f"https://{bucket}.s3.amazonaws.com/"
+        base_url = f"https://{bucket}.s3.{region}.amazonaws.com/"
 
     folder = get_s3_staging_folder(batch_export_id, data_interval_start, data_interval_end)
     return f"{base_url}{folder}"

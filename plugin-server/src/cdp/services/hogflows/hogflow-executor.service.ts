@@ -26,8 +26,7 @@ import { ExitHandler } from './actions/exit.handler'
 import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
-import { findContinueAction } from './hogflow-utils'
-import { ensureCurrentAction, shouldSkipAction } from './hogflow-utils'
+import { ensureCurrentAction, findContinueAction, shouldSkipAction } from './hogflow-utils'
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
 
@@ -80,9 +79,7 @@ export class HogFlowExecutorService {
         )
         handlers.set('function', hogFunctionHandler)
         handlers.set('function_sms', hogFunctionHandler)
-        handlers.set('function_slack', hogFunctionHandler)
         handlers.set('function_email', hogFunctionHandler)
-        handlers.set('function_webhook', hogFunctionHandler)
 
         handlers.set('exit', new ExitHandler())
         return handlers

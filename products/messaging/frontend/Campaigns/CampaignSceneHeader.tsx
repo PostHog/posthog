@@ -9,7 +9,7 @@ import { CampaignSceneLogicProps } from './campaignSceneLogic'
 
 export const CampaignSceneHeader = (props: CampaignSceneLogicProps = {}): JSX.Element => {
     const logic = campaignLogic(props)
-    const { campaign, campaignChanged, isCampaignSubmitting, campaignLoading, isCampaignValid } = useValues(logic)
+    const { campaign, campaignChanged, isCampaignSubmitting, campaignLoading, campaignHasErrors } = useValues(logic)
     const { saveCampaign, submitCampaign, discardChanges } = useActions(logic)
 
     const isSavedCampaign = props.id && props.id !== 'new'
@@ -55,8 +55,8 @@ export const CampaignSceneHeader = (props: CampaignSceneLogicProps = {}): JSX.El
                         onClick={submitCampaign}
                         loading={isCampaignSubmitting}
                         disabledReason={
-                            !isCampaignValid
-                                ? 'Fill in all required fields'
+                            campaignHasErrors
+                                ? 'Some fields still need work'
                                 : campaignChanged
                                   ? undefined
                                   : 'No changes to save'
