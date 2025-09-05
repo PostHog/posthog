@@ -128,7 +128,7 @@ def is_to_start_of_hour_timestamp_field(expr: ast.Call, context: HogQLContext) -
         and is_simple_timestamp_field_expression(expr.args[0], context)
     ):
         return True
-    # also accept toStartOfInterval(timestamp, toIntervalDay(1))
+    # also accept toStartOfInterval(timestamp, toIntervalHour(1))
     if (
         expr.name == "toStartOfInterval"
         and len(expr.args) == 2
