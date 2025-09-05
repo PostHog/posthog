@@ -93,7 +93,7 @@ if (inputs.debug) {
             secret: false,
             required: true,
             description: 'SMS message content (max 1600 characters).',
-            default: 'PostHog event {event.event} was triggered',
+            default: 'PostHog event {{ event.event }} was triggered',
         },
         {
             key: 'debug',

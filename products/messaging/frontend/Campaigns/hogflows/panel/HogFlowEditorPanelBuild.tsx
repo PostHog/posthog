@@ -28,7 +28,13 @@ export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
         type: 'function_sms',
         name: 'SMS',
         description: 'Send an SMS to the user.',
-        config: { template_id: 'template-twilio', inputs: {} },
+        config: {
+            template_id: 'template-twilio',
+            inputs: {
+                to_number: { templating: 'liquid' },
+                message: { templating: 'liquid' },
+            },
+        },
     },
     {
         type: 'function',
