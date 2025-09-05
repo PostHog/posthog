@@ -213,7 +213,7 @@ export class HogFlowExecutorService {
             })
             triggerMatch = filterResult.match
         }
-        if (hogFlow.conversion.filters && person) {
+        if (hogFlow.conversion?.filters && person) {
             const filterResult = await filterFunctionInstrumented({
                 fn: hogFlow,
                 filters: hogFlow.conversion.filters,
