@@ -1,8 +1,11 @@
-from django.core.management.base import BaseCommand
-from posthog.models import FeatureFlag, Project, User
 import json
-from posthog.ph_client import PH_US_API_KEY
+
+from django.core.management.base import BaseCommand
+
 import requests
+
+from posthog.models import FeatureFlag, Project, User
+from posthog.ph_client import PH_US_API_KEY
 
 
 class Command(BaseCommand):
