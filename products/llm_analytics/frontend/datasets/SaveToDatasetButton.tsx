@@ -92,14 +92,16 @@ export const SaveToDatasetButton = React.memo(function SaveToDatasetButton({
 })
 
 function OverlayMenu(): JSX.Element {
-    const { datasets, isLoadingDatasets } = useValues(saveToDatasetButtonLogic)
+    const { datasets, isLoadingDatasets, recentDatasets, searchForm } = useValues(saveToDatasetButtonLogic)
     const { setSearchFormValue, setDropdownVisible } = useActions(saveToDatasetButtonLogic)
 
     const { referenceRef, itemsRef, focusedItemIndex } = useKeyboardNavigation<HTMLDivElement, HTMLButtonElement>(
-        datasets?.length ?? 0,
+        (datasets?.length ?? 0) + (recentDatasets?.length ?? 0),
         0,
         { enabled: !isLoadingDatasets }
     )
+
+    const recentDatasetsLength = recentDatasets?.length ?? 0
 
     return (
         <Form logic={saveToDatasetButtonLogic} formKey="searchForm" className="w-xs" enableFormOnSubmit>
@@ -120,23 +122,46 @@ function OverlayMenu(): JSX.Element {
                         <LemonSkeleton active className="h-4 w-full" />
                     </>
                 ) : datasets && datasets.length > 0 ? (
-                    datasets.map((dataset, index) => (
-                        <LemonButton
-                            key={dataset.id}
-                            ref={itemsRef?.current?.[index]}
-                            fullWidth
-                            size="small"
-                            active={focusedItemIndex === index}
-                            htmlType="submit"
-                            onClick={() => {
-                                setSearchFormValue('datasetId', dataset.id)
-                            }}
-                        >
-                            <span className="line-clamp-1">{dataset.name}</span>
-                        </LemonButton>
-                    ))
+                    <>
+                        {!searchForm.search && recentDatasets.length > 0 && (
+                            <>
+                                <p className="text-muted text-xs px-2">Recent datasets</p>
+                                {recentDatasets.map((dataset, index) => (
+                                    <LemonButton
+                                        key={dataset.id}
+                                        ref={itemsRef?.current?.[index]}
+                                        fullWidth
+                                        size="small"
+                                        active={focusedItemIndex === index}
+                                        htmlType="submit"
+                                        onClick={() => {
+                                            setSearchFormValue('datasetId', dataset.id)
+                                        }}
+                                    >
+                                        <span className="line-clamp-1">{dataset.name}</span>
+                                    </LemonButton>
+                                ))}
+                                <LemonDivider className="my-0 mb-2" />
+                            </>
+                        )}
+                        {datasets.map((dataset, index) => (
+                            <LemonButton
+                                key={dataset.id}
+                                ref={itemsRef?.current?.[recentDatasetsLength + index]}
+                                fullWidth
+                                size="small"
+                                active={focusedItemIndex - recentDatasetsLength === index}
+                                htmlType="submit"
+                                onClick={() => {
+                                    setSearchFormValue('datasetId', dataset.id)
+                                }}
+                            >
+                                <span className="line-clamp-1">{dataset.name}</span>
+                            </LemonButton>
+                        ))}
+                    </>
                 ) : (
-                    <p className="text-muted text-sm">No datasets found</p>
+                    <p className="text-muted text-sm px-2">No datasets found</p>
                 )}
             </div>
             <LemonDivider className="my-0 mb-2" />

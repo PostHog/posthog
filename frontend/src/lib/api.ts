@@ -4020,13 +4020,23 @@ const api = {
     },
 
     datasets: {
-        list(params: {
+        list({
+            ids,
+            ...params
+        }: {
             search?: string
             order_by?: string
             offset?: number
             limit?: number
+            ids?: string[]
         }): Promise<CountedPaginatedResponse<Dataset>> {
-            return new ApiRequest().datasets().withQueryString(params).get()
+            return new ApiRequest()
+                .datasets()
+                .withQueryString({
+                    ...params,
+                    id__in: ids?.join(','),
+                })
+                .get()
         },
 
         get(datasetId: string): Promise<Dataset> {

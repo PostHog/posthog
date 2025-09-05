@@ -16,6 +16,7 @@ export interface saveToDatasetButtonLogicProps {
 }
 
 export const DATASETS_PER_PAGE = 100
+export const RECENT_DATASETS_LIMIT = 3
 
 export interface SearchFormValues {
     search: string
@@ -32,6 +33,8 @@ export const saveToDatasetButtonLogic = kea<saveToDatasetButtonLogicType>([
         setEditMode: (editMode: 'create' | 'edit') => ({ editMode }),
         setDropdownVisible: (dropdownVisible: boolean) => ({ dropdownVisible }),
         setSelectedDataset: (dataset: Dataset | null) => ({ dataset }),
+        setRecentDatasetIds: (recentDatasetIds: string[]) => ({ recentDatasetIds }),
+        setRecentDatasets: (recentDatasets: Dataset[]) => ({ recentDatasets }),
     }),
 
     reducers(() => ({
@@ -63,9 +66,24 @@ export const saveToDatasetButtonLogic = kea<saveToDatasetButtonLogicType>([
                 setDropdownVisible: (_, { dropdownVisible }) => dropdownVisible,
             },
         ],
+
+        recentDatasetIds: [
+            [] as string[],
+            { persist: true },
+            {
+                setRecentDatasetIds: (_, { recentDatasetIds }) => truncateRecentDatasets(recentDatasetIds),
+            },
+        ],
+
+        recentDatasets: [
+            [] as Dataset[],
+            {
+                setRecentDatasets: (_, { recentDatasets }) => truncateRecentDatasets(recentDatasets),
+            },
+        ],
     })),
 
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         datasetStore: [
             {} as Record<string, Dataset[]>,
             {
@@ -84,6 +102,41 @@ export const saveToDatasetButtonLogic = kea<saveToDatasetButtonLogicType>([
                     return {
                         ...values.datasetStore,
                         [storageKey]: response.results,
+                    }
+                },
+            },
+        ],
+
+        recentDatasets: [
+            [] as Dataset[],
+            {
+                loadRecentDatasets: async (debounce: boolean = false, breakpoint) => {
+                    if (debounce) {
+                        await breakpoint(300)
+                    }
+
+                    if (values.recentDatasetIds.length === 0) {
+                        return []
+                    }
+
+                    try {
+                        const response = await api.datasets.list({
+                            ids: values.recentDatasetIds,
+                        })
+
+                        const map = new Map(response.results.map((dataset) => [dataset.id, dataset]))
+
+                        // Preserve the original order of the recent dataset ids.
+                        const missingIds = values.recentDatasetIds.filter((id) => !map.has(id))
+                        const actualItems = values.recentDatasetIds.filter((id) => map.has(id))
+
+                        if (missingIds.length > 0) {
+                            actions.setRecentDatasetIds(actualItems)
+                        }
+
+                        return actualItems.map((id) => map.get(id)!)
+                    } catch {
+                        return []
                     }
                 },
             },
@@ -162,9 +215,9 @@ export const saveToDatasetButtonLogic = kea<saveToDatasetButtonLogicType>([
         ],
 
         isLoadingDatasets: [
-            (s) => [s.datasets, s.datasetStoreLoading],
-            (datasets, datasetStoreLoading): boolean => {
-                return !datasets && datasetStoreLoading
+            (s) => [s.datasets, s.datasetStoreLoading, s.recentDatasetsLoading],
+            (datasets, datasetStoreLoading, recentDatasetsLoading): boolean => {
+                return !datasets && (datasetStoreLoading || recentDatasetsLoading)
             },
         ],
 
@@ -176,14 +229,22 @@ export const saveToDatasetButtonLogic = kea<saveToDatasetButtonLogicType>([
         ],
     }),
 
-    listeners(({ actions, asyncActions }) => ({
+    listeners(({ actions, asyncActions, values }) => ({
         setIsModalOpen: () => {
             actions.setSearchFormValue('search', '')
         },
 
-        setSearchFormValue: ({ name }) => {
-            if (name[0] === 'search') {
+        setSearchFormValue: ({ name, value }) => {
+            if (compareFieldName(name, 'search')) {
                 asyncActions.loadDatasets(true)
+            }
+
+            if (compareFieldName(name, 'datasetId') && !values.recentDatasetIds.includes(value)) {
+                const dataset = values.datasets?.find((dataset) => dataset.id === value)
+                if (dataset) {
+                    actions.setRecentDatasetIds([value, ...values.recentDatasetIds])
+                    actions.setRecentDatasets([dataset, ...values.recentDatasets])
+                }
             }
         },
 
@@ -199,6 +260,7 @@ export const saveToDatasetButtonLogic = kea<saveToDatasetButtonLogicType>([
     afterMount(({ actions, values }) => {
         if (!values.datasets?.length) {
             actions.loadDatasets(false)
+            actions.loadRecentDatasets(false)
         }
     }),
 
@@ -213,4 +275,26 @@ export function getStorageKey(search: string): string {
         offset: 0,
         search,
     })
+}
+
+/**
+ * Truncates the recent datasets to the first 3.
+ * @param state - The current state.
+ * @returns The updated state.
+ */
+export function truncateRecentDatasets<T>(state: T[]): T[] {
+    return state.slice(0, RECENT_DATASETS_LIMIT)
+}
+
+/**
+ * A field name from kea-forms is either a string or an array of strings. This function compares the name to the field name.
+ * @param nameValue - The name to compare.
+ * @param fieldName - The field name to compare.
+ * @returns boolean
+ */
+export function compareFieldName(nameValue: string | number | (string | number)[], fieldName: string): boolean {
+    if (Array.isArray(nameValue)) {
+        return nameValue[0] === fieldName
+    }
+    return nameValue === fieldName
 }
