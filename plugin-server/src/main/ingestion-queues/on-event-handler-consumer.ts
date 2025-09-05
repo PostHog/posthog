@@ -1,7 +1,14 @@
 import { Consumer } from 'kafkajs'
 
 import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
-import { Hub, PluginServerService } from '../../types'
+import {
+    HealthCheckResult,
+    HealthCheckResultDegraded,
+    HealthCheckResultError,
+    HealthCheckResultOk,
+    Hub,
+    PluginServerService,
+} from '../../types'
 import { logger } from '../../utils/logger'
 import { HookCommander } from '../../worker/ingestion/hooks'
 import { eachBatchWebhooksHandlers } from './batch-processing/each-batch-webhooks'
@@ -77,7 +84,7 @@ export const startAsyncWebhooksHandlerConsumer = async (hub: Hub): Promise<Plugi
     }
 }
 
-export function makeHealthCheck(consumer: Consumer, sessionTimeout: number) {
+export function makeHealthCheck(consumer: Consumer, sessionTimeout: number): () => Promise<HealthCheckResult> {
     const { HEARTBEAT } = consumer.events
     let lastHeartbeat: number = Date.now()
     consumer.on(HEARTBEAT, ({ timestamp }) => (lastHeartbeat = timestamp))
@@ -87,7 +94,7 @@ export function makeHealthCheck(consumer: Consumer, sessionTimeout: number) {
         const milliSecondsToLastHeartbeat = Date.now() - lastHeartbeat
         if (milliSecondsToLastHeartbeat < sessionTimeout) {
             logger.info('👍', 'Consumer heartbeat is healthy', { milliSecondsToLastHeartbeat, sessionTimeout })
-            return true
+            return new HealthCheckResultOk()
         }
 
         // Consumer has not heartbeat, but maybe it's because the group is
@@ -97,10 +104,14 @@ export function makeHealthCheck(consumer: Consumer, sessionTimeout: number) {
 
             logger.info('ℹ️', 'Consumer group state', { state })
 
-            return ['CompletingRebalance', 'PreparingRebalance'].includes(state)
+            if (['CompletingRebalance', 'PreparingRebalance'].includes(state)) {
+                return new HealthCheckResultDegraded('Consumer group is rebalancing', { state })
+            }
+
+            return new HealthCheckResultOk()
         } catch (error) {
             logger.error('🚨', 'Error checking consumer group state', { error })
-            return false
+            return new HealthCheckResultError('Error checking consumer group state', { error })
         }
     }
     return isHealthy

@@ -25,13 +25,14 @@ import { DelayHandler } from './actions/delay'
 import { ExitHandler } from './actions/exit.handler'
 import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
+import { TriggerHandler } from './actions/trigger.handler'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
 import { ensureCurrentAction, findContinueAction, shouldSkipAction } from './hogflow-utils'
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
 
 export class HogFlowExecutorService {
-    private readonly actionHandlers: Map<string, ActionHandler>
+    private readonly actionHandlers: Record<HogFlowAction['type'], ActionHandler>
 
     constructor(
         private hub: Hub,
@@ -39,7 +40,25 @@ export class HogFlowExecutorService {
         private hogFunctionTemplateManager: HogFunctionTemplateManagerService,
         private recipientPreferencesService: RecipientPreferencesService
     ) {
-        this.actionHandlers = this.initializeActionHandlers()
+        const hogFunctionHandler = new HogFunctionHandler(
+            this.hub,
+            this.hogFunctionExecutor,
+            this.hogFunctionTemplateManager,
+            this.recipientPreferencesService
+        )
+
+        this.actionHandlers = {
+            trigger: new TriggerHandler(),
+            conditional_branch: new ConditionalBranchHandler(),
+            wait_until_condition: new ConditionalBranchHandler(),
+            delay: new DelayHandler(),
+            wait_until_time_window: new WaitUntilTimeWindowHandler(),
+            random_cohort_branch: new RandomCohortBranchHandler(),
+            function: hogFunctionHandler,
+            function_sms: hogFunctionHandler,
+            function_email: hogFunctionHandler,
+            exit: new ExitHandler(),
+        }
     }
 
     public createHogFlowInvocation(
@@ -61,28 +80,6 @@ export class HogFlowExecutorService {
             queue: 'hogflow',
             queuePriority: 1,
         }
-    }
-
-    private initializeActionHandlers(): Map<HogFlowAction['type'], ActionHandler> {
-        const handlers = new Map<HogFlowAction['type'], ActionHandler>()
-        handlers.set('conditional_branch', new ConditionalBranchHandler())
-        handlers.set('wait_until_condition', new ConditionalBranchHandler())
-        handlers.set('delay', new DelayHandler())
-        handlers.set('wait_until_time_window', new WaitUntilTimeWindowHandler())
-        handlers.set('random_cohort_branch', new RandomCohortBranchHandler())
-
-        const hogFunctionHandler = new HogFunctionHandler(
-            this.hub,
-            this.hogFunctionExecutor,
-            this.hogFunctionTemplateManager,
-            this.recipientPreferencesService
-        )
-        handlers.set('function', hogFunctionHandler)
-        handlers.set('function_sms', hogFunctionHandler)
-        handlers.set('function_email', hogFunctionHandler)
-
-        handlers.set('exit', new ExitHandler())
-        return handlers
     }
 
     async buildHogFlowInvocations(
@@ -108,7 +105,6 @@ export class HogFlowExecutorService {
                 fn: hogFlow,
                 filters: hogFlow.trigger.filters,
                 filterGlobals,
-                eventUuid: triggerGlobals.event.uuid,
             })
 
             // Add any generated metrics and logs to our collections
@@ -137,6 +133,11 @@ export class HogFlowExecutorService {
         const metrics: MinimalAppMetric[] = []
         const logs: MinimalLogEntry[] = []
 
+        const earlyExitResult = await this.shouldExitEarly(invocation)
+        if (earlyExitResult) {
+            return earlyExitResult
+        }
+
         while (!result || !result.finished) {
             const nextInvocation: CyclotronJobInvocationHogFlow = result?.invocation ?? invocation
 
@@ -162,52 +163,87 @@ export class HogFlowExecutorService {
         return result
     }
 
-    // Like execute but does the complete flow, logging delays and async function calls rather than performing them
-    async executeTest(
+    /**
+     * Determines if the invocation should exit early based on the hogflow's exit condition
+     */
+    private async shouldExitEarly(
         invocation: CyclotronJobInvocationHogFlow
-    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
-        const finalResult = createInvocationResult<CyclotronJobInvocationHogFlow>(
-            invocation,
-            {},
-            {
-                finished: false,
-            }
-        )
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null> {
+        let earlyExitResult: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null
 
-        let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null
+        // Respect exit_condition before executing actions
+        const { hogFlow, person } = invocation
+        let shouldExit = false
+        let exitReason = ''
 
-        let loopCount = 0
+        // Always evaluate both filter matches up front using filterFunctionInstrumented
+        let triggerMatch: boolean | undefined = undefined
+        let conversionMatch: boolean | undefined = undefined
 
-        while (!result || !result.finished) {
-            logger.info('🦔', `[HogFlowExecutor] Executing hog flow invocation`, {
-                loopCount,
+        // Use the same filter evaluation as in buildHogFlowInvocations
+        if (hogFlow.trigger.filters && person) {
+            const filterResult = await filterFunctionInstrumented({
+                fn: hogFlow,
+                filters: hogFlow.trigger.filters,
+                filterGlobals: invocation.filterGlobals,
             })
-            loopCount++
-            if (loopCount > 100) {
-                // NOTE: This is hardcoded for now to prevent infinite loops. Later we should fix this properly.
+            triggerMatch = filterResult.match
+        }
+        if (hogFlow.conversion?.filters && person) {
+            const filterResult = await filterFunctionInstrumented({
+                fn: hogFlow,
+                filters: hogFlow.conversion.filters,
+                filterGlobals: invocation.filterGlobals,
+            })
+            conversionMatch = filterResult.match
+        }
+
+        switch (hogFlow.exit_condition) {
+            case 'exit_on_trigger_not_matched':
+                if (triggerMatch === false) {
+                    shouldExit = true
+                    exitReason = 'Person no longer matches trigger filters'
+                }
                 break
-            }
+            case 'exit_on_conversion':
+                if (conversionMatch === true) {
+                    shouldExit = true
+                    exitReason = 'Person matches conversion filters'
+                }
+                break
+            case 'exit_on_trigger_not_matched_or_conversion':
+                if (triggerMatch === false || conversionMatch === true) {
+                    shouldExit = true
+                    exitReason =
+                        triggerMatch === false
+                            ? 'Person no longer matches trigger filters'
+                            : 'Person matches conversion filters'
+                }
+                break
+        }
 
-            const nextInvocation: CyclotronJobInvocationHogFlow = result?.invocation ?? invocation
-
-            result = await this.execute(nextInvocation)
-
-            if (result?.invocation.queueScheduledAt) {
-                this.log(finalResult, 'info', `Workflow will pause until ${result.invocation.queueScheduledAt.toISO()}`)
-            }
-
-            result?.logs?.forEach((log) => {
-                finalResult.logs.push(log)
+        if (shouldExit) {
+            earlyExitResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation)
+            earlyExitResult.finished = true
+            earlyExitResult.logs.push({
+                level: 'info',
+                timestamp: DateTime.now(),
+                message: `Workflow exited early due to exit condition: ${hogFlow.exit_condition} (${exitReason})`,
             })
-            result?.metrics?.forEach((metric) => {
-                finalResult.metrics.push(metric)
+            earlyExitResult.metrics.push({
+                team_id: hogFlow.team_id,
+                app_source_id: hogFlow.id,
+                instance_id: invocation.state?.currentAction?.id || 'exit_condition',
+                metric_kind: 'other',
+                metric_name: 'early_exit',
+                count: 1,
             })
         }
 
-        return finalResult
+        return earlyExitResult
     }
 
-    private async executeCurrentAction(
+    public async executeCurrentAction(
         invocation: CyclotronJobInvocationHogFlow
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation)
@@ -216,7 +252,6 @@ export class HogFlowExecutorService {
         try {
             const currentAction = ensureCurrentAction(invocation)
 
-            // TODO: Add early condition for continuing a hog function
             if (await shouldSkipAction(invocation, currentAction)) {
                 this.logAction(result, currentAction, 'info', `Skipped due to filter conditions`)
                 this.goToNextAction(result, currentAction, findContinueAction(invocation), 'filtered')
@@ -229,7 +264,7 @@ export class HogFlowExecutorService {
                 invocation,
             })
 
-            const handler = this.actionHandlers.get(currentAction.type)
+            const handler = this.actionHandlers[currentAction.type]
             if (!handler) {
                 throw new Error(`Action type '${currentAction.type}' not supported`)
             }

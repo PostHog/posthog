@@ -96,16 +96,65 @@ export const stringToPluginServerMode = Object.fromEntries(
     ])
 ) as Record<string, PluginServerMode>
 
-export interface HealthCheckResult {
-    healthy: boolean
+interface HealthCheckResultResponse {
+    service: string
+    status: 'ok' | 'error' | 'degraded'
     message?: string
     details?: Record<string, any>
+}
+
+export abstract class HealthCheckResult {
+    public status: 'ok' | 'error' | 'degraded'
+
+    constructor(status: 'ok' | 'error' | 'degraded') {
+        this.status = status
+    }
+
+    public abstract toResponse(serviceId: string): HealthCheckResultResponse
+
+    public isError(): boolean {
+        return this.status === 'error'
+    }
+}
+
+export class HealthCheckResultOk extends HealthCheckResult {
+    constructor() {
+        super('ok')
+    }
+    public toResponse(serviceId: string): HealthCheckResultResponse {
+        return { service: serviceId, status: this.status }
+    }
+}
+
+export class HealthCheckResultError extends HealthCheckResult {
+    constructor(
+        public message: string,
+        public details: Record<string, any>
+    ) {
+        super('error')
+    }
+
+    public toResponse(serviceId: string): HealthCheckResultResponse {
+        return { service: serviceId, status: this.status, message: this.message, details: this.details }
+    }
+}
+
+export class HealthCheckResultDegraded extends HealthCheckResult {
+    constructor(
+        public message: string,
+        public details: Record<string, any>
+    ) {
+        super('degraded')
+    }
+    public toResponse(serviceId: string): HealthCheckResultResponse {
+        return { service: serviceId, status: this.status, message: this.message, details: this.details }
+    }
 }
 
 export type PluginServerService = {
     id: string
     onShutdown: () => Promise<any>
-    healthcheck: () => boolean | HealthCheckResult | Promise<boolean | HealthCheckResult>
+    healthcheck: () => HealthCheckResult | Promise<HealthCheckResult>
 }
 
 export type CdpConfig = {
@@ -262,7 +311,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CONSUMER_BATCH_SIZE: number // Primarily for kafka consumers the batch size to use
     CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: number // Primarily for kafka consumers the max heartbeat interval to use after which it will be considered unhealthy
     CONSUMER_LOOP_STALL_THRESHOLD_MS: number // Threshold in ms after which the consumer loop is considered stalled
-    KAFKA_CONSUMER_LOOP_BASED_HEALTH_CHECK: boolean // Use consumer loop monitoring for health checks instead of heartbeats
+    CONSUMER_LOOP_BASED_HEALTH_CHECK: boolean // Use consumer loop monitoring for health checks instead of heartbeats
     CONSUMER_MAX_BACKGROUND_TASKS: number
     CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean
     CONSUMER_AUTO_CREATE_TOPICS: boolean

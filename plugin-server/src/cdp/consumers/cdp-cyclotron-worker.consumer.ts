@@ -146,7 +146,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         await super.stop()
     }
 
-    public isHealthy(): boolean | HealthCheckResult {
+    public isHealthy(): HealthCheckResult {
         return this.cyclotronJobQueue.isHealthy()
     }
 }

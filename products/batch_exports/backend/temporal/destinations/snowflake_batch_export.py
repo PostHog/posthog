@@ -67,6 +67,7 @@ from products.batch_exports.backend.temporal.temporary_file import BatchExportTe
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
     handle_non_retryable_errors,
+    make_retryable_with_exponential_backoff,
     set_status_to_running_task,
 )
 
@@ -101,6 +102,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "InvalidPrivateKeyError",
     # Raised when a valid authentication method is not provided.
     "SnowflakeAuthenticationError",
+    # Raised when a Warehouse is suspended.
+    "SnowflakeWarehouseSuspendedError",
 )
 
 
@@ -130,6 +133,12 @@ class SnowflakeConnectionError(Exception):
 
 class SnowflakeRetryableConnectionError(Exception):
     """Raised when a connection to Snowflake is not established."""
+
+    pass
+
+
+class SnowflakeWarehouseSuspendedError(Exception):
+    """Raised when a Warehouse is suspended."""
 
     pass
 
@@ -611,11 +620,31 @@ class SnowflakeClient:
             PURGE = TRUE
             """
 
+        # Handle cases where the Warehouse is suspended (sometimes we can recover from this)
+        max_attempts = 3
+        execute_copy_into = make_retryable_with_exponential_backoff(
+            self.execute_async_query,
+            max_attempts=max_attempts,
+            retryable_exceptions=(snowflake.connector.errors.ProgrammingError,),
+            # 608 = Warehouse suspended error
+            is_exception_retryable=lambda e: isinstance(e, snowflake.connector.errors.ProgrammingError)
+            and e.errno == 608,
+        )
+
         # We need to explicitly catch the exception here because otherwise it seems to be swallowed
         try:
-            result = await self.execute_async_query(query, poll_interval=1.0)
+            result = await execute_copy_into(query, poll_interval=1.0)
         except snowflake.connector.errors.ProgrammingError as e:
             self.logger.exception(f"Error executing COPY INTO query: {e}")
+
+            if e.errno == 608:
+                err_msg = (
+                    f"Failed to execute COPY INTO query after {max_attempts} attempts due to warehouse being suspended"
+                )
+                if e.msg is not None:
+                    err_msg += f": {e.msg}"
+                raise SnowflakeWarehouseSuspendedError(err_msg)
+
             raise SnowflakeFileNotLoadedError(
                 table_name,
                 "NO STATUS",
