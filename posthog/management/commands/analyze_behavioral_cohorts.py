@@ -1,3 +1,4 @@
+import json
 import time
 import logging
 from typing import Any
@@ -125,6 +126,7 @@ class Command(BaseCommand):
 
         # Add LIMIT clause if specified
         limit_clause = f"LIMIT {int(limit)}" if limit else ""
+
         query = f"""
             SELECT DISTINCT
                 team_id,
@@ -135,6 +137,7 @@ class Command(BaseCommand):
             ORDER BY team_id, cohort_id, condition
             {limit_clause}
         """
+
         try:
             results = sync_execute(query, params)
             return [
@@ -174,7 +177,15 @@ class Command(BaseCommand):
             # Only log every 100th condition to avoid spam
             if idx % 500 == 0 or idx == total_conditions:
                 logger.info(f"Progress: {idx}/{total_conditions}")
-            query = """
+            log_comment = json.dumps(
+                {
+                    "source": "analyze_behavioral_cohorts",
+                    "operation": "get_cohort_memberships",
+                    "cohort_id": cohort_id,
+                }
+            )
+
+            query = f"""
                 SELECT
                     person_id
                 FROM behavioral_cohorts_matches
@@ -185,7 +196,9 @@ class Command(BaseCommand):
                     AND date >= now() - toIntervalDay(%(days)s)
                     AND matches >= %(min_matches)s
                 LIMIT 100000
+                SETTINGS log_comment = '{log_comment}'
             """
+
             try:
                 results = sync_execute(
                     query,
