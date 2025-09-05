@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconInfo, IconPlay, IconRedo } from '@posthog/icons'
+import { IconInfo, IconPlay, IconPlayFilled, IconRedo } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -146,14 +146,28 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
             {/* footer */}
             <div className="p-2">
                 {testResult ? (
-                    <LemonButton
-                        type="primary"
-                        onClick={() => setTestResult(null)}
-                        loading={isTestInvocationSubmitting}
-                        data-attr="clear-workflow-test-panel-new-result"
-                    >
-                        Clear test result
-                    </LemonButton>
+                    <div className="flex justify-end gap-2">
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => setTestResult(null)}
+                            loading={isTestInvocationSubmitting}
+                            data-attr="clear-workflow-test-panel-new-result"
+                        >
+                            Clear test result
+                        </LemonButton>
+
+                        {selectedNode?.data?.type !== 'exit' && (
+                            <LemonButton
+                                type="primary"
+                                onClick={() => submitTestInvocation()}
+                                icon={<IconPlayFilled />}
+                                loading={isTestInvocationSubmitting}
+                                data-attr="continue-workflow-test-panel-new"
+                            >
+                                Continue
+                            </LemonButton>
+                        )}
+                    </div>
                 ) : (
                     <>
                         <div className="flex flex-col gap-2">
