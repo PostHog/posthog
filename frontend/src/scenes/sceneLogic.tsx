@@ -394,7 +394,7 @@ export const sceneLogic = kea<sceneLogicType>([
             (sceneId: Scene, featureFlags): SceneConfig | null => {
                 const config = sceneConfigurations[sceneId] || null
                 if (sceneId === Scene.SQLEditor && featureFlags[FEATURE_FLAGS.SCENE_TABS]) {
-                    return { ...config, layout: 'app' }
+                    return { ...config, layout: 'app-raw' }
                 }
                 return config
             },
