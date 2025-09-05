@@ -6,10 +6,10 @@ import posthog from 'posthog-js'
 import { EventType, customEvent, eventWithTime } from '@posthog/rrweb-types'
 
 import api from 'lib/api'
-import { ItemCache } from 'lib/components/SessionTimeline/timeline'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { chainToElements } from 'lib/utils/elements-chain'
+import { TimeTree } from 'lib/utils/time-tree'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import {
@@ -464,17 +464,18 @@ AND properties.$lib != 'web'`
             (s) => [s.sessionEventsData],
             (
                 sessionEventsData
-            ): ItemCache<{
-                id: string
+            ): TimeTree<{
                 timestamp: Dayjs
                 payload: ViewportResolution
             }> => {
-                const viewportEvents = new ItemCache()
+                const viewportEvents = new TimeTree<{
+                    timestamp: Dayjs
+                    payload: ViewportResolution
+                }>()
                 viewportEvents.add(
                     (sessionEventsData || [])
                         .filter((e) => e.properties.$viewport_width && e.properties.$viewport_height)
                         .map((e) => ({
-                            id: e.id,
                             timestamp: dayjs(e.timestamp),
                             payload: {
                                 width: e.properties.$viewport_width,
