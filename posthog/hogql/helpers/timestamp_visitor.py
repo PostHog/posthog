@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Optional
 
@@ -216,7 +217,7 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
         return all(self.visit(arg) for arg in node.exprs)
 
 
-class IsStartOfPeriodConstantVisitor(Visitor[bool]):
+class IsStartOfPeriodConstantVisitor(Visitor[bool], ABC):
     constant_fns: list[str]
     constant_if_first_arg_constant_fns: list[str]
     interval_fns: list[str]
@@ -224,6 +225,7 @@ class IsStartOfPeriodConstantVisitor(Visitor[bool]):
     def __init__(self, tombstone_string: Optional[str]):
         self.tombstone_string = tombstone_string
 
+    @abstractmethod
     def check_parsed(self, parsed: datetime) -> bool:
         raise NotImplementedError("check_parsed must be implemented in subclasses")
 
@@ -355,7 +357,8 @@ def is_start_of_hour_constant(expr: ast.Expr, tombstone_string: Optional[str] = 
     return IsStartOfHourConstantVisitor(tombstone_string).visit(expr)
 
 
-class IsEndOfPeriodConstantVisitor(Visitor[bool]):
+class IsEndOfPeriodConstantVisitor(Visitor[bool], ABC):
+    @abstractmethod
     def check_parsed(self, parsed: datetime) -> bool:
         raise NotImplementedError("check_parsed must be implemented in subclasses")
 
