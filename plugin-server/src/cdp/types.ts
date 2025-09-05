@@ -190,6 +190,7 @@ export type MinimalAppMetric = {
         | 'filtered'
         | 'disabled_temporarily'
         | 'disabled_permanently'
+        | 'rate_limited'
         | 'masked'
         | 'filtering_failed'
         | 'inputs_failed'
