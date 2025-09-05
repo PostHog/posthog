@@ -378,12 +378,9 @@ describe('Hogflow Executor', () => {
                 const result1 = await executor.executeCurrentAction(invocation)
                 expect(result1.finished).toBe(false)
                 expect(result1.invocation.state.currentAction?.id).toBe('function_id_1')
-                console.log('result1', result1.logs)
-                expect(result1.logs.map((log) => log.message)).toMatchInlineSnapshot(`
-                    [
-                      "Workflow moved to action 'function (function_id_1)'",
-                    ]
-                `)
+                expect(result1.logs.map((log) => log.message)).toEqual([
+                    "Workflow moved to action 'function (function_id_1)'",
+                ])
 
                 // Second step: should process function_id_1 and move to exit, but not complete
                 const result2 = await executor.execute(result1.invocation)
@@ -431,9 +428,11 @@ describe('Hogflow Executor', () => {
         }
 
         describe('early exit conditions', () => {
-            it('should not exit early if exit condition is exit_only_at_end', async () => {
+            let hogFlow: HogFlow
+
+            beforeEach(async () => {
                 // Setup: exit if person no longer matches trigger filters
-                const hogFlow = new FixtureHogFlowBuilder()
+                hogFlow = new FixtureHogFlowBuilder()
                     .withExitCondition('exit_only_at_end')
                     .withWorkflow({
                         actions: {
@@ -467,7 +466,9 @@ describe('Hogflow Executor', () => {
                         ],
                     })
                     .build()
+            })
 
+            it('should not exit early if exit condition is exit_only_at_end', async () => {
                 const invocation = createExampleHogFlowInvocation(hogFlow, {
                     event: {
                         ...createHogExecutionGlobals().event,
@@ -478,153 +479,67 @@ describe('Hogflow Executor', () => {
 
                 // Step 1: run first action (function_id_1)
                 const result1 = await executor.execute(invocation)
-                expect(result1.finished).toBe(false)
-                expect(
-                    result1.metrics.some((m) => m.instance_id === 'function_id_1' && m.metric_name === 'succeeded')
-                ).toBe(true)
+                expect(result1.finished).toBe(true)
+                expect(result1.metrics.map((m) => m.metric_name)).toEqual(['succeeded', 'succeeded'])
 
-                // Simulate person data changing so they no longer match the trigger filter
-                const origPerson = result1.invocation.person || { id: 'person_id', name: '', properties: {}, url: '' }
-                const origState = result1.invocation.state
-                const origEvent = origState.event
-                const invocation2 = {
-                    ...result1.invocation,
-                    person: {
-                        ...origPerson,
-                        properties: { ...origPerson.properties, $current_url: undefined },
+                const invocation2 = createExampleHogFlowInvocation(hogFlow, {
+                    event: {
+                        ...createHogExecutionGlobals().event,
+                        event: 'not-a-pageview',
+                        properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
                     },
-                    state: {
-                        ...origState,
-                        event: {
-                            ...origEvent,
-                            event: 'not-a-pageview',
-                        },
-                        currentAction: { id: 'exit', startedAtTimestamp: DateTime.now().toMillis() },
-                    },
-                }
+                })
 
                 // Step 2: run again, should NOT exit early due to exit_only_at_end
-                const result2 = await executor.execute(invocation2 as any)
+                const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
-                expect(
-                    result2.logs.some((log) => log.message.includes('Workflow exited early due to exit condition'))
-                ).toBe(false)
-                expect(result2.metrics.some((metric) => metric.metric_name === 'filtered')).toBe(false)
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['succeeded', 'succeeded'])
             })
 
             it('should exit early if exit condition is exit_on_conversion', async () => {
-                // Setup: exit if conversion event is seen
-                const hogFlow = new FixtureHogFlowBuilder()
-                    .withExitCondition('exit_on_conversion')
-                    .withWorkflow({
-                        actions: {
-                            trigger: {
-                                type: 'trigger',
-                                config: {
-                                    type: 'event',
-                                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
-                                },
-                            },
-                            function_id_1: {
-                                type: 'function',
-                                config: {
-                                    template_id: 'template-test-hogflow-executor',
-                                    inputs: {
-                                        name: {
-                                            value: `Mr {event?.properties?.name}`,
-                                            bytecode: await compileHog(`return f'Mr {event?.properties?.name}'`),
-                                        },
-                                    },
-                                },
-                            },
-                            exit: {
-                                type: 'exit',
-                                config: {},
-                            },
-                        },
-                        edges: [
-                            { from: 'trigger', to: 'function_id_1', type: 'continue' },
-                            { from: 'function_id_1', to: 'exit', type: 'continue' },
-                        ],
-                    })
-                    .build()
+                hogFlow.exit_condition = 'exit_on_conversion'
+                hogFlow.conversion = {
+                    window_minutes: 10,
+                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
+                }
 
-                // Simulate a conversion event
+                // Simulate a non-conversion event
                 const invocation = createExampleHogFlowInvocation(hogFlow, {
+                    event: {
+                        ...createHogExecutionGlobals().event,
+                        event: '$not-a-pageview',
+                        properties: { name: 'John Doe', $current_url: 'https://posthog.com', conversion: true },
+                    },
+                })
+
+                const result1 = await executor.execute(invocation)
+                expect(result1.finished).toBe(true)
+                expect(result1.metrics.map((m) => m.metric_name)).toEqual(['succeeded', 'succeeded'])
+
+                const invocation2 = createExampleHogFlowInvocation(hogFlow, {
                     event: {
                         ...createHogExecutionGlobals().event,
                         event: '$pageview',
                         properties: { name: 'John Doe', $current_url: 'https://posthog.com', conversion: true },
                     },
                 })
-
-                // Step 1: run first action (function_id_1)
-                const result1 = await executor.execute(invocation)
-                expect(result1.finished).toBe(false)
-
-                // Simulate conversion detected (implementation may vary, adjust as needed)
-                const origPerson = result1.invocation.person || { id: 'person_id', name: '', properties: {}, url: '' }
-                const origState = result1.invocation.state
-                const origEvent = origState.event
-                const invocation2 = {
-                    ...result1.invocation,
-                    person: origPerson,
-                    state: {
-                        ...origState,
-                        event: {
-                            ...origEvent,
-                            properties: { ...origEvent.properties, conversion: true },
-                        },
-                        currentAction: { id: 'exit', startedAtTimestamp: DateTime.now().toMillis() },
-                    },
-                }
-
-                // Step 2: run again, should exit early due to conversion
-                const result2 = await executor.execute(invocation2 as any)
+                const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
-                expect(
-                    result2.logs.some((log) => log.message.includes('Workflow exited early due to exit condition'))
-                ).toBe(true)
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
+                expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
+                    [
+                      "Workflow exited early due to exit condition: exit_on_conversion (Person matches conversion filters)",
+                    ]
+                `)
             })
 
             it('should exit early if exit condition is exit_on_trigger_not_matched', async () => {
-                // Setup: exit if person no longer matches trigger filters
-                const hogFlow = new FixtureHogFlowBuilder()
-                    .withExitCondition('exit_on_trigger_not_matched')
-                    .withWorkflow({
-                        actions: {
-                            trigger: {
-                                type: 'trigger',
-                                config: {
-                                    type: 'event',
-                                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
-                                },
-                            },
-                            function_id_1: {
-                                type: 'function',
-                                config: {
-                                    template_id: 'template-test-hogflow-executor',
-                                    inputs: {
-                                        name: {
-                                            value: `Mr {event?.properties?.name}`,
-                                            bytecode: await compileHog(`return f'Mr {event?.properties?.name}'`),
-                                        },
-                                    },
-                                },
-                            },
-                            exit: {
-                                type: 'exit',
-                                config: {},
-                            },
-                        },
-                        edges: [
-                            { from: 'trigger', to: 'function_id_1', type: 'continue' },
-                            { from: 'function_id_1', to: 'exit', type: 'continue' },
-                        ],
-                    })
-                    .build()
+                hogFlow.exit_condition = 'exit_on_trigger_not_matched'
+                hogFlow.trigger = {
+                    type: 'event',
+                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
+                }
 
-                // Step 1: event matches trigger filters
                 const invocation1 = createExampleHogFlowInvocation(hogFlow, {
                     event: {
                         ...createHogExecutionGlobals().event,
@@ -634,79 +549,53 @@ describe('Hogflow Executor', () => {
                 })
 
                 const result1 = await executor.execute(invocation1)
-                expect(result1.finished).toBe(false)
-                // Should NOT exit early on first invocation
-                expect(
-                    result1.logs.some((log) => log.message.includes('Workflow exited early due to exit condition'))
-                ).toBe(false)
+                expect(result1.finished).toBe(true)
+                expect(result1.metrics.map((m) => m.metric_name)).toEqual(['succeeded', 'succeeded'])
 
-                // Step 2: event does NOT match trigger filters
-                const origPerson = result1.invocation.person || { id: 'person_id', name: '', properties: {}, url: '' }
-                const origState = result1.invocation.state
-                const origEvent = origState.event
-                const invocation2 = {
-                    ...result1.invocation,
-                    person: {
-                        ...origPerson,
-                        properties: { ...origPerson.properties, $current_url: undefined },
+                const invocation2 = createExampleHogFlowInvocation(hogFlow, {
+                    event: {
+                        ...createHogExecutionGlobals().event,
+                        event: '$not-a-pageview',
+                        properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
                     },
-                    state: {
-                        ...origState,
-                        event: {
-                            ...origEvent,
-                            event: 'not-a-pageview',
-                        },
-                        currentAction: { id: 'exit', startedAtTimestamp: DateTime.now().toMillis() },
-                    },
-                }
+                })
 
-                const result2 = await executor.execute(invocation2 as any)
+                const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
-                expect(
-                    result2.logs.some((log) => log.message.includes('Workflow exited early due to exit condition'))
-                ).toBe(true)
-                expect(result2.metrics.some((metric) => metric.metric_name === 'filtered')).toBe(true)
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
+                expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
+                    [
+                      "Workflow exited early due to exit condition: exit_on_trigger_not_matched (Person no longer matches trigger filters)",
+                    ]
+                `)
             })
 
             it('should exit early if exit condition is exit_on_trigger_not_matched_or_conversion', async () => {
                 // Setup: exit if person no longer matches trigger filters or conversion event is seen
-                const hogFlow = new FixtureHogFlowBuilder()
-                    .withExitCondition('exit_on_trigger_not_matched_or_conversion')
-                    .withWorkflow({
-                        actions: {
-                            trigger: {
-                                type: 'trigger',
-                                config: {
-                                    type: 'event',
-                                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
-                                },
-                            },
-                            function_id_1: {
-                                type: 'function',
-                                config: {
-                                    template_id: 'template-test-hogflow-executor',
-                                    inputs: {
-                                        name: {
-                                            value: `Mr {event?.properties?.name}`,
-                                            bytecode: await compileHog(`return f'Mr {event?.properties?.name}'`),
-                                        },
-                                    },
-                                },
-                            },
-                            exit: {
-                                type: 'exit',
-                                config: {},
-                            },
-                        },
-                        edges: [
-                            { from: 'trigger', to: 'function_id_1', type: 'continue' },
-                            { from: 'function_id_1', to: 'exit', type: 'continue' },
-                        ],
-                    })
-                    .build()
+                hogFlow.exit_condition = 'exit_on_trigger_not_matched_or_conversion'
+                hogFlow.trigger = {
+                    type: 'event',
+                    filters: HOG_FILTERS_EXAMPLES.no_filters.filters,
+                }
+                hogFlow.conversion = {
+                    window_minutes: 10,
+                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
+                }
 
                 // Simulate person data changing so they no longer match the trigger filter
                 const invocation = createExampleHogFlowInvocation(hogFlow, {
+                    event: {
+                        ...createHogExecutionGlobals().event,
+                        event: '$not-a-pageview',
+                        properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                    },
+                })
+
+                const result1 = await executor.execute(invocation)
+                expect(result1.finished).toBe(true)
+                expect(result1.metrics.map((m) => m.metric_name)).toEqual(['succeeded', 'succeeded'])
+
+                const invocation2 = createExampleHogFlowInvocation(hogFlow, {
                     event: {
                         ...createHogExecutionGlobals().event,
                         event: '$pageview',
@@ -714,56 +603,14 @@ describe('Hogflow Executor', () => {
                     },
                 })
 
-                // Step 1: run first action (function_id_1)
-                const result1 = await executor.execute(invocation)
-                expect(result1.finished).toBe(false)
-
-                // Simulate trigger not matched
-                const origPerson = result1.invocation.person || { id: 'person_id', name: '', properties: {}, url: '' }
-                const origState = result1.invocation.state
-                const origEvent = origState.event
-                const invocation2 = {
-                    ...result1.invocation,
-                    person: {
-                        ...origPerson,
-                        properties: { ...origPerson.properties, $current_url: undefined },
-                    },
-                    state: {
-                        ...origState,
-                        event: {
-                            ...origEvent,
-                            event: 'not-a-pageview',
-                        },
-                        currentAction: { id: 'exit', startedAtTimestamp: DateTime.now().toMillis() },
-                    },
-                }
-
-                // Step 2: run again, should exit early due to trigger not matched
-                const result2 = await executor.execute(invocation2 as any)
+                const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
-                expect(
-                    result2.logs.some((log) => log.message.includes('Workflow exited early due to exit condition'))
-                ).toBe(true)
-                expect(result2.metrics.some((metric) => metric.metric_name === 'filtered')).toBe(true)
-
-                // Simulate conversion event (should also exit early)
-                const invocation3 = {
-                    ...result1.invocation,
-                    person: origPerson,
-                    state: {
-                        ...origState,
-                        event: {
-                            ...origEvent,
-                            properties: { ...origEvent.properties, conversion: true },
-                        },
-                        currentAction: { id: 'exit', startedAtTimestamp: DateTime.now().toMillis() },
-                    },
-                }
-                const result3 = await executor.execute(invocation3 as any)
-                expect(result3.finished).toBe(true)
-                expect(
-                    result3.logs.some((log) => log.message.includes('Workflow exited early due to exit condition'))
-                ).toBe(true)
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
+                expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
+                    [
+                      "Workflow exited early due to exit condition: exit_on_trigger_not_matched_or_conversion (Person matches conversion filters)",
+                    ]
+                `)
             })
         })
 

@@ -267,7 +267,7 @@ export class HogFlowExecutorService {
                 app_source_id: hogFlow.id,
                 instance_id: invocation.state?.currentAction?.id || 'exit_condition',
                 metric_kind: 'other',
-                metric_name: 'filtered',
+                metric_name: 'early_exit',
                 count: 1,
             })
         }
