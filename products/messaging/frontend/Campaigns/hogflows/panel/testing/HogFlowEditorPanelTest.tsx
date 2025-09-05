@@ -218,44 +218,42 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                         ]}
                     />
                 </div>
-                {testResult && (
-                    <>
-                        <LemonDivider className="my-0" />
-                        <div className="flex flex-col flex-1 gap-2 p-2">
-                            <div data-attr="test-results" className="flex flex-col gap-2">
-                                <h3 className="mb-0">Test results</h3>
-                                <LemonBanner
-                                    type={
-                                        testResult.status === 'success'
-                                            ? 'success'
-                                            : testResult.status === 'skipped'
-                                              ? 'warning'
-                                              : 'error'
-                                    }
-                                >
-                                    {testResult.status === 'success'
-                                        ? 'Success'
+                <LemonDivider className="my-0" />
+                <div className="flex flex-col flex-1 gap-2 p-2">
+                    <h3 className="mb-0">Test results</h3>
+                    {!testResult ? (
+                        <div className="flex flex-col gap-2">Results will appear here</div>
+                    ) : (
+                        <>
+                            <LemonBanner
+                                type={
+                                    testResult.status === 'success'
+                                        ? 'success'
                                         : testResult.status === 'skipped'
-                                          ? 'Workflow was skipped because the event did not match the filter criteria'
-                                          : 'Error: ' + testResult.errors?.join(', ')}
-                                </LemonBanner>
+                                          ? 'warning'
+                                          : 'error'
+                                }
+                            >
+                                {testResult.status === 'success'
+                                    ? 'Success'
+                                    : testResult.status === 'skipped'
+                                      ? 'Workflow was skipped because the event did not match the filter criteria'
+                                      : 'Error: ' + testResult.errors?.join(', ')}
+                            </LemonBanner>
 
-                                <div className="flex flex-col gap-2">
-                                    <LemonLabel>Logs</LemonLabel>
+                            <div className="flex flex-col gap-2">
+                                <LemonLabel>Logs</LemonLabel>
 
-                                    <LogsViewerTable
-                                        instanceLabel="workflow run"
-                                        renderMessage={(m) => renderWorkflowLogMessage(campaign, m)}
-                                        dataSource={testResult.logs ?? []}
-                                        renderColumns={(columns) =>
-                                            columns.filter((column) => column.key !== 'instanceId')
-                                        }
-                                    />
-                                </div>
+                                <LogsViewerTable
+                                    instanceLabel="workflow run"
+                                    renderMessage={(m) => renderWorkflowLogMessage(campaign, m)}
+                                    dataSource={testResult.logs ?? []}
+                                    renderColumns={(columns) => columns.filter((column) => column.key !== 'instanceId')}
+                                />
                             </div>
-                        </div>
-                    </>
-                )}
+                        </>
+                    )}
+                </div>
             </div>
         </Form>
     )
