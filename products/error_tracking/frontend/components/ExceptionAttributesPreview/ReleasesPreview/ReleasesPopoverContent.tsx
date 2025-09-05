@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { IconCopy, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
-import { ExceptionRelease } from 'lib/components/Errors/types'
+import { ExceptionReleaseGitMeta } from 'lib/components/Errors/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
@@ -24,13 +24,13 @@ export function ReleasePopoverContent({}: ReleasesPopoverContentProps): JSX.Elem
                 <h4 className="mb-0">{title}</h4>
             </div>
             <div className="p-2">
-                <MostProbableRelease release={releasePreviewData.mostProbableRelease} />
+                <MostProbableRelease release={releasePreviewData.mostProbableRelease!} />
             </div>
         </div>
     )
 }
 
-function MostProbableRelease({ release }: { release: ExceptionRelease }): JSX.Element {
+function MostProbableRelease({ release }: { release: ExceptionReleaseGitMeta }): JSX.Element {
     return (
         <div className="space-y-2">
             <div className="flex items-center gap-2">
