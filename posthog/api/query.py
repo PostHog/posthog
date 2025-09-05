@@ -252,14 +252,14 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         return Response({"query": upgraded_query["query"]}, status=200)
 
     @extend_schema(
-        description="Get query log details from query_log_archive table for a specific query_id",
+        description="Get query log details from query_log_archive table for a specific query_id, the query must have been issued in last 24 hours.",
         responses={200: "Query log details"},
     )
     @action(methods=["GET"], detail=True, url_path="log")
     def get_query_log(self, request: Request, pk: str, *args, **kwargs) -> Response:
         try:
             query = HogQLQuery(
-                query="select * from query_log where query_id = {client_query_id}",
+                query="select * from query_log where query_id = {client_query_id} and event_date > now() - interval 1 day",
                 values={
                     "client_query_id": pk,
                 },
