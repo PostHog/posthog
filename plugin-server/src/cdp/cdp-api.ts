@@ -477,7 +477,7 @@ export class CdpApi {
                   }
                 : undefined
 
-            const result = await this.hogFlowExecutor.executeTest(invocation)
+            const result = await this.hogFlowExecutor.executeCurrentAction(invocation)
 
             res.json({
                 result,

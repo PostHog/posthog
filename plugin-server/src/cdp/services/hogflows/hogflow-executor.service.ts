@@ -25,13 +25,14 @@ import { DelayHandler } from './actions/delay'
 import { ExitHandler } from './actions/exit.handler'
 import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
+import { TriggerHandler } from './actions/trigger.handler'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
 import { ensureCurrentAction, findContinueAction, shouldSkipAction } from './hogflow-utils'
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
 
 export class HogFlowExecutorService {
-    private readonly actionHandlers: Map<string, ActionHandler>
+    private readonly actionHandlers: Record<HogFlowAction['type'], ActionHandler>
 
     constructor(
         private hub: Hub,
@@ -39,7 +40,25 @@ export class HogFlowExecutorService {
         private hogFunctionTemplateManager: HogFunctionTemplateManagerService,
         private recipientPreferencesService: RecipientPreferencesService
     ) {
-        this.actionHandlers = this.initializeActionHandlers()
+        const hogFunctionHandler = new HogFunctionHandler(
+            this.hub,
+            this.hogFunctionExecutor,
+            this.hogFunctionTemplateManager,
+            this.recipientPreferencesService
+        )
+
+        this.actionHandlers = {
+            trigger: new TriggerHandler(),
+            conditional_branch: new ConditionalBranchHandler(),
+            wait_until_condition: new ConditionalBranchHandler(),
+            delay: new DelayHandler(),
+            wait_until_time_window: new WaitUntilTimeWindowHandler(),
+            random_cohort_branch: new RandomCohortBranchHandler(),
+            function: hogFunctionHandler,
+            function_sms: hogFunctionHandler,
+            function_email: hogFunctionHandler,
+            exit: new ExitHandler(),
+        }
     }
 
     public createHogFlowInvocation(
@@ -171,15 +190,6 @@ export class HogFlowExecutorService {
         return result
     }
 
-    // Like execute but performs a single action in the flow, logging delays and async function calls rather than performing them
-    async executeTest(
-        invocation: CyclotronJobInvocationHogFlow
-    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
-        const result = await this.executeCurrentAction(invocation)
-
-        return result
-    }
-
     /**
      * Determines if the invocation should exit early based on the hogflow's exit condition
      */
@@ -265,7 +275,7 @@ export class HogFlowExecutorService {
         return earlyExitResult
     }
 
-    private async executeCurrentAction(
+    public async executeCurrentAction(
         invocation: CyclotronJobInvocationHogFlow
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation)
@@ -274,7 +284,6 @@ export class HogFlowExecutorService {
         try {
             const currentAction = ensureCurrentAction(invocation)
 
-            // TODO: Add early condition for continuing a hog function
             if (await shouldSkipAction(invocation, currentAction)) {
                 this.logAction(result, currentAction, 'info', `Skipped due to filter conditions`)
                 this.goToNextAction(result, currentAction, findContinueAction(invocation), 'filtered')
@@ -287,7 +296,7 @@ export class HogFlowExecutorService {
                 invocation,
             })
 
-            const handler = this.actionHandlers.get(currentAction.type)
+            const handler = this.actionHandlers[currentAction.type]
             if (!handler) {
                 throw new Error(`Action type '${currentAction.type}' not supported`)
             }

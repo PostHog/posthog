@@ -150,31 +150,6 @@ describe('Hogflow Executor', () => {
                 .build()
         })
 
-        it('executes only a single step at a time in debugMode', async () => {
-            const invocation = createExampleHogFlowInvocation(hogFlow, {
-                event: {
-                    ...createHogExecutionGlobals().event,
-                    properties: {
-                        name: 'Debug User',
-                    },
-                },
-            })
-
-            // First step: should process trigger and move to function_id_1, but not complete
-            const result1 = await executor.execute(invocation)
-            expect(result1.finished).toBe(false)
-            expect(result1.invocation.state.currentAction?.id).toBe('function_id_1')
-            expect(result1.logs.some((log) => log.message.includes("Workflow moved to action 'function_id_1"))).toBe(
-                true
-            )
-
-            // Second step: should process function_id_1 and move to exit, but not complete
-            const result2 = await executor.execute(result1.invocation)
-            expect(result2.finished).toBe(false)
-            expect(result2.invocation.state.currentAction?.id).toBe('exit')
-            expect(result2.logs.some((log) => log.message.includes("Workflow moved to action 'exit"))).toBe(true)
-        })
-
         it('can execute a simple hogflow', async () => {
             const invocation = createExampleHogFlowInvocation(hogFlow, {
                 event: {
@@ -378,6 +353,49 @@ describe('Hogflow Executor', () => {
                     metric_kind: 'other',
                     metric_name: 'filtered',
                 })
+            })
+        })
+
+        describe('executeTest', () => {
+            it('executes only a single step at a time', async () => {
+                const invocation = createExampleHogFlowInvocation(hogFlow, {
+                    event: {
+                        ...createHogExecutionGlobals().event,
+                        properties: {
+                            name: 'Debug User',
+                        },
+                    },
+                })
+
+                // NOTE: Slightly contrived as we dont set the current action to trigger when creating the invocation
+                // but we do support it technically from the frontend
+                invocation.state.currentAction = {
+                    id: 'trigger',
+                    startedAtTimestamp: DateTime.now().toMillis(),
+                }
+
+                // First step: should process trigger and move to function_id_1, but not complete
+                const result1 = await executor.executeCurrentAction(invocation)
+                expect(result1.finished).toBe(false)
+                expect(result1.invocation.state.currentAction?.id).toBe('function_id_1')
+                console.log('result1', result1.logs)
+                expect(result1.logs.map((log) => log.message)).toMatchInlineSnapshot(`
+                    [
+                      "Workflow moved to action 'function (function_id_1)'",
+                    ]
+                `)
+
+                // Second step: should process function_id_1 and move to exit, but not complete
+                const result2 = await executor.execute(result1.invocation)
+                expect(result2.finished).toBe(true)
+                expect(result2.invocation.state.currentAction?.id).toBe('exit')
+                expect(result2.logs.map((log) => log.message)).toEqual([
+                    '[Action:function_id_1] Hello, Mr Debug User!',
+                    '[Action:function_id_1] Fetch 1, 200',
+                    expect.stringContaining('[Action:function_id_1] Function completed in'),
+                    "Workflow moved to action 'exit (exit)'",
+                    'Workflow completed',
+                ])
             })
         })
     })
