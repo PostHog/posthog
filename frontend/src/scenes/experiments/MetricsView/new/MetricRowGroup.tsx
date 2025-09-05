@@ -56,6 +56,7 @@ interface MetricRowGroupProps {
     error?: any
     isLoading?: boolean
     hasMinimumExposureForResults?: boolean
+    exposuresLoading?: boolean
     showDetailsModal: boolean
 }
 
@@ -73,6 +74,7 @@ export function MetricRowGroup({
     error,
     isLoading,
     hasMinimumExposureForResults = true,
+    exposuresLoading = false,
     showDetailsModal,
 }: MetricRowGroupProps): JSX.Element {
     const [isModalOpen, setIsModalOpen] = useState(false)
@@ -203,7 +205,7 @@ export function MetricRowGroup({
                     }`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
-                    {isLoading ? (
+                    {isLoading || exposuresLoading ? (
                         <ChartLoadingState height={CELL_HEIGHT} />
                     ) : (
                         <ChartEmptyState

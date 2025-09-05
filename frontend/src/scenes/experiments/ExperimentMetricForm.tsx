@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -98,9 +97,6 @@ export function ExperimentMetricForm({
     const [eventCount, setEventCount] = useState<number | null>(null)
     const [isLoading, setIsLoading] = useState(false)
 
-    // if the metric already is a ratio metric, we want to show the option regardless of the feature state
-    const isRatioMetricEnabled = useFeatureFlag('EXPERIMENTS_RATIO_METRIC') || isExperimentRatioMetric(metric)
-
     const getEventTypeLabel = (): string => {
         if (isExperimentMeanMetric(metric)) {
             return metric.source.kind === NodeKind.ActionsNode ? 'actions' : 'events'
@@ -145,16 +141,12 @@ export function ExperimentMetricForm({
             description:
                 'Calculates the value per user exposed to the experiment. Useful for measuring count of clicks, revenue or other numeric values.',
         },
-        ...(isRatioMetricEnabled
-            ? [
-                  {
-                      value: ExperimentMetricType.RATIO,
-                      label: 'Ratio',
-                      description:
-                          'Calculates the ratio between two metrics. Useful when you want to use a different denominator than users exposed to the experiment.',
-                  },
-              ]
-            : []),
+        {
+            value: ExperimentMetricType.RATIO,
+            label: 'Ratio',
+            description:
+                'Calculates the ratio between two metrics. Useful when you want to use a different denominator than users exposed to the experiment.',
+        },
     ]
 
     const metricFilter = getFilter(metric)

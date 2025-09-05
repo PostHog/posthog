@@ -3,7 +3,7 @@ import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dn
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 
-import { IconCopy, IconPlus, IconSearch, IconX } from '@posthog/icons'
+import { IconPlus, IconSearch, IconShare, IconX } from '@posthog/icons'
 
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -28,7 +28,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const { tabs } = useValues(sceneLogic)
     const { newTab, reorderTabs } = useActions(sceneLogic)
     const { toggleSearchBar } = useActions(commandBarLogic)
-    const { isLayoutPanelPinned } = useValues(panelLayoutLogic)
+    const { isLayoutPanelVisible } = useValues(panelLayoutLogic)
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
@@ -41,12 +41,12 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     return (
         <div
             className={cn(
-                'flex items-center w-full bg-surface-tertiary z-[var(--z-top-navigation)] pr-1.5 border-b border-primary relative',
+                'h-[var(--scene-layout-header-height)] flex items-center w-full bg-surface-tertiary z-[var(--z-top-navigation)] pr-1.5 border-b border-primary relative',
                 className
             )}
         >
             {/* rounded corner on the left to make scene curve into tab line */}
-            {!isLayoutPanelPinned && (
+            {!isLayoutPanelVisible && (
                 <div className="absolute left-0 -bottom-1 size-2 bg-surface-tertiary">
                     <div className="relative -bottom-1 size-2 border-l border-t border-primary rounded-tl bg-primary" />
                 </div>
@@ -133,37 +133,29 @@ function SortableSceneTab({ tab }: { tab: SceneTab }): JSX.Element {
                     </SceneTabContextMenu>
                 </HoverCardTrigger>
                 <HoverCardContent
-                    className="break-all"
+                    className="break-words"
                     onPointerDown={(e) => e.stopPropagation()}
                     onMouseDown={(e) => e.stopPropagation()}
                 >
-                    <div className="flex flex-col gap-1">
-                        <span className="text-primary text-sm font-semibold">{tab.title}</span>
-                        <span className="text-secondary text-xs flex items-center gap-1">
-                            <span>
-                                {window.location.origin}
-                                {tab.pathname}
-                            </span>
-                            <ButtonPrimitive
-                                iconOnly
-                                size="xs"
-                                tooltip="Copy tab URL with pathname, search, and hash"
-                                className="text-primary"
-                                onClick={() => {
-                                    try {
-                                        navigator.clipboard.writeText(
-                                            `${window.location.origin}${tab.pathname}${tab.search}${tab.hash}`
-                                        )
-                                        lemonToast.success('URL copied to clipboard')
-                                    } catch (error) {
-                                        lemonToast.error(`Failed to copy URL to clipboard ${error}`)
-                                    }
-                                }}
-                            >
-                                <IconCopy />
-                            </ButtonPrimitive>
-                        </span>
-                    </div>
+                    <ButtonPrimitive
+                        iconOnly
+                        size="xs"
+                        tooltip="Copy tab URL for sharing"
+                        className="text-primary float-right"
+                        onClick={() => {
+                            try {
+                                navigator.clipboard.writeText(
+                                    `${window.location.origin}${tab.pathname}${tab.search}${tab.hash}`
+                                )
+                                lemonToast.success('URL copied to clipboard')
+                            } catch (error) {
+                                lemonToast.error(`Failed to copy URL to clipboard ${error}`)
+                            }
+                        }}
+                    >
+                        <IconShare />
+                    </ButtonPrimitive>
+                    <span className="text-primary text-sm font-semibold">{tab.title}</span>
                 </HoverCardContent>
             </HoverCard>
         </div>
