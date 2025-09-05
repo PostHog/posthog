@@ -9,10 +9,15 @@ from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
+from posthog.temporal.data_imports.sources.linkedin_ads.client import (
+    FLOAT_FIELDS,
+    RESOURCE_SCHEMAS,
+    URN_COLUMNS,
+    VIRTUAL_COLUMN_URN_MAPPING,
+    LinkedinAdsClient,
+    LinkedinAdsResource,
+)
 from posthog.warehouse.types import IncrementalFieldType
-
-from .client import LinkedinAdsClient, LinkedinAdsResource
-from .schemas import FLOAT_FIELDS, RESOURCE_SCHEMAS, URN_COLUMNS, VIRTUAL_COLUMN_URN_MAPPING
 
 
 @dataclass
