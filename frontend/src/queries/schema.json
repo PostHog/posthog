@@ -21701,11 +21701,16 @@
                 "goal": {
                     "type": "number"
                 },
+                "mrr_or_gross": {
+                    "default": "gross",
+                    "enum": ["mrr", "gross"],
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 }
             },
-            "required": ["name", "due_date", "goal"],
+            "required": ["name", "due_date", "goal", "mrr_or_gross"],
             "type": "object"
         },
         "RevenueAnalyticsGrossRevenueQuery": {
