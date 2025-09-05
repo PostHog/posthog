@@ -96,12 +96,6 @@ pub struct FlagsQueryParams {
     /// e.g. https://us.posthog.com/flags?v=2&config=true
     #[serde(default, deserialize_with = "deserialize_optional_bool")]
     pub config: Option<bool>,
-
-    /// Optional parameter to use legacy decide response formats (v1 or v2)
-    /// This is for backward compatibility with older clients that expect the original decide formats
-    /// e.g. https://us.posthog.com/flags?legacy_decide_v=1
-    #[serde(default, deserialize_with = "empty_string_as_none")]
-    pub legacy_decide_v: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]

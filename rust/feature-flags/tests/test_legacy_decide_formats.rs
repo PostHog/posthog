@@ -11,8 +11,8 @@ use feature_flags::utils::test_utils::{
 pub mod common;
 
 /// Integration test for legacy decide v1 format
-/// Tests that when legacy_decide_v=1 is passed, the response contains
-/// featureFlags as an array of strings (active flag keys only)
+/// Tests that when X-Original-Endpoint: decide header is present and v=1 query param is passed,
+/// the response contains featureFlags as an array of strings (active flag keys only)
 #[tokio::test]
 async fn test_legacy_decide_v1_format() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
@@ -102,10 +102,11 @@ async fn test_legacy_decide_v1_format() -> Result<()> {
         "distinct_id": distinct_id,
     });
 
-    // Make request with legacy_decide_v=1 parameter
+    // Make request with X-Original-Endpoint header and v=1 query param
     let client = reqwest::Client::new();
     let res = client
-        .post(format!("http://{}/flags?legacy_decide_v=1", server.addr))
+        .post(format!("http://{}/flags?v=1", server.addr))
+        .header("X-Original-Endpoint", "decide")
         .json(&payload)
         .send()
         .await?;
@@ -159,8 +160,8 @@ async fn test_legacy_decide_v1_format() -> Result<()> {
 }
 
 /// Integration test for legacy decide v2 format
-/// Tests that when legacy_decide_v=2 is passed, the response contains
-/// featureFlags as an object with flag values (booleans or strings)
+/// Tests that when X-Original-Endpoint: decide header is present and v=2 query param is passed,
+/// the response contains featureFlags as an object with flag values (booleans or strings)
 #[tokio::test]
 async fn test_legacy_decide_v2_format() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
@@ -233,10 +234,11 @@ async fn test_legacy_decide_v2_format() -> Result<()> {
         "distinct_id": distinct_id,
     });
 
-    // Make request with legacy_decide_v=2 parameter
+    // Make request with X-Original-Endpoint header and v=2 query param
     let client = reqwest::Client::new();
     let res = client
-        .post(format!("http://{}/flags?legacy_decide_v=2", server.addr))
+        .post(format!("http://{}/flags?v=2", server.addr))
+        .header("X-Original-Endpoint", "decide")
         .json(&payload)
         .send()
         .await?;
@@ -281,9 +283,9 @@ async fn test_legacy_decide_v2_format() -> Result<()> {
     Ok(())
 }
 
-/// Test that legacy_decide_v parameter takes precedence over v parameter
+/// Test that X-Original-Endpoint: decide header changes how v query parameter is interpreted
 #[tokio::test]
-async fn test_legacy_decide_v_takes_precedence() -> Result<()> {
+async fn test_decide_header_changes_version_interpretation() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
@@ -326,14 +328,12 @@ async fn test_legacy_decide_v_takes_precedence() -> Result<()> {
         "distinct_id": distinct_id,
     });
 
-    // Request with both v=2 and legacy_decide_v=1
-    // legacy_decide_v should take precedence
+    // Request with v=1 query param and X-Original-Endpoint header
+    // With decide endpoint, v=1 should map to DecideV1
     let client = reqwest::Client::new();
     let res = client
-        .post(format!(
-            "http://{}/flags?v=2&legacy_decide_v=1",
-            server.addr
-        ))
+        .post(format!("http://{}/flags?v=1", server.addr))
+        .header("X-Original-Endpoint", "decide")
         .json(&payload)
         .send()
         .await?;
@@ -345,11 +345,11 @@ async fn test_legacy_decide_v_takes_precedence() -> Result<()> {
     // Should return decide v1 format (array) not flags v2 format
     assert!(
         response_json["featureFlags"].is_array(),
-        "Should return decide v1 format when legacy_decide_v=1 even with v=2"
+        "Should return decide v1 format when X-Original-Endpoint: decide is present with v=1"
     );
     assert!(
         !response_json.as_object().unwrap().contains_key("flags"),
-        "Should not have 'flags' field when legacy_decide_v=1"
+        "Should not have 'flags' field when X-Original-Endpoint: decide with v=1"
     );
 
     Ok(())
