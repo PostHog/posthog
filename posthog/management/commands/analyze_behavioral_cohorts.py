@@ -75,7 +75,6 @@ class Command(BaseCommand):
             min_matches,
             days,
         )
-        total_time = time.time() - start_time
 
         logger.info(
             "Completed",
