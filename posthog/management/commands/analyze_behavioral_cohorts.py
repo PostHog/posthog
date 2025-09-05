@@ -103,8 +103,8 @@ class Command(BaseCommand):
     ) -> list[dict[str, Any]]:
         """Get unique condition hashes from ClickHouse with optional limit"""
 
-        where_clauses = ["date >= now() - INTERVAL %s DAY"]
-        params: list[Any] = [days]
+        where_clauses = [f"date >= now() - INTERVAL {days} DAY"]
+        params: list[Any] = []
 
         if team_id:
             where_clauses.append("team_id = %s")
@@ -166,7 +166,7 @@ class Command(BaseCommand):
                 cohort_id=cohort_id,
                 condition=condition_hash[:16] + "...",
             )
-            query = """
+            query = f"""
                 SELECT
                     person_id
                 FROM behavioral_cohorts_matches
@@ -174,12 +174,12 @@ class Command(BaseCommand):
                     team_id = %s
                     AND cohort_id = %s
                     AND condition = %s
-                    AND date >= now() - INTERVAL %s DAY
+                    AND date >= now() - INTERVAL {days} DAY
                     AND matches >= %s
                 LIMIT 100000
             """
             try:
-                results = sync_execute(query, [team_id, cohort_id, condition_hash, days, min_matches])
+                results = sync_execute(query, [team_id, cohort_id, condition_hash, min_matches])
 
                 for row in results:
                     person_id = row[0]
