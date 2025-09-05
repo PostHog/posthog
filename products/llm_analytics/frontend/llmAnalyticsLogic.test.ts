@@ -56,8 +56,8 @@ describe('llmAnalyticsLogic', () => {
                     !NON_TIME_SERIES_DISPLAY_TYPES.includes(tile.query.trendsFilter.display)
             )
 
-            // Should have exactly 5 time-series tiles
-            expect(timeSeriesTiles).toHaveLength(5)
+            // Should have exactly 6 time-series tiles
+            expect(timeSeriesTiles).toHaveLength(6)
 
             // All time-series tiles should NOT have explicitDate set
             timeSeriesTiles.forEach((tile) => {
@@ -75,10 +75,10 @@ describe('llmAnalyticsLogic', () => {
             expect(tilesWithFormula[0].query.trendsFilter?.formula).toBe('A / B')
         })
 
-        it('should have all 8 expected tiles', () => {
+        it('should have all 9 expected tiles', () => {
             const tiles = logic.values.tiles
 
-            expect(tiles).toHaveLength(8)
+            expect(tiles).toHaveLength(9)
 
             const expectedTitles = [
                 'Traces',
@@ -87,6 +87,7 @@ describe('llmAnalyticsLogic', () => {
                 'Cost per user (USD)',
                 'Cost by model (USD)',
                 'Generation calls',
+                'AI Errors',
                 'Generation latency by model (median)',
                 'Generations by HTTP status',
             ]
@@ -134,11 +135,11 @@ describe('llmAnalyticsLogic', () => {
 
             // Time-series tiles (undefined display type)
             const timeSeriesTiles = tiles.filter((tile) => tile.query.trendsFilter?.display === undefined)
-            expect(timeSeriesTiles).toHaveLength(5)
+            expect(timeSeriesTiles).toHaveLength(6)
 
             // Verify all tiles are accounted for
-            expect(tiles).toHaveLength(8)
-            expect(boldNumberTiles.length + actionsBarValueTiles.length + timeSeriesTiles.length).toBe(8)
+            expect(tiles).toHaveLength(9)
+            expect(boldNumberTiles.length + actionsBarValueTiles.length + timeSeriesTiles.length).toBe(9)
         })
     })
 })
