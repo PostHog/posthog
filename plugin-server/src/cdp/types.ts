@@ -109,6 +109,7 @@ export type HogFunctionInvocationGlobalsWithInputs = HogFunctionInvocationGlobal
 export type HogFunctionFilterGlobals = {
     // Filter Hog is built in the same way as analytics so the global object is meant to be an event
     event: string
+    uuid: string
     timestamp: string
     elements_chain: string
     elements_chain_href: string

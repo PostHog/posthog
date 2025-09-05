@@ -127,7 +127,6 @@ export class HogFlowExecutorService {
                 fn: hogFlow,
                 filters: hogFlow.trigger.filters,
                 filterGlobals,
-                eventUuid: triggerGlobals.event.uuid,
             })
 
             // Add any generated metrics and logs to our collections
@@ -209,7 +208,6 @@ export class HogFlowExecutorService {
                 fn: hogFlow,
                 filters: hogFlow.trigger.filters,
                 filterGlobals: invocation.filterGlobals,
-                eventUuid: invocation.state?.event?.uuid,
             })
             triggerMatch = filterResult.match
         }
@@ -218,7 +216,6 @@ export class HogFlowExecutorService {
                 fn: hogFlow,
                 filters: hogFlow.conversion.filters,
                 filterGlobals: invocation.filterGlobals,
-                eventUuid: invocation.state?.event?.uuid,
             })
             conversionMatch = filterResult.match
         }

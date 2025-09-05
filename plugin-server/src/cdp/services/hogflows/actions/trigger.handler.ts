@@ -16,7 +16,6 @@ export class TriggerHandler implements ActionHandler {
             fn: invocation.hogFlow,
             filters: action.config.filters,
             filterGlobals: invocation.filterGlobals,
-            eventUuid: invocation.state.event.uuid,
         })
 
         if (!filterResults.match) {
