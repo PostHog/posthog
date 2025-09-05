@@ -121,6 +121,8 @@ class HogQLQueryExecutor:
     def _apply_optimizers(self):
         if self.query_modifiers.useWebAnalyticsPreAggregatedTables:
             with self.timings.measure("preaggregated_table_transforms"):
+                assert self.hogql_context is not None
+                assert self.hogql_context.team is not None
                 transformed_node = do_preaggregated_table_transforms(self.select_query, self.hogql_context)
                 if isinstance(transformed_node, ast.SelectQuery) or isinstance(transformed_node, ast.SelectSetQuery):
                     self.select_query = transformed_node
