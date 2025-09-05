@@ -3,7 +3,16 @@ import { Form } from 'kea-forms'
 import { useEffect } from 'react'
 
 import { IconPlay, IconPlayFilled, IconRedo } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonLabel, Link, ProfilePicture } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCollapse,
+    LemonDivider,
+    LemonLabel,
+    Link,
+    ProfilePicture,
+    Spinner,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LogsViewerTable } from 'scenes/hog-functions/logs/LogsViewer'
@@ -30,9 +39,14 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
     const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const { logicProps } = useValues(campaignLogic)
 
-    const { sampleGlobals, isTestInvocationSubmitting, testResult, shouldLoadSampleGlobals, nextActionId } = useValues(
-        hogFlowEditorTestLogic(logicProps)
-    )
+    const {
+        sampleGlobals,
+        sampleGlobalsLoading,
+        isTestInvocationSubmitting,
+        testResult,
+        shouldLoadSampleGlobals,
+        nextActionId,
+    } = useValues(hogFlowEditorTestLogic(logicProps))
     const { submitTestInvocation, setTestResult, loadSampleGlobals } = useActions(hogFlowEditorTestLogic(logicProps))
 
     const display = asDisplay(sampleGlobals?.person)
@@ -133,99 +147,127 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                 )}
             </div>
             <LemonDivider className="my-0" />
-            <div className="flex overflow-y-auto flex-col flex-1 gap-2 p-2">
-                {/* Event Information */}
-                {sampleGlobals?.event && (
-                    <div className="p-3 rounded border bg-surface-secondary">
-                        <div className="flex flex-wrap gap-1 items-center">
-                            {sampleGlobals.person && (
-                                <Link to={url} className="flex gap-2 items-center">
-                                    <ProfilePicture name={display} /> <span className="font-semibold">{display}</span>
-                                </Link>
-                            )}
-                            <span className="text-muted">performed</span>
-                            <div className="space-y-1 font-semibold text-md">{sampleGlobals.event.event}</div>{' '}
-                            <div>
-                                <TZLabel time={sampleGlobals.event.timestamp} />
-                            </div>
-                        </div>
+            <div className="flex flex-col flex-1 overflow-y-auto">
+                <div className="flex flex-col flex-1 gap-2 p-2">
+                    {/* Event Information */}
+                    <LemonCollapse
+                        panels={[
+                            {
+                                key: 'event',
+                                header: {
+                                    children: sampleGlobalsLoading ? (
+                                        <>
+                                            Loading test event... <Spinner />
+                                        </>
+                                    ) : (
+                                        <>Test event: {sampleGlobals?.event?.event} </>
+                                    ),
+                                },
+                                className: 'bg-surface-secondary',
+                                content: (
+                                    <div>
+                                        {sampleGlobals?.event && (
+                                            <div className="bg-surface-secondary">
+                                                <div className="flex flex-wrap gap-1 items-center">
+                                                    {sampleGlobals.person && (
+                                                        <Link to={url} className="flex gap-2 items-center">
+                                                            <ProfilePicture name={display} />{' '}
+                                                            <span className="font-semibold">{display}</span>
+                                                        </Link>
+                                                    )}
+                                                    <span className="text-muted">performed</span>
+                                                    <div className="space-y-1 font-semibold text-md">
+                                                        {sampleGlobals.event.event}
+                                                    </div>{' '}
+                                                    <div>
+                                                        <TZLabel time={sampleGlobals.event.timestamp} />
+                                                    </div>
+                                                </div>
 
-                        {/* Event Properties */}
-                        {sampleGlobals.event.properties && Object.keys(sampleGlobals.event.properties).length > 0 && (
-                            <div className="mt-3">
-                                <div className="mb-2 text-sm">Event properties</div>
-                                <div className="overflow-auto max-h-32 rounded border bg-surface-primary">
-                                    <pre className="p-2 text-xs whitespace-pre-wrap text-muted">
-                                        {JSON.stringify(sampleGlobals.event.properties, null, 2)}
-                                    </pre>
-                                </div>
+                                                {/* Event Properties */}
+                                                {sampleGlobals.event.properties &&
+                                                    Object.keys(sampleGlobals.event.properties).length > 0 && (
+                                                        <div className="mt-3">
+                                                            <div className="mb-2 text-sm">Event properties</div>
+                                                            <div className="overflow-auto max-h-32 rounded border bg-surface-primary">
+                                                                <pre className="p-2 text-xs whitespace-pre-wrap text-muted">
+                                                                    {JSON.stringify(
+                                                                        sampleGlobals.event.properties,
+                                                                        null,
+                                                                        2
+                                                                    )}
+                                                                </pre>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                            </div>
+                                        )}
+                                    </div>
+                                ),
+                            },
+                        ]}
+                    />
+                </div>
+                <LemonDivider className="my-0" />
+                <div className="flex flex-col flex-1 gap-2 p-2">
+                    {/* Test Results */}
+                    {testResult ? (
+                        <div data-attr="test-results" className="flex flex-col gap-2">
+                            <div className="flex gap-2 justify-between items-center">
+                                <h3 className="mb-0">Test results</h3>
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={() => setTestResult(null)}
+                                    loading={isTestInvocationSubmitting}
+                                    size="small"
+                                    data-attr="clear-workflow-test-panel-new-result"
+                                >
+                                    Clear test result
+                                </LemonButton>
                             </div>
-                        )}
-                    </div>
-                )}
-            </div>
-            <LemonDivider className="my-0" />
-            <div className="flex flex-col flex-1 gap-2 p-2">
-                {/* Test Results */}
-                {testResult ? (
-                    <div data-attr="test-results" className="flex flex-col gap-2">
-                        <div className="flex gap-2 justify-between items-center">
-                            <h3 className="mb-0">Test results</h3>
-                            <LemonButton
-                                type="secondary"
-                                onClick={() => setTestResult(null)}
-                                loading={isTestInvocationSubmitting}
-                                size="small"
-                                data-attr="clear-workflow-test-panel-new-result"
+                            <LemonBanner
+                                type={
+                                    testResult.status === 'success'
+                                        ? 'success'
+                                        : testResult.status === 'skipped'
+                                          ? 'warning'
+                                          : 'error'
+                                }
                             >
-                                Clear test result
-                            </LemonButton>
-                        </div>
-                        <LemonBanner
-                            type={
-                                testResult.status === 'success'
-                                    ? 'success'
+                                {testResult.status === 'success'
+                                    ? 'Success'
                                     : testResult.status === 'skipped'
-                                      ? 'warning'
-                                      : 'error'
-                            }
-                        >
-                            {testResult.status === 'success'
-                                ? 'Success'
-                                : testResult.status === 'skipped'
-                                  ? 'Workflow was skipped because the event did not match the filter criteria'
-                                  : 'Error: ' + testResult.errors?.join(', ')}
-                        </LemonBanner>
+                                      ? 'Workflow was skipped because the event did not match the filter criteria'
+                                      : 'Error: ' + testResult.errors?.join(', ')}
+                            </LemonBanner>
 
-                        <div className="flex flex-col gap-2">
-                            <LemonLabel>Test invocation logs</LemonLabel>
+                            <div className="flex flex-col gap-2">
+                                <LemonLabel>Test invocation logs</LemonLabel>
 
-                            <LogsViewerTable
-                                instanceLabel="workflow run"
-                                renderMessage={(m) => renderWorkflowLogMessage(campaign, m)}
-                                dataSource={testResult.logs ?? []}
-                                renderColumns={(columns) => columns.filter((column) => column.key !== 'instanceId')}
-                            />
+                                <LogsViewerTable
+                                    instanceLabel="workflow run"
+                                    renderMessage={(m) => renderWorkflowLogMessage(campaign, m)}
+                                    dataSource={testResult.logs ?? []}
+                                    renderColumns={(columns) => columns.filter((column) => column.key !== 'instanceId')}
+                                />
+                            </div>
                         </div>
-                    </div>
-                ) : (
-                    <LemonButton
-                        type="primary"
-                        data-attr="test-workflow-panel-new"
-                        onClick={() => submitTestInvocation()}
-                        icon={<IconPlay />}
-                        loading={isTestInvocationSubmitting}
-                        disabledReason={sampleGlobals ? undefined : 'Must load event to run test'}
-                        size="small"
-                        fullWidth
-                    >
-                        Run test
-                    </LemonButton>
-                )}
+                    ) : (
+                        <LemonButton
+                            type="primary"
+                            data-attr="test-workflow-panel-new"
+                            onClick={() => submitTestInvocation()}
+                            icon={<IconPlay />}
+                            loading={isTestInvocationSubmitting}
+                            disabledReason={sampleGlobals ? undefined : 'Must load event to run test'}
+                            size="small"
+                            fullWidth
+                        >
+                            Run test
+                        </LemonButton>
+                    )}
+                </div>
             </div>
-
-            <LemonDivider className="my-0" />
-            {/* footer */}
         </Form>
     )
 }
