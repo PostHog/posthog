@@ -25,7 +25,7 @@ export interface SceneTabsProps {
 }
 
 export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
-    const { tabs, activeSceneId } = useValues(sceneLogic)
+    const { tabs } = useValues(sceneLogic)
     const { newTab, reorderTabs } = useActions(sceneLogic)
     const { toggleSearchBar } = useActions(commandBarLogic)
     const { isLayoutPanelVisible } = useValues(panelLayoutLogic)
