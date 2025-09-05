@@ -173,7 +173,8 @@ function NativeEmailIntegrationChoice({
     return (
         <>
             <LemonSelect
-                className="m-1"
+                className="m-1 flex-1"
+                type="tertiary"
                 placeholder="Choose email sender"
                 loading={integrationsLoading}
                 options={(integrationsOfKind || []).map((integration) => ({
@@ -182,6 +183,7 @@ function NativeEmailIntegrationChoice({
                 }))}
                 value={value?.integrationId}
                 size="small"
+                fullWidth
                 onChange={onChangeIntegration}
             />
         </>
