@@ -22,7 +22,6 @@ NO_SHARD_PATH = "noshard"
 SHARDED_TABLES = [
     "sharded_app_metrics",
     "sharded_app_metrics2",
-    "sharded_events",
     "sharded_heatmaps",
     "sharded_ingestion_warnings",
     "sharded_performance_events",
@@ -112,9 +111,6 @@ class Backup:
     def create(self, client: Client):
         backup_settings = {
             "async": "1",
-            "max_backup_bandwidth": "100000000",  # 100MB/s to limit resource usage
-            "max_backups_io_thread_pool_size": "8",  # Conservative thread count for m8g.8xlarge
-            "max_backups_io_thread_pool_free_size": "2",  # Keep some threads available
         }
         if self.base_backup:
             backup_settings["base_backup"] = "S3('{bucket_base_path}/{path}')".format(
