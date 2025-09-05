@@ -134,7 +134,7 @@ class QueryPlannerNode(AssistantNode):
         intermediate_steps = state.intermediate_steps or []
         return PartialAssistantState(
             intermediate_steps=[*intermediate_steps, (result, None)],
-            query_planner_previous_response_id=output_message.response_metadata["id"],
+            query_planner_intermediate_messages=[*(state.query_planner_intermediate_messages or []), output_message],
         )
 
     def _get_model(self, state: AssistantState):
@@ -145,9 +145,6 @@ class QueryPlannerNode(AssistantNode):
             model="o4-mini",
             use_responses_api=True,
             streaming=False,
-            model_kwargs={
-                "previous_response_id": state.query_planner_previous_response_id or None,  # Must alias "" to None
-            },
             reasoning={
                 "summary": "auto",  # Without this, there's no reasoning summaries! Only works with reasoning models
             },
@@ -189,62 +186,49 @@ class QueryPlannerNode(AssistantNode):
         Construct the conversation thread for the agent. Handles both initial conversation setup
         and continuation with intermediate steps.
         """
-        if not state.query_planner_previous_response_id:
-            # Initial conversation setup
-            database = create_hogql_database(team=self._team)
-            serialized_database = serialize_database(
-                HogQLContext(team=self._team, enable_select_queries=True, database=database)
+        # Initial conversation setup
+        database = create_hogql_database(team=self._team)
+        serialized_database = serialize_database(
+            HogQLContext(team=self._team, enable_select_queries=True, database=database)
+        )
+        hogql_schema_description = "\n\n".join(
+            (
+                f"Table `{table_name}` with fields:\n"
+                + "\n".join(f"- {field.name} ({field.type})" for field in table.fields.values())
+                for table_name, table in serialized_database.items()
+                # Only the most important core tables, plus all warehouse tables
+                if table_name in ["events", "groups", "persons"] or table_name in database.get_warehouse_tables()
             )
-            hogql_schema_description = "\n\n".join(
+        )
+        conversation = ChatPromptTemplate(
+            [
                 (
-                    f"Table `{table_name}` with fields:\n"
-                    + "\n".join(f"- {field.name} ({field.type})" for field in table.fields.values())
-                    for table_name, table in serialized_database.items()
-                    # Only the most important core tables, plus all warehouse tables
-                    if table_name in ["events", "groups", "persons"] or table_name in database.get_warehouse_tables()
-                )
-            )
-            conversation = ChatPromptTemplate(
-                [
-                    (
-                        "system",
-                        [
-                            {"type": "text", "text": QUERY_PLANNER_STATIC_SYSTEM_PROMPT},
-                            {
-                                "type": "text",
-                                "text": SCHEMA_MESSAGE.format(schema_description=hogql_schema_description),
-                            },
-                            {"type": "text", "text": CORE_MEMORY_PROMPT},
-                            {"type": "text", "text": EVENT_DEFINITIONS_PROMPT},
-                        ],
-                    ),
-                    # Include inputs and plans for up to 10 previously generated insights in thread
-                    *[
-                        item
-                        for message in state.messages
-                        if isinstance(message, VisualizationMessage)
-                        for item in [
-                            ("human", message.query or "_No query description provided._"),
-                            ("assistant", message.plan or "_No generated plan._"),
-                        ]
-                    ][-20:],
-                    # The description of a new insight is added to the end of the conversation.
-                    ("human", state.root_tool_insight_plan or "_No query description provided._"),
-                ],
-                template_format="mustache",
-            )
-        else:
-            # Continuation with intermediate steps
-            if not state.intermediate_steps:
-                raise ValueError("No intermediate steps found in the state.")
-            conversation = ChatPromptTemplate(
-                [
-                    LangchainToolMessage(
-                        content=state.intermediate_steps[-1][1] or "",
-                        tool_call_id=state.intermediate_steps[-1][0].log or "",
-                    )
-                ]
-            )
+                    "system",
+                    [
+                        {"type": "text", "text": QUERY_PLANNER_STATIC_SYSTEM_PROMPT},
+                        {
+                            "type": "text",
+                            "text": SCHEMA_MESSAGE.format(schema_description=hogql_schema_description),
+                        },
+                        {"type": "text", "text": CORE_MEMORY_PROMPT},
+                        {"type": "text", "text": EVENT_DEFINITIONS_PROMPT},
+                    ],
+                ),
+                # Include inputs and plans for up to 10 previously generated insights in thread
+                *[
+                    item
+                    for message in state.messages
+                    if isinstance(message, VisualizationMessage)
+                    for item in [
+                        ("human", message.query or "_No query description provided._"),
+                        ("assistant", message.plan or "_No generated plan._"),
+                    ]
+                ][-20:],
+                # The description of a new insight is added to the end of the conversation.
+                ("human", state.root_tool_insight_plan or "_No query description provided._"),
+            ],
+            template_format="mustache",
+        ) + (state.query_planner_intermediate_messages or [])
 
         return conversation
 
@@ -282,6 +266,7 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
                     root_tool_insight_type=input.arguments.query_kind,  # type: ignore
                     query_planner_previous_response_id=None,
                     intermediate_steps=None,
+                    query_planner_intermediate_messages=None,
                 )
 
             # The agent has requested help, so we return a message to the root node.
@@ -297,6 +282,10 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
 
         return PartialAssistantState(
             intermediate_steps=[*intermediate_steps[:-1], (action, output)],
+            query_planner_intermediate_messages=[
+                *(state.query_planner_intermediate_messages or []),
+                LangchainToolMessage(output, tool_call_id=action.log),
+            ],
         )
 
     def router(self, state: AssistantState):

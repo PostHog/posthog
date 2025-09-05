@@ -159,6 +159,11 @@ class PostgresSourceConfig(config.Config):
 
 
 @config.config
+class RedditAdsSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class RedshiftSourceConfig(config.Config):
     pass
 
@@ -232,6 +237,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.MYSQL: MySQLSourceConfig,
         ExternalDataSourceType.POLAR: PolarSourceConfig,
         ExternalDataSourceType.POSTGRES: PostgresSourceConfig,
+        ExternalDataSourceType.REDDITADS: RedditAdsSourceConfig,
         ExternalDataSourceType.REDSHIFT: RedshiftSourceConfig,
         ExternalDataSourceType.REVENUECAT: RevenueCatSourceConfig,
         ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,

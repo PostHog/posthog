@@ -18,6 +18,15 @@ import { twMerge } from 'tailwind-merge'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import {
+    AssistantMessageType,
+    MultiVisualizationMessage,
+    NotebookUpdateMessage,
+    PlanningMessage,
+    PlanningStepStatus,
+    TaskExecutionMessage,
+    TaskExecutionStatus,
+} from '~/queries/schema/schema-assistant-messages'
 import { FunnelsQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { InsightShortId } from '~/types'
 
@@ -694,4 +703,391 @@ MaxInstanceWithContextualTools.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },
+}
+
+export const NotebookUpdateComponent: StoryFn = () => {
+    const notebookMessage: NotebookUpdateMessage = {
+        type: AssistantMessageType.Notebook,
+        notebook_id: 'nb_123456',
+        content: {
+            type: 'doc',
+            content: [
+                {
+                    type: 'paragraph',
+                    content: [
+                        {
+                            type: 'text',
+                            text: 'Analysis notebook has been updated with new insights',
+                        },
+                    ],
+                },
+            ],
+        },
+        id: 'notebook-update-message',
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Update my analysis notebook' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(notebookMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic)
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Update my analysis notebook')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+
+export const PlanningComponent: StoryFn = () => {
+    const planningMessage: PlanningMessage = {
+        type: AssistantMessageType.Planning,
+        steps: [
+            {
+                description: 'Analyze user engagement metrics',
+                status: PlanningStepStatus.Completed,
+            },
+            {
+                description: 'Create conversion funnel visualization',
+                status: PlanningStepStatus.Completed,
+            },
+            {
+                description: 'Generate retention cohort analysis',
+                status: PlanningStepStatus.InProgress,
+            },
+            {
+                description: 'Compile comprehensive report',
+                status: PlanningStepStatus.Pending,
+            },
+            {
+                description: 'Export data to dashboard',
+                status: PlanningStepStatus.Pending,
+            },
+        ],
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Create a comprehensive analysis plan' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(planningMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic)
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Create a comprehensive analysis plan')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+
+export const TaskExecutionComponent: StoryFn = () => {
+    const taskExecutionMessage: TaskExecutionMessage = {
+        type: AssistantMessageType.TaskExecution,
+        tasks: [
+            {
+                id: 'task_1',
+                description: 'Loading user data',
+                prompt: 'Fetching last 30 days of user activity',
+                status: TaskExecutionStatus.Completed,
+            },
+            {
+                id: 'task_2',
+                description: 'Analyzing engagement patterns',
+                prompt: 'Identifying peak usage times and user segments',
+                status: TaskExecutionStatus.Completed,
+            },
+            {
+                id: 'task_3',
+                description: 'Calculating conversion rates',
+                prompt: 'Processing funnel metrics across key paths',
+                status: TaskExecutionStatus.InProgress,
+                progress_text: 'Exploring data',
+            },
+            {
+                id: 'task_4',
+                description: 'Building visualizations',
+                prompt: 'Creating charts and graphs for insights',
+                status: TaskExecutionStatus.Pending,
+            },
+            {
+                id: 'task_5',
+                description: 'Generating report',
+                prompt: 'Compiling findings into readable format',
+                status: TaskExecutionStatus.Pending,
+            },
+        ],
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Execute analysis tasks' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(taskExecutionMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic)
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Execute analysis tasks')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+
+export const TaskExecutionWithFailure: StoryFn = () => {
+    const taskExecutionMessage: TaskExecutionMessage = {
+        type: AssistantMessageType.TaskExecution,
+        tasks: [
+            {
+                id: 'task_1',
+                description: 'Loading user data',
+                prompt: 'Fetching last 30 days of user activity',
+                status: TaskExecutionStatus.Completed,
+            },
+            {
+                id: 'task_2',
+                description: 'Analyzing engagement patterns',
+                prompt: 'Identifying peak usage times and user segments',
+                status: TaskExecutionStatus.Completed,
+            },
+            {
+                id: 'task_3',
+                description: 'Calculating conversion rates',
+                prompt: 'Processing funnel metrics across key paths',
+                status: TaskExecutionStatus.Failed,
+            },
+            {
+                id: 'task_4',
+                description: 'Building visualizations',
+                prompt: 'Creating charts and graphs for insights',
+                status: TaskExecutionStatus.Pending,
+            },
+            {
+                id: 'task_5',
+                description: 'Generating report',
+                prompt: 'Compiling findings into readable format',
+                status: TaskExecutionStatus.Pending,
+            },
+        ],
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Execute analysis with some failures' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(taskExecutionMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic)
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Execute analysis with some failures')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+
+export const MultiVisualizationInThread: StoryFn = () => {
+    // Mock the queries endpoint to return dummy data
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/query/': () => [
+                200,
+                {
+                    results: [[100, 120, 130, 140, 150]],
+                    columns: ['count'],
+                    types: ['integer'],
+                    hogql: 'SELECT count() FROM events',
+                },
+            ],
+            '/api/environments/:team_id/conversations/': (_, res, ctx) => {
+                const humanMsg = {
+                    type: AssistantMessageType.Human,
+                    content: 'Analyze our product metrics comprehensively',
+                    id: 'human-multi-viz',
+                }
+
+                const multiVizMessage: MultiVisualizationMessage = {
+                    type: AssistantMessageType.MultiVisualization,
+                    id: 'multi-viz-1',
+                    visualizations: [
+                        {
+                            query: 'Daily Active Users',
+                            plan: 'Track user engagement over the past 30 days',
+                            answer: {
+                                kind: 'TrendsQuery',
+                                series: [{ event: '$pageview', name: 'Pageviews' }],
+                                dateRange: { date_from: '-30d' },
+                            } as any,
+                        },
+                        {
+                            query: 'User Conversion Funnel',
+                            plan: 'Analyze conversion from signup to purchase',
+                            answer: {
+                                kind: 'FunnelsQuery',
+                                series: [
+                                    { event: 'user signed up' },
+                                    { event: 'viewed product' },
+                                    { event: 'completed purchase' },
+                                ],
+                            } as any,
+                        },
+                        {
+                            query: 'Feature Adoption',
+                            plan: 'Measure feature usage rates',
+                            answer: {
+                                kind: 'TrendsQuery',
+                                series: [{ event: 'feature_used', name: 'Feature Usage' }],
+                                breakdownFilter: { breakdown: 'feature_name', breakdown_type: 'event' },
+                            } as any,
+                        },
+                    ],
+                    commentary: `I've analyzed your product metrics across three key dimensions:
+
+1. **User Engagement**: Daily active users show a positive trend with 25% growth
+2. **Conversion Funnel**: 40% drop-off at payment step needs attention
+3. **Feature Adoption**: New dashboard feature has 65% adoption rate
+
+### Recommendations
+- Optimize the payment flow to reduce friction
+- Continue current engagement strategies
+- Apply dashboard rollout strategy to future features`,
+                }
+
+                return res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({ ...humanMsg, content: 'Analyze our product metrics comprehensively' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(multiVizMessage)}`,
+                        ])
+                    )
+                )
+            },
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic)
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Analyze our product metrics comprehensively')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+
+function generateChunk(events: string[]): string {
+    return events.map((event) => (event.startsWith('event:') ? `${event}\n` : `${event}\n\n`)).join('')
 }

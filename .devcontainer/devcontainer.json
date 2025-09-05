@@ -60,7 +60,7 @@
         "ms-azuretools.vscode-docker",
         "stkb.rewrap",
         "GitHub.copilot",
-        "KnisterPeter.vscode-github",
+        "GitHub.vscode-pull-request-github",
         "eamodio.gitlens",
         "wix.vscode-import-cost",
         "Orta.vscode-jest",

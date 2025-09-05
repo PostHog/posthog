@@ -2,8 +2,16 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { RefObject, useEffect, useRef, useState } from 'react'
 
-import { IconCheckbox, IconChevronRight, IconFolderPlus, IconPlusSmall } from '@posthog/icons'
+import {
+    IconCheckbox,
+    IconChevronRight,
+    IconEllipsis,
+    IconFolderPlus,
+    IconPlusSmall,
+    IconShortcut,
+} from '@posthog/icons'
 
+import { linkToLogic } from 'lib/components/FileSystem/LinkTo/linkToLogic'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -122,6 +130,7 @@ export function ProjectTree({
         setSearchTerm,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
     const { openMoveToModal } = useActions(moveToLogic)
+    const { openLinkToModal } = useActions(linkToLogic)
 
     const { setPanelTreeRef, resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
@@ -133,6 +142,25 @@ export function ProjectTree({
     const canOpenInPostHogTab = !!featureFlags[FEATURE_FLAGS.SCENE_TABS]
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
+
+    const treeData: TreeDataItem[] = []
+    if (root === 'shortcuts://' && fullFileSystemFiltered.length === 0) {
+        treeData.push({
+            id: 'products/shortcuts-helper-category',
+            name: 'Example shortcuts',
+            type: 'category',
+            displayName: (
+                <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-1 -mx-1">
+                    Shortcuts are added by pressing{' '}
+                    <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
+                    side-clicking a panel item, then "Add to shortcuts panel", or inside an app's resources file menu
+                    click <IconShortcut className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />
+                </div>
+            ),
+        })
+    } else {
+        treeData.push(...fullFileSystemFiltered)
+    }
 
     useEffect(() => {
         setPanelTreeRef(treeRef)
@@ -363,6 +391,26 @@ export function ProjectTree({
                     </MenuItem>
                 ) : null}
 
+                {(item.id.startsWith('project/') || item.id.startsWith('project://')) &&
+                item.record?.type !== 'folder' ? (
+                    <MenuItem
+                        asChild
+                        onClick={(e: any) => {
+                            e.stopPropagation()
+                            if (
+                                checkedItemsArray.length > 0 &&
+                                checkedItemsArray.find(({ id }) => id === item.record?.id)
+                            ) {
+                                openLinkToModal(checkedItemsArray)
+                            } else {
+                                openLinkToModal([item.record as unknown as FileSystemEntry])
+                            }
+                        }}
+                    >
+                        <ButtonPrimitive menuItem>Create shortcut in...</ButtonPrimitive>
+                    </MenuItem>
+                ) : null}
+
                 {item.record?.path && item.record?.type === 'folder' ? (
                     <MenuItem
                         asChild
@@ -441,7 +489,7 @@ export function ProjectTree({
             ref={treeRef}
             contentRef={mainContentRef as RefObject<HTMLElement>}
             className="px-0 py-1"
-            data={fullFileSystemFiltered}
+            data={treeData}
             mode={onlyTree ? 'tree' : projectTreeMode}
             selectMode={selectMode}
             tableViewKeys={treeTableKeys}
@@ -824,6 +872,43 @@ export function ProjectTree({
             sortDropdown={
                 showSortDropdown ? <TreeSortDropdownMenu sortMethod={sortMethod} setSortMethod={setSortMethod} /> : null
             }
+            panelActionsNewSceneLayout={[
+                {
+                    ...(root === 'project://' &&
+                        sortMethod !== 'recent' && {
+                            tooltip: 'New root folder',
+                            'data-attr': 'tree-panel-new-root-folder-button',
+                            onClick: () => createFolder(''),
+                            children: (
+                                <>
+                                    <IconFolderPlus className="text-tertiary size-3" />
+                                    New root folder
+                                </>
+                            ),
+                        }),
+                },
+                {
+                    ...(root === 'project://' &&
+                        sortMethod !== 'recent' && {
+                            tooltip: selectMode === 'default' ? 'Enable multi-select' : 'Disable multi-select',
+                            'data-attr': 'tree-panel-enable-multi-select-button',
+                            onClick: () => setSelectMode(selectMode === 'default' ? 'multi' : 'default'),
+                            active: selectMode === 'multi',
+                            'aria-pressed': selectMode === 'multi',
+                            children: (
+                                <>
+                                    <IconCheckbox
+                                        className={cn('size-3', {
+                                            'text-tertiary': selectMode === 'default',
+                                            'text-primary': selectMode === 'multi',
+                                        })}
+                                    />
+                                    {selectMode === 'default' ? 'Enable multi-select' : 'Disable multi-select'}
+                                </>
+                            ),
+                        }),
+                },
+            ]}
             panelActions={
                 root === 'project://' ? (
                     <>

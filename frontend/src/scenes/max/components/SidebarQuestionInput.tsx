@@ -14,7 +14,7 @@ import { QuestionInput } from './QuestionInput'
 
 export function SidebarQuestionInput({ isSticky = false }: { isSticky?: boolean }): JSX.Element {
     const { focusCounter, threadVisible } = useValues(maxLogic)
-    const { threadLoading } = useValues(maxThreadLogic)
+    const { threadLoading, showDeepResearchModeToggle } = useValues(maxThreadLogic)
 
     const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
 
@@ -38,6 +38,7 @@ export function SidebarQuestionInput({ isSticky = false }: { isSticky?: boolean 
             containerClassName="px-3 mx-auto self-center pb-1"
             isFloating={threadVisible}
             isThreadVisible={threadVisible}
+            showDeepResearchModeToggle={showDeepResearchModeToggle}
         >
             <SuggestionsList />
         </QuestionInput>
