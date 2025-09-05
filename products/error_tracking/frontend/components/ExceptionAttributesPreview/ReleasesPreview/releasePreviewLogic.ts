@@ -1,11 +1,9 @@
-import { connect, kea, key, path, props } from 'kea'
+import { kea, path } from 'kea'
 import { loaders } from 'kea-loaders/lib'
-import { subscriptions } from 'kea-subscriptions/lib'
 
 import api from 'lib/api'
-import { ErrorPropertiesLogicProps, errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import 'lib/components/Errors/stackFrameLogic'
-import { ExceptionReleaseGitMeta } from 'lib/components/Errors/types'
+import { ErrorTrackingStackFrame, ExceptionReleaseGitMeta } from 'lib/components/Errors/types'
 
 import type { releasePreviewLogicType } from './releasePreviewLogicType'
 
@@ -19,16 +17,8 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
         'ReleasesPreview',
         'releasePreviewLogic',
     ]),
-    props({} as ErrorPropertiesLogicProps),
-    key((props) => {
-        return props.id
-    }),
 
-    connect((props: ErrorPropertiesLogicProps) => ({
-        values: [errorPropertiesLogic(props), ['frames']],
-    })),
-
-    loaders(({ values }) => ({
+    loaders(() => ({
         releasePreviewData: [
             {
                 mostProbableRelease: {
@@ -40,42 +30,54 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
                 otherReleases: [],
             } as ReleasePreviewOutput,
             {
-                loadRelease: async (releasesMeta?: ExceptionReleaseGitMeta[]) => {
-                    if (releasesMeta?.length === 1) {
+                loadRelease: async (dto: {
+                    // we have gitReleasesMeta from the already loaded event. Cymbal enriches event with that data.
+                    gitReleasesMeta?: ExceptionReleaseGitMeta[]
+                    frames?: ErrorTrackingStackFrame[]
+                }) => {
+                    // we can't do anything if there is neither frames nor existing gitReleasesMeta
+                    if (!dto.frames && !dto.gitReleasesMeta) {
                         return {
-                            mostProbableRelease: releasesMeta[0],
+                            mostProbableRelease: undefined,
                             otherReleases: [],
                         }
                     }
 
-                    const frames = values.frames || []
-                    if (frames.length > 0) {
-                        try {
-                            const rawIds = frames.map((f) => f.raw_id)
-                            const response = await api.errorTracking.stackFrameReleaseMetadata(rawIds)
-                            const resultMap = response.results || {}
+                    // if there is only one associated release, we just return it. No need to fetch anything extra. This will for sure be that release
+                    if (dto.gitReleasesMeta?.length === 1) {
+                        return {
+                            mostProbableRelease: dto.gitReleasesMeta[0],
+                            otherReleases: [],
+                        }
+                    }
 
-                            const selected = [...frames]
-                                .reverse()
-                                .find((f) => resultMap[f.raw_id] && resultMap[f.raw_id].git)
+                    // if there are no frames, we can't load any releases
+                    if (!dto.frames || dto.frames.length === 0) {
+                        return {
+                            mostProbableRelease: undefined,
+                            otherReleases: [],
+                        }
+                    }
 
-                            if (selected) {
-                                const gitMeta = resultMap[selected.raw_id].git
-                                return {
-                                    mostProbableRelease: {
-                                        commitSha: gitMeta.commit_id,
-                                        repositoryUrl: resolveRemoteUrlWithCommitToLink(
-                                            gitMeta.remote_url,
-                                            gitMeta.commit_id
-                                        ),
-                                        repositoryName: gitMeta.repo_name,
-                                        branch: gitMeta.branch,
-                                    },
-                                    otherReleases: [],
-                                }
-                            }
-                        } catch (e) {
-                            console.warn('raw_id_release_metadata failed', e)
+                    const rawIds = dto.frames.map((f) => f.raw_id)
+                    const response = await api.errorTracking.stackFrameReleaseMetadata(rawIds)
+                    const resultMap = response.results || {}
+
+                    // we reverse the list in order to pick the frame which is "the closest" to the error. We call this frame "kaboom frame".
+                    const selectedFrame = [...(dto.frames || [])]
+                        .reverse()
+                        .find((f) => resultMap[f.raw_id] && resultMap[f.raw_id].git)
+
+                    if (selectedFrame) {
+                        const gitMeta = resultMap[selectedFrame.raw_id].git
+                        return {
+                            mostProbableRelease: {
+                                commitSha: gitMeta.commit_id,
+                                repositoryUrl: resolveRemoteUrlWithCommitToLink(gitMeta.remote_url, gitMeta.commit_id),
+                                repositoryName: gitMeta.repo_name,
+                                branch: gitMeta.branch,
+                            },
+                            otherReleases: [],
                         }
                     }
 
@@ -86,12 +88,6 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
                 },
             },
         ],
-    })),
-
-    subscriptions(({ actions }) => ({
-        frames: () => {
-            actions.loadRelease()
-        },
     })),
 ])
 

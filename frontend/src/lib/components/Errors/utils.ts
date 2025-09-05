@@ -5,7 +5,7 @@ import {
     ErrorTrackingException,
     ErrorTrackingRuntime,
     ExceptionAttributes,
-    ExceptionRelease,
+    ExceptionReleaseGitMeta,
     FingerprintRecordPart,
 } from './types'
 
@@ -77,6 +77,17 @@ export function concatValues(
     return definedKeys.map((key) => attrs[key]).join(' ')
 }
 
+interface ExceptionReleaseFromEvent {
+    metadata?: {
+        git?: {
+            commit_id: string
+            remote_url: string
+            repo_name: string
+            branch: string
+        }
+    }
+}
+
 export function getExceptionAttributes(properties: Record<string, any>): ExceptionAttributes {
     const {
         $lib: lib,
@@ -115,10 +126,6 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
     const handled = exceptionList?.[0]?.mechanism?.handled ?? false
     const runtime: ErrorTrackingRuntime = getRuntimeFromLib(lib)
 
-    const gitReleasesMeta = (Object.values(releases) as ExceptionRelease[])
-        .map((release) => release.metadata?.git)
-        .filter((meta) => meta !== undefined)
-
     return {
         type,
         value,
@@ -135,7 +142,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         handled,
         level,
         ingestionErrors,
-        gitReleasesMeta,
+        gitReleasesMeta: undefined,
     }
 }
 

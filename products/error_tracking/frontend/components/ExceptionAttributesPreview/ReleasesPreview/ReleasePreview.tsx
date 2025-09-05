@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconCommit } from '@posthog/icons'
 import { LemonTag, Popover } from '@posthog/lemon-ui'
 
+import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ExceptionReleaseGitMeta } from 'lib/components/Errors/types'
 
 import { ReleasePopoverContent } from './ReleasesPopoverContent'
@@ -16,10 +17,12 @@ export interface ReleasePreviewProps {
 export function ReleasePreview({ gitReleasesMeta }: ReleasePreviewProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
     const { releasePreviewData } = useValues(releasePreviewLogic)
+    const { frames } = useValues(errorPropertiesLogic)
+    const { loadRelease } = useActions(releasePreviewLogic)
 
-    // useEffect(() => {
-    //     releasePreviewLogic.actions.loadRelease()
-    // }, [gitReleasesMeta])
+    useEffect(() => {
+        loadRelease({ gitReleasesMeta, frames })
+    }, [frames, loadRelease, gitReleasesMeta])
 
     return (
         <Popover
@@ -42,7 +45,7 @@ export function ReleasePreview({ gitReleasesMeta }: ReleasePreviewProps): JSX.El
                     onMouseLeave={() => setIsOpen(false)}
                 >
                     <IconCommit className="text-sm text-secondary" />
-                    <span>{releasePreviewData.mostProbableRelease?.commitSha.slice(0, 7)}</span>
+                    <span>{releasePreviewData.mostProbableRelease?.commitSha?.slice(0, 7)}</span>
                 </LemonTag>
             </span>
         </Popover>
