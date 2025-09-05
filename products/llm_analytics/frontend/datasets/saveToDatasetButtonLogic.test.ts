@@ -7,7 +7,13 @@ import api, { CountedPaginatedResponse } from '~/lib/api'
 import { initKeaTests } from '~/test/init'
 import { Dataset, DatasetItem } from '~/types'
 
-import { DATASETS_PER_PAGE, getStorageKey, saveToDatasetButtonLogic } from './saveToDatasetButtonLogic'
+import {
+    DATASETS_PER_PAGE,
+    RECENT_DATASETS_LIMIT,
+    getStorageKey,
+    saveToDatasetButtonLogic,
+    truncateRecentDatasets,
+} from './saveToDatasetButtonLogic'
 
 jest.mock('~/lib/api')
 jest.mock('lib/lemon-ui/LemonToast/LemonToast')
@@ -67,6 +73,9 @@ describe('saveToDatasetButtonLogic', () => {
     beforeEach(() => {
         jest.clearAllMocks()
 
+        // Clear localStorage to ensure persistent state doesn't leak between tests
+        window.localStorage.clear()
+
         mockApi.datasets = {
             create: jest.fn(),
             update: jest.fn(),
@@ -94,6 +103,38 @@ describe('saveToDatasetButtonLogic', () => {
         it('serializes a key with special characters', () => {
             const key = getStorageKey('test & special')
             expect(key).toBe('limit=100&offset=0&search=test%20%26%20special')
+        })
+    })
+
+    describe('truncateRecentDatasets', () => {
+        it('returns array unchanged when under limit', () => {
+            const input = [mockDataset1, mockDataset2]
+            const result = truncateRecentDatasets(input)
+            expect(result).toEqual(input)
+            expect(result).toHaveLength(2)
+        })
+
+        it('truncates array to limit when over limit', () => {
+            const mockDataset3: Dataset = { ...mockDataset1, id: 'test-dataset-3', name: 'Test Dataset 3' }
+            const mockDataset4: Dataset = { ...mockDataset1, id: 'test-dataset-4', name: 'Test Dataset 4' }
+            const input = [mockDataset1, mockDataset2, mockDataset3, mockDataset4]
+            const result = truncateRecentDatasets(input)
+            expect(result).toEqual([mockDataset1, mockDataset2, mockDataset3])
+            expect(result).toHaveLength(RECENT_DATASETS_LIMIT)
+        })
+
+        it('returns empty array when input is empty', () => {
+            const result = truncateRecentDatasets([])
+            expect(result).toEqual([])
+            expect(result).toHaveLength(0)
+        })
+
+        it('returns array unchanged when exactly at limit', () => {
+            const mockDataset3: Dataset = { ...mockDataset1, id: 'test-dataset-3', name: 'Test Dataset 3' }
+            const input = [mockDataset1, mockDataset2, mockDataset3]
+            const result = truncateRecentDatasets(input)
+            expect(result).toEqual(input)
+            expect(result).toHaveLength(RECENT_DATASETS_LIMIT)
         })
     })
 
@@ -556,6 +597,309 @@ describe('saveToDatasetButtonLogic', () => {
 
                 logic.actions.setEditMode('create')
                 expect(logic.values.isModalMounted).toBe(false)
+            })
+        })
+
+        describe('recent datasets functionality', () => {
+            describe('recent dataset IDs state management', () => {
+                it('initializes with empty recent dataset IDs', () => {
+                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem })
+                    logic.mount()
+
+                    expect(logic.values.recentDatasetIds).toEqual([])
+                })
+
+                it('sets recent dataset IDs and truncates to limit', () => {
+                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem })
+                    logic.mount()
+
+                    const ids = ['id1', 'id2', 'id3', 'id4', 'id5']
+                    logic.actions.setRecentDatasetIds(ids)
+
+                    expect(logic.values.recentDatasetIds).toEqual(['id1', 'id2', 'id3'])
+                    expect(logic.values.recentDatasetIds).toHaveLength(RECENT_DATASETS_LIMIT)
+                })
+
+                it('preserves order when setting recent dataset IDs', () => {
+                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem })
+                    logic.mount()
+
+                    const ids = ['newest', 'middle', 'oldest']
+                    logic.actions.setRecentDatasetIds(ids)
+
+                    expect(logic.values.recentDatasetIds).toEqual(['newest', 'middle', 'oldest'])
+                })
+            })
+
+            describe('recent datasets state management', () => {
+                it('initializes with empty recent datasets', () => {
+                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem })
+                    logic.mount()
+
+                    expect(logic.values.recentDatasets).toEqual([])
+                })
+
+                it('sets recent datasets and truncates to limit', () => {
+                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem })
+                    logic.mount()
+
+                    const mockDataset3: Dataset = { ...mockDataset1, id: 'test-dataset-3', name: 'Test Dataset 3' }
+                    const mockDataset4: Dataset = { ...mockDataset1, id: 'test-dataset-4', name: 'Test Dataset 4' }
+                    const datasets = [mockDataset1, mockDataset2, mockDataset3, mockDataset4]
+
+                    logic.actions.setRecentDatasets(datasets)
+
+                    expect(logic.values.recentDatasets).toEqual([mockDataset1, mockDataset2, mockDataset3])
+                    expect(logic.values.recentDatasets).toHaveLength(RECENT_DATASETS_LIMIT)
+                })
+
+                it('preserves order when setting recent datasets', () => {
+                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem })
+                    logic.mount()
+
+                    const datasets = [mockDataset2, mockDataset1]
+                    logic.actions.setRecentDatasets(datasets)
+
+                    expect(logic.values.recentDatasets).toEqual([mockDataset2, mockDataset1])
+                })
+            })
+
+            describe('recent datasets loading', () => {
+                it('loads recent datasets successfully with correct API call', async () => {
+                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem })
+                    logic.mount()
+
+                    logic.actions.setRecentDatasetIds(['test-dataset-1', 'test-dataset-2'])
+
+                    await expectLogic(logic, () => {
+                        logic.actions.loadRecentDatasets()
+                    }).toFinishAllListeners()
+
+                    expect(mockApi.datasets.list).toHaveBeenCalledWith({
+                        ids: ['test-dataset-1', 'test-dataset-2'],
+                    })
+                })
+
+                it('returns empty array when no recent dataset IDs exist', async () => {
+                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem })
+                    logic.mount()
+
+                    // Ensure recentDatasetIds is empty first
+                    expect(logic.values.recentDatasetIds).toEqual([])
+
+                    await expectLogic(logic, () => {
+                        logic.actions.loadRecentDatasets()
+                    }).toFinishAllListeners()
+
+                    expect(logic.values.recentDatasets).toEqual([])
+                    // Check that API was not called with ids parameter specifically for recent datasets
+                    const callsWithIds = (mockApi.datasets.list as jest.Mock).mock.calls.filter(
+                        (call) => call[0] && call[0].ids !== undefined
+                    )
+                    expect(callsWithIds).toHaveLength(0)
+                })
+
+                it('handles missing datasets by updating recent dataset IDs', async () => {
+                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem })
+                    logic.mount()
+
+                    logic.actions.setRecentDatasetIds(['test-dataset-1', 'missing-dataset', 'test-dataset-2'])
+
+                    // Mock API to return only existing datasets
+                    ;(mockApi.datasets.list as jest.Mock).mockResolvedValue({
+                        results: [mockDataset1, mockDataset2],
+                    })
+
+                    await expectLogic(logic, () => {
+                        logic.actions.loadRecentDatasets()
+                    }).toFinishAllListeners()
+
+                    expect(logic.values.recentDatasetIds).toEqual(['test-dataset-1', 'test-dataset-2'])
+                    expect(logic.values.recentDatasets).toEqual([mockDataset1, mockDataset2])
+                })
+
+                it('preserves original order of recent dataset IDs when loading', async () => {
+                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem })
+                    logic.mount()
+
+                    logic.actions.setRecentDatasetIds(['test-dataset-2', 'test-dataset-1'])
+
+                    // Mock API to return datasets in different order than requested
+                    ;(mockApi.datasets.list as jest.Mock).mockResolvedValue({
+                        results: [mockDataset1, mockDataset2], // API returns in this order
+                    })
+
+                    await expectLogic(logic, () => {
+                        logic.actions.loadRecentDatasets()
+                    }).toFinishAllListeners()
+
+                    // Should preserve the original order from recentDatasetIds
+                    expect(logic.values.recentDatasets).toEqual([mockDataset2, mockDataset1])
+                })
+
+                it('handles API errors gracefully', async () => {
+                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem })
+                    logic.mount()
+
+                    logic.actions.setRecentDatasetIds(['test-dataset-1'])
+                    ;(mockApi.datasets.list as jest.Mock).mockRejectedValue(new Error('API Error'))
+
+                    await expectLogic(logic, () => {
+                        logic.actions.loadRecentDatasets()
+                    }).toFinishAllListeners()
+
+                    expect(logic.values.recentDatasets).toEqual([])
+                })
+
+                it('uses debounce when loading recent datasets', async () => {
+                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem })
+                    logic.mount()
+
+                    logic.actions.setRecentDatasetIds(['test-dataset-1'])
+
+                    await expectLogic(logic, () => {
+                        logic.actions.loadRecentDatasets(true)
+                    }).toFinishAllListeners()
+
+                    expect(mockApi.datasets.list).toHaveBeenCalled()
+                })
+
+                it('loads recent datasets on mount when recent dataset IDs exist', async () => {
+                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem })
+                    logic.mount()
+
+                    // Set up recent dataset IDs and verify they're loaded when loadRecentDatasets is called
+                    logic.actions.setRecentDatasetIds(['test-dataset-1'])
+
+                    // Clear the mock to isolate the loadRecentDatasets call
+                    ;(mockApi.datasets.list as jest.Mock).mockClear()
+
+                    await expectLogic(logic, () => {
+                        logic.actions.loadRecentDatasets()
+                    }).toFinishAllListeners()
+
+                    expect(mockApi.datasets.list).toHaveBeenCalledWith({
+                        ids: ['test-dataset-1'],
+                    })
+                })
+            })
+
+            describe('adding to recent datasets', () => {
+                it('adds dataset to recent when dataset ID is selected and not already recent', async () => {
+                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem })
+                    logic.mount()
+
+                    // Ensure clean state
+                    expect(logic.values.recentDatasetIds).toEqual([])
+                    expect(logic.values.recentDatasets).toEqual([])
+
+                    // Load datasets first
+                    const storageKey = getStorageKey('')
+                    logic.actions.loadDatasetsSuccess({
+                        [storageKey]: [mockDataset1, mockDataset2],
+                    })
+
+                    await expectLogic(logic, () => {
+                        logic.actions.setSearchFormValue('datasetId', 'test-dataset-1')
+                    }).toFinishAllListeners()
+
+                    expect(logic.values.recentDatasetIds).toEqual(['test-dataset-1'])
+                    expect(logic.values.recentDatasets).toEqual([mockDataset1])
+                })
+
+                it('does not add dataset to recent when dataset ID is already in recent', async () => {
+                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem })
+                    logic.mount()
+
+                    // Ensure clean state first
+                    expect(logic.values.recentDatasetIds).toEqual([])
+                    expect(logic.values.recentDatasets).toEqual([])
+
+                    // Set up existing recent datasets
+                    logic.actions.setRecentDatasetIds(['test-dataset-1'])
+                    logic.actions.setRecentDatasets([mockDataset1])
+
+                    // Load datasets
+                    const storageKey = getStorageKey('')
+                    logic.actions.loadDatasetsSuccess({
+                        [storageKey]: [mockDataset1, mockDataset2],
+                    })
+
+                    await expectLogic(logic, () => {
+                        logic.actions.setSearchFormValue('datasetId', 'test-dataset-1')
+                    }).toFinishAllListeners()
+
+                    // Should remain unchanged
+                    expect(logic.values.recentDatasetIds).toEqual(['test-dataset-1'])
+                    expect(logic.values.recentDatasets).toEqual([mockDataset1])
+                })
+
+                it('adds new dataset to front of recent lists', async () => {
+                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem })
+                    logic.mount()
+
+                    // Ensure clean state first
+                    expect(logic.values.recentDatasetIds).toEqual([])
+                    expect(logic.values.recentDatasets).toEqual([])
+
+                    // Set up existing recent datasets
+                    logic.actions.setRecentDatasetIds(['test-dataset-1'])
+                    logic.actions.setRecentDatasets([mockDataset1])
+
+                    // Load datasets
+                    const storageKey = getStorageKey('')
+                    logic.actions.loadDatasetsSuccess({
+                        [storageKey]: [mockDataset1, mockDataset2],
+                    })
+
+                    await expectLogic(logic, () => {
+                        logic.actions.setSearchFormValue('datasetId', 'test-dataset-2')
+                    }).toFinishAllListeners()
+
+                    expect(logic.values.recentDatasetIds).toEqual(['test-dataset-2', 'test-dataset-1'])
+                    expect(logic.values.recentDatasets).toEqual([mockDataset2, mockDataset1])
+                })
+
+                it('does not add to recent when dataset is not found in datasets', async () => {
+                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem })
+                    logic.mount()
+
+                    // Clear any existing recent datasets
+                    logic.actions.setRecentDatasetIds([])
+                    logic.actions.setRecentDatasets([])
+
+                    // Load datasets without the target dataset
+                    const storageKey = getStorageKey('')
+                    logic.actions.loadDatasetsSuccess({
+                        [storageKey]: [mockDataset1],
+                    })
+
+                    await expectLogic(logic, () => {
+                        logic.actions.setSearchFormValue('datasetId', 'nonexistent-dataset')
+                    }).toFinishAllListeners()
+
+                    expect(logic.values.recentDatasetIds).toEqual([])
+                    expect(logic.values.recentDatasets).toEqual([])
+                })
+
+                it('does not add to recent when datasets is null', async () => {
+                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem })
+                    logic.mount()
+
+                    // Clear any existing recent datasets
+                    logic.actions.setRecentDatasetIds([])
+                    logic.actions.setRecentDatasets([])
+
+                    // Ensure datasets is null (don't load any datasets)
+                    expect(logic.values.datasets).toBeNull()
+
+                    await expectLogic(logic, () => {
+                        logic.actions.setSearchFormValue('datasetId', 'test-dataset-1')
+                    }).toFinishAllListeners()
+
+                    expect(logic.values.recentDatasetIds).toEqual([])
+                    expect(logic.values.recentDatasets).toEqual([])
+                })
             })
         })
     })
