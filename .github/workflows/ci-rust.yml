@@ -446,8 +446,10 @@ jobs:
         name: Deploy ${{ matrix.release }}
         runs-on: ubuntu-24.04
         needs: docker-images
-        # Only deploy from master branches
-        if: github.ref == 'refs/heads/master'
+        # Only deploy from master branches when docker images succeeded
+        if: |
+            github.ref == 'refs/heads/master' &&
+            needs.docker-images.result == 'success'
         strategy:
             matrix:
                 include:
