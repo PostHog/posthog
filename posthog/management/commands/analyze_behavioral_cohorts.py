@@ -126,15 +126,6 @@ class Command(BaseCommand):
 
         # Add LIMIT clause if specified
         limit_clause = f"LIMIT {int(limit)}" if limit else ""
-        log_comment = json.dumps(
-            {
-                "source": "analyze_behavioral_cohorts",
-                "operation": "get_unique_conditions",
-                "test": True,
-                "days": days,
-                "limit": limit,
-            }
-        )
 
         query = f"""
             SELECT DISTINCT
@@ -145,7 +136,6 @@ class Command(BaseCommand):
             WHERE {where_clause}
             ORDER BY team_id, cohort_id, condition
             {limit_clause}
-            SETTINGS log_comment = '{log_comment}'
         """
 
         try:
