@@ -49,7 +49,6 @@ import {
 } from '~/types'
 
 import { Breakdown } from './Breakdown'
-import { CalendarHeatmapFilters } from './CalendarHeatmapFilters'
 import { CumulativeStickinessFilter } from './CumulativeStickinessFilter'
 import { EditorFilterGroup } from './EditorFilterGroup'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
@@ -76,7 +75,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         isLifecycle,
         isStickiness,
         isTrendsLike,
-        isCalendarHeatmap,
         display,
         pathsFilter,
         querySource,
@@ -188,13 +186,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             editorFilters: filterFalsy([
                 isTrendsLike && {
                     key: 'series',
-                    label: isTrends ? TrendsSeriesLabel : undefined,
+                    label: isTrends && display !== ChartDisplayType.CalendarHeatmap ? TrendsSeriesLabel : undefined,
                     component: TrendsSeries,
-                },
-                isCalendarHeatmap && {
-                    key: 'filters',
-                    label: 'Filters',
-                    component: CalendarHeatmapFilters,
                 },
                 isTrends && hasFormula
                     ? {
@@ -365,36 +358,35 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 },
             ]),
         },
-        ...(!isCalendarHeatmap
-            ? [
-                  {
-                      title: 'Advanced options',
-                      defaultExpanded: false,
-                      editorFilters: filterFalsy([
-                          {
-                              key: 'poe',
-                              component: PoeFilter,
-                          },
-                          {
-                              key: 'sampling',
-                              component: SamplingFilter,
-                          },
-                          displayGoalLines && {
-                              key: 'goal-lines',
-                              label: 'Goal lines',
-                              tooltip: (
-                                  <>
-                                      Goal lines can be used to highlight specific goals (Revenue, Signups, etc.) or
-                                      limits (Web Vitals, etc.)
-                                  </>
-                              ),
-                              component: GoalLines,
-                          },
-                      ]),
-                  },
-              ]
-            : []),
-    ]
+        // Hide advanced options for calendar heatmap
+        display !== ChartDisplayType.CalendarHeatmap
+            ? {
+                  title: 'Advanced options',
+                  defaultExpanded: false,
+                  editorFilters: filterFalsy([
+                      {
+                          key: 'poe',
+                          component: PoeFilter,
+                      },
+                      {
+                          key: 'sampling',
+                          component: SamplingFilter,
+                      },
+                      displayGoalLines && {
+                          key: 'goal-lines',
+                          label: 'Goal lines',
+                          tooltip: (
+                              <>
+                                  Goal lines can be used to highlight specific goals (Revenue, Signups, etc.) or limits
+                                  (Web Vitals, etc.)
+                              </>
+                          ),
+                          component: GoalLines,
+                      },
+                  ]),
+              }
+            : null,
+    ].filter((group): group is InsightEditorFilterGroup => group !== null)
 
     const filterGroupsGroups = [
         { title: 'left', editorFilterGroups: leftEditorFilterGroups.filter((group) => group.editorFilters.length > 0) },

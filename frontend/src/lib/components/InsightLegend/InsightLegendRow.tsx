@@ -23,7 +23,7 @@ export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    const { insightProps, highlightedSeries } = useValues(insightLogic)
+    const { insightProps, highlightedSeries, editingDisabledReason } = useValues(insightLogic)
     const {
         display,
         trendsFilter,
@@ -89,6 +89,7 @@ export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
                             hideIcon
                         />
                     }
+                    disabledReason={editingDisabledReason}
                 />
             </div>
             {display === ChartDisplayType.ActionsPie && (

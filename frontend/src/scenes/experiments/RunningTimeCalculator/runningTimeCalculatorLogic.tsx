@@ -79,6 +79,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
     })),
     actions({
         setMetricIndex: (value: number) => ({ value }),
+        setMetricUuid: (value: string) => ({ value }),
         setMetricResult: (value: {
             uniqueUsers: number
             averageEventsPerUser?: number
@@ -95,10 +96,10 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
             null as ExposureEstimateConfig | null,
             { setExposureEstimateConfig: (_, { value }) => value },
         ],
-        _metricIndex: [
-            null as number | null,
+        _metricUuid: [
+            null as string | null,
             {
-                setMetricIndex: (_, { value }) => value,
+                setMetricUuid: (_, { value }) => value,
             },
         ],
         _conversionRateInputType: [
@@ -111,7 +112,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
     loaders(({ values }) => ({
         metricResult: {
             loadMetricResult: async () => {
-                if (values.metricIndex === null) {
+                if (values.metricUuid === null) {
                     return null
                 }
 
@@ -200,8 +201,15 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         },
     })),
     listeners(({ actions, values }) => ({
-        setMetricIndex: () => {
-            // When metric index changes, update exposure estimate config with the new metric
+        setMetricIndex: ({ value: metricIndex }) => {
+            // Convert index to UUID and set it
+            const metric = values.experiment?.metrics?.[metricIndex]
+            if (metric?.uuid) {
+                actions.setMetricUuid(metric.uuid)
+            }
+        },
+        setMetricUuid: () => {
+            // When metric UUID changes, update exposure estimate config with the new metric
             if (values.metric) {
                 actions.setExposureEstimateConfig({
                     ...(values.exposureEstimateConfig ?? defaultExposureEstimateConfig),
@@ -247,39 +255,37 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
     })),
     afterMount(({ actions, values }) => {
         // Initial calculation if we have a valid metric selected and no metric result yet
-        if (values.metric && !values.metricResult && values.metricIndex !== null) {
+        if (values.metric && !values.metricResult && values.metricUuid !== null) {
             actions.loadMetricResult()
         }
     }),
     selectors({
-        defaultMetricIndex: [
+        defaultMetricUuid: [
             (s) => [s.experiment, s.exposureEstimateConfig],
-            (experiment: Experiment, exposureEstimateConfig: ExposureEstimateConfig | null): number | null => {
+            (experiment: Experiment, exposureEstimateConfig: ExposureEstimateConfig | null): string | null => {
                 if (!experiment?.metrics || !exposureEstimateConfig?.metric) {
                     return null
                 }
 
                 // First check regular metrics
-                const metricIndex = experiment.metrics.findIndex((m) => equal(m, exposureEstimateConfig.metric))
-                if (metricIndex >= 0) {
-                    return metricIndex
+                const regularMetric = experiment.metrics.find((m) => equal(m, exposureEstimateConfig.metric))
+                if (regularMetric?.uuid) {
+                    return regularMetric.uuid
                 }
 
                 // If not found, check shared metrics
                 const primarySharedMetrics = experiment.saved_metrics.filter((m) => m.metadata.type === 'primary')
-                const sharedMetricIndex = primarySharedMetrics.findIndex((m) =>
-                    equal(m.query, exposureEstimateConfig.metric)
-                )
+                const sharedMetric = primarySharedMetrics.find((m) => equal(m.query, exposureEstimateConfig.metric))
 
-                return sharedMetricIndex >= 0 ? experiment.metrics.length + sharedMetricIndex : null
+                return sharedMetric?.query?.uuid || null
             },
         ],
-        metricIndex: [
-            (s) => [s._metricIndex, s.defaultMetricIndex],
-            (metricIndex: number | null, defaultMetricIndex: number | null): number | null => {
-                // If metricIndex was manually set, use that
+        metricUuid: [
+            (s) => [s._metricUuid, s.defaultMetricUuid],
+            (metricUuid: string | null, defaultMetricUuid: string | null): string | null => {
+                // If metricUuid was manually set, use that
                 // Otherwise use the default from exposureEstimateConfig if available
-                return metricIndex ?? defaultMetricIndex
+                return metricUuid ?? defaultMetricUuid
             },
         ],
         exposureEstimateConfig: [
@@ -335,22 +341,21 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 minimumDetectableEffect ?? experiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE,
         ],
         metric: [
-            (s) => [s.metricIndex, s.experiment],
-            (metricIndex: number | null, experiment: Experiment): ExperimentMetric | null => {
-                if (metricIndex === null) {
+            (s) => [s.metricUuid, s.experiment],
+            (metricUuid: string | null, experiment: Experiment): ExperimentMetric | null => {
+                if (metricUuid === null) {
                     return null
                 }
 
-                // Check if the index is within the regular metrics array
-                if (metricIndex < experiment.metrics.length) {
-                    return experiment.metrics[metricIndex] as ExperimentMetric
+                // First check regular metrics
+                const regularMetric = experiment.metrics.find((m) => m.uuid === metricUuid)
+                if (regularMetric) {
+                    return regularMetric as ExperimentMetric
                 }
 
-                // If not, check shared metrics with primary type
-                const sharedMetricIndex = metricIndex - experiment.metrics.length
-                const sharedMetric = experiment.saved_metrics.filter((m) => m.metadata.type === 'primary')[
-                    sharedMetricIndex
-                ]
+                // If not found, check shared metrics with primary type
+                const primarySharedMetrics = experiment.saved_metrics.filter((m) => m.metadata.type === 'primary')
+                const sharedMetric = primarySharedMetrics.find((m) => m.query?.uuid === metricUuid)
 
                 return sharedMetric?.query as ExperimentMetric
             },

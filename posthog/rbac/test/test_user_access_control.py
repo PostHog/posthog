@@ -937,9 +937,9 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
         access_level = self.user_access_control.specific_access_level_for_object(self.other_dashboard)
         assert access_level == "editor"
 
-    def test_ignores_global_access_controls(self):
-        """Test that global access controls (no member/role) are ignored"""
-        # Create a global access control
+    def test_ignores_resource_level_access_controls(self):
+        """Test that resource level access controls (no member/role) are ignored"""
+        # Create a resource level access control
         self._create_access_control(
             resource="dashboard",
             resource_id=str(self.other_dashboard.id),

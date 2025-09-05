@@ -167,7 +167,7 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
 
         return cast(ast.SelectQuery, outer_query)
 
-    def to_query(self) -> ast.SelectSetQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return ast.SelectSetQuery.create_from_queries(self.to_queries(), "UNION ALL")
 
     def to_queries(self) -> list[ast.SelectQuery]:

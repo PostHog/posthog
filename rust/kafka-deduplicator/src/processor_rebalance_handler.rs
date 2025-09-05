@@ -2,20 +2,20 @@ use anyhow::Result;
 use async_trait::async_trait;
 use rdkafka::TopicPartitionList;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{error, info};
 
-use crate::deduplication_processor::DeduplicationProcessor;
 use crate::kafka::rebalance_handler::RebalanceHandler;
+use crate::kafka::types::Partition;
+use crate::store_manager::StoreManager;
 
-/// Rebalance handler that coordinates with DeduplicationProcessor
-/// This handler cleans up stores for revoked partitions
+/// Rebalance handler that coordinates store cleanup on partition revocation
 pub struct ProcessorRebalanceHandler {
-    processor: Arc<DeduplicationProcessor>,
+    store_manager: Arc<StoreManager>,
 }
 
 impl ProcessorRebalanceHandler {
-    pub fn new(processor: Arc<DeduplicationProcessor>) -> Self {
-        Self { processor }
+    pub fn new(store_manager: Arc<StoreManager>) -> Self {
+        Self { store_manager }
     }
 }
 
@@ -33,14 +33,32 @@ impl RebalanceHandler for ProcessorRebalanceHandler {
         info!("Partitions revoked: {} partitions", partitions.count());
 
         // Extract partition info for cleanup
-        let partition_infos: Vec<(String, i32)> = partitions
+        let partition_infos: Vec<Partition> = partitions
             .elements()
             .into_iter()
-            .map(|elem| (elem.topic().to_string(), elem.partition()))
+            .map(Partition::from)
             .collect();
 
         // Clean up stores for revoked partitions
-        self.processor.cleanup_stores(&partition_infos).await;
+        for partition in &partition_infos {
+            if let Err(e) = self
+                .store_manager
+                .remove(partition.topic(), partition.partition_number())
+            {
+                error!(
+                    "Failed to remove store for revoked partition {}:{}: {}",
+                    partition.topic(),
+                    partition.partition_number(),
+                    e
+                );
+            } else {
+                info!(
+                    "Cleaned up deduplication store and files for revoked partition {}:{}",
+                    partition.topic(),
+                    partition.partition_number()
+                );
+            }
+        }
 
         Ok(())
     }
@@ -54,7 +72,7 @@ impl RebalanceHandler for ProcessorRebalanceHandler {
         info!("Post-rebalance: Partition changes complete");
 
         // Log current stats
-        let store_count = self.processor.get_active_store_count().await;
+        let store_count = self.store_manager.stores().len();
         info!("Active deduplication stores: {}", store_count);
 
         Ok(())
@@ -84,6 +102,7 @@ mod tests {
             producer_config,
             store_config,
             producer_send_timeout: Duration::from_secs(5),
+            flush_interval: Duration::from_secs(120),
         };
 
         (config, temp_dir)

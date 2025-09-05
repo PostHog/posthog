@@ -1,7 +1,7 @@
 import gzip
 import json
 import base64
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -32,7 +32,7 @@ from posthog.schema import EventsQuery
 
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.batch_exports.models import BatchExport, BatchExportDestination
+from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import TEST_clear_instance_license_cache
@@ -78,7 +78,7 @@ from ee.models.license import License
 logger = structlog.get_logger(__name__)
 
 
-def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
+def _setup_replay_data(team_id: int, include_mobile_replay: bool, include_zero_duration: bool = False) -> None:
     # recordings in period  - 5 sessions
     for i in range(1, 6):
         session_id = str(i)
@@ -88,7 +88,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
             session_id=session_id,
             distinct_id=str(uuid4()),
             first_timestamp=timestamp,
-            last_timestamp=timestamp,
+            last_timestamp=timestamp + timedelta(seconds=1),
             size=10,
         )
 
@@ -99,9 +99,18 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
             session_id="a-single-mobile-recording",
             distinct_id=str(uuid4()),
             first_timestamp=timestamp,
-            last_timestamp=timestamp,
+            last_timestamp=timestamp + timedelta(seconds=1),
             snapshot_source="mobile",
             size=6,
+        )
+
+    if include_zero_duration:
+        produce_replay_summary(
+            team_id=team_id,
+            session_id="zero-duration",
+            distinct_id=str(uuid4()),
+            first_timestamp=now() - relativedelta(hours=12),
+            last_timestamp=now() - relativedelta(hours=12),
         )
 
     # recordings out of period  - 11 sessions
@@ -113,7 +122,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
             session_id=id1,
             distinct_id=str(uuid4()),
             first_timestamp=timestamp1,
-            last_timestamp=timestamp1,
+            last_timestamp=timestamp1 + timedelta(seconds=1),
             size=10,
         )
         # we maybe also include a single mobile recording out of period
@@ -123,7 +132,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
                 session_id=f"{id1}-mobile",
                 distinct_id=str(uuid4()),
                 first_timestamp=timestamp1,
-                last_timestamp=timestamp1,
+                last_timestamp=timestamp1 + timedelta(seconds=1),
                 snapshot_source="mobile",
                 size=6,
             )
@@ -138,7 +147,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
         session_id=session_that_will_not_match,
         distinct_id=str(uuid4()),
         first_timestamp=timestamp2,
-        last_timestamp=timestamp2,
+        last_timestamp=timestamp2 + timedelta(seconds=1),
         size=10,
     )
     produce_replay_summary(
@@ -146,7 +155,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
         session_id=session_that_will_not_match,
         distinct_id=str(uuid4()),
         first_timestamp=start_of_day,
-        last_timestamp=start_of_day,
+        last_timestamp=start_of_day + timedelta(seconds=1),
         size=10,
     )
     timestamp3 = start_of_day + relativedelta(hours=1)
@@ -155,13 +164,13 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
         session_id=session_that_will_not_match,
         distinct_id=str(uuid4()),
         first_timestamp=timestamp3,
-        last_timestamp=timestamp3,
+        last_timestamp=timestamp3 + timedelta(seconds=1),
         size=10,
     )
 
 
 @freeze_time("2022-01-10T00:01:00Z")
-class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin, QueryMatchingTest):
+class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()
 
@@ -604,6 +613,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
                     "cdp_billable_invocations_in_period": 0,
+                    "rows_exported_in_period": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.organization.id),
                     "organization_name": "Test",
@@ -669,6 +679,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
                             "cdp_billable_invocations_in_period": 0,
+                            "rows_exported_in_period": 0,
                             "ai_event_count_in_period": 1,
                         },
                         str(self.org_1_team_2.id): {
@@ -729,6 +740,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
                             "cdp_billable_invocations_in_period": 0,
+                            "rows_exported_in_period": 0,
                             "ai_event_count_in_period": 0,
                         },
                     },
@@ -812,6 +824,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
                     "cdp_billable_invocations_in_period": 0,
+                    "rows_exported_in_period": 0,
                     "ai_event_count_in_period": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.org_2.id),
@@ -880,6 +893,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
                             "cdp_billable_invocations_in_period": 0,
+                            "rows_exported_in_period": 0,
                             "ai_event_count_in_period": 0,
                         }
                     },
@@ -945,7 +959,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
 
 
 @freeze_time("2022-01-09T00:01:00Z")
-class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
+class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
     @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
     def test_usage_report_replay(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=False)
@@ -958,6 +972,7 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
 
         assert report.recording_count_in_period == 5
         assert report.mobile_recording_count_in_period == 0
+        assert report.zero_duration_recording_count_in_period == 0
 
         org_reports: dict[str, OrgReport] = {}
         _add_team_report_to_org_reports(org_reports, self.team, report, period_start)
@@ -965,6 +980,28 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
         assert org_reports[str(self.organization.id)].recording_count_in_period == 5
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 0
         assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 0
+
+    @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
+    def test_usage_report_replay_with_zero_duration(self) -> None:
+        _setup_replay_data(self.team.pk, include_mobile_replay=False, include_zero_duration=True)
+
+        period = get_previous_day()
+        period_start, period_end = period
+
+        all_reports = _get_all_usage_data_as_team_rows(period_start, period_end)
+        report = _get_team_report(all_reports, self.team)
+
+        assert report.recording_count_in_period == 6
+        assert report.mobile_recording_count_in_period == 0
+        assert report.zero_duration_recording_count_in_period == 1
+
+        org_reports: dict[str, OrgReport] = {}
+        _add_team_report_to_org_reports(org_reports, self.team, report, period_start)
+
+        assert org_reports[str(self.organization.id)].recording_count_in_period == 6
+        assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 0
+        assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 0
+        assert org_reports[str(self.organization.id)].zero_duration_recording_count_in_period == 1
 
     @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
     def test_usage_report_replay_with_mobile(self) -> None:
@@ -1041,7 +1078,7 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
         assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 2
 
 
-class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
+class TestHogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
     # @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
     @pytest.mark.skip(reason="Skipping due to flakiness")
     def test_usage_report_hogql_queries(self) -> None:
@@ -1653,6 +1690,48 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_batch_export_rows_exported_in_period(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        self._setup_teams()
+
+        batch_export_destination = BatchExportDestination.objects.create(
+            type=BatchExportDestination.Destination.S3, config={"bucket_name": "test_bucket"}
+        )
+        batch_export = BatchExport.objects.create(
+            team_id=3,
+            name="Test export",
+            destination=batch_export_destination,
+            paused=False,
+            model=BatchExport.Model.EVENTS,
+        )
+
+        for i in range(3):
+            BatchExportRun.objects.create(
+                batch_export=batch_export,
+                data_interval_end=now() - timedelta(hours=i),
+                data_interval_start=now() - timedelta(hours=i + 1),
+                finished_at=now(),
+                status=BatchExportRun.Status.COMPLETED,
+                records_completed=100 * (i + 1),  # 100, 200, 300
+            )
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        assert len(all_reports) == 3
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["rows_exported_in_period"] == 600
+        assert org_1_report["teams"]["3"]["rows_exported_in_period"] == 600
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
     def test_external_data_rows_synced_failed_jobs(
         self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
     ) -> None:
@@ -2194,7 +2273,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         assert org_1_report["teams"]["3"]["ai_event_count_in_period"] == 7
 
 
-class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
+class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
 
@@ -2410,7 +2489,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         assert mock_client.capture.call_args[1]["timestamp"] == datetime(2021, 10, 10, 23, 1, tzinfo=tzutc())
 
 
-class SendNoUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
+class TestSendNoUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("requests.post")
@@ -2423,7 +2502,7 @@ class SendNoUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTe
         mock_post.assert_not_called()
 
 
-class SendUsageNoLicenseTest(APIBaseTest):
+class TestSendUsageNoLicense(APIBaseTest):
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("requests.post")

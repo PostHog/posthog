@@ -286,11 +286,11 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     })),
     subscriptions(({ props, actions }) => ({
         currentTeam: (currentTeam) => {
-            actions.setAuthorizedUrls(
+            const urls =
                 (props.type === AuthorizedUrlListType.RECORDING_DOMAINS
                     ? currentTeam.recording_domains
                     : currentTeam.app_urls) || []
-            )
+            actions.setAuthorizedUrls(urls.filter(Boolean))
         },
     })),
     afterMount(({ actions }) => {

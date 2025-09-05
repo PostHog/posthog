@@ -127,7 +127,7 @@ class TestSurveyCreatorTool(BaseTest):
         # Verify error response
         assert "❌ Survey must have at least one question" in content
         assert artifact["error"] == "validation_failed"
-        assert "No questions provided" in artifact["details"]
+        assert "No questions were created from the survey instructions" in artifact["error_message"]
 
     @patch.object(CreateSurveyTool, "_create_survey_from_instructions")
     @pytest.mark.django_db

@@ -60,6 +60,7 @@ TRENDS_BAR = "ActionsBar"
 TRENDS_BAR_VALUE = "ActionsBarValue"
 TRENDS_WORLD_MAP = "WorldMap"
 TRENDS_BOLD_NUMBER = "BoldNumber"
+TRENDS_CALENDAR_HEATMAP = "CalendarHeatmap"
 
 # Sync with frontend NON_TIME_SERIES_DISPLAY_TYPES
 NON_TIME_SERIES_DISPLAY_TYPES = [
@@ -68,9 +69,10 @@ NON_TIME_SERIES_DISPLAY_TYPES = [
     TRENDS_BAR_VALUE,
     TRENDS_WORLD_MAP,
     TRENDS_BOLD_NUMBER,
+    TRENDS_CALENDAR_HEATMAP,
 ]
 # Sync with frontend NON_BREAKDOWN_DISPLAY_TYPES
-NON_BREAKDOWN_DISPLAY_TYPES = [TRENDS_BOLD_NUMBER]
+NON_BREAKDOWN_DISPLAY_TYPES = [TRENDS_BOLD_NUMBER, TRENDS_CALENDAR_HEATMAP]
 
 # CONSTANTS
 INSIGHT_TRENDS = "TRENDS"
@@ -100,6 +102,7 @@ DISPLAY_TYPES = Literal[
     "ActionsBarValue",
     "WorldMap",
     "BoldNumber",
+    "CalendarHeatmap",
 ]
 
 DEPRECATED_DISPLAY_TYPES = Literal[
@@ -240,7 +243,8 @@ class FunnelCorrelationType(StrEnum):
 
 
 RETENTION_RECURRING = "retention_recurring"
-RETENTION_FIRST_TIME = "retention_first_time"
+RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS = "retention_first_time"
+RETENTION_FIRST_EVER_OCCURRENCE = "retention_first_ever_occurrence"
 
 DISTINCT_ID_FILTER = "distinct_id"
 PERSON_UUID_FILTER = "person_uuid"
@@ -255,12 +259,6 @@ UNIQUE_USERS = "dau"
 UNIQUE_GROUPS = "unique_group"
 WEEKLY_ACTIVE = "weekly_active"
 MONTHLY_ACTIVE = "monthly_active"
-
-
-class RetentionQueryType(StrEnum):
-    RETURNING = "returning"
-    TARGET = "target"
-    TARGET_FIRST_TIME = "target_first_time"
 
 
 class ExperimentNoResultsErrorKeys(StrEnum):
@@ -322,6 +320,7 @@ GENERAL_PURPOSE_TASK_QUEUE = "general-purpose-task-queue"
 TASKS_TASK_QUEUE = "tasks-task-queue"
 TEST_TASK_QUEUE = "test-task-queue"
 BILLING_TASK_QUEUE = "billing-task-queue"
+VIDEO_EXPORT_TASK_QUEUE = "video-export-task-queue"
 
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
 

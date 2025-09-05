@@ -5,6 +5,7 @@ import { Counter, Histogram } from 'prom-client'
 import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersFetchSchema,
@@ -55,6 +56,10 @@ export const RETRIABLE_STATUS_CODES = [
     503, // Service Unavailable
     504, // Gateway Timeout
 ]
+
+function formatNumber(val: number) {
+    return Number(val.toPrecision(2)).toString()
+}
 
 export const isFetchResponseRetriable = (response: FetchResponse | null, error: any | null): boolean => {
     let canRetry = !!response?.status && RETRIABLE_STATUS_CODES.includes(response.status)
@@ -507,10 +512,10 @@ export class HogExecutorService {
                     (acc, timing) => acc + timing.duration_ms,
                     0
                 )
-                const messages = [`Function completed in ${totalDuration}ms.`]
+                const messages = [`Function completed in ${formatNumber(totalDuration)}ms.`]
                 if (execRes.state) {
-                    messages.push(`Sync: ${execRes.state.syncDuration}ms.`)
-                    messages.push(`Mem: ${execRes.state.maxMemUsed} bytes.`)
+                    messages.push(`Sync: ${formatNumber(execRes.state.syncDuration)}ms.`)
+                    messages.push(`Mem: ${formatNumber(execRes.state.maxMemUsed / 1024)}kb.`)
                     messages.push(`Ops: ${execRes.state.ops}.`)
                     messages.push(`Event: '${globals.event.url}'`)
 
@@ -564,22 +569,25 @@ export class HogExecutorService {
             headers['developer-token'] = this.hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN
         }
 
-        if (!!invocation.state.globals.inputs?.oauth) {
-            const integrationInputs = await this.hogInputsService.loadIntegrationInputs(invocation.hogFunction)
-            const accessToken: string = integrationInputs.oauth.value.access_token_raw
-            const placeholder: string = integrationInputs.oauth.value.access_token
+        const integrationInputs = await this.hogInputsService.loadIntegrationInputs(invocation.hogFunction)
 
-            if (placeholder && accessToken) {
-                const replace = (val: string) => val.replaceAll(placeholder, accessToken)
+        if (Object.keys(integrationInputs).length > 0) {
+            for (const [key, value] of Object.entries(integrationInputs)) {
+                const accessToken: string = value.value.access_token_raw
+                const placeholder: string = ACCESS_TOKEN_PLACEHOLDER + invocation.hogFunction.inputs?.[key]?.value
 
-                params.body = params.body ? replace(params.body) : params.body
-                headers = Object.fromEntries(
-                    Object.entries(params.headers ?? {}).map(([key, value]) => [
-                        key,
-                        typeof value === 'string' ? replace(value) : value,
-                    ])
-                )
-                params.url = replace(params.url)
+                if (placeholder && accessToken) {
+                    const replace = (val: string) => val.replaceAll(placeholder, accessToken)
+
+                    params.body = params.body ? replace(params.body) : params.body
+                    headers = Object.fromEntries(
+                        Object.entries(params.headers ?? {}).map(([key, value]) => [
+                            key,
+                            typeof value === 'string' ? replace(value) : value,
+                        ])
+                    )
+                    params.url = replace(params.url)
+                }
             }
         }
 
