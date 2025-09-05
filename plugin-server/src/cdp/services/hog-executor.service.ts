@@ -119,9 +119,9 @@ export class HogExecutorService {
     private recipientTokensService: RecipientTokensService
 
     constructor(private hub: Hub) {
+        this.recipientTokensService = new RecipientTokensService(hub)
         this.hogInputsService = new HogInputsService(hub)
         this.emailService = new EmailService(hub)
-        this.recipientTokensService = new RecipientTokensService(hub)
     }
 
     async buildInputsWithGlobals(

@@ -8,7 +8,7 @@ export class RecipientTokensService {
     private jwt: JWT
 
     constructor(protected hub: Pick<Hub, 'ENCRYPTION_SALT_KEYS' | 'SITE_URL'>) {
-        this.jwt = new JWT(hub.ENCRYPTION_SALT_KEYS)
+        this.jwt = new JWT(hub.ENCRYPTION_SALT_KEYS ?? '')
     }
 
     public validatePreferencesToken(
