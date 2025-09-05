@@ -224,10 +224,15 @@ function extractPersonData(row: SurveyResponseRow): {
     // now, we're querying for all PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES, starting from the third last value, so build our person properties object
     // from those values. We use them to have a display name for the person
     const personProperties: Record<string, any> = {}
+    let hasAnyProperties = false
     for (let i = 0; i < PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES.length; i++) {
-        personProperties[PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES[i]] = row.at(-3 - i) as string
+        const value = row.at(-3 - i) as string
+        personProperties[PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES[i]] = value
+        if (value && value !== null && value !== '') {
+            hasAnyProperties = true
+        }
     }
-    return { distinctId, personProperties, timestamp }
+    return { distinctId, personProperties: hasAnyProperties ? personProperties : undefined, timestamp }
 }
 
 // Helper to count a choice and store person data for latest occurrence
