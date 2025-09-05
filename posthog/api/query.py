@@ -1,5 +1,4 @@
 import re
-import json
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
@@ -14,6 +13,9 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import (
+    HogQLQuery,
+    HogQLQueryModifiers,
+    HogQLVariable,
     QueryRequest,
     QueryResponseAlternative,
     QueryStatusResponse,
@@ -39,6 +41,7 @@ from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from posthog.models.user import User
 from posthog.rate_limit import (
@@ -178,16 +181,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             capture_exception(e)
             raise
 
-    def auth_for_awaiting(self, request: Request, *args, **kwargs):
-        # Parse the request data here so we don't need to read the body again
-        try:
-            # Get the raw Django request to access its body
-            return JsonResponse(
-                {"user": "ok", "data": request.data, "team_id": self.team.pk}, status=status.HTTP_200_OK
-            )
-        except json.JSONDecodeError:
-            return JsonResponse({"error": "Invalid JSON"}, status=status.HTTP_400_BAD_REQUEST)
-
     @extend_schema(
         description="(Experimental)",
         responses={200: QueryStatusResponse},
@@ -263,11 +256,23 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     )
     @action(methods=["GET"], detail=True, url_path="log")
     def get_query_log(self, request: Request, pk: str, *args, **kwargs) -> Response:
-        from posthog.hogql_queries.query_log_query_runner import QueryLogQueryRunner
-
         try:
-            runner = QueryLogQueryRunner(query_id=pk, team=self.team)
-            result = runner.calculate()
+            query = HogQLQuery(
+                query="select * from query_log where query_id = '{variables.client_query_id}'",
+                variables={
+                    "client_query_id": HogQLVariable(
+                        code_name="client_query_id", variableId="client_query_id", value=str(pk)
+                    )
+                },
+                name="get_query_log",
+            )
+            hogql_runner = HogQLQueryRunner(
+                query=query,
+                team=self.team,
+                modifiers=HogQLQueryModifiers(),
+                limit_context=LimitContext.QUERY,
+            )
+            result = hogql_runner.calculate()
             return Response(result.model_dump(), status=200)
         except Exception as e:
             capture_exception(e)
