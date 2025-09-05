@@ -141,7 +141,7 @@ const createViewNode = (
     isSearch = false
 ): TreeDataItem => {
     const viewChildren: TreeDataItem[] = []
-    const isMaterializedView = 'sync_frequency' in view && view.sync_frequency !== null
+    const isMaterializedView = view.is_materialized === true
     const isManagedView = 'type' in view && view.type === 'managed_view'
 
     Object.values(view.columns).forEach((column: DatabaseSchemaField) => {

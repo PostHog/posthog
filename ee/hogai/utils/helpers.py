@@ -4,7 +4,7 @@ from typing import Optional, TypeVar, Union
 
 from jsonref import replace_refs
 from langchain_core.messages import (
-    AIMessage as LangchainAIMessage,
+    BaseMessage,
     HumanMessage as LangchainHumanMessage,
     merge_message_runs,
 )
@@ -202,9 +202,9 @@ def format_events_yaml(events_in_context: list[MaxEventContext], team: Team) -> 
     return "\n".join(formatted_events)
 
 
-def extract_content_from_ai_message(response: LangchainAIMessage) -> str:
+def extract_content_from_ai_message(response: BaseMessage) -> str:
     """
-    Extracts the content from a LangchainAIMessage, supporting both reasoning and non-reasoning responses.
+    Extracts the content from a BaseMessage, supporting both reasoning and non-reasoning responses.
     """
     if isinstance(response.content, list):
         text_parts = []

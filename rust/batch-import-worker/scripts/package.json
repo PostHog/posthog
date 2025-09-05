@@ -1,0 +1,33 @@
+{
+  "name": "@posthog/batch-import-worker-scripts",
+  "version": "1.0.0",
+  "description": "Test scripts and utilities for PostHog batch import worker",
+  "main": "amplitude-test-generator.js",
+  "scripts": {
+    "generate": "node amplitude-test-generator.js",
+    "generate:amplitude": "node amplitude-test-generator.js",
+    "test": "node --test *.test.js"
+  },
+  "keywords": [
+    "posthog",
+    "batch-import-worker",
+    "amplitude",
+    "testing",
+    "test-data",
+    "rust"
+  ],
+  "author": "PostHog Team",
+  "license": "MIT",
+  "dependencies": {
+    "@amplitude/analytics-node": "^1.3.8"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PostHog/posthog.git",
+    "directory": "rust/batch-import-worker/scripts"
+  }
+}

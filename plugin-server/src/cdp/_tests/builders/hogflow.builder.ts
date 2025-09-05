@@ -121,6 +121,11 @@ export class FixtureHogFlowBuilder {
         return this
     }
 
+    withConversion(conversion: HogFlow['conversion']): this {
+        this.hogFlow.conversion = conversion
+        return this
+    }
+
     withSimpleWorkflow(): this {
         return this.withWorkflow({
             actions: {

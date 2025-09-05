@@ -56,7 +56,7 @@ export function EditableBreakdownTag({
                 setOpen={setFilterOpen}
                 breakdownValue={breakdown}
                 breakdownType={breakdownType}
-                taxanomicType={taxonomicBreakdownType}
+                taxonomicType={taxonomicBreakdownType}
             >
                 {!isMultipleBreakdownsEnabled || isHistogramable || isNormalizeable ? (
                     <div>
@@ -84,7 +84,7 @@ export function EditableBreakdownTag({
                     </div>
                 ) : (
                     <div>
-                        {/* If multiple breakdownsa are enabled and it's not a numeric or URL property, enable the delete button */}
+                        {/* If multiple breakdowns are enabled and it's not a numeric or URL property, enable the delete button */}
                         <BreakdownTag
                             breakdown={breakdown}
                             breakdownType={breakdownType}

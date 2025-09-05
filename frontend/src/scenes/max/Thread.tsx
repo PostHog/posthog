@@ -21,6 +21,8 @@ import {
 import {
     LemonButton,
     LemonButtonPropsBase,
+    LemonCheckbox,
+    LemonDialog,
     LemonInput,
     LemonSkeleton,
     ProfilePicture,
@@ -32,9 +34,12 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { pluralize } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -45,8 +50,13 @@ import {
     AssistantMessage,
     AssistantToolCallMessage,
     FailureMessage,
+    MultiVisualizationMessage,
     NotebookUpdateMessage,
-    VisualizationMessage,
+    PlanningMessage,
+    PlanningStepStatus,
+    TaskExecutionMessage,
+    TaskExecutionStatus,
+    VisualizationItem,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
@@ -64,8 +74,11 @@ import {
     isAssistantToolCallMessage,
     isFailureMessage,
     isHumanMessage,
+    isMultiVisualizationMessage,
     isNotebookUpdateMessage,
+    isPlanningMessage,
     isReasoningMessage,
+    isTaskExecutionMessage,
     isVisualizationMessage,
 } from './utils'
 
@@ -237,6 +250,8 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                 isEditingInsight={editInsightToolRegistered}
                             />
                         )
+                    } else if (isMultiVisualizationMessage(message)) {
+                        return <MultiVisualizationAnswer key={key} message={message} />
                     } else if (isReasoningMessage(message)) {
                         return (
                             <MessageTemplate key={key} type="ai">
@@ -259,6 +274,10 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                         )
                     } else if (isNotebookUpdateMessage(message)) {
                         return <NotebookUpdateAnswer key={key} message={message} />
+                    } else if (isPlanningMessage(message)) {
+                        return <PlanningAnswer key={key} message={message} />
+                    } else if (isTaskExecutionMessage(message)) {
+                        return <TaskExecutionAnswer key={key} message={message} />
                     }
                     return null // We currently skip other types of messages
                 })}
@@ -429,39 +448,250 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
     )
 }
 
+interface PlanningAnswerProps {
+    message: PlanningMessage
+}
+
+function PlanningAnswer({ message }: PlanningAnswerProps): JSX.Element {
+    return (
+        <MessageTemplate type="ai">
+            <div className="space-y-2">
+                <h4 className="m-0 text-xs font-semibold">TO-DOs</h4>
+                <div className="space-y-1.5 mt-1">
+                    {message.steps.map((step, index) => (
+                        <LemonCheckbox
+                            key={index}
+                            size="xsmall"
+                            defaultChecked={step.status === PlanningStepStatus.Completed}
+                            disabled={true}
+                            label={
+                                step.description +
+                                (step.status === PlanningStepStatus.InProgress ? ' (in progress)' : '')
+                            }
+                            labelClassName={clsx(
+                                'cursor-default! text-xs',
+                                step.status === PlanningStepStatus.Completed && 'text-muted line-through',
+                                step.status === PlanningStepStatus.InProgress && 'font-semibold'
+                            )}
+                        />
+                    ))}
+                </div>
+            </div>
+        </MessageTemplate>
+    )
+}
+
+interface TaskExecutionAnswerProps {
+    message: TaskExecutionMessage
+}
+
+function TaskExecutionAnswer({ message }: TaskExecutionAnswerProps): JSX.Element {
+    const completedCount = message.tasks.filter((t) => t.status === TaskExecutionStatus.Completed).length
+    const totalCount = message.tasks.length
+
+    return (
+        <MessageTemplate type="ai">
+            <div className="flex flex-col gap-2 pb-2">
+                <div className="flex items-center justify-between">
+                    <h4 className="m-0 text-xs font-semibold">Tasks</h4>
+                    <span className="text-xs text-muted">
+                        {completedCount}/{totalCount}
+                    </span>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                    {message.tasks.map((task, index) => (
+                        <div
+                            key={index}
+                            className={clsx(
+                                'flex items-center gap-2 rounded transition-all duration-300 py-1',
+                                task.status === TaskExecutionStatus.InProgress && 'bg-accent-highlight-primary/20',
+                                task.status === TaskExecutionStatus.Completed && 'opacity-60'
+                            )}
+                        >
+                            <div className="flex-shrink-0 flex items-center justify-center size-7">
+                                {task.status === TaskExecutionStatus.Completed && (
+                                    <IconCheck className="text-success size-3.5" />
+                                )}
+                                {task.status === TaskExecutionStatus.InProgress && (
+                                    <img
+                                        src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
+                                        className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
+                                    />
+                                )}
+                                {task.status === TaskExecutionStatus.Pending && (
+                                    <div className="size-3 rounded-full bg-border" />
+                                )}
+                                {task.status === TaskExecutionStatus.Failed && (
+                                    <IconX className="text-danger size-3.5" />
+                                )}
+                            </div>
+
+                            <div className="flex-1 min-w-0">
+                                <div
+                                    className={clsx(
+                                        'text-xs transition-all duration-300',
+                                        task.status === TaskExecutionStatus.Pending && 'text-muted',
+                                        task.status === TaskExecutionStatus.InProgress &&
+                                            'font-semibold text-primary animate-pulse',
+                                        task.status === TaskExecutionStatus.Completed && 'text-muted-alt line-through',
+                                        task.status === TaskExecutionStatus.Failed && 'text-danger'
+                                    )}
+                                >
+                                    {task.description}
+                                </div>
+
+                                {task.prompt && (
+                                    <div
+                                        className={clsx(
+                                            'text-xs mt-0.5 transition-all duration-300',
+                                            task.status === TaskExecutionStatus.InProgress
+                                                ? 'text-muted-alt animate-pulse'
+                                                : 'text-muted',
+                                            task.status === TaskExecutionStatus.Completed && 'line-through opacity-50'
+                                        )}
+                                    >
+                                        {task.prompt}
+                                    </div>
+                                )}
+
+                                {task.progress_text && task.status !== TaskExecutionStatus.Pending && (
+                                    <div
+                                        className={`text-xs mt-0.5 font-medium ${
+                                            task.status === TaskExecutionStatus.InProgress
+                                                ? 'text-primary-alt animate-pulse'
+                                                : task.status === TaskExecutionStatus.Completed
+                                                  ? 'text-success'
+                                                  : 'text-danger'
+                                        }`}
+                                    >
+                                        <MarkdownMessage
+                                            id={index.toString()}
+                                            className="mt-1.5 leading-6 px-1 text-[0.6875rem] font-semibold bg-surface-secondary rounded w-fit"
+                                            content={task.progress_text}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </MessageTemplate>
+    )
+}
+
+const visualizationTypeToQuery = (visualization: VisualizationItem): InsightVizNode | DataVisualizationNode | null => {
+    const source = castAssistantQuery(visualization.answer)
+    if (isHogQLQuery(source)) {
+        return { kind: NodeKind.DataVisualizationNode, source: source } satisfies DataVisualizationNode
+    }
+    return { kind: NodeKind.InsightVizNode, source, showHeader: false } satisfies InsightVizNode
+}
+
+const Visualization = React.memo(function Visualization({
+    query,
+    collapsed,
+    editingChildren,
+}: {
+    query: InsightVizNode | DataVisualizationNode
+    collapsed?: boolean
+    editingChildren?: React.ReactNode
+}): JSX.Element | null {
+    const [isSummaryShown, setIsSummaryShown] = useState(false)
+    const [isCollapsed, setIsCollapsed] = useState(collapsed ?? false)
+
+    if (!query) {
+        return null
+    }
+
+    return (
+        <>
+            {!isCollapsed && <Query query={query} readOnly embedded />}
+            <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
+                <div className="flex items-center gap-1.5">
+                    <LemonButton
+                        sideIcon={isSummaryShown ? <IconCollapse /> : <IconExpand />}
+                        onClick={() => setIsSummaryShown(!isSummaryShown)}
+                        size="xsmall"
+                        className="-m-1 shrink"
+                        tooltip={isSummaryShown ? 'Hide definition' : 'Show definition'}
+                    >
+                        <h5 className="m-0 leading-none">
+                            <TopHeading query={query} />
+                        </h5>
+                    </LemonButton>
+                </div>
+                <div className="flex items-center gap-1.5">
+                    {editingChildren}
+                    <LemonButton
+                        icon={isCollapsed ? <IconEye /> : <IconHide />}
+                        onClick={() => setIsCollapsed(!isCollapsed)}
+                        size="xsmall"
+                        className="-m-1 shrink"
+                        tooltip={isCollapsed ? 'Show visualization' : 'Hide visualization'}
+                    />
+                </div>
+            </div>
+            {isSummaryShown && (
+                <>
+                    <SeriesSummary query={query.source} heading={null} />
+                    {!isHogQLQuery(query.source) && (
+                        <div className="flex flex-wrap gap-4 mt-1 *:grow">
+                            <PropertiesSummary properties={query.source.properties} />
+                            <BreakdownSummary query={query.source} />
+                        </div>
+                    )}
+                </>
+            )}
+        </>
+    )
+})
+
+function InsightSuggestionButton({ tabId }: { tabId: string }): JSX.Element {
+    const { insight } = useValues(insightSceneLogic({ tabId }))
+    const insightProps = { dashboardItemId: insight?.short_id }
+    const { suggestedQuery, previousQuery } = useValues(insightLogic(insightProps))
+    const { onRejectSuggestedInsight, onReapplySuggestedInsight } = useActions(insightLogic(insightProps))
+
+    return (
+        <>
+            {suggestedQuery && (
+                <LemonButton
+                    onClick={() => {
+                        if (previousQuery) {
+                            onRejectSuggestedInsight()
+                        } else {
+                            onReapplySuggestedInsight()
+                        }
+                    }}
+                    sideIcon={previousQuery ? <IconX /> : <IconRefresh />}
+                    size="xsmall"
+                    tooltip={previousQuery ? "Reject Max's changes" : "Reapply Max's changes"}
+                />
+            )}
+        </>
+    )
+}
+
 const VisualizationAnswer = React.memo(function VisualizationAnswer({
     message,
     status,
     isEditingInsight,
 }: {
-    message: VisualizationMessage
+    message: VisualizationItem
     status?: MessageStatus
     isEditingInsight: boolean
 }): JSX.Element | null {
-    const { insight } = useValues(insightSceneLogic)
     const [isSummaryShown, setIsSummaryShown] = useState(false)
     const [isCollapsed, setIsCollapsed] = useState(isEditingInsight)
-    // Get insight props for the logic
-    const insightProps = { dashboardItemId: insight?.short_id }
-
-    const { suggestedQuery, previousQuery } = useValues(insightLogic(insightProps))
-    const { onRejectSuggestedInsight, onReapplySuggestedInsight } = useActions(insightLogic(insightProps))
+    const { activeTabId, activeSceneId } = useValues(sceneLogic)
 
     useEffect(() => {
         setIsCollapsed(isEditingInsight)
     }, [isEditingInsight])
 
-    const query = useMemo<InsightVizNode | DataVisualizationNode | null>(() => {
-        if (message.answer) {
-            const source = castAssistantQuery(message.answer)
-            if (isHogQLQuery(source)) {
-                return { kind: NodeKind.DataVisualizationNode, source: source } satisfies DataVisualizationNode
-            }
-            return { kind: NodeKind.InsightVizNode, source, showHeader: true } satisfies InsightVizNode
-        }
-
-        return null
-    }, [message])
+    const query = useMemo(() => visualizationTypeToQuery(message), [message])
 
     return status !== 'completed'
         ? null
@@ -488,19 +718,8 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                               </LemonButton>
                           </div>
                           <div className="flex items-center gap-1.5">
-                              {isEditingInsight && suggestedQuery && (
-                                  <LemonButton
-                                      onClick={() => {
-                                          if (previousQuery) {
-                                              onRejectSuggestedInsight()
-                                          } else {
-                                              onReapplySuggestedInsight()
-                                          }
-                                      }}
-                                      sideIcon={previousQuery ? <IconX /> : <IconRefresh />}
-                                      size="xsmall"
-                                      tooltip={previousQuery ? "Reject Max's changes" : "Reapply Max's changes"}
-                                  />
+                              {isEditingInsight && activeTabId && activeSceneId === Scene.Insight && (
+                                  <InsightSuggestionButton tabId={activeTabId} />
                               )}
                               {!isEditingInsight && (
                                   <LemonButton
@@ -535,6 +754,149 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
               </>
           )
 })
+
+interface MultiVisualizationAnswerProps {
+    message: MultiVisualizationMessage
+    className?: string
+}
+
+export function MultiVisualizationAnswer({ message, className }: MultiVisualizationAnswerProps): JSX.Element | null {
+    const { visualizations } = message
+    const insights = useMemo(() => {
+        return visualizations
+            .map((visualization, index) => {
+                const query = visualizationTypeToQuery(visualization)
+                if (query) {
+                    return { query, title: visualization.plan || `Insight #${index + 1}` }
+                }
+                return null
+            })
+            .filter(Boolean) as Array<{ query: InsightVizNode | DataVisualizationNode; title: string }>
+    }, [visualizations])
+
+    const openModal = (): void => {
+        LemonDialog.open({
+            title: 'Insights',
+            content: <MultiVisualizationModal insights={insights} />,
+            primaryButton: null,
+            width: '90%',
+            maxWidth: 1400,
+        })
+    }
+
+    if (visualizations.length === 0) {
+        return null
+    }
+
+    // Render insights in a mosaic layout
+    const renderMosaic = (): JSX.Element => {
+        if (visualizations.length === 1) {
+            // Single insight takes full width
+            return (
+                <div className="w-full relative">
+                    <Visualization query={insights[0].query} />
+                </div>
+            )
+        }
+        // Two or more insights, show in a grid layout
+        // Currently, let's show a maximum of 4 insights inline with the following mapping
+        // 2 insights: 50/50 split
+        // 3 insights: 33/33/33 split
+        // 4 insights: 25/25/25/25 split, sso basically 2x2 grid
+        const insightsToShow = insights.slice(0, 4)
+        const gridCols =
+            insightsToShow.length === 2 ? 'grid-cols-2' : insightsToShow.length === 3 ? 'grid-cols-3' : 'grid-cols-2'
+
+        return (
+            <div className={`grid ${gridCols} gap-2`}>
+                {insightsToShow.map((insight, index) => (
+                    <div key={index} className="relative min-h-[200px]">
+                        <Query query={insight.query} readOnly embedded />
+                    </div>
+                ))}
+            </div>
+        )
+    }
+
+    return (
+        <div className={clsx('flex flex-col gap-px w-full break-words', className)}>
+            {/* Everything wrapped in a message bubble */}
+            <div className="max-w-full border py-3 px-4 rounded-lg bg-surface-primary">
+                <div className="space-y-2">
+                    <div className="w-full flex justify-between items-center">
+                        <h2 className="text-sm font-semibold text-secondary">
+                            {pluralize(visualizations.length, 'insight')} analyzed
+                        </h2>
+
+                        {visualizations.length > 1 && (
+                            <LemonButton
+                                icon={<IconExpand />}
+                                size="xsmall"
+                                type="tertiary"
+                                onClick={openModal}
+                                tooltip="View all insights in detail"
+                            >
+                                Expand
+                            </LemonButton>
+                        )}
+                    </div>
+
+                    {renderMosaic()}
+
+                    {message.commentary && <MarkdownMessage content={message.commentary} id="multi-viz-commentary" />}
+                </div>
+            </div>
+        </div>
+    )
+}
+
+// Modal for detailed view
+interface MultiVisualizationModalProps {
+    insights: Array<{ query: InsightVizNode | DataVisualizationNode; title: string }>
+}
+
+function MultiVisualizationModal({ insights: messages }: MultiVisualizationModalProps): JSX.Element {
+    const [selectedIndex, setSelectedIndex] = React.useState(0)
+
+    return (
+        <div className="flex">
+            {/* Sidebar with visualization list */}
+            <div className="w-64 border-r pr-4 overflow-y-auto">
+                <h5 className="text-xs font-semibold text-muted mb-3">VISUALIZATIONS</h5>
+                <div className="space-y-1">
+                    {messages.map((item, index) => (
+                        <button
+                            key={index}
+                            onClick={() => setSelectedIndex(index)}
+                            className={clsx(
+                                'w-full text-left p-2 rounded transition-colors text-sm',
+                                selectedIndex === index
+                                    ? 'bg-primary text-primary-inverted font-semibold'
+                                    : 'hover:bg-surface-secondary'
+                            )}
+                        >
+                            {item.title}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            {/* Main content area */}
+            <div className="flex-1 pl-4 overflow-auto">
+                {messages[selectedIndex] && (
+                    <>
+                        <h4 className="text-base font-semibold mb-3">
+                            <TopHeading query={messages[selectedIndex].query} />
+                        </h4>
+                        <div className="min-h-80">
+                            <Query query={messages[selectedIndex].query} readOnly embedded />
+                        </div>
+                    </>
+                )}
+            </div>
+        </div>
+    )
+}
 
 function RetriableFailureActions(): JSX.Element {
     const { retryLastMessage } = useActions(maxThreadLogic)

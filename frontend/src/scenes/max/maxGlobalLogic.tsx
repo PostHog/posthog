@@ -4,10 +4,10 @@ import { router } from 'kea-router'
 import { IconBook, IconCompass, IconGraph, IconRewindPlay } from '@posthog/icons'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { routes } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
@@ -83,6 +83,8 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             ['sceneId', 'sceneConfig'],
             featureFlagLogic,
             ['featureFlags'],
+            lemonBannerLogic({ dismissKey: FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG_ACKED }),
+            ['isDismissed as isFloatingMaxDismissed'],
         ],
         actions: [router, ['locationChanged']],
     })),
@@ -90,9 +92,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         acceptDataProcessing: (testOnlyOverride?: boolean) => ({ testOnlyOverride }),
         registerTool: (tool: ToolRegistration) => ({ tool }),
         deregisterTool: (key: string) => ({ key }),
-        setIsFloatingMaxExpanded: (isExpanded: boolean) => ({ isExpanded }),
         setFloatingMaxPosition: (position: { x: number; y: number; side: 'left' | 'right' }) => ({ position }),
-        setShowFloatingMaxSuggestions: (value: boolean) => ({ value }),
         setFloatingMaxDragState: (dragState: { isDragging: boolean; isAnimating: boolean }) => ({ dragState }),
     }),
     reducers({
@@ -110,15 +110,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 },
             },
         ],
-        isFloatingMaxExpanded: [
-            true,
-            {
-                persist: true,
-            },
-            {
-                setIsFloatingMaxExpanded: (_, { isExpanded }) => isExpanded,
-            },
-        ],
         floatingMaxPosition: [
             null as { x: number; y: number; side: 'left' | 'right' } | null,
             {
@@ -126,12 +117,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             },
             {
                 setFloatingMaxPosition: (_, { position }) => position,
-            },
-        ],
-        showFloatingMaxSuggestions: [
-            false,
-            {
-                setShowFloatingMaxSuggestions: (_, { value }) => value,
             },
         ],
         floatingMaxDragState: [
@@ -158,21 +143,21 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
     selectors({
         showFloatingMax: [
             (s) => [
-                s.sceneId,
                 s.sceneConfig,
-                s.isFloatingMaxExpanded,
                 sidePanelLogic.selectors.sidePanelOpen,
                 sidePanelLogic.selectors.selectedTab,
                 s.featureFlags,
+                s.isFloatingMaxDismissed,
             ],
-            (sceneId, sceneConfig, isFloatingMaxExpanded, sidePanelOpen, selectedTab, featureFlags) =>
+            (sceneConfig, sidePanelOpen, selectedTab, featureFlags, isFloatingMaxDismissed) =>
                 sceneConfig &&
                 !sceneConfig.onlyUnauthenticated &&
                 sceneConfig.layout !== 'plain' &&
-                !(sceneId === Scene.Max && !isFloatingMaxExpanded) && // In the full Max scene, and Max is not intentionally in floating mode (i.e. expanded)
                 !(sidePanelOpen && selectedTab === SidePanelTab.Max) && // The Max side panel is open
                 featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] &&
-                featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG],
+                featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG] &&
+                !featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG_ACKED] &&
+                !isFloatingMaxDismissed,
         ],
         dataProcessingAccepted: [
             (s) => [s.currentOrganization],

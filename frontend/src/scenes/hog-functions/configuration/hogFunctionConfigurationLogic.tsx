@@ -1,6 +1,6 @@
 import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { forms } from 'kea-forms'
+import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
@@ -10,12 +10,12 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { LiquidRenderer } from 'lib/utils/liquid'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { pipelineNodeLogic } from 'scenes/pipeline/pipelineNodeLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -56,7 +56,6 @@ import {
     PropertyGroupFilterValue,
 } from '~/types'
 
-import { EmailTemplate } from '../email-templater/emailTemplaterLogic'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
 import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurationLogicType'
 
@@ -309,7 +308,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         duplicateFromTemplate: true,
         resetToTemplate: true,
         deleteHogFunction: true,
-        sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery }) as { sparklineQuery: TrendsQuery },
+        sparklineQueryChanged: (sparklineQuery: TrendsQuery) =>
+            ({
+                sparklineQuery,
+            }) as { sparklineQuery: TrendsQuery },
         loadSampleGlobals: (payload?: { eventId?: string }) => ({ eventId: payload?.eventId }),
         setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
         persistForUnload: true,
@@ -627,9 +629,18 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             errors: (data) => {
                 return {
                     name: !data.name ? 'Name is required' : undefined,
-                    mappings: VALIDATION_RULES.SITE_DESTINATION_REQUIRES_MAPPINGS(data),
-                    filters: VALIDATION_RULES.INTERNAL_DESTINATION_REQUIRES_FILTERS(data),
-                    ...(values.inputFormErrors as any),
+                    mappings: VALIDATION_RULES.SITE_DESTINATION_REQUIRES_MAPPINGS(data) as unknown as DeepPartialMap<
+                        HogFunctionMappingType[],
+                        ValidationErrorType
+                    >,
+                    filters: VALIDATION_RULES.INTERNAL_DESTINATION_REQUIRES_FILTERS(data) as unknown as DeepPartialMap<
+                        HogFunctionConfigurationType['filters'],
+                        ValidationErrorType
+                    >,
+                    inputs: (values.inputFormErrors ?? {}) as DeepPartialMap<
+                        HogFunctionConfigurationType['inputs'],
+                        ValidationErrorType
+                    >,
                 }
             },
             submit: async (data) => {
@@ -735,88 +746,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
         inputFormErrors: [
             (s) => [s.configuration],
-            (configuration) => {
-                const inputs = configuration.inputs ?? {}
-                const inputErrors: Record<string, string> = {}
+            (configuration): Record<string, string> | null => {
+                const result = CyclotronJobInputsValidation.validate(
+                    configuration.inputs ?? {},
+                    configuration.inputs_schema ?? []
+                )
 
-                configuration.inputs_schema?.forEach((inputSchema) => {
-                    const key = inputSchema.key
-                    const input = inputs[key]
-                    const language = input?.templating ?? 'hog'
-                    const value = input?.value
-                    if (input?.secret) {
-                        // We leave unmodified secret values alone
-                        return
-                    }
-
-                    const getTemplatingError = (value: string): string | undefined => {
-                        if (language === 'liquid' && typeof value === 'string') {
-                            try {
-                                LiquidRenderer.parse(value)
-                            } catch (e: any) {
-                                return `Liquid template error: ${e.message}`
-                            }
-                        }
-                    }
-
-                    const addTemplatingError = (value: string): void => {
-                        const templatingError = getTemplatingError(value)
-                        if (templatingError) {
-                            inputErrors[key] = templatingError
-                        }
-                    }
-
-                    const missing = value === undefined || value === null || value === ''
-                    if (inputSchema.required && missing) {
-                        inputErrors[key] = 'This field is required'
-                    }
-
-                    if (inputSchema.type === 'json' && typeof value === 'string') {
-                        try {
-                            JSON.parse(value)
-                        } catch {
-                            inputErrors[key] = 'Invalid JSON'
-                        }
-
-                        addTemplatingError(value)
-                    }
-
-                    if (inputSchema.type === 'email' && value) {
-                        const emailTemplateErrors: Partial<EmailTemplate> = {
-                            html: !value.html ? 'HTML is required' : getTemplatingError(value.html),
-                            subject: !value.subject ? 'Subject is required' : getTemplatingError(value.subject),
-                            // text: !value.text ? 'Text is required' : getTemplatingError(value.text),
-                            from: !value.from ? 'From is required' : getTemplatingError(value.from),
-                            to: !value.to ? 'To is required' : getTemplatingError(value.to),
-                        }
-
-                        const combinedErrors = Object.values(emailTemplateErrors)
-                            .filter((v) => !!v)
-                            .join(', ')
-
-                        if (combinedErrors) {
-                            inputErrors[key] = combinedErrors
-                        }
-                    }
-
-                    if (inputSchema.type === 'string' && typeof value === 'string') {
-                        addTemplatingError(value)
-                    }
-
-                    if (inputSchema.type === 'dictionary') {
-                        for (const val of Object.values(value ?? {})) {
-                            if (typeof val === 'string') {
-                                addTemplatingError(val)
-                            }
-                        }
-                    }
-                })
-
-                return Object.keys(inputErrors).length > 0
-                    ? {
-                          inputs: inputErrors,
-                      }
-                    : null
+                return result.valid ? null : result.errors
             },
         ],
         willReEnableOnSave: [

@@ -15,7 +15,7 @@ const meta: Meta = {
         testOptions: {
             snapshotBrowsers: ['chromium'],
             viewport: {
-                // needs a slightly larger width to push the rendered scene away from breakpoint boundary
+                // needs a slightly larger width to push the rendered scene away from the breakpoint boundary
                 width: 1300,
                 height: 720,
             },

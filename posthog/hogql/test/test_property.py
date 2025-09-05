@@ -826,7 +826,12 @@ class TestProperty(BaseTest):
     def test_revenue_analytics_property(self):
         self.assertEqual(
             self._property_to_expr(
-                {"type": "revenue_analytics", "key": "product", "value": ["Product A"], "operator": "exact"},
+                {
+                    "type": "revenue_analytics",
+                    "key": "revenue_analytics_product.name",
+                    "value": ["Product A"],
+                    "operator": "exact",
+                },
                 scope="revenue_analytics",
             ),
             self._parse_expr("revenue_analytics_product.name = 'Product A'"),
@@ -837,7 +842,7 @@ class TestProperty(BaseTest):
             self._property_to_expr(
                 {
                     "type": "revenue_analytics",
-                    "key": "product",
+                    "key": "revenue_analytics_product.name",
                     "value": ["Product A", "Product C"],
                     "operator": "exact",
                 },
