@@ -1,6 +1,6 @@
-import { JWT, PosthogJwtAudience } from './jwt-utils'
+import jwtLib from 'jsonwebtoken'
 
-const jwtLib = require('jsonwebtoken')
+import { JWT, PosthogJwtAudience } from './jwt-utils'
 
 describe('JWT', () => {
     jest.setTimeout(1000)
