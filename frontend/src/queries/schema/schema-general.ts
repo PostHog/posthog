@@ -3861,6 +3861,7 @@ export const externalDataSources = [
     'TemporalIO',
     'DoIt',
     'LinkedinAds',
+    'RedditAds',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

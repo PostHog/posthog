@@ -7,7 +7,7 @@
     .NotebookEditor {
         position: relative;
         flex: 1;
-        width: 100%;
+        min-width: 0; // So trends and other insight elements resize properly
         margin: 0 auto;
 
         .ProseMirror {

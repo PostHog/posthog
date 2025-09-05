@@ -12077,7 +12077,8 @@
                 "MongoDB",
                 "TemporalIO",
                 "DoIt",
-                "LinkedinAds"
+                "LinkedinAds",
+                "RedditAds"
             ],
             "type": "string"
         },
