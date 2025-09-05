@@ -61,7 +61,7 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
 
     if (!selectedNode) {
         return (
-            <div className="p-4 text-center flex flex-col gap-2 items-center">
+            <div className="m-8 text-center flex flex-col gap-2 items-center">
                 <h1>
                     <IconTestTube className="mr-2" />
                     Test your workflow
