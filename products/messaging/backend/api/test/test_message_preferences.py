@@ -23,7 +23,7 @@ def mock_validate_messaging_preferences_token(status_code: int, response_json: d
     """Context manager to mock validate_messaging_preferences_token with a custom response."""
     response = Response()
     response.status_code = status_code
-    response.json = lambda: response_json
+    response.json = lambda: response_json  # type: ignore
 
     with patch.object(
         plugin_server_api,
