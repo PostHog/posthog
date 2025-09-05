@@ -195,10 +195,7 @@ export class HogFlowExecutorService {
         let earlyExitResult: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null
 
         // Respect exit_condition before executing actions
-        const hogFlow = invocation.hogFlow
-        const person = invocation.person
-        const triggerFilters = hogFlow.trigger?.filters
-        const conversionFilters = hogFlow.conversion?.filters
+        const { hogFlow, person } = invocation
         let shouldExit = false
         let exitReason = ''
 
@@ -207,19 +204,19 @@ export class HogFlowExecutorService {
         let conversionMatch: boolean | undefined = undefined
 
         // Use the same filter evaluation as in buildHogFlowInvocations
-        if (triggerFilters && person) {
+        if (hogFlow.trigger.filters && person) {
             const filterResult = await filterFunctionInstrumented({
                 fn: hogFlow,
-                filters: triggerFilters,
+                filters: hogFlow.trigger.filters,
                 filterGlobals: invocation.filterGlobals,
                 eventUuid: invocation.state?.event?.uuid,
             })
             triggerMatch = filterResult.match
         }
-        if (conversionFilters && person) {
+        if (hogFlow.conversion.filters && person) {
             const filterResult = await filterFunctionInstrumented({
                 fn: hogFlow,
-                filters: conversionFilters,
+                filters: hogFlow.conversion.filters,
                 filterGlobals: invocation.filterGlobals,
                 eventUuid: invocation.state?.event?.uuid,
             })
