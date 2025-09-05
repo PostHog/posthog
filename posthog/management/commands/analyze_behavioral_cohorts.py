@@ -1,3 +1,4 @@
+import time
 import logging
 from typing import Any
 
@@ -76,13 +77,20 @@ class Command(BaseCommand):
         logger.info(f"Found {len(condition_hashes)} unique condition hashes")
 
         # Step 2: Get cohort memberships (team_id, person_id, cohort_id)
+        start_time = time.time()
         memberships = self.get_cohort_memberships(
             condition_hashes,
             min_matches,
             days,
         )
+        total_time = time.time() - start_time
 
-        logger.info(f"Total cohort memberships found: {len(memberships)}")
+        logger.info(
+            "Cohort membership calculation completed",
+            total_memberships=len(memberships),
+            conditions_processed=len(condition_hashes),
+            total_time_seconds=round(total_time, 2),
+        )
 
         self.stdout.write("team_id,person_id,cohort_id")
 
