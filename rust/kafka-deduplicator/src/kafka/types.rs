@@ -1,3 +1,5 @@
+use std::fmt::{Display, Formatter, Result};
+
 use rdkafka::topic_partition_list::TopicPartitionListElem;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -20,6 +22,12 @@ impl Partition {
 
     pub fn partition_number(&self) -> i32 {
         self.partition_number
+    }
+}
+
+impl Display for Partition {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        write!(f, "{}:{}", self.topic, self.partition_number)
     }
 }
 
