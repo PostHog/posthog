@@ -20,12 +20,10 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
             className="h-[calc(100vh-var(--scene-layout-header-height-with-tabs))] overflow-hidden w-full max-w-full min-w-full flex-1 group/colorful-product-icons colorful-product-icons-true"
             searchSize="lg"
         >
-            <div className="sticky top-0 z-10 px-4">
-                <div className="p-[2px] border border-[var(--color-bg-fill-highlight-25)] ">
-                    <Combobox.Search placeholder="Search for anything..." />
-                </div>
+            <div className="sticky top-0 z-10 px-4 pb-1 border-b border-primary">
+                <Combobox.Search placeholder="Search for anything..." inputProps={{ className: 'text-lg' }} />
             </div>
-            <Combobox.Content className="px-4" innerClassName="pt-1 pb-32">
+            <Combobox.Content className="px-4" innerClassName="pt-2 pb-32">
                 <Combobox.Empty>Nothing found</Combobox.Empty>
 
                 {itemsGrid.map((item: ItemsGridItem) =>
@@ -38,7 +36,7 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                                 <Combobox.Item asChild>
                                     <Link
                                         to={type.href}
-                                        buttonProps={{ variant: 'default', size: 'lg', className: 'w-full capitalize' }}
+                                        buttonProps={{ variant: 'default', className: 'w-full capitalize' }}
                                     >
                                         {type.icon}
                                         {type.name}
