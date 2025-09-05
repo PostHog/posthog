@@ -46,7 +46,8 @@ class Command(BaseCommand):
                 )
 
                 # Initialize counters
-                total_flags = len(data["flags"])
+                enabled_flags = sum(1 for flag_data in data["flags"].values() if flag_data.get("enabled", False))
+                total_flags = enabled_flags  # We only care about enabled flags
                 undeleted_count = 0
                 created_count = 0
                 activated_count = 0
@@ -55,22 +56,22 @@ class Command(BaseCommand):
 
                 for flag_key, flag_data in data["flags"].items():
                     is_enabled = flag_data.get("enabled", False)
-                    if flag_key in deleted_flags:
+                    if flag_key in deleted_flags and is_enabled:
                         ff = FeatureFlag.objects.get(team__project_id=project.id, key=flag_key)
                         ff.deleted = False
-                        ff.active = is_enabled
+                        ff.active = True
                         ff.save()
                         self.stdout.write(f"Undeleted feature flag '{flag_key}'")
                         undeleted_count += 1
 
-                    elif flag_key not in existing_flags:
+                    elif flag_key not in existing_flags and is_enabled:
                         FeatureFlag.objects.create(
                             team=project.teams.first(),
                             rollout_percentage=100,
                             name=flag_key,
                             key=flag_key,
                             created_by=first_user,
-                            active=is_enabled,
+                            active=True,
                             filters={"groups": [{"properties": [], "rollout_percentage": 100}], "payloads": {}},
                         )
                         self.stdout.write(f"Created feature flag '{flag_key}'")
@@ -93,7 +94,7 @@ class Command(BaseCommand):
                 # Print summary for this project
                 self.stdout.write("\nProject Summary")
                 self.stdout.write("-" * 20)
-                self.stdout.write(f"Total from API: {total_flags}")
+                self.stdout.write(f"Enabled flags from API: {total_flags}")
                 self.stdout.write(f"Existing: {len(existing_flags)}")
                 self.stdout.write(f"Undeleted: {undeleted_count}")
                 self.stdout.write(f"Created: {created_count}")
