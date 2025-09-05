@@ -24,6 +24,10 @@ export function ReleasePreview({ gitReleasesMeta }: ReleasePreviewProps): JSX.El
         loadRelease({ gitReleasesMeta, frames })
     }, [frames, loadRelease, gitReleasesMeta])
 
+    if (!releasePreviewData.mostProbableRelease) {
+        return <></>
+    }
+
     return (
         <Popover
             visible={isOpen}

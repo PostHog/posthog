@@ -21,12 +21,7 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
     loaders(() => ({
         releasePreviewData: [
             {
-                mostProbableRelease: {
-                    commitSha: 'unknown yet',
-                    repositoryUrl: 'unknown yet',
-                    repositoryName: 'unknown yet',
-                    branch: 'unknown yet',
-                },
+                mostProbableRelease: undefined,
                 otherReleases: [],
             } as ReleasePreviewOutput,
             {
