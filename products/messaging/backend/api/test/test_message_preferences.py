@@ -1,10 +1,13 @@
 import json
+from contextlib import contextmanager
 
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
 from django.test import Client
 from django.urls import reverse
+
+from requests import Response
 
 import posthog.plugins.plugin_server_api as plugin_server_api
 from posthog.models.message_category import MessageCategory
@@ -13,6 +16,21 @@ from posthog.models.message_preferences import (
     MessageRecipientPreference,
     PreferenceStatus,
 )
+
+
+@contextmanager
+def mock_validate_messaging_preferences_token(status_code: int, response_json: dict):
+    """Context manager to mock validate_messaging_preferences_token with a custom response."""
+    response = Response()
+    response.status_code = status_code
+    response.json = lambda: response_json
+
+    with patch.object(
+        plugin_server_api,
+        "validate_messaging_preferences_token",
+        return_value=response,
+    ):
+        yield
 
 
 class TestMessagePreferencesViews(BaseTest):
@@ -43,7 +61,12 @@ class TestMessagePreferencesViews(BaseTest):
         super().tearDown()
 
     def test_preferences_page_valid_token(self):
-        response = self.client.get(reverse("message_preferences", kwargs={"token": self.token}))
+        with mock_validate_messaging_preferences_token(
+            status_code=200,
+            response_json={"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier},
+        ):
+            response = self.client.get(reverse("message_preferences", kwargs={"token": self.token}))
+
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "message_preferences/preferences.html")
 
@@ -58,21 +81,26 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertEqual(categories[1]["name"], "Product Updates")
 
     def test_preferences_page_invalid_token(self):
-        response = self.client.get(reverse("message_preferences", kwargs={"token": "invalid-token"}))
-        self.assertEqual(response.status_code, 400)
-        self.assertTemplateUsed(response, "message_preferences/error.html")
+        with mock_validate_messaging_preferences_token(status_code=400, response_json={"error": "Invalid token"}):
+            response = self.client.get(reverse("message_preferences", kwargs={"token": "invalid-token"}))
+            self.assertEqual(response.status_code, 400)
+            self.assertTemplateUsed(response, "message_preferences/error.html")
 
     def test_update_preferences_valid(self):
         data = {"token": self.token, "preferences[]": [f"{self.category.id}:true", f"{self.category2.id}:false"]}
-        response = self.client.post(reverse("message_preferences_update"), data)
+        with mock_validate_messaging_preferences_token(
+            status_code=200,
+            response_json={"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier},
+        ):
+            response = self.client.post(reverse("message_preferences_update"), data)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(json.loads(response.content), {"success": True})
 
         # Verify preferences were updated
         self.recipient.refresh_from_db()
         prefs = self.recipient.get_all_preferences()
-        self.assertEqual(prefs[self.category.id], PreferenceStatus.OPTED_IN)
-        self.assertEqual(prefs[self.category2.id], PreferenceStatus.OPTED_OUT)
+        self.assertEqual(prefs[str(self.category.id)], PreferenceStatus.OPTED_IN)
+        self.assertEqual(prefs[str(self.category2.id)], PreferenceStatus.OPTED_OUT)
 
     def test_update_preferences_missing_token(self):
         response = self.client.post(
@@ -90,7 +118,11 @@ class TestMessagePreferencesViews(BaseTest):
 
     def test_update_preferences_invalid_preference_format(self):
         data = {"token": self.token, "preferences[]": ["invalid:format"]}
-        response = self.client.post(reverse("message_preferences_update"), data)
+        with mock_validate_messaging_preferences_token(
+            status_code=200,
+            response_json={"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier},
+        ):
+            response = self.client.post(reverse("message_preferences_update"), data)
         self.assertEqual(response.status_code, 400)
         self.assertEqual(json.loads(response.content), {"error": "Preference values must be 'true' or 'false'"})
 

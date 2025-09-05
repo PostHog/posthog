@@ -98,13 +98,13 @@ class TestMessagePreferences(BaseTest):
 
         # Test get_all_preferences method (returns dict of UUID to PreferenceStatus)
         preferences = recipient.get_all_preferences()
-        self.assertEqual(preferences[self.category.id], PreferenceStatus.OPTED_IN)
-        self.assertEqual(preferences[category2.id], PreferenceStatus.OPTED_OUT)
+        self.assertEqual(preferences[str(self.category.id)], PreferenceStatus.OPTED_IN)
+        self.assertEqual(preferences[str(category2.id)], PreferenceStatus.OPTED_OUT)
 
         # Test get_all_preference method (also returns dict of UUID to PreferenceStatus)
         all_preferences = recipient.get_all_preferences()
-        self.assertEqual(all_preferences[self.category.id], PreferenceStatus.OPTED_IN)
-        self.assertEqual(all_preferences[category2.id], PreferenceStatus.OPTED_OUT)
+        self.assertEqual(all_preferences[str(self.category.id)], PreferenceStatus.OPTED_IN)
+        self.assertEqual(all_preferences[str(category2.id)], PreferenceStatus.OPTED_OUT)
 
     def test_set_preference_validation(self):
         recipient = MessageRecipientPreference.objects.create(
