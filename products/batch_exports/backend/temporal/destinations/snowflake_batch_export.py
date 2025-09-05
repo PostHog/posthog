@@ -104,6 +104,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "SnowflakeAuthenticationError",
     # Raised when a Warehouse is suspended.
     "SnowflakeWarehouseSuspendedError",
+    # Raised when the destination table schema is incompatible with the schema of the file we are trying to load.
+    "SnowflakeIncompatibleSchemaError",
 )
 
 
@@ -162,6 +164,15 @@ class InvalidPrivateKeyError(Exception):
 
     def __init__(self, message: str):
         super().__init__(message)
+
+
+class SnowflakeIncompatibleSchemaError(Exception):
+    """Raised when the destination table schema is incompatible with the schema of the file we are trying to load."""
+
+    def __init__(self, err_msg: str):
+        super().__init__(
+            f"The data being loaded into the destination table is incompatible with the schema of the destination table: {err_msg}"
+        )
 
 
 @dataclasses.dataclass
@@ -574,7 +585,7 @@ class SnowflakeClient:
                 raise TypeError(f"Expected tuple from Snowflake PUT query but got: '{result.__class__.__name__}'")
 
         status, message = result[6:8]
-        if status != "UPLOADED":
+        if status != "UPLOADED" and status != "SKIPPED":
             raise SnowflakeFileNotUploadedError(table_name, status, message)
 
     async def copy_loaded_files_to_snowflake_table(
@@ -631,7 +642,7 @@ class SnowflakeClient:
             and e.errno == 608,
         )
 
-        # We need to explicitly catch the exception here because otherwise it seems to be swallowed
+        # We need to explicitly catch exceptions here because otherwise they seem to be swallowed
         try:
             result = await execute_copy_into(query, poll_interval=1.0)
         except snowflake.connector.errors.ProgrammingError as e:
@@ -644,6 +655,8 @@ class SnowflakeClient:
                 if e.msg is not None:
                     err_msg += f": {e.msg}"
                 raise SnowflakeWarehouseSuspendedError(err_msg)
+            elif e.errno == 904 and e.msg is not None and "invalid identifier" in e.msg:
+                raise SnowflakeIncompatibleSchemaError(e.msg)
 
             raise SnowflakeFileNotLoadedError(
                 table_name,
