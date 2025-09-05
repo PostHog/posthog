@@ -144,6 +144,11 @@ function NativeEmailIntegrationChoice({
     const integrationsOfKind = integrations?.filter((x) => x.kind === 'email')
 
     const onChangeIntegration = (integrationId: number): void => {
+        if (integrationId === -1) {
+            // Open new integration modal
+            window.open(urls.messaging('channels'), '_blank')
+            return
+        }
         const integration = integrationsOfKind?.find((x) => x.id === integrationId)
         onChange({
             integrationId,
@@ -177,10 +182,25 @@ function NativeEmailIntegrationChoice({
                 type="tertiary"
                 placeholder="Choose email sender"
                 loading={integrationsLoading}
-                options={(integrationsOfKind || []).map((integration) => ({
-                    label: integration.display_name,
-                    value: integration.id,
-                }))}
+                options={[
+                    {
+                        title: 'Email senders',
+                        options: (integrationsOfKind || []).map((integration) => ({
+                            label: integration.display_name,
+                            value: integration.id,
+                        })),
+                    },
+                    {
+                        // title: '',
+                        options: [
+                            {
+                                label: 'Add new email sender',
+                                icon: <IconExternal />,
+                                value: -1,
+                            },
+                        ],
+                    },
+                ]}
                 value={value?.integrationId}
                 size="small"
                 fullWidth
