@@ -47,11 +47,11 @@ export function DataTableSavedFilters({ uniqueKey, query, setQuery }: DataTableS
     }
 
     const handleShareFilter = (filter: DataTableSavedFilter): void => {
-        // Encode the filter query in the URL
-        const params = new URLSearchParams()
-        params.set('saved_filter', JSON.stringify(filter.query))
+        // Apply the filter first to ensure URL is updated with correct parameters
+        applySavedFilter(filter)
 
-        const url = `${window.location.origin}${window.location.pathname}?${params.toString()}`
+        // Use the current URL which already contains all filter parameters
+        const url = window.location.href
 
         navigator.clipboard.writeText(url).then(() => {
             lemonToast.success('Filter link copied to clipboard!')

@@ -4,7 +4,6 @@ import { expectLogic } from 'kea-test-utils'
 import { urls } from 'scenes/urls'
 
 import { NON_TIME_SERIES_DISPLAY_TYPES } from '~/lib/constants'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -175,50 +174,6 @@ describe('llmAnalyticsLogic', () => {
                 dateFrom: '-14d',
                 dateTo: '-1d',
             },
-            shouldFilterTestAccounts: true,
-        })
-    })
-
-    it('should handle saved filters for sharing', () => {
-        const sharedQuery: DataTableNode = {
-            kind: NodeKind.DataTableNode,
-            source: {
-                kind: NodeKind.TracesQuery,
-                dateRange: {
-                    date_from: '-30d',
-                    date_to: null,
-                },
-                properties: [
-                    {
-                        type: PropertyFilterType.Event,
-                        key: 'test_property',
-                        value: 'test_value',
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
-                filterTestAccounts: true,
-            },
-        }
-
-        // Navigate with saved_filter param
-        router.actions.push(urls.llmAnalyticsTraces(), {
-            saved_filter: JSON.stringify(sharedQuery),
-        })
-
-        // Should apply the shared query
-        expectLogic(logic).toMatchValues({
-            dateFilter: {
-                dateFrom: '-30d',
-                dateTo: null,
-            },
-            propertyFilters: [
-                {
-                    type: PropertyFilterType.Event,
-                    key: 'test_property',
-                    value: 'test_value',
-                    operator: PropertyOperator.Exact,
-                },
-            ],
             shouldFilterTestAccounts: true,
         })
     })
