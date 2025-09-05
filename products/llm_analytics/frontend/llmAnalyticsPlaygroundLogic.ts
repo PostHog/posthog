@@ -50,6 +50,32 @@ export interface ComparisonItem {
     latencyMs?: number | null
 }
 
+const DEFAULT_MODEL = 'gpt-4.1'
+
+function pickByPrefix(query: string, idList: string[]): string | null {
+    let best = null
+    for (const s of idList) {
+        if (query.startsWith(s)) {
+            if (best === null || s.length > best.length) {
+                best = s
+            }
+        }
+    }
+    return best
+}
+
+function matchClosestModel(targetModel: string, availableModels: ModelOption[]): string {
+    const ids = availableModels.map((m) => m.id)
+    if (ids.includes(targetModel)) {
+        return targetModel
+    }
+    const match = pickByPrefix(targetModel, ids)
+    if (match) {
+        return match
+    }
+    return DEFAULT_MODEL
+}
+
 export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsPlaygroundLogic']),
 
@@ -218,10 +244,15 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
             loadModelOptions: async () => {
                 try {
                     const response = await api.get('/api/llm_proxy/models/')
-                    if (!values.model && (response as ModelOption[])?.length > 0) {
-                        llmAnalyticsPlaygroundLogic.actions.setModel((response as ModelOption[])[0].id)
+                    if (!response) {
+                        return []
                     }
-                    return response as ModelOption[]
+                    const options = response as ModelOption[]
+                    const closestMatch = matchClosestModel(values.model, options)
+                    if (values.model !== closestMatch) {
+                        llmAnalyticsPlaygroundLogic.actions.setModel(closestMatch)
+                    }
+                    return options
                 } catch (error) {
                     console.error('Error loading model options:', error)
                     return values.modelOptions
@@ -378,9 +409,8 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         setupPlaygroundFromEvent: ({ payload }) => {
             const { model, input, tools } = payload
 
-            // Set model if available
             if (model) {
-                actions.setModel(model)
+                actions.setModel(matchClosestModel(model, values.modelOptions))
             }
 
             // Set tools if available

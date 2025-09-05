@@ -20,6 +20,7 @@ import { useEffect, useState } from 'react'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
@@ -420,12 +421,19 @@ export const sceneLogic = kea<sceneLogicType>([
                     return Scene.ErrorAccessDenied
                 }
 
-                return isCurrentTeamUnavailable &&
+                // Check if the current team is unavailable for project-based scenes
+                // Allow settings and danger zone to be opened
+                if (
+                    isCurrentTeamUnavailable &&
                     sceneId &&
                     sceneConfigurations[sceneId]?.projectBased &&
+                    !location.pathname.startsWith('/settings') &&
                     location.pathname !== urls.settings('user-danger-zone')
-                    ? Scene.ErrorProjectUnavailable
-                    : sceneId
+                ) {
+                    return Scene.ErrorProjectUnavailable
+                }
+
+                return sceneId
             },
         ],
         activeExportedScene: [
@@ -703,10 +711,17 @@ export const sceneLogic = kea<sceneLogicType>([
                             user.organization.membership_level &&
                             user.organization.membership_level >= TeamMembershipLevel.Admin
                         ) {
-                            if (location.pathname !== urls.projectCreateFirst()) {
+                            // Allow settings to be opened, otherwise route to project creation
+                            if (
+                                location.pathname !== urls.projectCreateFirst() &&
+                                !location.pathname.startsWith('/settings')
+                            ) {
                                 console.warn(
                                     'Project not available and no other projects, redirecting to project creation'
                                 )
+                                lemonToast.error('You do not have access to any projects in this organization', {
+                                    toastId: 'no-projects',
+                                })
                                 router.actions.replace(urls.projectCreateFirst())
                                 return
                             }

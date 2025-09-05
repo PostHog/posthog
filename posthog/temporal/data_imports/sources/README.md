@@ -9,6 +9,22 @@ Adding a new source should be pretty simple. We've refactored the sources so tha
 5. Generate the config class by running `pnpm generate:source-configs`. This will add a new class to the `posthog/temporal/data_imports/sources/generated_configs.py` file. Update all references of `Config` in the below template to your new generated class
 6. Implement the logic of your source. More info on how to do this is below.
 7. Add a new icon for your source in `frontend/src/scenes/data-warehouse/settings/DataWarehouseSourceIcon.tsx` - follow the existing convention here
+8. **Register your source** in `posthog/temporal/data_imports/sources/__init__.py`:
+    - Add import: `from .your_source.source import YourSourceClass`
+    - Add to `__all__` list: `"YourSourceClass"`
+
+    **This step is REQUIRED** - without it, `@SourceRegistry.register` won't work and your source won't be discoverable.
+
+9. **Re-run config generation** after implementing source logic:
+    ```bash
+    pnpm generate:source-configs
+    ```
+    This updates `generated_configs.py` with your actual implemented source class.
+10. **Build schemas** to update types:
+    ```bash
+    pnpm schema:build
+    ```
+    This ensures your source appears in frontend dropdowns and forms.
 
 ### Source file template
 
@@ -74,11 +90,7 @@ This is a select input (drop down select) field. You can define the `defaultValu
 
 Sources support adding oauth authentication methods for sources. This is backed by the `Integration` model allowing for easy oauth connections. Define the `kind` of the integration along with whether it's `required` and a given `label`.
 
-The fields `kind` relates to the `Integration.IntegrationKind` enum. Adding a new auth type will require some changes to `posthog/models/integration.py` to support:
-
-1. The new enum value
-2. The config for the new `kind` in `oauth_config_for_kind()`
-3. Any associated logic in the API endpoint for creating the `Integration` model - `posthog/api/integration.py`
+For detailed setup instructions, see the [OAuth Configuration](#oauth-configuration) section below.
 
 #### `SourceFieldFileUploadConfig`
 
@@ -136,6 +148,81 @@ For database sources, we recommend setting `partition_count` and `partition_size
 
 - `partition_count` refers to how many partitions there should exist for the `md5` mode
 - `partition_size` refers to how many rows should be bucketed together in a single partition for the `numerical` mode
+
+## OAuth Configuration
+
+If your source uses OAuth (SourceFieldOauthConfig):
+
+1. **Environment Variables**: Add to your environment:
+
+    ```bash
+    YOUR_SOURCE_CLIENT_ID=your_client_id
+    YOUR_SOURCE_CLIENT_SECRET=your_client_secret
+    ```
+
+    **If your integration doesn't exist yet**, add it to `posthog/settings/integrations.py`:
+
+    ```python
+    YOUR_SOURCE_CLIENT_ID = get_from_env("YOUR_SOURCE_CLIENT_ID", "")
+    YOUR_SOURCE_CLIENT_SECRET = get_from_env("YOUR_SOURCE_CLIENT_SECRET", "")
+    ```
+
+2. **Integration Kind**: Add your integration to `posthog/models/integration.py`:
+
+    **a) Add to `IntegrationKind` enum:**
+
+    ```python
+    class IntegrationKind(models.TextChoices):
+        # ... existing integrations ...
+        YOUR_SOURCE = "your-source"
+    ```
+
+    **b) Add to `OauthIntegration.supported_kinds` list:**
+
+    ```python
+    supported_kinds = [
+        # ... existing kinds ...
+        "your-source",
+    ]
+    ```
+
+    **c) Add OAuth config in `oauth_config_for_kind()` method:**
+
+    ```python
+    elif kind == "your-source":
+        if not settings.YOUR_SOURCE_CLIENT_ID or not settings.YOUR_SOURCE_CLIENT_SECRET:
+            raise NotImplementedError("Your Source app not configured")
+
+        return OauthConfig(
+            authorize_url="https://your-service.com/oauth/authorize",
+            token_url="https://your-service.com/oauth/token",
+            client_id=settings.YOUR_SOURCE_CLIENT_ID,
+            client_secret=settings.YOUR_SOURCE_CLIENT_SECRET,
+            scope="your required scopes",
+            id_path="id",
+            name_path="name",
+        )
+    ```
+
+3. **Redirect URI**: Configure in external service:
+    ```
+    https://localhost:8010/integrations/your-kind/callback
+    ```
+
+## Testing Your Source Locally
+
+1. **Start PostHog**: `DEBUG=1 ./bin/start`
+2. **Navigate to**: Data Warehouse → New Source
+3. **Test OAuth flow**: Click "Connect with [Your Service]"
+4. **Test form**: Verify all fields render correctly
+5. **Test credentials**: Check validation works
+6. **Test schema discovery**: Verify schemas are detected
+
+**Common Issues**:
+
+- "Kind not configured" → Check environment variables are set
+- Source not listed → Verify step 8 (source registration)
+- Frontend errors → Run `pnpm schema:build`
 
 ## Mixins
 

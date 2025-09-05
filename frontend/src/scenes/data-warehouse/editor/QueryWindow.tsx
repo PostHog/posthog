@@ -93,7 +93,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         return [undefined, IconDownload]
     }, [updatingDataWarehouseSavedQuery, changesToSave, response])
 
-    const isMaterializedView = !!editingView?.last_run_at || !!editingView?.sync_frequency
+    const isMaterializedView = editingView?.is_materialized === true
 
     const renderSidebarButton = (): JSX.Element => {
         if (activePanelIdentifier !== 'Database') {

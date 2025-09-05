@@ -1474,7 +1474,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         isEditingMaterializedView: [
             (s) => [s.editingView],
             (editingView) => {
-                return !!editingView?.status
+                return !!editingView?.is_materialized
             },
         ],
         isSourceQueryLastRun: [

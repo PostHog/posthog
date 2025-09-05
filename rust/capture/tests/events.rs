@@ -162,6 +162,40 @@ async fn it_drops_events_if_dropper_enabled() -> Result<()> {
 }
 
 #[tokio::test]
+async fn it_redacts_ip_address_of_capture_internal_events() -> Result<()> {
+    setup_tracing();
+    let token = random_string("token", 16);
+    let distinct_id = random_string("id", 16);
+
+    let main_topic = EphemeralTopic::new().await;
+    let histo_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
+
+    let event = json!({
+        "token": token,
+        "event": "test_event_from_capture_internal",
+        "distinct_id": distinct_id,
+        "properties": {
+            "capture_internal": true
+        }
+    });
+    let res = server.capture_events(event.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let event = main_topic.next_event()?;
+    assert_json_include!(
+        actual: event,
+        expected: json!({
+            "token": token,
+            "distinct_id": distinct_id,
+            "ip": "127.0.0.1",
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn it_captures_a_posthogjs_array() -> Result<()> {
     setup_tracing();
     let token = random_string("token", 16);

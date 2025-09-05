@@ -80,6 +80,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     table = models.ForeignKey("posthog.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
     # The name of the view at the time of soft deletion
     deleted_name = models.CharField(max_length=128, default=None, null=True, blank=True)
+    is_materialized = models.BooleanField(default=False, blank=True, null=True)
 
     class Meta:
         constraints = [
@@ -174,12 +175,6 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
 
         return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
-
-    @property
-    def is_materialized(self):
-        return self.table is not None and (
-            self.status == DataWarehouseSavedQuery.Status.COMPLETED or self.last_run_at is not None
-        )
 
     def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> Union[SavedQuery, S3Table]:
         if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:

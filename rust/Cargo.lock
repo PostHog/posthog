@@ -3808,6 +3808,7 @@ dependencies = [
  "futures",
  "health",
  "metrics",
+ "metrics-exporter-prometheus",
  "num_cpus",
  "opentelemetry 0.22.0",
  "opentelemetry-otlp",

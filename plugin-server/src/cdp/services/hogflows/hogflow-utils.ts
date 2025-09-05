@@ -94,7 +94,6 @@ export async function shouldSkipAction(
         fn: invocation.hogFlow,
         filters: action.filters,
         filterGlobals: invocation.filterGlobals,
-        eventUuid: invocation.state.event.uuid,
     })
 
     return !filterResults.match

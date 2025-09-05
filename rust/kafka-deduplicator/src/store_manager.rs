@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use dashmap::DashMap;
 use std::path::PathBuf;
-use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
 use crate::kafka::types::Partition;
@@ -21,11 +20,6 @@ pub struct StoreManager {
 
     /// Configuration for creating new stores
     store_config: DeduplicationStoreConfig,
-
-    /// Lock to ensure directory creation is serialized
-    /// This prevents race conditions when multiple workers try to create
-    /// the parent directory simultaneously
-    directory_lock: RwLock<()>,
 }
 
 impl StoreManager {
@@ -34,7 +28,6 @@ impl StoreManager {
         Self {
             stores: DashMap::new(),
             store_config,
-            directory_lock: RwLock::new(()),
         }
     }
 
@@ -63,25 +56,16 @@ impl StoreManager {
         }
 
         // Slow path: need to create the store
-        // We use a two-phase approach:
-        // 1. Ensure directory exists (with lock to prevent races)
-        // 2. Try to create and insert the store atomically
-
-        let store_path = self.build_store_path(topic, partition);
-
-        // Phase 1: Ensure parent directory exists
-        // We use a write lock here to serialize directory creation
-        {
-            let _lock = self.directory_lock.write().await;
-            self.ensure_directory_exists(&store_path)?;
-        }
-
-        // Phase 2: Try to create and insert the store
         // DashMap's entry API ensures only one worker creates the store
         let result = self
             .stores
             .entry(partition_key.clone())
             .or_try_insert_with(|| {
+                // Generate store path inside the closure so only the creating thread generates it
+                let store_path = self.build_store_path(topic, partition);
+                // Ensure parent directory exists
+                // Note: This is inside the closure so only the creating thread does this
+                self.ensure_directory_exists(&store_path)?;
                 info!(
                     "Creating new deduplication store for partition {}:{} at path: {}",
                     topic, partition, store_path
@@ -117,7 +101,21 @@ impl StoreManager {
                     Ok(store.clone())
                 } else {
                     // Real failure - no one succeeded in creating the store
-                    error!("Failed to create store for {}:{}: {}", topic, partition, e);
+                    // Build the complete error chain
+                    let mut error_chain = vec![format!("{:?}", e)];
+                    let mut source = e.source();
+                    while let Some(err) = source {
+                        error_chain.push(format!("Caused by: {err:?}"));
+                        source = err.source();
+                    }
+
+                    error!(
+                        "Failed to create store for {}:{} - {}",
+                        topic,
+                        partition,
+                        error_chain.join(" -> ")
+                    );
+
                     Err(e)
                 }
             }
@@ -140,8 +138,8 @@ impl StoreManager {
                 topic, partition
             );
 
-            // Get the store path before dropping the store
-            let store_path = self.build_store_path(topic, partition);
+            // Get the actual store path from the store instance (it has the timestamp)
+            let store_path = store.get_db_path().display().to_string();
 
             // Drop the store explicitly to close RocksDB
             drop(store);
@@ -197,12 +195,16 @@ impl StoreManager {
     }
 
     /// Build the path for a store based on topic and partition
+    /// Each store gets a unique timestamp-based subdirectory to avoid conflicts
     fn build_store_path(&self, topic: &str, partition: i32) -> String {
+        // Create a unique subdirectory for this store instance
+        let timestamp = chrono::Utc::now().timestamp_millis();
         format!(
-            "{}/{}_{}",
+            "{}/{}_{}/{}",
             self.store_config.path.display(),
             topic.replace('/', "_"),
-            partition
+            partition,
+            timestamp
         )
     }
 
@@ -253,6 +255,7 @@ mod tests {
             event: "test_event".to_string(),
             distinct_id: Some(serde_json::Value::String("test_user".to_string())),
             token: Some("test_token".to_string()),
+            timestamp: Some("2021-01-01T00:00:00Z".to_string()),
             ..Default::default()
         };
 
@@ -297,6 +300,7 @@ mod tests {
             event: "concurrent_test_event".to_string(),
             distinct_id: Some(serde_json::Value::String("concurrent_user".to_string())),
             token: Some("concurrent_token".to_string()),
+            timestamp: Some("2021-01-01T00:00:00Z".to_string()),
             ..Default::default()
         };
 

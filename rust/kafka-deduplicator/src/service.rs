@@ -187,12 +187,12 @@ impl KafkaDeduplicatorService {
         // Start consumption
         let consumer_handle = tokio::spawn(async move { consumer.start_consumption().await });
 
-        // Wait for shutdown signal
-        tokio::signal::ctrl_c()
-            .await
-            .expect("Failed to listen for ctrl+c signal");
+        // Wait for SIGTERM signal (Kubernetes graceful shutdown)
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut sigterm = signal(SignalKind::terminate()).expect("Failed to listen for SIGTERM");
 
-        info!("Received shutdown signal, shutting down gracefully...");
+        sigterm.recv().await;
+        info!("Received SIGTERM signal, shutting down gracefully...");
 
         // Send shutdown signal
         if let Some(shutdown_tx) = self.shutdown_tx.take() {
@@ -292,6 +292,9 @@ impl KafkaDeduplicatorService {
                 self.config.shutdown_timeout()
             ),
         }
+
+        // Shutdown all stores cleanly
+        self.store_manager.shutdown().await;
 
         Ok(())
     }

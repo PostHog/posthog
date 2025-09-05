@@ -4,11 +4,12 @@ use anyhow::{Context, Result};
 use axum::{routing::get, Router};
 use futures::future::ready;
 use health::HealthRegistry;
+use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 use opentelemetry::{KeyValue, Value};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::trace::{BatchConfig, RandomIdGenerator, Sampler, Tracer};
 use opentelemetry_sdk::{runtime, Resource};
-use serve_metrics::{serve, setup_metrics_recorder};
+use serve_metrics::serve;
 use tokio::task::JoinHandle;
 use tracing::info;
 use tracing::level_filters::LevelFilter;
@@ -52,6 +53,18 @@ pub async fn index() -> &'static str {
     "kafka deduplicator service"
 }
 
+/// Setup metrics recorder with optimized histogram buckets for kafka-deduplicator
+/// Using fewer buckets to reduce cardinality
+fn setup_kafka_deduplicator_metrics() -> PrometheusHandle {
+    const BUCKETS: &[f64] = &[0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 100.0, 500.0, 5000.0];
+
+    PrometheusBuilder::new()
+        .set_buckets(BUCKETS)
+        .unwrap()
+        .install_recorder()
+        .unwrap()
+}
+
 fn start_server(config: &Config, liveness: HealthRegistry) -> JoinHandle<()> {
     let router = Router::new()
         .route("/", get(index))
@@ -62,7 +75,7 @@ fn start_server(config: &Config, liveness: HealthRegistry) -> JoinHandle<()> {
     // Installing a global recorder when capture is used as a library (during tests etc)
     // does not work well.
     let router = if config.export_prometheus {
-        let recorder_handle = setup_metrics_recorder();
+        let recorder_handle = setup_kafka_deduplicator_metrics();
         router.route("/metrics", get(move || ready(recorder_handle.render())))
     } else {
         router

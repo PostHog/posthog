@@ -1,6 +1,8 @@
 import { Handle, NodeProps } from '@xyflow/react'
 import { z } from 'zod'
 
+import { LogEntry } from 'scenes/hog-functions/logs/logsViewerLogic'
+
 import { Optional } from '~/types'
 
 import { HogFlowAction } from '../types'
@@ -158,4 +160,11 @@ export const isFunctionAction = (
     action: HogFlowAction
 ): action is Extract<HogFlowAction, { type: 'function' | 'function_sms' | 'function_email' }> => {
     return ['function', 'function_sms', 'function_email'].includes(action.type)
+}
+
+export interface HogflowTestResult {
+    status: 'success' | 'error' | 'skipped'
+    logs?: LogEntry[]
+    nextActionId: string | null
+    errors?: string[]
 }
