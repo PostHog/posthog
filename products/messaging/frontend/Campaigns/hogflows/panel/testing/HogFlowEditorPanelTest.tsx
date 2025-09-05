@@ -76,6 +76,7 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                             data-attr="toggle-workflow-test-panel-new-mocking"
                             className="whitespace-nowrap"
                             size="small"
+                            bordered
                             label={
                                 <Tooltip
                                     title={
