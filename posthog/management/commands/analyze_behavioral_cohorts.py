@@ -109,7 +109,7 @@ class Command(BaseCommand):
         if limit is not None and (not isinstance(limit, int) or limit < 1 or limit > 100000):
             raise ValueError(f"Invalid limit value: {limit}")
 
-        where_clauses = ["date >= dateAdd('day', -%s, now())"]
+        where_clauses = ["date >= now() - toIntervalDay(%s)"]
         params: list[Any] = [days]
 
         if team_id:
@@ -186,7 +186,7 @@ class Command(BaseCommand):
                     team_id = %s
                     AND cohort_id = %s
                     AND condition = %s
-                    AND date >= dateAdd('day', -%s, now())
+                    AND date >= now() - toIntervalDay(%s)
                     AND matches >= %s
                 LIMIT 100000
             """
