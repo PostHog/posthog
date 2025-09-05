@@ -1,4 +1,4 @@
-import { connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
 import { IconDatabase, IconHogQL } from '@posthog/icons'
@@ -18,7 +18,7 @@ import type { newTabSceneLogicType } from './newTabSceneLogicType'
 
 export interface ItemsGridItem {
     category: string
-    types: { name: string; icon?: JSX.Element; href?: string; filters?: string[]; flag?: string }[]
+    types: { name: string; icon?: JSX.Element; href?: string; flag?: string }[]
 }
 
 export interface ItemsGridItemSingle {
@@ -47,6 +47,37 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         values: [featureFlagLogic, ['featureFlags']],
     })),
     key((props) => props.tabId || 'default'),
+    actions({
+        setSearch: (search: string) => ({ search }),
+        selectNext: true,
+        selectPrevious: true,
+        onFocus: true,
+        onBlur: true,
+        onSubmit: true,
+    }),
+    reducers({
+        search: [
+            '',
+            {
+                setSearch: (_, { search }) => search,
+            },
+        ],
+        rawSelectedIndex: [
+            0,
+            {
+                selectNext: (state) => state + 1,
+                selectPrevious: (state) => state - 1,
+                setSearch: () => 0,
+            },
+        ],
+        focused: [
+            false,
+            {
+                onFocus: () => true,
+                onBlur: () => false,
+            },
+        ],
+    }),
     selectors({
         itemsGrid: [
             (s) => [s.featureFlags],
@@ -57,7 +88,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         href: fs.href,
                         name: 'new ' + fs.path.substring(8),
                         icon: getIconForFileSystemItem(fs),
-                        filters: ['new', 'insight'],
                         flag: fs.flag,
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
@@ -67,7 +97,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         href: fs.href,
                         name: 'Data ' + fs.path.substring(5).toLowerCase(),
                         icon: getIconForFileSystemItem(fs),
-                        filters: ['new', 'data'],
                         flag: fs.flag,
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
@@ -77,7 +106,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         href: fs.href,
                         name: 'new ' + fs.path,
                         icon: getIconForFileSystemItem(fs),
-                        filters: ['new'],
                         flag: fs.flag,
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
@@ -87,7 +115,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         href: fs.href,
                         name: fs.path,
                         icon: getIconForFileSystemItem(fs),
-                        filters: ['app'],
                         flag: fs.flag,
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
@@ -103,26 +130,81 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                 const queryTree: ItemsGridItem[] = [
                     {
-                        category: 'apps',
-                        types: [...products.sort((a, b) => a.name.localeCompare(b.name))],
+                        category: 'Create new insight',
+                        types: [{ name: 'SQL', icon: <IconDatabase />, href: '/sql' }, ...newInsightItems],
                     },
                     {
-                        category: 'new',
+                        category: 'Create new ...',
                         types: [
-                            ...newOtherItems.sort((a, b) => a.name.localeCompare(b.name)),
-                            ...newDataItems.sort((a, b) => a.name.localeCompare(b.name)),
-                            { name: 'Hog program', icon: <IconHogQL />, href: '/debug/hog', filters: ['hog'] },
-                            { name: 'SQL', icon: <IconDatabase />, href: '/sql', filters: ['sql'] },
-                            ...newInsightItems,
+                            ...newOtherItems,
+                            ...newDataItems,
+                            { name: 'Hog program', icon: <IconHogQL />, href: '/debug/hog' },
                         ],
                     },
                     {
-                        category: 'data',
-                        types: [...data.sort((a, b) => a.name.localeCompare(b.name))],
+                        category: 'Apps',
+                        types: [...products],
+                    },
+                    {
+                        category: 'Data in or out',
+                        types: [...data],
                     },
                 ]
                 return queryTree
             },
+        ],
+        filteredItemsGrid: [
+            (s) => [s.itemsGrid, s.search],
+            (itemsGrid, search): ItemsGridItem[] => {
+                if (!search.trim()) {
+                    return itemsGrid
+                }
+                const lowerSearchChunks = search
+                    .toLowerCase()
+                    .split(' ')
+                    .map((s) => s.trim())
+                    .filter((s) => s)
+                return itemsGrid
+                    .map(({ category, types }) => ({
+                        category,
+                        types: types.filter(
+                            (t) =>
+                                lowerSearchChunks.filter(
+                                    (lowerSearch) => !`${category} ${t.name}`.toLowerCase().includes(lowerSearch)
+                                ).length === 0
+                        ),
+                    }))
+                    .filter(({ types }) => types.length > 0)
+            },
+        ],
+        filteredItemsList: [
+            (s) => [s.filteredItemsGrid],
+            (filteredItemsGrid): ItemsGridItemSingle[] =>
+                filteredItemsGrid.flatMap(({ category, types }) =>
+                    types.map((type) => ({
+                        category,
+                        type,
+                    }))
+                ),
+        ],
+        selectedIndex: [
+            (s) => [s.rawSelectedIndex, s.filteredItemsList],
+            (rawSelectedIndex, filteredItemsList): number | null => {
+                if (filteredItemsList.length === 0) {
+                    return null
+                }
+                return (
+                    ((rawSelectedIndex % filteredItemsList.length) + filteredItemsList.length) %
+                    filteredItemsList.length
+                )
+            },
+        ],
+        selectedItem: [
+            (s) => [s.selectedIndex, s.filteredItemsList],
+            (selectedIndex, filteredItemsList) =>
+                selectedIndex !== null && selectedIndex < filteredItemsList.length
+                    ? filteredItemsList[selectedIndex]
+                    : null,
         ],
     }),
     listeners(({ values }) => ({
