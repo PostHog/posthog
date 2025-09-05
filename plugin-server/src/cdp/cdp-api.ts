@@ -403,7 +403,7 @@ export class CdpApi {
     private postHogflowInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
             const { id, team_id } = req.params
-            const { clickhouse_event, configuration, invocation_id } = req.body
+            const { clickhouse_event, configuration, invocation_id, current_action_id } = req.body
 
             logger.info('⚡️', 'Received hogflow invocation', { id, team_id, body: req.body })
 
@@ -469,13 +469,21 @@ export class CdpApi {
                 compoundConfiguration,
                 filterGlobals
             )
-            const response = await this.hogFlowExecutor.executeTest(invocation)
+
+            invocation.state.currentAction = current_action_id
+                ? {
+                      id: current_action_id,
+                      startedAtTimestamp: Date.now(),
+                  }
+                : undefined
+
+            const result = await this.hogFlowExecutor.executeCurrentAction(invocation)
 
             res.json({
-                result: null, // HogFlows don't have a result property like HogFunctions
-                status: response.error ? 'error' : 'success',
-                errors: response.error ? [response.error] : [],
-                logs: response.logs,
+                result,
+                status: result.error ? 'error' : 'success',
+                errors: result.error ? [result.error] : [],
+                logs: result.logs,
             })
         } catch (e) {
             console.error(e)
