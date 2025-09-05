@@ -120,14 +120,19 @@ export class RecipientPreferencesService {
         invocation: CyclotronJobInvocationHogFunction,
         action: Extract<HogFlowAction, { type: 'function_email' }>
     ): Promise<string> {
+        const identifier = action.config.inputs?.email?.value?.to
+        if (!identifier) {
+            throw new Error(`No identifier found for email action ${action.id}`)
+        }
+
         const recipient = await this.recipientsManager.get({
             teamId: invocation.teamId,
-            identifier: action.config.inputs?.email?.value?.to,
+            identifier,
         })
 
         if (!recipient) {
             throw new Error(
-                `Could not generate unsubscribe URL, recipient not found for team ${invocation.teamId} and identifier: ${action.config.inputs?.email?.value?.to}`
+                `Could not generate unsubscribe URL, recipient not found for team ${invocation.teamId} and identifier: ${identifier}`
             )
         }
 
