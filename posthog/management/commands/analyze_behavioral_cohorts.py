@@ -57,15 +57,7 @@ class Command(BaseCommand):
         condition = options.get("condition")
         limit = options.get("limit")
 
-        logger.info(
-            "Starting cohort membership generation",
-            min_matches=min_matches,
-            days=days,
-            team_id=team_id,
-            cohort_id=cohort_id,
-            condition=condition,
-            limit=limit,
-        )
+        logger.info("Starting cohort membership generation")
 
         # Step 1: Get unique condition hashes (with limit applied at query level)
         condition_hashes = self.get_unique_conditions(team_id, cohort_id, condition, days, limit)
@@ -74,7 +66,7 @@ class Command(BaseCommand):
             logger.warning("No conditions found matching the criteria")
             return
 
-        logger.info(f"Found {len(condition_hashes)} unique condition hashes")
+        logger.info(f"Processing {len(condition_hashes)} conditions")
 
         # Step 2: Get cohort memberships (team_id, person_id, cohort_id)
         start_time = time.time()
@@ -86,10 +78,10 @@ class Command(BaseCommand):
         total_time = time.time() - start_time
 
         logger.info(
-            "Cohort membership calculation completed",
+            "Completed",
             total_memberships=len(memberships),
             conditions_processed=len(condition_hashes),
-            total_time_seconds=round(total_time, 2),
+            total_time_seconds=round(time.time() - start_time, 2),
         )
 
         self.stdout.write("team_id,person_id,cohort_id")
@@ -180,12 +172,9 @@ class Command(BaseCommand):
             cohort_id = condition_data["cohort_id"]
             condition_hash = condition_data["condition"]
 
-            logger.info(
-                f"Processing condition {idx}/{total_conditions}",
-                team_id=team_id,
-                cohort_id=cohort_id,
-                condition=condition_hash[:16] + "...",
-            )
+            # Only log every 100th condition to avoid spam
+            if idx % 500 == 0 or idx == total_conditions:
+                logger.info(f"Progress: {idx}/{total_conditions}")
             query = """
                 SELECT
                     person_id
@@ -214,11 +203,7 @@ class Command(BaseCommand):
                     person_id = row[0]
                     memberships.append((team_id, person_id, cohort_id))
 
-                logger.info(
-                    "Processed condition",
-                    condition=condition_hash[:16] + "...",
-                    persons_found=len(results),
-                )
+                # Removed per-condition logging to reduce spam
 
             except Exception as e:
                 logger.exception("Error processing condition", condition=condition_hash[:16] + "...", error=str(e))
