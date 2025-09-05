@@ -769,17 +769,17 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     }),
 
     urlToAction(({ actions, values }) => {
-        function handleSharedFilter(saved_filter: any): boolean {
-            if (!saved_filter) {
+        function handleSharedFilter(savedFilterParam: any): boolean {
+            if (!savedFilterParam) {
                 return false
             }
 
             try {
                 // Check if it's already an object (kea-router might have parsed it)
                 const sharedQuery =
-                    typeof saved_filter === 'string'
-                        ? (JSON.parse(saved_filter) as DataTableNode)
-                        : (saved_filter as DataTableNode)
+                    typeof savedFilterParam === 'string'
+                        ? (JSON.parse(savedFilterParam) as DataTableNode)
+                        : (savedFilterParam as DataTableNode)
 
                 // Apply the full query
                 actions.setTracesQuery(sharedQuery)
@@ -795,11 +795,9 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 }
 
                 // Clear the saved_filter param after applying
-                setTimeout(() => {
-                    const newUrl = new URL(window.location.href)
-                    newUrl.searchParams.delete('saved_filter')
-                    window.history.replaceState({}, '', newUrl.toString())
-                }, 100)
+                // Use router to update URL cleanly without the saved_filter param
+                const { saved_filter, ...cleanParams } = router.values.searchParams
+                router.actions.replace(router.values.location.pathname, cleanParams)
 
                 return true
             } catch (error) {

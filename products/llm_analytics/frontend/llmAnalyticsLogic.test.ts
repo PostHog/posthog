@@ -221,8 +221,6 @@ describe('llmAnalyticsLogic', () => {
             ],
             shouldFilterTestAccounts: true,
         })
-
-        // Note: The logic cleans up the saved_filter param from URL after 100ms
     })
 
     it('should reset filters when switching tabs without params', () => {
