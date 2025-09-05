@@ -1,25 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { useEffect } from 'react'
 
-import { IconInfo, IconPlay, IconPlayFilled, IconRedo } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonDivider,
-    LemonLabel,
-    LemonSwitch,
-    LemonTable,
-    Link,
-    ProfilePicture,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { IconPlay, IconPlayFilled, IconRedo } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDivider, LemonLabel, Link, ProfilePicture } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LogsViewerTable } from 'scenes/hog-functions/logs/LogsViewer'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { urls } from 'scenes/urls'
 
 import { campaignLogic } from '../../../campaignLogic'
+import { renderWorkflowLogMessage } from '../../../logs/log-utils'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { hogFlowEditorTestLogic } from './hogFlowEditorTestLogic'
 
@@ -34,9 +26,11 @@ export function HogFlowTestPanelNonSelected(): JSX.Element {
 }
 
 export function HogFlowEditorPanelTest(): JSX.Element | null {
-    const { selectedNode } = useValues(hogFlowEditorLogic)
+    const { campaign, selectedNode } = useValues(hogFlowEditorLogic)
+    const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const { logicProps } = useValues(campaignLogic)
-    const { sampleGlobals, isTestInvocationSubmitting, testResult, shouldLoadSampleGlobals } = useValues(
+
+    const { sampleGlobals, isTestInvocationSubmitting, testResult, shouldLoadSampleGlobals, nextActionId } = useValues(
         hogFlowEditorTestLogic(logicProps)
     )
     const { submitTestInvocation, setTestResult, loadSampleGlobals } = useActions(hogFlowEditorTestLogic(logicProps))
@@ -44,10 +38,9 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
     const display = asDisplay(sampleGlobals?.person)
     const url = urls.personByDistinctId(sampleGlobals?.event?.distinct_id || '')
 
-    if (!selectedNode) {
-        // NOTE: This shouldn't ever happen as the parent checks it
-        return null
-    }
+    useEffect(() => {
+        setTestResult(null)
+    }, [selectedNode?.id, setTestResult])
 
     return (
         <Form
@@ -57,7 +50,94 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
             enableFormOnSubmit
             className="flex overflow-hidden flex-col flex-1"
         >
+            <div className="flex gap-2 items-center p-2">
+                {testResult ? (
+                    <>
+                        <div className="flex-1" />
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => setTestResult(null)}
+                            loading={isTestInvocationSubmitting}
+                            size="small"
+                            data-attr="clear-workflow-test-panel-new-result"
+                        >
+                            Clear test result
+                        </LemonButton>
+
+                        {nextActionId && (
+                            <LemonButton
+                                type="primary"
+                                onClick={() => setSelectedNodeId(nextActionId)}
+                                icon={<IconPlayFilled />}
+                                loading={isTestInvocationSubmitting}
+                                size="small"
+                                data-attr="continue-workflow-test-panel-new"
+                            >
+                                Go to next step
+                            </LemonButton>
+                        )}
+                    </>
+                ) : (
+                    <>
+                        <div className="flex-1" />
+
+                        {/* <LemonField name="mock_async_functions" className="flex-1">
+                                    {({ value, onChange }) => (
+                                        <LemonSwitch
+                                            onChange={(v) => onChange(!v)}
+                                            checked={!value}
+                                            data-attr="toggle-workflow-test-panel-new-mocking"
+                                            label={
+                                                <Tooltip
+                                                    title={
+                                                        <>
+                                                            When disabled, message deliveries and other async actions
+                                                            will not be called. Instead they will be mocked out and
+                                                            logged.
+                                                        </>
+                                                    }
+                                                >
+                                                    <span className="flex gap-2">
+                                                        Make real HTTP requests
+                                                        <IconInfo className="text-lg" />
+                                                    </span>
+                                                </Tooltip>
+                                            }
+                                        />
+                                    )}
+                                </LemonField> */}
+
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => loadSampleGlobals()}
+                            tooltip="Find the last event matching the trigger event filters, and use it to populate the globals for a test run."
+                            disabledReason={!shouldLoadSampleGlobals ? 'Must configure trigger event' : undefined}
+                            icon={<IconRedo />}
+                            size="small"
+                        >
+                            Load new event
+                        </LemonButton>
+
+                        <LemonButton
+                            type="primary"
+                            data-attr="test-workflow-panel-new"
+                            onClick={() => submitTestInvocation()}
+                            icon={<IconPlay />}
+                            loading={isTestInvocationSubmitting}
+                            disabledReason={sampleGlobals ? undefined : 'Must load event to run test'}
+                            size="small"
+                        >
+                            Run test
+                        </LemonButton>
+                    </>
+                )}
+            </div>
+            <LemonDivider className="my-0" />
+            <div className="text-sm text-muted p-2">
+                Note: Delays will be logged to indicate when they would have been executed.
+            </div>
             {/* Body */}
+            <LemonDivider className="my-0" />
             <div className="flex overflow-y-auto flex-col flex-1 gap-2 p-2">
                 {/* Event Information */}
                 {sampleGlobals?.event && (
@@ -88,10 +168,24 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                         )}
                     </div>
                 )}
+            </div>
+            <LemonDivider className="my-0" />
+            <div className="flex flex-col flex-1 gap-2 p-2">
                 {/* Test Results */}
-                {testResult && (
+                {testResult ? (
                     <div data-attr="test-results" className="flex flex-col gap-2">
-                        <h2 className="mb-0">Test results</h2>
+                        <div className="flex gap-2 justify-between items-center">
+                            <h3 className="mb-0">Test results</h3>
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => setTestResult(null)}
+                                loading={isTestInvocationSubmitting}
+                                size="small"
+                                data-attr="clear-workflow-test-panel-new-result"
+                            >
+                                Clear test result
+                            </LemonButton>
+                        </div>
                         <LemonBanner
                             type={
                                 testResult.status === 'success'
@@ -105,130 +199,38 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                                 ? 'Success'
                                 : testResult.status === 'skipped'
                                   ? 'Workflow was skipped because the event did not match the filter criteria'
-                                  : 'Error'}
+                                  : 'Error: ' + testResult.errors?.join(', ')}
                         </LemonBanner>
 
                         <div className="flex flex-col gap-2">
                             <LemonLabel>Test invocation logs</LemonLabel>
 
-                            <LemonTable
+                            <LogsViewerTable
+                                instanceLabel="workflow run"
+                                renderMessage={(m) => renderWorkflowLogMessage(campaign, m)}
                                 dataSource={testResult.logs ?? []}
-                                columns={[
-                                    {
-                                        title: 'Timestamp',
-                                        key: 'timestamp',
-                                        dataIndex: 'timestamp',
-                                        render: (timestamp) => <TZLabel time={timestamp as string} />,
-                                        width: 0,
-                                    },
-                                    {
-                                        width: 100,
-                                        title: 'Level',
-                                        key: 'level',
-                                        dataIndex: 'level',
-                                    },
-                                    {
-                                        title: 'Message',
-                                        key: 'message',
-                                        dataIndex: 'message',
-                                        render: (message) => <code className="whitespace-pre-wrap">{message}</code>,
-                                    },
-                                ]}
-                                className="ph-no-capture"
-                                rowKey="timestamp"
+                                renderColumns={(columns) => columns.filter((column) => column.key !== 'instanceId')}
                             />
                         </div>
                     </div>
+                ) : (
+                    <LemonButton
+                        type="primary"
+                        data-attr="test-workflow-panel-new"
+                        onClick={() => submitTestInvocation()}
+                        icon={<IconPlay />}
+                        loading={isTestInvocationSubmitting}
+                        disabledReason={sampleGlobals ? undefined : 'Must load event to run test'}
+                        size="small"
+                        fullWidth
+                    >
+                        Run test
+                    </LemonButton>
                 )}
             </div>
 
             <LemonDivider className="my-0" />
             {/* footer */}
-            <div className="p-2">
-                {testResult ? (
-                    <div className="flex justify-end gap-2">
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => setTestResult(null)}
-                            loading={isTestInvocationSubmitting}
-                            data-attr="clear-workflow-test-panel-new-result"
-                        >
-                            Clear test result
-                        </LemonButton>
-
-                        {selectedNode?.data?.type !== 'exit' && (
-                            <LemonButton
-                                type="primary"
-                                onClick={() => submitTestInvocation()}
-                                icon={<IconPlayFilled />}
-                                loading={isTestInvocationSubmitting}
-                                data-attr="continue-workflow-test-panel-new"
-                            >
-                                Continue
-                            </LemonButton>
-                        )}
-                    </div>
-                ) : (
-                    <>
-                        <div className="flex flex-col gap-2">
-                            <div className="text-sm text-muted">
-                                Note: Delays will be logged to indicate when they would have been executed.
-                            </div>
-
-                            <div className="flex gap-2 items-center">
-                                <LemonField name="mock_async_functions" className="flex-1">
-                                    {({ value, onChange }) => (
-                                        <LemonSwitch
-                                            onChange={(v) => onChange(!v)}
-                                            checked={!value}
-                                            data-attr="toggle-workflow-test-panel-new-mocking"
-                                            label={
-                                                <Tooltip
-                                                    title={
-                                                        <>
-                                                            When disabled, message deliveries and other async actions
-                                                            will not be called. Instead they will be mocked out and
-                                                            logged.
-                                                        </>
-                                                    }
-                                                >
-                                                    <span className="flex gap-2">
-                                                        Make real HTTP requests
-                                                        <IconInfo className="text-lg" />
-                                                    </span>
-                                                </Tooltip>
-                                            }
-                                        />
-                                    )}
-                                </LemonField>
-
-                                <LemonButton
-                                    type="secondary"
-                                    onClick={() => loadSampleGlobals()}
-                                    tooltip="Find the last event matching the trigger event filters, and use it to populate the globals for a test run."
-                                    disabledReason={
-                                        !shouldLoadSampleGlobals ? 'Must configure trigger event' : undefined
-                                    }
-                                    icon={<IconRedo />}
-                                >
-                                    Load new event
-                                </LemonButton>
-
-                                <LemonButton
-                                    type="primary"
-                                    data-attr="test-workflow-panel-new"
-                                    onClick={() => submitTestInvocation()}
-                                    icon={<IconPlay />}
-                                    loading={isTestInvocationSubmitting}
-                                    disabledReason={sampleGlobals ? undefined : 'Must load event to run test'}
-                                >
-                                    Run test
-                                </LemonButton>
-                            </div>
-                        </div>
-                    </>
-                )}
-            </div>
         </Form>
     )
 }
