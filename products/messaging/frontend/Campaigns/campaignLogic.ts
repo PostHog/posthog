@@ -222,16 +222,18 @@ export const campaignLogic = kea<campaignLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         loadCampaignSuccess: async ({ originalCampaign }) => {
             actions.resetCampaign(originalCampaign)
         },
         saveCampaignSuccess: async ({ originalCampaign }) => {
             lemonToast.success('Campaign saved')
-            originalCampaign.id &&
+            if (props.id === 'new' && originalCampaign.id) {
                 router.actions.replace(
                     urls.messagingCampaign(originalCampaign.id, campaignSceneLogic.findMounted()?.values.currentTab)
                 )
+            }
+
             actions.resetCampaign(originalCampaign)
         },
         discardChanges: () => {

@@ -247,10 +247,10 @@ function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Elem
                 ))}
 
                 {isMessagingProductEnabled && (
-                    <div className="flex gap-2 items-center m-2">
-                        <LemonLabel>Start from a template (optional)</LemonLabel>
+                    <div className="flex gap-2 items-center m-2 ">
+                        <span className="flex-1">Start from a template (optional)</span>
                         <LemonSelect
-                            size="small"
+                            size="xsmall"
                             placeholder="Choose template"
                             loading={templatesLoading}
                             value={appliedTemplate?.id}
