@@ -12,16 +12,31 @@ class Command(BaseCommand):
         parser.add_argument(
             "--distinct_id", type=str, required=True, help="The distinct ID for which to evaluate feature flags"
         )
+        parser.add_argument("--organization", type=str, help="Organization ID")
+        parser.add_argument("--project", type=str, help="Project ID")
+        parser.add_argument("--instance", type=str, help="Instance ID")
+        parser.add_argument("--customer", type=str, help="Customer ID")
 
     def handle(self, *args, **options):
         distinct_id = options["distinct_id"]
+
+        groups = {
+            "customer": "cus_IK2DWsWVn2ZM16",
+            "instance": "https://us.posthog.com",
+            "organization": "4dc8564d-bd82-1065-2f40-97f7c50f67cf",
+            "project": "fc445b88-e2c4-488e-bb52-aa80cd7918c9",
+        }
+
+        for group_type in groups.keys():
+            if options.get(group_type):
+                groups[group_type] = options[group_type]
 
         try:
             self.stdout.write(f"Fetching feature flags for {distinct_id}...")
             response = requests.post(
                 "https://us.i.posthog.com/flags?v=2",
                 headers={"Content-Type": "application/json"},
-                data=json.dumps({"api_key": PH_US_API_KEY, "distinct_id": distinct_id}),
+                data=json.dumps({"api_key": PH_US_API_KEY, "distinct_id": distinct_id, "groups": groups}),
                 timeout=30,
             )
             response.raise_for_status()
