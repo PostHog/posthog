@@ -1,7 +1,9 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
@@ -146,6 +148,46 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             (featureInfo, isAddonProduct) => {
                 return !(featureInfo?.key === AvailableFeature.ORGANIZATIONS_PROJECTS && !isAddonProduct)
             },
+        ],
+        ctaLink: [
+            (s) => [s.gateVariant, s.isAddonProduct, s.productWithFeature, s.featureInfo, s.scrollToProduct],
+            (
+                gateVariant: GateVariantType,
+                isAddonProduct: boolean | undefined,
+                productWithFeature: BillingProductV2Type | BillingProductV2AddonType | undefined,
+                featureInfo: any,
+                scrollToProduct: boolean
+            ) => {
+                if (gateVariant === 'add-card' && !isAddonProduct && productWithFeature) {
+                    return getUpgradeProductLink({
+                        product: productWithFeature as BillingProductV2Type,
+                        redirectPath: urls.organizationBilling(),
+                    })
+                } else if (gateVariant === 'add-card') {
+                    return `/organization/billing${scrollToProduct ? `?products=${productWithFeature?.type}` : ''}`
+                } else if (gateVariant === 'contact-sales') {
+                    return `mailto:sales@posthog.com?subject=Inquiring about ${featureInfo?.name}`
+                } else if (gateVariant === 'move-to-cloud') {
+                    return 'https://us.posthog.com/signup?utm_medium=in-product&utm_campaign=move-to-cloud'
+                }
+                return undefined
+            },
+        ],
+        ctaLabel: [
+            (s) => [s.gateVariant],
+            (gateVariant: GateVariantType): string => {
+                if (gateVariant === 'add-card') {
+                    return 'Upgrade now'
+                } else if (gateVariant === 'contact-sales') {
+                    return 'Contact sales'
+                }
+                return 'Move to PostHog Cloud'
+            },
+        ],
+        isPaymentEntryFlow: [
+            (s) => [s.gateVariant, s.isAddonProduct],
+            (gateVariant: GateVariantType, isAddonProduct: boolean | undefined): boolean =>
+                gateVariant === 'add-card' && !isAddonProduct,
         ],
     })),
 ])
