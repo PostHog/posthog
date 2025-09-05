@@ -109,18 +109,18 @@ class Command(BaseCommand):
         if limit is not None and (not isinstance(limit, int) or limit < 1 or limit > 100000):
             raise ValueError(f"Invalid limit value: {limit}")
 
-        where_clauses = ["date >= now() - toIntervalDay(%s)"]
-        params: list[Any] = [days]
+        where_clauses = ["date >= now() - toIntervalDay(%(days)s)"]
+        params: dict[str, Any] = {"days": days}
 
         if team_id:
-            where_clauses.append("team_id = %s")
-            params.append(team_id)
+            where_clauses.append("team_id = %(team_id)s")
+            params["team_id"] = team_id
         if cohort_id:
-            where_clauses.append("cohort_id = %s")
-            params.append(cohort_id)
+            where_clauses.append("cohort_id = %(cohort_id)s")
+            params["cohort_id"] = cohort_id
         if condition:
-            where_clauses.append("condition = %s")
-            params.append(condition)
+            where_clauses.append("condition = %(condition)s")
+            params["condition"] = condition
 
         where_clause = " AND ".join(where_clauses)
 
@@ -183,15 +183,24 @@ class Command(BaseCommand):
                     person_id
                 FROM behavioral_cohorts_matches
                 WHERE
-                    team_id = %s
-                    AND cohort_id = %s
-                    AND condition = %s
-                    AND date >= now() - toIntervalDay(%s)
-                    AND matches >= %s
+                    team_id = %(team_id)s
+                    AND cohort_id = %(cohort_id)s
+                    AND condition = %(condition)s
+                    AND date >= now() - toIntervalDay(%(days)s)
+                    AND matches >= %(min_matches)s
                 LIMIT 100000
             """
             try:
-                results = sync_execute(query, [team_id, cohort_id, condition_hash, days, min_matches])
+                results = sync_execute(
+                    query,
+                    {
+                        "team_id": team_id,
+                        "cohort_id": cohort_id,
+                        "condition": condition_hash,
+                        "days": days,
+                        "min_matches": min_matches,
+                    },
+                )
 
                 for row in results:
                     person_id = row[0]

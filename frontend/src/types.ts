@@ -4677,6 +4677,7 @@ export interface DataWarehouseSavedQuery {
     status?: string
     latest_error: string | null
     latest_history_id?: string
+    is_materialized?: boolean
 }
 
 export interface DataWarehouseSavedQueryDraft {
