@@ -1,6 +1,12 @@
+import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
+
 import { NON_TIME_SERIES_DISPLAY_TYPES } from '~/lib/constants'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 
@@ -9,6 +15,7 @@ describe('llmAnalyticsLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
+        router.actions.push(urls.llmAnalyticsTraces())
         logic = llmAnalyticsLogic()
         logic.mount()
     })
@@ -140,6 +147,108 @@ describe('llmAnalyticsLogic', () => {
             // Verify all tiles are accounted for
             expect(tiles).toHaveLength(9)
             expect(boldNumberTiles.length + actionsBarValueTiles.length + timeSeriesTiles.length).toBe(9)
+        })
+    })
+
+    it('should handle URL parameters correctly', () => {
+        const filters = [
+            {
+                type: 'event',
+                key: 'browser',
+                value: 'Chrome',
+                operator: 'exact',
+            },
+        ]
+
+        // Navigate with various parameters
+        router.actions.push(urls.llmAnalyticsTraces(), {
+            filters: filters,
+            date_from: '-14d',
+            date_to: '-1d',
+            filter_test_accounts: 'true',
+        })
+
+        // Should apply all parameters
+        expectLogic(logic).toMatchValues({
+            propertyFilters: filters,
+            dateFilter: {
+                dateFrom: '-14d',
+                dateTo: '-1d',
+            },
+            shouldFilterTestAccounts: true,
+        })
+    })
+
+    it('should handle saved filters for sharing', () => {
+        const sharedQuery: DataTableNode = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.TracesQuery,
+                dateRange: {
+                    date_from: '-30d',
+                    date_to: null,
+                },
+                properties: [
+                    {
+                        type: PropertyFilterType.Event,
+                        key: 'test_property',
+                        value: 'test_value',
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+                filterTestAccounts: true,
+            },
+        }
+
+        // Navigate with saved_filter param
+        router.actions.push(urls.llmAnalyticsTraces(), {
+            saved_filter: JSON.stringify(sharedQuery),
+        })
+
+        // Should apply the shared query
+        expectLogic(logic).toMatchValues({
+            dateFilter: {
+                dateFrom: '-30d',
+                dateTo: null,
+            },
+            propertyFilters: [
+                {
+                    type: PropertyFilterType.Event,
+                    key: 'test_property',
+                    value: 'test_value',
+                    operator: PropertyOperator.Exact,
+                },
+            ],
+            shouldFilterTestAccounts: true,
+        })
+
+        // Note: The logic cleans up the saved_filter param from URL after 100ms
+    })
+
+    it('should reset filters when switching tabs without params', () => {
+        // Set some filters first
+        logic.actions.setPropertyFilters([
+            {
+                type: PropertyFilterType.Event,
+                key: 'test',
+                value: 'value',
+                operator: PropertyOperator.Exact,
+            },
+        ])
+        logic.actions.setDates('-30d', '-1d')
+        logic.actions.setShouldFilterTestAccounts(true)
+
+        // Navigate to another tab without params
+        router.actions.push(urls.llmAnalyticsGenerations())
+
+        // Should reset to defaults
+        expectLogic(logic).toMatchValues({
+            propertyFilters: [],
+            dateFilter: {
+                dateFrom: '-1d',
+                dateTo: null,
+            },
+            shouldFilterTestAccounts: false,
         })
     })
 })
