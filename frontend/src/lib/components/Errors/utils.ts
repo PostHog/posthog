@@ -5,6 +5,7 @@ import {
     ErrorTrackingException,
     ErrorTrackingRuntime,
     ExceptionAttributes,
+    ExceptionRelease,
     FingerprintRecordPart,
 } from './types'
 
@@ -87,6 +88,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         $sentry_url: sentryUrl,
         $level: level,
         $cymbal_errors: ingestionErrors,
+        $exception_releases: releases,
     } = properties
 
     let type = properties.$exception_type
@@ -113,6 +115,10 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
     const handled = exceptionList?.[0]?.mechanism?.handled ?? false
     const runtime: ErrorTrackingRuntime = getRuntimeFromLib(lib)
 
+    const gitReleasesMeta = (Object.values(releases) as ExceptionRelease[])
+        .map((release) => release.metadata?.git)
+        .filter((meta) => meta !== undefined)
+
     return {
         type,
         value,
@@ -129,6 +135,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         handled,
         level,
         ingestionErrors,
+        gitReleasesMeta,
     }
 }
 

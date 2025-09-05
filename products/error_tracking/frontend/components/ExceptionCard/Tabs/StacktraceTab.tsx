@@ -19,6 +19,7 @@ import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrim
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 import { ExceptionAttributesPreview } from '../../ExceptionAttributesPreview'
+import { ReleasePreview } from '../../ExceptionAttributesPreview/ReleasesPreview/ReleasePreview'
 import { FixModal } from '../FixModal'
 import { StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from '../Stacktrace/StacktraceBase'
 import { StacktraceGenericDisplay } from '../Stacktrace/StacktraceGenericDisplay'
@@ -49,6 +50,7 @@ export function StacktraceTab({
             <SubHeader className="justify-between">
                 <div className="flex items-center gap-1">
                     <ExceptionAttributesPreview attributes={exceptionAttributes} loading={loading} />
+                    <ReleasePreview gitReleasesMeta={exceptionAttributes?.gitReleasesMeta} />
                 </div>
                 <ButtonGroupPrimitive size="sm">
                     {showFixButton && (

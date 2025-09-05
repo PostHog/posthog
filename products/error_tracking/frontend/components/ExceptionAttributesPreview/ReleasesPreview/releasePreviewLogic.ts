@@ -1,11 +1,11 @@
-import { connect, kea, path, props, selectors } from 'kea'
+import { connect, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders/lib'
 import { subscriptions } from 'kea-subscriptions/lib'
 
 import api from 'lib/api'
 import { ErrorPropertiesLogicProps, errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import 'lib/components/Errors/stackFrameLogic'
-import { ErrorTrackingStackFrame, ExceptionRelease } from 'lib/components/Errors/types'
+import { ExceptionReleaseGitMeta } from 'lib/components/Errors/types'
 
 import type { releasePreviewLogicType } from './releasePreviewLogicType'
 
@@ -20,22 +20,11 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
         'releasePreviewLogic',
     ]),
     props({} as ErrorPropertiesLogicProps),
+    key((props) => props.id),
 
     connect((props: ErrorPropertiesLogicProps) => ({
         values: [errorPropertiesLogic(props), ['frames']],
     })),
-
-    selectors({
-        // todo:ab - actually compute the kaboom frame
-        kaboomFrame: [
-            (s) => [s.frames],
-            (frames: ErrorTrackingStackFrame[]) => {
-                const kaboomFrame = frames.findLast((frame) => frame.in_app && frame.resolved)
-
-                return kaboomFrame
-            },
-        ],
-    }),
 
     loaders(({ values }) => ({
         releasePreviewData: [
@@ -50,23 +39,31 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
             } as ReleasePreviewOutput,
             {
                 loadRelease: async () => {
-                    await new Promise((resolve) => setTimeout(resolve, 1_000))
-
-                    const rawId = values.kaboomFrame?.raw_id
-                    if (rawId) {
+                    const frames = values.frames || []
+                    if (frames.length > 0) {
                         try {
-                            const response = await api.errorTracking.stackFrameReleaseMetadata([rawId])
+                            const rawIds = frames.map((f) => f.raw_id)
+                            const response = await api.errorTracking.stackFrameReleaseMetadata(rawIds)
+                            const resultMap = response.results || {}
 
-                            const gitMeta = response.results[rawId].git
+                            const selected = [...frames]
+                                .reverse()
+                                .find((f) => resultMap[f.raw_id] && resultMap[f.raw_id].git)
 
-                            return {
-                                mostProbableRelease: {
-                                    commitSha: gitMeta.commit_id,
-                                    repositoryUrl: gitMeta.repo_url,
-                                    repositoryName: gitMeta.repo_name,
-                                    branch: gitMeta.branch,
-                                },
-                                otherReleases: [],
+                            if (selected) {
+                                const gitMeta = resultMap[selected.raw_id].git
+                                return {
+                                    mostProbableRelease: {
+                                        commitSha: gitMeta.commit_id,
+                                        repositoryUrl: resolveRemoteUrlWithCommitToLink(
+                                            gitMeta.remote_url,
+                                            gitMeta.commit_id
+                                        ),
+                                        repositoryName: gitMeta.repo_name,
+                                        branch: gitMeta.branch,
+                                    },
+                                    otherReleases: [],
+                                }
                             }
                         } catch (e) {
                             console.warn('raw_id_release_metadata failed', e)
@@ -83,13 +80,55 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
     })),
 
     subscriptions(({ actions }) => ({
-        kaboomFrame: () => {
+        frames: () => {
             actions.loadRelease()
         },
     })),
 ])
 
+function resolveRemoteUrlWithCommitToLink(remoteUrl: string, commitSha: string): string {
+    if (remoteUrlIsSsh(remoteUrl)) {
+        const normalized = normalizeRemoteUrl(remoteUrl)
+
+        return `${normalized}/commit/${commitSha}`
+    }
+    return remoteUrl
+}
+
+function remoteUrlIsSsh(remoteUrl: string): boolean {
+    return remoteUrl.startsWith('git@')
+}
+
+function normalizeRemoteUrl(remoteUrl: string): string {
+    if (!remoteUrlIsSsh(remoteUrl)) {
+        return remoteUrl
+    }
+    // git@github.com:user/repo.git
+    // 1. provider: between 'git@' and ':'
+    // 2. user: after ':' and before first '/'
+    // 3. path: after first '/'
+    // Compose: https://provider/user/path (strip .git if present)
+
+    const atIdx = remoteUrl.indexOf('@')
+    const colonIdx = remoteUrl.indexOf(':')
+    if (atIdx === -1 || colonIdx === -1) {
+        return remoteUrl
+    }
+    const provider = remoteUrl.slice(atIdx + 1, colonIdx)
+    const afterColon = remoteUrl.slice(colonIdx + 1)
+    const slashIdx = afterColon.indexOf('/')
+    if (slashIdx === -1) {
+        return remoteUrl
+    }
+    const user = afterColon.slice(0, slashIdx)
+    let path = afterColon.slice(slashIdx + 1)
+    if (path.endsWith('.git')) {
+        path = path.slice(0, -4)
+    }
+    return `https://${provider}/${user}/${path}`
+}
+
 export interface ReleasePreviewOutput {
-    mostProbableRelease?: ExceptionRelease
-    otherReleases: ExceptionRelease[]
+    mostProbableRelease?: ExceptionReleaseGitMeta
+    otherReleases: ExceptionReleaseGitMeta[]
 }

@@ -4,10 +4,16 @@ import { useState } from 'react'
 import { IconCommit } from '@posthog/icons'
 import { LemonTag, Popover } from '@posthog/lemon-ui'
 
+import { ExceptionReleaseGitMeta } from 'lib/components/Errors/types'
+
 import { ReleasePopoverContent } from './ReleasesPopoverContent'
 import { releasePreviewLogic } from './releasePreviewLogic'
 
-export function ReleasePreview(): JSX.Element {
+export interface ReleasePreviewProps {
+    gitReleasesMeta?: ExceptionReleaseGitMeta[]
+}
+
+export function ReleasePreview({ gitReleasesMeta }: ReleasePreviewProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
     const { releasePreviewData } = useValues(releasePreviewLogic)
 

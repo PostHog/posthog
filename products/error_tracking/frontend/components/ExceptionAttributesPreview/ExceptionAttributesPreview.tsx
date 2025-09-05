@@ -7,8 +7,6 @@ import { LemonTag, Spinner } from '@posthog/lemon-ui'
 import { ExceptionAttributes } from 'lib/components/Errors/types'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 
-import { ReleasePreview } from './ReleasesPreview/ReleasePreview'
-
 export interface ExceptionAttributesPreviewProps {
     attributes: ExceptionAttributes | null
     loading?: boolean
@@ -49,7 +47,6 @@ export function ExceptionAttributesPreview({
                                         className="text-sm text-secondary"
                                     />
                                 </PropertyWrapper>
-                                <ReleasePreview />
                             </>
                         )
                 )
