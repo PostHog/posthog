@@ -8,6 +8,7 @@ import { IconBook, IconDownload, IconInfo, IconPlayFilled, IconSidebarClose } fr
 import { LemonDivider, Spinner } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconCancel } from 'lib/lemon-ui/icons'
@@ -15,6 +16,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 
@@ -76,6 +79,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     const { sidebarWidth } = useValues(editorSizingLogic)
     const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {
@@ -125,6 +129,19 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
 
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
+            {newSceneLayout && (
+                <div className="flex flex-col gap-2 pt-2 px-4">
+                    <SceneTitleSection
+                        name="SQL Editor"
+                        description={null}
+                        resourceType={{
+                            type: 'sql',
+                            typePlural: 'sql',
+                        }}
+                    />
+                    <SceneDivider />
+                </div>
+            )}
             <div className="flex flex-row overflow-x-auto">
                 {renderSidebarButton()}
                 <QueryTabs

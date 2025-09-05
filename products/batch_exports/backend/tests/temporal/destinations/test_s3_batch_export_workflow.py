@@ -222,8 +222,8 @@ async def read_json_file_from_s3(s3_compatible_client, bucket_name, key) -> list
     return data[0]
 
 
-MetricKind = t.Literal["success", "cancellation", "failure"]
-MetricName = t.Literal["succeeded", "canceled", "failed"]
+MetricKind = t.Literal["success", "cancellation", "failure", "rows"]
+MetricName = t.Literal["succeeded", "canceled", "failed", "rows_exported"]
 ExpectedCount = int
 ExpectedMetricsMap = dict[tuple[MetricKind, MetricName], ExpectedCount]
 
@@ -960,7 +960,11 @@ async def _run_s3_batch_export_workflow(
     elif isinstance(model, BatchExportModel) and model.name == "sessions":
         sort_key = "session_id"
 
-    await assert_metrics_in_clickhouse(clickhouse_client, batch_export_id, {("success", "succeeded"): 1})
+    await assert_metrics_in_clickhouse(
+        clickhouse_client,
+        batch_export_id,
+        {("success", "succeeded"): 1, ("rows", "rows_exported"): run.records_completed or 0},
+    )
 
     await assert_clickhouse_records_in_s3(
         s3_compatible_client=s3_client,

@@ -29,7 +29,7 @@ class MongoDBSource(BaseSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MONGODB
 
-    def get_schemas(self, config: MongoDBSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: MongoDBSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         mongo_schemas = get_mongo_schemas(config)
 
         filtered_results = [

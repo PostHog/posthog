@@ -143,12 +143,14 @@ class TestSessionSummariesAPI(APIBaseTest):
             session_ids=["session1", "session2"],
             project_name=self.team.name,
             team_id=self.team.id,
+            summary_title="API generated",
         )
         # Verify create_notebook_from_summary_content was called
         mock_create_notebook.assert_called_once_with(
             user=self.user,
             team=self.team,
             summary_content=mock_generate_content.return_value,
+            summary_title="API generated",
         )
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
@@ -197,12 +199,14 @@ class TestSessionSummariesAPI(APIBaseTest):
             session_ids=["session1", "session2"],
             project_name=self.team.name,
             team_id=self.team.id,
+            summary_title="API generated",
         )
         # Verify create_notebook_from_summary_content was called
         mock_create_notebook.assert_called_once_with(
             user=self.user,
             team=self.team,
             summary_content=mock_generate_content.return_value,
+            summary_title="API generated",
         )
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
@@ -432,10 +436,12 @@ class TestSessionSummariesAPI(APIBaseTest):
             session_ids=["single_session"],
             project_name=self.team.name,
             team_id=self.team.id,
+            summary_title="API generated",
         )
         # Verify create_notebook_from_summary_content was called
         mock_create_notebook.assert_called_once_with(
             user=self.user,
             team=self.team,
             summary_content=mock_generate_content.return_value,
+            summary_title="API generated",
         )

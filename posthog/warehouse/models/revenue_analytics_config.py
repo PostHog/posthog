@@ -14,7 +14,9 @@ logger = logging.getLogger(__name__)
 # Intentionally not inheriting from UUIDModel/UUIDTModel because we're using a OneToOneField
 # and therefore using the exact same primary key as the ExternalDataSource model.
 class ExternalDataSourceRevenueAnalyticsConfig(models.Model):
-    external_data_source = models.OneToOneField(ExternalDataSource, on_delete=models.CASCADE, primary_key=True)
+    external_data_source = models.OneToOneField(
+        ExternalDataSource, on_delete=models.CASCADE, primary_key=True, related_name="revenue_analytics_config"
+    )
 
     enabled = models.BooleanField(default=True)
     include_invoiceless_charges = models.BooleanField(default=True)
