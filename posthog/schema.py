@@ -2506,11 +2506,9 @@ class SurveyAnalysisResponseItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    email: Optional[str] = Field(default=None, description="User email if available")
     isOpenEnded: Optional[bool] = Field(default=True, description="Whether this is an open-ended response")
     responseText: Optional[str] = Field(default="", description="The response text content")
     timestamp: Optional[str] = Field(default="", description="Response timestamp")
-    userDistinctId: Optional[str] = Field(default="anonymous", description="User identifier")
 
 
 class Value(BaseModel):

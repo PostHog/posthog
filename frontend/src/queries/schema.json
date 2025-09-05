@@ -23757,11 +23757,6 @@
         "SurveyAnalysisResponseItem": {
             "additionalProperties": false,
             "properties": {
-                "email": {
-                    "default": null,
-                    "description": "User email if available",
-                    "type": ["string", "null"]
-                },
                 "isOpenEnded": {
                     "default": true,
                     "description": "Whether this is an open-ended response",
@@ -23776,14 +23771,9 @@
                     "default": "",
                     "description": "Response timestamp",
                     "type": "string"
-                },
-                "userDistinctId": {
-                    "default": "anonymous",
-                    "description": "User identifier",
-                    "type": "string"
                 }
             },
-            "required": ["responseText", "userDistinctId", "email", "timestamp", "isOpenEnded"],
+            "required": ["responseText", "timestamp", "isOpenEnded"],
             "type": "object"
         },
         "SurveyAppearanceSchema": {
