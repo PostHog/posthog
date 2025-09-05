@@ -14838,6 +14838,9 @@
                 "person": {
                     "$ref": "#/definitions/LLMTracePerson"
                 },
+                "temporalWorkflowId": {
+                    "type": "string"
+                },
                 "totalCost": {
                     "type": "number"
                 },
