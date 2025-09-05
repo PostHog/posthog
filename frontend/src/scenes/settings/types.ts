@@ -180,5 +180,5 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
     level: SettingLevelId
     settings: Setting[]
     minimumAccessLevel?: EitherMembershipLevel
-    stringValue?: string
+    searchValue?: string
 }
