@@ -57,7 +57,7 @@ describe('Hogflow Executor', () => {
         const hogExecutor = new HogExecutorService(hub)
         const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub)
         const recipientsManager = new RecipientsManagerService(hub)
-        const recipientPreferencesService = new RecipientPreferencesService(hub, recipientsManager)
+        const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
 
         const exampleHog = `
             print(f'Hello, {inputs.name}!')
