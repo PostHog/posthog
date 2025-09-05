@@ -52,7 +52,7 @@ function swapAffectedUsers(
     fromIndex: number,
     toIndex: number
 ): void {
-    if (!(fromIndex in affectedUsers && toIndex in affectedUsers)) {
+    if (!(fromIndex in affectedUsers) || !(toIndex in affectedUsers)) {
         return
     }
 
