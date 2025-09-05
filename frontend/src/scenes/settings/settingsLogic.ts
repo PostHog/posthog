@@ -29,8 +29,8 @@ const getSettingStringValue = (setting: Setting): string => {
 }
 
 const getSectionStringValue = (section: SettingSection): string => {
-    if (section.stringValue) {
-        return section.stringValue
+    if (section.searchValue) {
+        return section.searchValue
     }
     if (typeof section.title === 'string') {
         return section.title
