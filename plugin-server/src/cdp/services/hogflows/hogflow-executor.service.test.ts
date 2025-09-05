@@ -7,16 +7,16 @@ import { compileHog } from '~/cdp/templates/compiler'
 import { HogFlow } from '~/schema/hogflow'
 import { resetTestDatabase } from '~/tests/helpers/sql'
 
+import { fetch } from '~/utils/request'
 import { Hub } from '../../../types'
 import { createHub } from '../../../utils/db/hub'
 import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
-import { HogFlowExecutorService } from './hogflow-executor.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
-import { fetch } from '~/utils/request'
+import { HogFlowExecutorService } from './hogflow-executor.service'
 
 // Mock before importing fetch
 jest.mock('~/utils/request', () => {
@@ -159,7 +159,6 @@ describe('Hogflow Executor', () => {
                     },
                 },
             })
-            invocation.debugMode = true
 
             // First step: should process trigger and move to function_id_1, but not complete
             const result1 = await executor.execute(invocation)
@@ -458,7 +457,6 @@ describe('Hogflow Executor', () => {
                         properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
                     },
                 })
-                invocation.debugMode = true
 
                 // Step 1: run first action (function_id_1)
                 const result1 = await executor.execute(invocation)
@@ -541,7 +539,6 @@ describe('Hogflow Executor', () => {
                         properties: { name: 'John Doe', $current_url: 'https://posthog.com', conversion: true },
                     },
                 })
-                invocation.debugMode = true
 
                 // Step 1: run first action (function_id_1)
                 const result1 = await executor.execute(invocation)
@@ -617,7 +614,6 @@ describe('Hogflow Executor', () => {
                         properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
                     },
                 })
-                invocation1.debugMode = true
 
                 const result1 = await executor.execute(invocation1)
                 expect(result1.finished).toBe(false)
@@ -699,7 +695,6 @@ describe('Hogflow Executor', () => {
                         properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
                     },
                 })
-                invocation.debugMode = true
 
                 // Step 1: run first action (function_id_1)
                 const result1 = await executor.execute(invocation)

@@ -45,20 +45,13 @@ export class HogFlowExecutorService {
     public createHogFlowInvocation(
         globals: HogFunctionInvocationGlobals,
         hogFlow: HogFlow,
-        filterGlobals: HogFunctionFilterGlobals,
-        currentActionId?: HogFlow['actions'][number]['id']
+        filterGlobals: HogFunctionFilterGlobals
     ): CyclotronJobInvocationHogFlow {
         return {
             id: new UUIDT().toString(),
             state: {
                 event: globals.event,
                 actionStepCount: 0,
-                currentAction: currentActionId
-                    ? {
-                          id: currentActionId,
-                          startedAtTimestamp: Date.now(),
-                      }
-                    : undefined,
             },
             teamId: hogFlow.team_id,
             functionId: hogFlow.id, // TODO: Include version?
@@ -67,7 +60,6 @@ export class HogFlowExecutorService {
             filterGlobals,
             queue: 'hogflow',
             queuePriority: 1,
-            debugMode: Boolean(currentActionId),
         }
     }
 
@@ -168,7 +160,7 @@ export class HogFlowExecutorService {
              * or_ we have reached the max async functions then we break the loop
              */
 
-            if (result.finished || result.invocation.queueScheduledAt || result.invocation.debugMode) {
+            if (result.finished || result.invocation.queueScheduledAt) {
                 break
             }
         }
@@ -183,11 +175,7 @@ export class HogFlowExecutorService {
     async executeTest(
         invocation: CyclotronJobInvocationHogFlow
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
-        const result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> = await this.execute(invocation)
-
-        if (result?.invocation.queueScheduledAt) {
-            this.log(result, 'info', `Workflow would have paused until ${result.invocation.queueScheduledAt.toISO()}`)
-        }
+        const result = await this.executeCurrentAction(invocation)
 
         return result
     }

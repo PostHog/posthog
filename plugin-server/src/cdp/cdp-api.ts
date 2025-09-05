@@ -467,9 +467,16 @@ export class CdpApi {
             const invocation = this.hogFlowExecutor.createHogFlowInvocation(
                 triggerGlobals,
                 compoundConfiguration,
-                filterGlobals,
-                current_action_id
+                filterGlobals
             )
+
+            invocation.state.currentAction = current_action_id
+                ? {
+                      id: current_action_id,
+                      startedAtTimestamp: Date.now(),
+                  }
+                : undefined
+
             const result = await this.hogFlowExecutor.executeTest(invocation)
 
             res.json({
