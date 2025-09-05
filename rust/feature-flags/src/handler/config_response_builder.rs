@@ -429,7 +429,8 @@ mod tests {
 
         let expected = json!({
             "network_timing": true,
-            "web_vitals": false
+            "web_vitals": false,
+            "web_vitals_allowed_metrics": null
         });
         assert_eq!(response.config.capture_performance, Some(expected));
     }
