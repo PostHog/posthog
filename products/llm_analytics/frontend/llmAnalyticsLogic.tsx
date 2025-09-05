@@ -17,6 +17,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { isAnyPropertyFilters } from '~/queries/schema-guards'
 import { DataTableNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { isTracesQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -768,18 +769,70 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     }),
 
     urlToAction(({ actions, values }) => {
-        function applySearchParams({ filters, date_from, date_to, filter_test_accounts }: Record<string, any>): void {
-            // Reusing logic and naming from webAnalyticsLogic
+        function handleSharedFilter(saved_filter: any): boolean {
+            if (!saved_filter) {
+                return false
+            }
+
+            try {
+                // Check if it's already an object (kea-router might have parsed it)
+                const sharedQuery =
+                    typeof saved_filter === 'string'
+                        ? (JSON.parse(saved_filter) as DataTableNode)
+                        : (saved_filter as DataTableNode)
+
+                // Apply the full query
+                actions.setTracesQuery(sharedQuery)
+
+                // Also update the individual filter states from the query source
+                if (isTracesQuery(sharedQuery.source)) {
+                    actions.setDates(
+                        sharedQuery.source.dateRange?.date_from || INITIAL_EVENTS_DATE_FROM,
+                        sharedQuery.source.dateRange?.date_to || INITIAL_DATE_TO
+                    )
+                    actions.setPropertyFilters(sharedQuery.source.properties || [])
+                    actions.setShouldFilterTestAccounts(sharedQuery.source.filterTestAccounts || false)
+                }
+
+                // Clear the saved_filter param after applying
+                setTimeout(() => {
+                    const newUrl = new URL(window.location.href)
+                    newUrl.searchParams.delete('saved_filter')
+                    window.history.replaceState({}, '', newUrl.toString())
+                }, 100)
+
+                return true
+            } catch (error) {
+                console.error('Failed to parse shared filter from URL:', error)
+                return false
+            }
+        }
+
+        function applySearchParams({
+            filters,
+            date_from,
+            date_to,
+            filter_test_accounts,
+            saved_filter,
+        }: Record<string, any>): void {
+            // Check for saved_filter parameter first (shared filter URL)
+            if (handleSharedFilter(saved_filter)) {
+                return
+            }
+
+            // Normal parameter handling
             const parsedFilters = isAnyPropertyFilters(filters) ? filters : []
             if (!objectsEqual(parsedFilters, values.propertyFilters)) {
                 actions.setPropertyFilters(parsedFilters)
             }
+
             if (
                 (date_from || INITIAL_EVENTS_DATE_FROM) !== values.dateFilter.dateFrom ||
                 (date_to || INITIAL_DATE_TO) !== values.dateFilter.dateTo
             ) {
                 actions.setDates(date_from || INITIAL_EVENTS_DATE_FROM, date_to || INITIAL_DATE_TO)
             }
+
             const filterTestAccountsValue = [true, 'true', 1, '1'].includes(filter_test_accounts)
             if (filterTestAccountsValue !== values.shouldFilterTestAccounts) {
                 actions.setShouldFilterTestAccounts(filterTestAccountsValue)
