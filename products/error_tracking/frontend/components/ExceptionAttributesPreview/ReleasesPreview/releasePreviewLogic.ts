@@ -20,7 +20,9 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
         'releasePreviewLogic',
     ]),
     props({} as ErrorPropertiesLogicProps),
-    key((props) => props.id),
+    key((props) => {
+        return props.id
+    }),
 
     connect((props: ErrorPropertiesLogicProps) => ({
         values: [errorPropertiesLogic(props), ['frames']],
@@ -38,7 +40,14 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
                 otherReleases: [],
             } as ReleasePreviewOutput,
             {
-                loadRelease: async () => {
+                loadRelease: async (releasesMeta?: ExceptionReleaseGitMeta[]) => {
+                    if (releasesMeta?.length === 1) {
+                        return {
+                            mostProbableRelease: releasesMeta[0],
+                            otherReleases: [],
+                        }
+                    }
+
                     const frames = values.frames || []
                     if (frames.length > 0) {
                         try {

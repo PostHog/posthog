@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCommit } from '@posthog/icons'
@@ -16,6 +16,10 @@ export interface ReleasePreviewProps {
 export function ReleasePreview({ gitReleasesMeta }: ReleasePreviewProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
     const { releasePreviewData } = useValues(releasePreviewLogic)
+
+    // useEffect(() => {
+    //     releasePreviewLogic.actions.loadRelease()
+    // }, [gitReleasesMeta])
 
     return (
         <Popover
