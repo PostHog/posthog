@@ -133,11 +133,6 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                 )}
             </div>
             <LemonDivider className="my-0" />
-            <div className="text-sm text-muted p-2">
-                Note: Delays will be logged to indicate when they would have been executed.
-            </div>
-            {/* Body */}
-            <LemonDivider className="my-0" />
             <div className="flex overflow-y-auto flex-col flex-1 gap-2 p-2">
                 {/* Event Information */}
                 {sampleGlobals?.event && (
