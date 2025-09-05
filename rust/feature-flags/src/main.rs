@@ -67,7 +67,7 @@ async fn main() {
     //   - stdout with a level configured by the RUST_LOG envvar
     //   - OpenTelemetry if enabled, for levels INFO and higher
     // Read DEBUG environment variable (same as Django)
-    let debug = std::env::var("DEBUG").unwrap_or("false".to_string()).to_lowercase() == "true";
+    let debug: bool = *config.debug;
 
     let log_layer = {
         let base_layer = fmt::layer()
@@ -80,10 +80,16 @@ async fn main() {
 
         if debug {
             // Development: Pretty colored output (like Django's ConsoleRenderer(colors=DEBUG))
-            base_layer.with_ansi(true).with_filter(EnvFilter::from_default_env()).boxed()
+            base_layer
+                .with_ansi(true)
+                .with_filter(EnvFilter::from_default_env())
+                .boxed()
         } else {
             // Production: JSON format (like Django's JSONRenderer())
-            base_layer.json().with_filter(EnvFilter::from_default_env()).boxed()
+            base_layer
+                .json()
+                .with_filter(EnvFilter::from_default_env())
+                .boxed()
         }
     };
 
