@@ -1,3 +1,4 @@
+import FuseClass from 'fuse.js'
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -12,6 +13,30 @@ import { Realm } from '~/types'
 import { SETTINGS_MAP } from './SettingsMap'
 import type { settingsLogicType } from './settingsLogicType'
 import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId, SettingsLogicProps } from './types'
+
+// Helping kea-typegen navigate the exported default class for Fuse
+export interface SettingsFuse extends FuseClass<Setting> {}
+export interface SectionsFuse extends FuseClass<SettingSection> {}
+
+const getSettingStringValue = (setting: Setting): string => {
+    if (setting.searchTerm) {
+        return setting.searchTerm
+    }
+    if (typeof setting.title === 'string') {
+        return setting.title
+    }
+    return setting.id
+}
+
+const getSectionStringValue = (section: SettingSection): string => {
+    if (section.searchValue) {
+        return section.searchValue
+    }
+    if (typeof section.title === 'string') {
+        return section.title
+    }
+    return section.id
+}
 
 export const settingsLogic = kea<settingsLogicType>([
     props({} as SettingsLogicProps),
@@ -36,6 +61,8 @@ export const settingsLogic = kea<settingsLogicType>([
         selectSetting: (setting: SettingId) => ({ setting }),
         openCompactNavigation: true,
         closeCompactNavigation: true,
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        toggleLevelCollapse: (level: SettingLevelId) => ({ level }),
     }),
 
     reducers(({ props }) => ({
@@ -70,6 +97,33 @@ export const settingsLogic = kea<settingsLogicType>([
                 selectLevel: () => false,
                 selectSection: () => false,
                 selectSetting: () => false,
+            },
+        ],
+
+        searchTerm: [
+            '',
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+
+        collapsedLevels: [
+            {} as Record<SettingLevelId, boolean>,
+            {
+                toggleLevelCollapse: (state, { level }) => ({
+                    ...state,
+                    [level]: !state[level],
+                }),
+                // Auto-expand when selecting a level
+                selectLevel: (state, { level }) => ({
+                    ...state,
+                    [level]: false,
+                }),
+                // Auto-expand when selecting a section
+                selectSection: (state, { level }) => ({
+                    ...state,
+                    [level]: false,
+                }),
             },
         ],
     })),
@@ -212,6 +266,80 @@ export const settingsLogic = kea<settingsLogicType>([
                     }
                     return true
                 }
+            },
+        ],
+
+        settingsFuse: [
+            (s) => [s.settings],
+            (settings: Setting[]): SettingsFuse => {
+                const settingsWithSearchValues = settings.map((setting) => ({
+                    ...setting,
+                    searchValue: getSettingStringValue(setting),
+                }))
+
+                return new FuseClass(settingsWithSearchValues || [], {
+                    keys: ['searchValue', 'id'],
+                    threshold: 0.3,
+                })
+            },
+        ],
+
+        sectionsFuse: [
+            (s) => [s.sections],
+            (sections: SettingSection[]): SectionsFuse => {
+                const sectionsWithSearchValues = sections.map((section) => ({
+                    ...section,
+                    searchValue: getSectionStringValue(section),
+                    settingsSearchValues: section.settings.map(getSettingStringValue).join(' '),
+                }))
+
+                return new FuseClass(sectionsWithSearchValues || [], {
+                    keys: ['searchValue', 'settingsSearchValues', 'id'],
+                    threshold: 0.3,
+                })
+            },
+        ],
+
+        filteredLevels: [
+            (s) => [s.levels, s.sections, s.searchTerm, s.sectionsFuse, s.settingsFuse],
+            (
+                levels: SettingLevelId[],
+                sections: SettingSection[],
+                searchTerm: string,
+                sectionsFuse: SectionsFuse
+            ): SettingLevelId[] => {
+                if (!searchTerm.trim()) {
+                    return levels
+                }
+
+                return levels.filter((level: SettingLevelId) => {
+                    // Check if level name matches
+                    if (level.toLowerCase().includes(searchTerm.toLowerCase())) {
+                        return true
+                    }
+
+                    // Check if any section in this level matches using FuseJS
+                    const levelSections = sections.filter((section: SettingSection) => section.level === level)
+                    const matchingSections = sectionsFuse.search(searchTerm)
+
+                    return matchingSections.some((result) =>
+                        levelSections.some((section) => section.id === result.item.id)
+                    )
+                })
+            },
+        ],
+
+        filteredSections: [
+            (s) => [s.sections, s.searchTerm, s.sectionsFuse],
+            (sections: SettingSection[], searchTerm: string, sectionsFuse: SectionsFuse): SettingSection[] => {
+                if (!searchTerm.trim()) {
+                    return sections
+                }
+
+                const matchingResults = sectionsFuse.search(searchTerm)
+                const matchingIds = new Set(matchingResults.map((result) => result.item.id))
+
+                return sections.filter((section) => matchingIds.has(section.id))
             },
         ],
     }),
