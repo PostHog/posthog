@@ -42,8 +42,8 @@ export function ReleasePopoverContent({}: ReleasesPopoverContentProps): JSX.Elem
 
 function MostProbableRelease({ release }: { release: ExceptionReleaseGitMeta }): JSX.Element {
     return (
-        <div className="space-y-3">
-            {/* First row: Commit and Branch pills */}
+        <div>
+            {/* All pills in one row */}
             <div className="flex items-center gap-2 flex-wrap">
                 <LemonTag
                     className="bg-fill-primary font-mono text-xs cursor-pointer hover:bg-fill-secondary"
@@ -58,17 +58,13 @@ function MostProbableRelease({ release }: { release: ExceptionReleaseGitMeta }):
                         <span title={release.branch}>{release.branch}</span>
                     </LemonTag>
                 )}
-            </div>
-
-            {/* Second row: Repository pill */}
-            {release.repositoryName && (
-                <div className="flex items-center gap-2">
+                {release.repositoryName && (
                     <LemonTag className="bg-fill-primary text-xs">
                         <IconGitRepository className="text-sm text-secondary" />
                         <span title={release.repositoryName}>{release.repositoryName}</span>
                     </LemonTag>
-                </div>
-            )}
+                )}
+            </div>
         </div>
     )
 }
