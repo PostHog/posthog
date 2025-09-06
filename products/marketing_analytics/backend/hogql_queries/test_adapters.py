@@ -23,10 +23,12 @@ from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 from products.marketing_analytics.backend.hogql_queries.adapters.base import (
     ExternalConfig,
     GoogleAdsConfig,
+    LinkedinAdsConfig,
     QueryContext,
 )
 from products.marketing_analytics.backend.hogql_queries.adapters.bigquery import BigQueryAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.google_ads import GoogleAdsAdapter
+from products.marketing_analytics.backend.hogql_queries.adapters.linkedin_ads import LinkedinAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.self_managed import (
     AWSAdapter,
     AzureAdapter,
@@ -138,6 +140,77 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                         "schema_valid": True,
                     },
                     "metrics_impressions": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                },
+            ),
+            "linkedin_campaigns": DataConfig(
+                csv_filename="test/linkedin_ads/campaigns.csv",
+                table_name="linkedin_campaigns_table",
+                platform="LinkedIn Ads",
+                source_type="LinkedinAds",
+                bucket_suffix="linkedin_campaigns",
+                column_schema={
+                    "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "name": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "type": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "locale": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "account": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "version": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "cost_type": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "unit_cost": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "account_id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "created_time": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "daily_budget": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "run_schedule": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "campaign_group": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "campaign_group_id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "last_modified_time": {
+                        "hogql": "StringDatabaseField",
+                        "clickhouse": "String",
+                        "schema_valid": True,
+                    },
+                    "targeting_criteria": {
+                        "hogql": "StringDatabaseField",
+                        "clickhouse": "String",
+                        "schema_valid": True,
+                    },
+                    "change_audit_stamps": {
+                        "hogql": "StringDatabaseField",
+                        "clickhouse": "String",
+                        "schema_valid": True,
+                    },
+                },
+            ),
+            "linkedin_stats": DataConfig(
+                csv_filename="test/linkedin_ads/campaign_stats.csv",
+                table_name="linkedin_campaign_stats_table",
+                platform="LinkedIn Ads",
+                source_type="LinkedinAds",
+                bucket_suffix="linkedin_stats",
+                column_schema={
+                    "clicks": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "follows": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "date_end": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "date_range": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "date_start": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "campaign_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "cost_in_usd": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "impressions": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "video_views": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "pivot_values": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "one_click_leads": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "total_engagements": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "video_completions": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "landing_page_clicks": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "external_website_conversions": {
                         "hogql": "FloatDatabaseField",
                         "clickhouse": "Float64",
                         "schema_valid": True,
@@ -443,6 +516,24 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert result.is_valid, "GoogleCloudAdapter validation should succeed"
         assert isinstance(result.errors, list), "GoogleCloudAdapter should return list of errors"
 
+    def test_linkedin_ads_adapter_validation_consistency(self):
+        """Test LinkedIn Ads adapter validation consistency."""
+        campaign_table = self._create_mock_table("linkedin_campaigns_table", "linkedin_ads")
+        stats_table = self._create_mock_table("linkedin_campaign_stats_table", "linkedin_ads")
+
+        config = LinkedinAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="linkedin_ads",
+            source_id="test_consistency",
+        )
+
+        adapter = LinkedinAdsAdapter(config=config, context=self.context)
+        result = adapter.validate()
+
+        assert result.is_valid, "LinkedinAdsAdapter validation should succeed"
+        assert isinstance(result.errors, list), "LinkedinAdsAdapter should return list of errors"
+
     # ================================================================
     # QUERY GENERATION TESTS
     # ================================================================
@@ -520,30 +611,21 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert self._execute_and_snapshot(query) == self.snapshot
 
     def test_linkedin_ads_query_generation(self):
-        """Test LinkedIn Ads (Google Cloud) adapter query generation."""
-        table = self._create_mock_table("linkedin_table", "google_cloud")
-        source_map = self._create_source_map(
-            campaign="campaign_name",
-            source="'LinkedIn'",
-            cost="spend",
-            date="report_date",
-            impressions="impressions",
-            clicks="clicks",
-            currency="'USD'",
-        )
+        """Test LinkedIn Ads adapter query generation."""
+        campaign_table = self._create_mock_table("linkedin_campaigns", "LinkedinAds")
+        stats_table = self._create_mock_table("linkedin_stats", "LinkedinAds")
 
-        config = ExternalConfig(
-            table=table,
-            source_map=source_map,
-            source_type="google_cloud",
+        config = LinkedinAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="LinkedinAds",
             source_id="linkedin_ads",
-            schema_name="marketing_data",
         )
 
-        adapter = GoogleCloudAdapter(config=config, context=self.context)
+        adapter = LinkedinAdsAdapter(config=config, context=self.context)
         query = adapter.build_query()
 
-        self._validate_query_structure(query, "GoogleCloudAdapter")
+        self._validate_query_structure(query, "LinkedinAdsAdapter")
         assert self._execute_and_snapshot(query) == self.snapshot
 
     def test_azure_adapter_query_generation(self):
@@ -751,6 +833,39 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         sources = [row[1] for row in results]
         assert all(source == "google" for source in sources), "All sources should be 'google'"
+
+    def test_linkedin_ads_adapter_with_real_data(self):
+        """Test LinkedIn Ads adapter with real CSV data (JOIN operation)."""
+        campaign_info = self._setup_csv_table("linkedin_campaigns")
+        stats_info = self._setup_csv_table("linkedin_stats")
+
+        config = LinkedinAdsConfig(
+            campaign_table=campaign_info.table,
+            stats_table=stats_info.table,
+            source_type="LinkedinAds",
+            source_id="linkedin_ads",
+        )
+
+        adapter = LinkedinAdsAdapter(config=config, context=self.context)
+
+        validation_result = adapter.validate()
+        assert validation_result.is_valid, f"Validation failed: {validation_result.errors}"
+
+        query = adapter.build_query()
+        assert query is not None, "Expected adapter to build a valid query"
+        results = self._execute_query_and_validate(query)
+
+        total_cost = sum(float(row[4] or 0) for row in results)
+        total_impressions = sum(int(row[2] or 0) for row in results)
+        total_clicks = sum(int(row[3] or 0) for row in results)
+
+        assert len(results) == 5, "Expected 5 campaigns from LinkedIn Ads JOIN"
+        assert abs(total_cost - 1600.00) < 0.01, f"Expected cost $1600.00, got ${total_cost}"
+        assert total_impressions == 485, f"Expected 485 impressions, got {total_impressions}"
+        assert total_clicks == 26, f"Expected 26 clicks, got {total_clicks}"
+
+        sources = [row[1] for row in results]
+        assert all(source == "linkedin" for source in sources), "All sources should be 'linkedin'"
 
     def test_multi_adapter_union_with_real_data(self):
         """Test UNION query with multiple adapters using real data."""

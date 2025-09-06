@@ -46,6 +46,15 @@ class GoogleAdsConfig(BaseMarketingConfig):
 
 
 @dataclass
+class LinkedinAdsConfig(BaseMarketingConfig):
+    """Configuration for LinkedIn Ads marketing sources"""
+
+    campaign_table: DataWarehouseTable
+    stats_table: DataWarehouseTable
+    source_id: str
+
+
+@dataclass
 class ValidationResult:
     """Result of source validation"""
 
