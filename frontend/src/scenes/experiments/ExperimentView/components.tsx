@@ -1,5 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import { IconFlask } from '@posthog/icons'
@@ -26,8 +28,9 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { useMaxTool } from 'scenes/max/useMaxTool'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
@@ -48,6 +51,7 @@ import {
     ExperimentIdType,
     InsightShortId,
     ProgressStatus,
+    UserType,
 } from '~/types'
 
 import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
@@ -57,6 +61,78 @@ import { getExperimentStatusColor } from '../experimentsLogic'
 import { getIndexForVariant } from '../legacyExperimentCalculations'
 import { modalsLogic } from '../modalsLogic'
 import { getExperimentInsightColour } from '../utils'
+
+// Utility function to create MaxTool configuration for experiment survey creation
+export function createMaxToolExperimentSurveyConfig(
+    experiment: Experiment,
+    user: UserType | null
+): {
+    identifier: 'create_survey'
+    active: boolean
+    initialMaxPrompt: string
+    suggestions: string[]
+    context: Record<string, any>
+    callback: (toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => void
+} {
+    const variants = experiment.parameters?.feature_flag_variants || []
+    const hasMultipleVariants = variants.length > 1
+    const featureFlagKey = experiment.feature_flag?.key
+
+    return {
+        identifier: 'create_survey' as const,
+        active: Boolean(user?.uuid && experiment.id),
+        initialMaxPrompt: `Create a survey to collect feedback about the "${experiment.name}" experiment${experiment.description ? ` (${experiment.description})` : ''}${featureFlagKey ? ` using feature flag "${featureFlagKey}"` : ''}${hasMultipleVariants ? ` which tests variants: ${variants.map((v) => `"${v.key}"`).join(', ')}` : ''}`,
+        suggestions: !featureFlagKey
+            ? [] // No suggestions if no feature flag key
+            : hasMultipleVariants
+              ? [
+                    `Create a feedback survey comparing variants in the "${experiment.name}" experiment targeting users with feature flag "${featureFlagKey}"`,
+                    // Include specific variant suggestion only if variant exists
+                    ...(variants[0]?.key
+                        ? [
+                              `Create a survey for users who saw the "${variants[0].key}" variant of feature flag "${featureFlagKey}" in the "${experiment.name}" experiment`,
+                          ]
+                        : []),
+                    `Create an A/B test survey asking users to compare variants from feature flag "${featureFlagKey}" in the "${experiment.name}" experiment`,
+                    `Create a survey to understand which variant of feature flag "${featureFlagKey}" performed better in the "${experiment.name}" experiment`,
+                    `Create a survey targeting users exposed to any variant of feature flag "${featureFlagKey}" to gather feedback on the "${experiment.name}" test`,
+                ]
+              : [
+                    `Create a feedback survey for users who were exposed to feature flag "${featureFlagKey}" in the "${experiment.name}" experiment`,
+                    `Create an NPS survey for users who saw feature flag "${featureFlagKey}" during the "${experiment.name}" experiment`,
+                    `Create a satisfaction survey asking about the experience with feature flag "${featureFlagKey}" in the "${experiment.name}" experiment`,
+                    `Create a survey to understand user reactions to changes introduced by feature flag "${featureFlagKey}" in the "${experiment.name}" experiment`,
+                ],
+        context: {
+            user_id: user?.uuid,
+            experiment_name: experiment.name,
+            experiment_description: experiment.description,
+            feature_flag_key: experiment.feature_flag?.key,
+            feature_flag_id: experiment.feature_flag?.id,
+            feature_flag_name: experiment.feature_flag?.name,
+            target_feature_flag: experiment.feature_flag?.key,
+            survey_purpose: 'collect_feedback_for_experiment',
+            has_multiple_variants: hasMultipleVariants,
+            variants: variants.map((v) => ({
+                key: v.key,
+                name: v.name || '',
+                rollout_percentage: v.rollout_percentage,
+            })),
+            variant_count: variants?.length || 0,
+        },
+        callback: (toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => {
+            if (toolOutput?.error || !toolOutput?.survey_id) {
+                posthog.captureException(toolOutput?.error, {
+                    source: 'survey-creation-failed',
+                    feature: 'surveys',
+                })
+                return
+            }
+            // Redirect to the new survey
+            router.actions.push(urls.survey(toolOutput.survey_id))
+        },
+    }
+}
 
 export function VariantTag({
     experimentId,
@@ -315,7 +391,11 @@ export function PageHeaderCustom(): JSX.Element {
     const { launchExperiment, archiveExperiment, createExposureCohort, createExperimentDashboard } =
         useActions(experimentLogic)
     const { openShipVariantModal, openStopExperimentModal } = useActions(modalsLogic)
+    const { user } = useValues(userLogic)
     const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
+
+    // Initialize MaxTool hook for experiment survey creation
+    const { openMax } = useMaxTool(createMaxToolExperimentSurveyConfig(experiment, user))
 
     const exposureCohortId = experiment?.exposure_cohort
 
@@ -370,21 +450,16 @@ export function PageHeaderCustom(): JSX.Element {
                                             >
                                                 Create dashboard
                                             </LemonButton>
-                                            <LemonButton
-                                                onClick={() => {
-                                                    if (experiment.feature_flag?.id) {
-                                                        featureFlagLogic({ id: experiment.feature_flag.id }).mount()
-                                                        featureFlagLogic({
-                                                            id: experiment.feature_flag.id,
-                                                        }).actions.createSurvey()
-                                                    }
-                                                }}
-                                                fullWidth
-                                                data-attr="create-survey"
-                                                disabled={!experiment.feature_flag?.id}
-                                            >
-                                                Create survey
-                                            </LemonButton>
+                                            {experiment.feature_flag && (
+                                                <LemonButton
+                                                    onClick={openMax || undefined}
+                                                    fullWidth
+                                                    data-attr="create-survey"
+                                                    disabled={!openMax}
+                                                >
+                                                    Create survey
+                                                </LemonButton>
+                                            )}
                                         </>
                                     }
                                 />
