@@ -9,6 +9,7 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
+from posthog.models.web_preaggregated.team_selection_strategies import get_teams_with_missing_data
 
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
@@ -29,6 +30,12 @@ MAX_PARTITIONS_PER_RUN_ENV_VAR = "DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_R
 max_partitions_per_run = int(os.getenv(MAX_PARTITIONS_PER_RUN_ENV_VAR, 1))
 backfill_policy_def = BackfillPolicy.multi_run(max_partitions_per_run=max_partitions_per_run)
 partition_def = DailyPartitionsDefinition(start_date="2024-01-01", end_offset=1)
+
+# Backfill configuration constants
+BACKFILL_LOOKBACK_DAYS = int(os.getenv("WEB_ANALYTICS_BACKFILL_LOOKBACK_DAYS", "7"))
+BACKFILL_HISTORICAL_DAYS = int(os.getenv("WEB_ANALYTICS_BACKFILL_HISTORICAL_DAYS", "30"))
+BACKFILL_MAX_PARTITIONS_PER_RUN = int(os.getenv("WEB_ANALYTICS_BACKFILL_MAX_PARTITIONS_PER_RUN", "5"))
+BACKFILL_MAX_CONCURRENT = int(os.getenv("WEB_ANALYTICS_BACKFILL_MAX_CONCURRENT", "2"))
 
 
 def pre_aggregate_web_analytics_data(
@@ -201,4 +208,167 @@ def web_pre_aggregate_current_day_schedule(context: dagster.ScheduleEvaluationCo
 
     return dagster.RunRequest(
         partition_key=datetime.now(UTC).strftime("%Y-%m-%d"),
+    )
+
+
+# Backfill Assets and Schedules
+backfill_partition_def = DailyPartitionsDefinition(start_date="2024-01-01", end_offset=-BACKFILL_HISTORICAL_DAYS)
+backfill_policy_def_extended = BackfillPolicy.multi_run(max_partitions_per_run=BACKFILL_MAX_PARTITIONS_PER_RUN)
+
+
+@dagster.asset(
+    name="web_pre_aggregated_stats_backfill",
+    group_name="web_analytics_v2",
+    config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
+    deps=["web_analytics_team_selection_v2"],
+    partitions_def=backfill_partition_def,
+    backfill_policy=backfill_policy_def_extended,
+    metadata={"table": "web_pre_aggregated_stats"},
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value, "backfill": "true"},
+    retry_policy=web_analytics_retry_policy_def,
+)
+def web_pre_aggregated_stats_backfill(
+    context: dagster.AssetExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> None:
+    query_tagging.get_query_tags().with_dagster(dagster_tags(context))
+    return pre_aggregate_web_analytics_data(
+        context=context,
+        table_name="web_pre_aggregated_stats",
+        sql_generator=WEB_STATS_INSERT_SQL,
+        cluster=cluster,
+    )
+
+
+@dagster.asset(
+    name="web_pre_aggregated_bounces_backfill",
+    group_name="web_analytics_v2",
+    config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
+    deps=["web_analytics_team_selection_v2"],
+    partitions_def=backfill_partition_def,
+    backfill_policy=backfill_policy_def_extended,
+    metadata={"table": "web_pre_aggregated_bounces"},
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value, "backfill": "true"},
+    retry_policy=web_analytics_retry_policy_def,
+)
+def web_pre_aggregated_bounces_backfill(
+    context: dagster.AssetExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> None:
+    query_tagging.get_query_tags().with_dagster(dagster_tags(context))
+    return pre_aggregate_web_analytics_data(
+        context=context,
+        table_name="web_pre_aggregated_bounces",
+        sql_generator=WEB_BOUNCES_INSERT_SQL,
+        cluster=cluster,
+    )
+
+
+web_pre_aggregate_backfill_job = dagster.define_asset_job(
+    name="web_pre_aggregate_backfill_job",
+    selection=["web_pre_aggregated_bounces_backfill", "web_pre_aggregated_stats_backfill"],
+    tags={
+        "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
+        "dagster/max_runtime": str(DAGSTER_WEB_JOB_TIMEOUT),
+        "backfill": "true",
+    },
+    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": BACKFILL_MAX_CONCURRENT}),
+)
+
+
+def check_for_conflicting_jobs(context: dagster.ScheduleEvaluationContext) -> dagster.SkipReason | None:
+    """Check for both concurrent backfill runs and regular web_pre_aggregate_job runs."""
+    from dagster import DagsterRunStatus, RunsFilter
+
+    # Check for concurrent backfill runs
+    skip_reason = check_for_concurrent_runs(context)
+    if skip_reason:
+        return skip_reason
+
+    # Check for active regular web pre-aggregate jobs (shared staging tables)
+    regular_job_runs = context.instance.get_run_records(
+        RunsFilter(
+            job_name="web_pre_aggregate_job",
+            statuses=[
+                DagsterRunStatus.QUEUED,
+                DagsterRunStatus.NOT_STARTED,
+                DagsterRunStatus.STARTING,
+                DagsterRunStatus.STARTED,
+            ],
+        )
+    )
+
+    if len(regular_job_runs) > 0:
+        context.log.info(f"Skipping backfill due to {len(regular_job_runs)} active regular web_pre_aggregate_job run(s)")
+        return dagster.SkipReason(
+            "Skipping backfill because regular web_pre_aggregate_job is running (shared staging tables)"
+        )
+
+    return None
+
+
+@dagster.schedule(
+    cron_schedule="0 3 * * *",  # Daily at 3 AM UTC
+    job=web_pre_aggregate_backfill_job,
+    execution_timezone="UTC",
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value, "backfill": "true"},
+)
+def web_pre_aggregate_backfill_schedule(context: dagster.ScheduleEvaluationContext):
+    # Check for conflicting jobs (both backfill and regular jobs)
+    skip_reason = check_for_conflicting_jobs(context)
+    if skip_reason:
+        return skip_reason
+
+    # Check if there are teams that actually need backfill (have missing data)
+    try:
+        # Create a proper mock context for the missing data check
+        class MockExecutionContext:
+            def __init__(self, log):
+                self.log = log
+                self.op_config = {}
+
+            def get_tag(self, key: str) -> str | None:
+                return None
+
+        mock_context = MockExecutionContext(context.log)
+        teams_needing_backfill = get_teams_with_missing_data(mock_context, lookback_days=BACKFILL_LOOKBACK_DAYS)
+
+        if not teams_needing_backfill:
+            context.log.info("No teams found with missing pre-aggregated data, skipping backfill")
+            return dagster.SkipReason("No teams need backfill - all enabled teams have current data")
+
+        context.log.info(f"Found {len(teams_needing_backfill)} teams needing backfill: {sorted(teams_needing_backfill)}")
+
+    except Exception as e:
+        context.log.warning(f"Failed to check for teams needing backfill, running anyway: {e}")
+        import traceback
+        context.log.debug(f"Full traceback: {traceback.format_exc()}")
+        teams_needing_backfill = None
+
+    # Run backfill for teams with missing data
+    backfill_date = (datetime.now(UTC) - timedelta(days=BACKFILL_HISTORICAL_DAYS)).strftime("%Y-%m-%d")
+
+    run_config = {
+        "ops": {
+            "web_pre_aggregated_stats_backfill": {
+                "config": {
+                    "extra_clickhouse_settings": "max_partitions_per_insert_block=1000"
+                }
+            },
+            "web_pre_aggregated_bounces_backfill": {
+                "config": {
+                    "extra_clickhouse_settings": "max_partitions_per_insert_block=1000"
+                }
+            }
+        }
+    }
+
+    # If we detected specific teams, add them to the config
+    if teams_needing_backfill:
+        run_config["ops"]["web_pre_aggregated_stats_backfill"]["config"]["team_ids"] = list(teams_needing_backfill)
+        run_config["ops"]["web_pre_aggregated_bounces_backfill"]["config"]["team_ids"] = list(teams_needing_backfill)
+
+    return dagster.RunRequest(
+        partition_key=backfill_date,
+        run_config=run_config,
     )

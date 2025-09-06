@@ -91,6 +91,78 @@ class ProjectSettingsStrategy(TeamSelectionStrategy):
             return set()
 
 
+def get_teams_with_missing_data(context: dagster.OpExecutionContext, lookback_days: int = 7) -> set[int]:
+    """
+    Identify teams that have web analytics enabled but are missing data in pre-aggregated tables.
+    This is used specifically for backfill operations.
+
+    Args:
+        context: Dagster execution context for logging
+        lookback_days: Number of days to look back for missing data (default: 7)
+    """
+    try:
+        # Get teams with web analytics enabled (permission already granted)
+        enabled_team_ids = set(
+            Team.objects.filter(web_analytics_pre_aggregated_tables_enabled=True).values_list("id", flat=True)
+        )
+
+        if not enabled_team_ids:
+            context.log.info("No teams have web analytics pre-aggregated tables enabled")
+            return set()
+
+        # Validate team IDs are integers to prevent SQL injection
+        validated_team_ids = []
+        for team_id in enabled_team_ids:
+            if isinstance(team_id, int) and team_id > 0:
+                validated_team_ids.append(team_id)
+            else:
+                context.log.warning(f"Invalid team ID found: {team_id}, skipping")
+
+        if not validated_team_ids:
+            context.log.warning("No valid team IDs found after validation")
+            return set()
+
+        # Check which teams have missing data by querying the pre-aggregated tables
+        # Look for teams that should have recent data but don't
+        missing_data_query = """
+        SELECT DISTINCT team_id
+        FROM (
+            SELECT team_id FROM events
+            WHERE event = '$pageview'
+            AND timestamp >= now() - INTERVAL %(lookback_days)s DAY
+            AND team_id IN %(team_ids)s
+        ) active_teams
+        WHERE team_id NOT IN (
+            SELECT DISTINCT team_id
+            FROM web_pre_aggregated_stats
+            WHERE date >= today() - %(lookback_days)s
+            AND team_id IN %(team_ids)s
+        )
+        """
+
+        result = sync_execute(
+            missing_data_query,
+            {
+                "team_ids": tuple(validated_team_ids),
+                "lookback_days": lookback_days
+            }
+        )
+        teams_missing_data = {row[0] for row in result if isinstance(row[0], int)}
+
+        context.log.info(
+            f"Found {len(teams_missing_data)} teams with missing pre-aggregated data out of "
+            f"{len(validated_team_ids)} enabled teams (looking back {lookback_days} days)"
+        )
+
+        return teams_missing_data
+
+    except Exception as e:
+        context.log.warning(f"Failed to identify teams with missing data: {e}")
+        import traceback
+        context.log.debug(f"Full traceback: {traceback.format_exc()}")
+        return set()
+
+
 class StrategyRegistry:
     """
     This class is the source for all available strategies we can use to enable the pre-aggregated tables for teams.
