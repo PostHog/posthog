@@ -53,7 +53,7 @@ class TestExperimentCRUD(APILicensedTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(15, 16)):
+        with self.assertNumQueries(FuzzyInt(16, 17)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -70,7 +70,7 @@ class TestExperimentCRUD(APILicensedTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(15, 16)):
+        with self.assertNumQueries(FuzzyInt(16, 17)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1699,7 +1699,7 @@ class TestExperimentCRUD(APILicensedTest):
         ).json()
 
         # TODO: Make sure permission bool doesn't cause n + 1
-        with self.assertNumQueries(21):
+        with self.assertNumQueries(22):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()

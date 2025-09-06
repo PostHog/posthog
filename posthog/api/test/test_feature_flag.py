@@ -2396,7 +2396,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(8, 9)):
+        with self.assertNumQueries(FuzzyInt(9, 10)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -2411,7 +2411,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(8, 9)):
+        with self.assertNumQueries(FuzzyInt(11, 12)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -2426,7 +2426,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(16, 17)):
+        with self.assertNumQueries(FuzzyInt(17, 18)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -2441,7 +2441,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(16, 17)):
+        with self.assertNumQueries(FuzzyInt(17, 18)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -2465,7 +2465,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="Flag role access",
         )
 
-        with self.assertNumQueries(FuzzyInt(16, 17)):
+        with self.assertNumQueries(FuzzyInt(17, 18)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 2)
@@ -3142,7 +3142,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.client.logout()
 
-        with self.assertNumQueries(FuzzyInt(18, 19)):
+        with self.assertNumQueries(FuzzyInt(23, 24)):
             # 1. SAVEPOINT
             # 2. SELECT "posthog_personalapikey"."id",
             # 3. RELEASE SAVEPOINT
@@ -3162,6 +3162,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             # 17. SELECT "posthog_team"."id", "posthog_team"."uuid",
             # 18. SELECT "posthog_cohort". id = cohort from other team
             # 19. SELECT "posthog_grouptypemapping"."id", -- group type mapping
+            # TODO add the evaluation tag queries
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
@@ -6495,7 +6496,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # TODO: Ensure server-side cursors are disabled, since in production we use this with pgbouncer
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(23):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(25):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -6549,7 +6550,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Extra queries because each batch adds its own queries
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(35):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(39):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=2)
 
         cohort.refresh_from_db()
@@ -6560,7 +6561,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(response.json()["results"]), 3, response)
 
         # if the batch is big enough, it's fewer queries
-        with self.assertNumQueries(20):
+        with self.assertNumQueries(22):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=10)
 
         cohort.refresh_from_db()
@@ -6624,7 +6625,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(20):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(24):
             # no queries to evaluate flags, because all evaluated using override properties
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
@@ -6641,7 +6642,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort2",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(20):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(24):
             # person3 doesn't match filter conditions so is pre-filtered out
             get_cohort_actors_for_feature_flag(cohort2.pk, "some-feature-new", self.team.pk)
 
@@ -6735,7 +6736,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(37):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(39):
             # forced to evaluate flags by going to db, because cohorts need db query to evaluate
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature-new", self.team.pk)
 
