@@ -83,6 +83,32 @@ export function detectBoolean(candidate: unknown): boolean {
     return b
 }
 
+const FIELD_NAME_OVERRIDES: Record<string, Record<string, string>> = {
+    // Add field name overrides here
+}
+
+function applyFieldNameOverrides(logItem: ActivityLogItem): ActivityLogItem {
+    const scope = logItem.scope as string
+    const fieldMappings = FIELD_NAME_OVERRIDES[scope]
+
+    if (!fieldMappings || !logItem.detail.changes) {
+        return logItem
+    }
+
+    const mappedLogItem: ActivityLogItem = {
+        ...logItem,
+        detail: {
+            ...logItem.detail,
+            changes: logItem.detail.changes.map((change) => ({
+                ...change,
+                field: change.field && fieldMappings[change.field] ? fieldMappings[change.field] : change.field,
+            })),
+        },
+    }
+
+    return mappedLogItem
+}
+
 export function humanize(
     results: ActivityLogItem[],
     describerFor?: (logItem?: ActivityLogItem) => Describer | undefined,
@@ -103,6 +129,8 @@ export function humanize(
         const { description, extendedDescription } = describer(logItem, asNotification)
 
         if (description !== null) {
+            const mappedLogItem = applyFieldNameOverrides(logItem)
+
             logLines.push({
                 email: logItem.user?.email,
                 name: logItem.user ? fullName(logItem.user) : undefined,
@@ -111,7 +139,7 @@ export function humanize(
                 extendedDescription,
                 created_at: dayjs(logItem.created_at),
                 unread: logItem.unread,
-                unprocessed: logItem,
+                unprocessed: mappedLogItem,
             })
         }
     }
@@ -134,6 +162,7 @@ const NO_PLURAL_SCOPES: ActivityScope[] = [
 const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plural: string }>> = {
     [ActivityScope.ALERT_CONFIGURATION]: { singular: 'Alert', plural: 'Alerts' },
     [ActivityScope.BATCH_EXPORT]: { singular: 'Destination', plural: 'Destinations' },
+    [ActivityScope.PERSONAL_API_KEY]: { singular: 'Personal API Key', plural: 'Personal API Keys' },
     [ActivityScope.EXTERNAL_DATA_SOURCE]: { singular: 'Source', plural: 'Sources' },
 }
 
