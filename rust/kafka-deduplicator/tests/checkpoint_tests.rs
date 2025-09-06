@@ -1,18 +1,21 @@
 use std::sync::Arc;
 use std::time::Duration;
-use tempfile::TempDir;
 
-use common_types::RawEvent;
-use kafka_deduplicator::checkpoint::{
-    export::CHECKPOINT_NAME_PREFIX, CheckpointConfig, CheckpointExporter, CheckpointUploader,
-};
+use async_trait::async_trait;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+
+use kafka_deduplicator::checkpoint::{CheckpointConfig, CheckpointExporter, CheckpointUploader};
+use kafka_deduplicator::checkpoint_manager::{CheckpointWorker, CHECKPOINT_NAME_PREFIX};
 use kafka_deduplicator::kafka::types::Partition;
 use kafka_deduplicator::store::{DeduplicationStore, DeduplicationStoreConfig};
+use kafka_deduplicator::store_manager::StoreManager;
+
+use common_types::RawEvent;
 
 use anyhow::Result;
-use async_trait::async_trait;
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use tempfile::TempDir;
+use tokio::sync::Mutex;
 use tracing::info;
 
 /// Mock uploader for testing that stores files in local filesystem
@@ -222,23 +225,18 @@ async fn test_checkpoint_exporter_creation() {
         full_upload_interval: 5,
         aws_region: "us-east-1".to_string(),
         max_local_checkpoints: 3,
+        max_concurrent_checkpoints: 1,
         s3_timeout: Duration::from_secs(30),
     };
 
     let uploader = MockUploader::new().unwrap();
     let exporter = CheckpointExporter::new(config, Box::new(uploader));
-    let test_partition = Partition::new("test_topic".to_string(), 111);
-
-    assert!(!exporter.is_checkpointing(&test_partition).await);
-    assert!(exporter
-        .last_checkpoint_timestamp(&test_partition)
-        .await
-        .is_none());
+    assert!(exporter.is_available().await);
 }
 
 #[tokio::test]
 async fn test_manual_checkpoint() {
-    let temp_dir = TempDir::new().unwrap();
+    let checkpoint_dir = TempDir::new().unwrap();
     let (store, _store_temp) = create_test_dedup_store();
 
     // Add some test data
@@ -254,60 +252,127 @@ async fn test_manual_checkpoint() {
 
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
-        local_checkpoint_dir: temp_dir.path().to_string_lossy().to_string(),
+        local_checkpoint_dir: checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
         full_upload_interval: 5,
         aws_region: "us-east-1".to_string(),
         max_local_checkpoints: 3,
+        max_concurrent_checkpoints: 1,
         s3_timeout: Duration::from_secs(30),
     };
 
     let uploader = MockUploader::new().unwrap();
-    let exporter = CheckpointExporter::new(config, Box::new(uploader));
+    let exporter = Arc::new(Some(Box::new(CheckpointExporter::new(
+        config.clone(),
+        Box::new(uploader),
+    ))));
+    let checkpoint_counters = Arc::new(Mutex::new(HashMap::<Partition, u32>::new()));
+    let is_checkpointing = Arc::new(Mutex::new(HashSet::new()));
+    let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
+        path: checkpoint_dir.path().to_path_buf(),
+        max_capacity: 1_000_000,
+    }));
+
+    let partition = Partition::new("test_topic".to_string(), 0);
+    store_manager
+        .stores()
+        .insert(partition.clone(), store.clone());
+    let worker = CheckpointWorker::new(
+        1,
+        store_manager.clone(),
+        exporter.clone(),
+        checkpoint_counters.clone(),
+        is_checkpointing.clone(),
+        config.clone(),
+    );
+
+    let start_counter = *checkpoint_counters
+        .lock()
+        .await
+        .get(&partition)
+        .unwrap_or(&0_u32);
+    assert_eq!(start_counter, 0);
 
     // Perform checkpoint
-    let result = exporter.maybe_checkpoint(&store).await;
+    let result = worker.attempt_checkpoint(partition.clone()).await;
     assert!(result.is_ok());
     assert!(result.unwrap()); // Should return true indicating checkpoint was performed
 
     // Check that checkpoint timestamp was updated
-    let test_partition = Partition::new(store.get_topic().to_string(), store.get_partition());
-    assert!(exporter
-        .last_checkpoint_timestamp(&test_partition)
+    let end_counter = *checkpoint_counters
+        .lock()
         .await
-        .is_some());
+        .get(&partition)
+        .unwrap_or(&0_u32);
+    assert_eq!(end_counter, 1);
 }
 
 #[tokio::test]
 async fn test_checkpoint_skips_when_in_progress() {
-    let temp_dir = TempDir::new().unwrap();
+    let checkpoint_dir = TempDir::new().unwrap();
     let (store, _store_temp) = create_test_dedup_store();
+
+    // Add some test data
+    let events = vec![
+        create_test_raw_event("user1", "token1", "event1"),
+        create_test_raw_event("user2", "token1", "event2"),
+    ];
+    for event in &events {
+        let result = store.handle_event_with_raw(event);
+        assert!(result.is_ok());
+        assert!(result.unwrap()); // All events should be new
+    }
 
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
-        local_checkpoint_dir: temp_dir.path().to_string_lossy().to_string(),
+        local_checkpoint_dir: checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
         full_upload_interval: 5,
         aws_region: "us-east-1".to_string(),
         max_local_checkpoints: 3,
+        max_concurrent_checkpoints: 1,
         s3_timeout: Duration::from_secs(30),
     };
 
-    let uploader = MockUploader::new().unwrap();
-    let exporter = Arc::new(CheckpointExporter::new(config, Box::new(uploader.clone())));
-    let store = Arc::new(store);
+    let uploader = Box::new(MockUploader::new().unwrap());
+    let exporter = Arc::new(Some(Box::new(CheckpointExporter::new(
+        config.clone(),
+        uploader.clone(),
+    ))));
+    let checkpoint_counters = Arc::new(Mutex::new(HashMap::<Partition, u32>::new()));
+    let is_checkpointing = Arc::new(Mutex::new(HashSet::new()));
+    let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
+        path: checkpoint_dir.path().to_path_buf(),
+        max_capacity: 1_000_000,
+    }));
 
-    // Trigger 2 checkpoints concurrently
-    let exporter1 = exporter.clone();
-    let exporter2 = exporter.clone();
-    let store1 = store.clone();
-    let store2 = store.clone();
+    let partition = Partition::new("test_topic".to_string(), 0);
+    store_manager
+        .stores()
+        .insert(partition.clone(), store.clone());
+
+    let worker1 = CheckpointWorker::new(
+        1,
+        store_manager.clone(),
+        exporter.clone(),
+        checkpoint_counters.clone(),
+        is_checkpointing.clone(),
+        config.clone(),
+    );
+    let worker2 = CheckpointWorker::new(
+        2,
+        store_manager.clone(),
+        exporter.clone(),
+        checkpoint_counters.clone(),
+        is_checkpointing.clone(),
+        config.clone(),
+    );
 
     let (result1, result2) = tokio::join!(
-        exporter1.maybe_checkpoint(&store1),
-        exporter2.maybe_checkpoint(&store2)
+        worker1.attempt_checkpoint(partition.clone()),
+        worker2.attempt_checkpoint(partition.clone()),
     );
 
     // Both should succeed
@@ -483,6 +548,7 @@ async fn test_unavailable_uploader() {
         full_upload_interval: 5,
         aws_region: "us-east-1".to_string(),
         max_local_checkpoints: 3,
+        max_concurrent_checkpoints: 1,
         s3_timeout: Duration::from_secs(30),
     };
 

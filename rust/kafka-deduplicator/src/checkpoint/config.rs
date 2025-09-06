@@ -24,6 +24,9 @@ pub struct CheckpointConfig {
     /// Maximum number of local checkpoints to keep
     pub max_local_checkpoints: usize,
 
+    /// Maximum number of concurrent checkpoints to perform
+    pub max_concurrent_checkpoints: usize,
+
     /// Timeout for S3 operations
     pub s3_timeout: Duration,
 }
@@ -37,7 +40,8 @@ impl Default for CheckpointConfig {
             s3_key_prefix: "deduplication-checkpoints".to_string(),
             full_upload_interval: 10, // Every 10 incremental checkpoints
             aws_region: "us-east-1".to_string(),
-            max_local_checkpoints: 5,
+            max_local_checkpoints: 10,
+            max_concurrent_checkpoints: 3,
             s3_timeout: Duration::from_secs(300), // 5 minutes
         }
     }

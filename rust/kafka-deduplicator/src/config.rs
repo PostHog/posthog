@@ -92,6 +92,9 @@ pub struct Config {
     #[envconfig(default = "300")] // 5 minutes in seconds
     pub checkpoint_interval_secs: u64,
 
+    #[envconfig(default = "3")]
+    pub max_concurrent_checkpoints: usize,
+
     #[envconfig(default = "./checkpoints")]
     pub local_checkpoint_dir: String,
 
