@@ -1,12 +1,14 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEllipsis, IconHourglass, IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
+import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import {
     SettingsBar,
     SettingsButton,
@@ -20,6 +22,10 @@ import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+
+import { playerMetaLogic } from './playerMetaLogic'
+
+const TTL_WARNING_THRESHOLD_DAYS = 10
 
 function SetPlaybackSpeed(): JSX.Element {
     const { speed, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
@@ -84,6 +90,35 @@ function InspectDOM(): JSX.Element {
     )
 }
 
+function TTLWarning(): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { sessionTTLDays } = useValues(playerMetaLogic(logicProps))
+
+    if (sessionTTLDays === null || sessionTTLDays > TTL_WARNING_THRESHOLD_DAYS) {
+        return <></>
+    }
+
+    return (
+        <div className="font-medium">
+            <LemonButton
+                status="danger"
+                size="xsmall"
+                className={cn('rounded-[0px]')}
+                data-attr="recording-ttl-dialog"
+                onClick={() => {
+                    LemonDialog.open({
+                        title: 'Recording about to expire',
+                        description: `This recording will expire in ${sessionTTLDays} days. If you wish to keep it around, you should add it to a collection.`,
+                    })
+                }}
+                noPadding
+            >
+                This recording will expire in {sessionTTLDays} days
+            </LemonButton>
+        </div>
+    )
+}
+
 export function PlayerMetaTopSettings({ size }: { size: PlayerMetaBreakpoints }): JSX.Element {
     const {
         logicProps: { noInspector },
@@ -120,6 +155,11 @@ export function PlayerMetaTopSettings({ size }: { size: PlayerMetaBreakpoints })
                         />
                     )}
                 </div>
+                {!isSmall && (
+                    <div>
+                        <TTLWarning />
+                    </div>
+                )}
                 <div className="flex flex-row gap-0.5">
                     <FlaggedFeature match={true} flag={FEATURE_FLAGS.HEATMAPS_UI}>
                         <SettingsButton
