@@ -114,6 +114,7 @@ class ExportedAsset(models.Model):
 
     def get_analytics_metadata(self):
         return {
+            "asset_id": self.id,
             "export_format": self.export_format,
             "dashboard_id": self.dashboard_id,
             "insight_id": self.insight_id,
