@@ -103,6 +103,8 @@ pub struct FlagsQueryParams {
 pub enum ServiceResponse {
     Default(LegacyFlagsResponse),
     V2(FlagsResponse),
+    DecideV1(DecideV1Response),
+    DecideV2(DecideV2Response),
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize, Default)]
@@ -240,6 +242,70 @@ impl LegacyFlagsResponse {
                         .map(|payload| (key.clone(), payload))
                 })
                 .collect(),
+            quota_limited: response.quota_limited,
+            request_id: response.request_id,
+            config: response.config,
+        }
+    }
+}
+
+/// Legacy decide v1 format response - returns just a list of active flag keys
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DecideV1Response {
+    pub feature_flags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quota_limited: Option<Vec<String>>,
+    pub request_id: Uuid,
+
+    #[serde(flatten)]
+    pub config: ConfigResponse,
+}
+
+impl DecideV1Response {
+    pub fn from_response(response: FlagsResponse) -> Self {
+        // Only include flags that are enabled (active)
+        let active_flags: Vec<String> = response
+            .flags
+            .iter()
+            .filter(|(_, flag)| flag.enabled)
+            .map(|(key, _)| key.clone())
+            .collect();
+
+        Self {
+            feature_flags: active_flags,
+            quota_limited: response.quota_limited,
+            request_id: response.request_id,
+            config: response.config,
+        }
+    }
+}
+
+/// Legacy decide v2 format response - returns active flags with their values
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DecideV2Response {
+    pub feature_flags: HashMap<String, FlagValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quota_limited: Option<Vec<String>>,
+    pub request_id: Uuid,
+
+    #[serde(flatten)]
+    pub config: ConfigResponse,
+}
+
+impl DecideV2Response {
+    pub fn from_response(response: FlagsResponse) -> Self {
+        // Only include flags that are enabled
+        let active_flags: HashMap<String, FlagValue> = response
+            .flags
+            .iter()
+            .filter(|(_, flag)| flag.enabled)
+            .map(|(key, flag)| (key.clone(), flag.to_value()))
+            .collect();
+
+        Self {
+            feature_flags: active_flags,
             quota_limited: response.quota_limited,
             request_id: response.request_id,
             config: response.config,
