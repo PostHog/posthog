@@ -578,7 +578,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
             # If we have an issueId, we should just use that
             return [self.query.issueId]
 
-        queryset = ErrorTrackingIssue.objects.select_related("assignment").filter(team=self.team)
+        queryset = ErrorTrackingIssue.objects.with_first_seen().select_related("assignment").filter(team=self.team)
 
         if self.query.status and self.query.status not in ["all", "active"]:
             use_prefetched = True
