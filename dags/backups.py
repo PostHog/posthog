@@ -20,39 +20,28 @@ from dags.common import JobOwners
 NO_SHARD_PATH = "noshard"
 
 
-def get_backup_settings_for_environment() -> dict[str, str]:
+def get_max_backup_bandwidth() -> str:
     """
-    Get backup settings optimized for the current environment.
+    Get max backup bandwidth based on the current environment.
 
-    Returns different settings based on CLOUD_DEPLOYMENT:
-    - US: i7ie.metal-48xl instances (192 vCPUs, 768GB RAM) - higher limits
-    - EU: m8g.8xlarge instances (32 vCPUs, 128GB RAM) - conservative limits
+    Returns different bandwidth limits based on CLOUD_DEPLOYMENT:
+    - US: i7ie.metal-48xl instances (192 vCPUs, 768GB RAM) - higher bandwidth
+    - EU: m8g.8xlarge instances (32 vCPUs, 128GB RAM) - conservative bandwidth
     - DEV/E2E/None: Conservative limits for development/self-hosted
     """
     cloud_deployment = getattr(settings, "CLOUD_DEPLOYMENT", None)
 
     if cloud_deployment == "US":
-        # i7ie.metal-48xl instances - much higher capacity
-        return {
-            "async": "1",
-            "max_backup_bandwidth": "500000000",  # 500MB/s - can handle higher bandwidth
-            "max_backups_io_thread_pool_size": "32",  # More threads available with 192 vCPUs
-            "max_backups_io_thread_pool_free_size": "8",  # Keep more threads ready
-        }
+        # i7ie.metal-48xl instances - can handle higher bandwidth
+        return "500000000"  # 500MB/s
     else:
         # EU (m8g.8xlarge) and DEV/self-hosted - conservative limits
-        return {
-            "async": "1",
-            "max_backup_bandwidth": "100000000",  # 100MB/s to prevent resource exhaustion
-            "max_backups_io_thread_pool_size": "8",  # Conservative for 32 vCPUs
-            "max_backups_io_thread_pool_free_size": "2",  # Minimal idle threads
-        }
+        return "100000000"  # 100MB/s to prevent resource exhaustion
 
 
 SHARDED_TABLES = [
     "sharded_app_metrics",
     "sharded_app_metrics2",
-    "sharded_events",
     "sharded_heatmaps",
     "sharded_ingestion_warnings",
     "sharded_performance_events",
@@ -141,7 +130,10 @@ class Backup:
         )
 
     def create(self, client: Client):
-        backup_settings = get_backup_settings_for_environment()
+        backup_settings = {
+            "async": "1",
+            "max_backup_bandwidth": get_max_backup_bandwidth(),
+        }
         if self.base_backup:
             backup_settings["base_backup"] = "S3('{bucket_base_path}/{path}')".format(
                 bucket_base_path=self._bucket_base_path(settings.CLICKHOUSE_BACKUPS_BUCKET),
