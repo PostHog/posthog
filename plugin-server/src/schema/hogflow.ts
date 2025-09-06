@@ -106,7 +106,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
             template_id: z.string(),
-            inputs: z.object({}),
+            inputs: z.record(CyclotronInputSchema),
         }),
     }),
     z.object({

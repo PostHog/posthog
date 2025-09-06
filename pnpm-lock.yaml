@@ -1298,6 +1298,9 @@ importers:
       js-big-decimal:
         specifier: ^2.2.0
         version: 2.2.0
+      jsonwebtoken:
+        specifier: ^9.0.2
+        version: 9.0.2
       kafkajs:
         specifier: ^2.2.0
         version: 2.2.4
@@ -1425,6 +1428,9 @@ importers:
       '@types/jest':
         specifier: ^30.0.0
         version: 30.0.0
+      '@types/jsonwebtoken':
+        specifier: ^9.0.10
+        version: 9.0.10
       '@types/kafkajs-snappy':
         specifier: ^1.0.0
         version: 1.0.0
@@ -8487,6 +8493,9 @@ packages:
   '@types/json5@0.0.29':
     resolution: {integrity: sha512-dRLjCWHYg4oaA77cxO64oO+7JwCwnIzkZPdrrC71jQmQtlhM556pwKo5bUzqvZndkVbeFLIIi+9TC40JNF5hNQ==}
 
+  '@types/jsonwebtoken@9.0.10':
+    resolution: {integrity: sha512-asx5hIG9Qmf/1oStypjanR7iKTv0gXQ1Ov/jfrX6kS/EO0OFni8orbmGCn0672NHR3kXHwpAwR+B368ZGN/2rA==}
+
   '@types/kafkajs-snappy@1.0.0':
     resolution: {integrity: sha512-P0DdLdmn5z4foYpCVTMpEGVpfrHG7C6cpzeysxw79rfyESp5/k0wiCOfI4euDKsc6N/2+BHaNoTGwmNLmxCUWw==}
 
@@ -12959,12 +12968,22 @@ packages:
   jsonfile@6.1.0:
     resolution: {integrity: sha512-5dgndWOriYSm5cnYaJNhalLNDKOqFwyDB/rr1E9ZsGciGvKPs8R2xYGCacuf3z6K1YKDz182fd+fY3cn3pMqXQ==}
 
+  jsonwebtoken@9.0.2:
+    resolution: {integrity: sha512-PRp66vJ865SSqOlgqS8hujT5U4AOgMfhrwYIuIhfKaoSCZcirrmASQr8CX7cUg+RMih+hgznrjp99o+W4pJLHQ==}
+    engines: {node: '>=12', npm: '>=6'}
+
   jsprim@2.0.2:
     resolution: {integrity: sha512-gqXddjPqQ6G40VdnI6T6yObEC+pDNvyP95wdQhkWkg7crHH3km5qP1FsOXEkzEQwnz6gz5qGTn1c2Y52wP3OyQ==}
     engines: {'0': node >=0.6.0}
 
+  jwa@1.4.2:
+    resolution: {integrity: sha512-eeH5JO+21J78qMvTIDdBXidBd6nG2kZjg5Ohz/1fpa28Z4CcsWUzJ1ZZyFq/3z3N17aZy+ZuBoHljASbL1WfOw==}
+
   jwa@2.0.0:
     resolution: {integrity: sha512-jrZ2Qx916EA+fq9cEAeCROWPTfCwi1IVHqT2tapuqLEVVDKFDENFw1oL+MwrTvH6msKxsd1YTDVw6uKEcsrLEA==}
+
+  jws@3.2.2:
+    resolution: {integrity: sha512-YHlZCB6lMTllWDtSPHz/ZXTsi8S00usEV6v1tjq8tOUZzw7DpSDWVXjXDre6ed1w/pd495ODpHZYSdkRTsa0HA==}
 
   jws@4.0.0:
     resolution: {integrity: sha512-KDncfTmOZoOMTFG4mBlG0qUIOlc03fmzH+ru6RgYVZhPkyiy/92Owlt/8UEN+a4TXR1FQetfIpJE8ApdvdVxTg==}
@@ -13286,18 +13305,39 @@ packages:
   lodash.flattendeep@4.4.0:
     resolution: {integrity: sha512-uHaJFihxmJcEX3kT4I23ABqKKalJ/zDrDg0lsFtc1h+3uw49SIJ5beyhx5ExVRti3AvKoOJngIj7xz3oylPdWQ==}
 
+  lodash.includes@4.3.0:
+    resolution: {integrity: sha512-W3Bx6mdkRTGtlJISOvVD/lbqjTlPPUDTMnlXZFnVwi9NKJ6tiAk6LVdlhZMm17VZisqhKcgzpO5Wz91PCt5b0w==}
+
   lodash.isarguments@3.1.0:
     resolution: {integrity: sha512-chi4NHZlZqZD18a0imDHnZPrDeBbTtVN7GXMwuGdRH9qotxAjYs3aVLKc7zNOG9eddR5Ksd8rvFEBc9SsggPpg==}
+
+  lodash.isboolean@3.0.3:
+    resolution: {integrity: sha512-Bz5mupy2SVbPHURB98VAcw+aHh4vRV5IPNhILUCsOzRmsTmSQ17jIuqopAentWoehktxGd9e/hbIXq980/1QJg==}
 
   lodash.isequal@4.5.0:
     resolution: {integrity: sha512-pDo3lu8Jhfjqls6GkMgpahsF9kCyayhgykjyLMNFTKWrpVdAQtYyB4muAMWozBB4ig/dtWAmsMxLEI8wuz+DYQ==}
     deprecated: This package is deprecated. Use require('node:util').isDeepStrictEqual instead.
+
+  lodash.isinteger@4.0.4:
+    resolution: {integrity: sha512-DBwtEWN2caHQ9/imiNeEA5ys1JoRtRfY3d7V9wkqtbycnAmTvRRmbHKDV4a0EYc678/dia0jrte4tjYwVBaZUA==}
+
+  lodash.isnumber@3.0.3:
+    resolution: {integrity: sha512-QYqzpfwO3/CWf3XP+Z+tkQsfaLL/EnUlXWVkIk5FUPc4sBdTehEqZONuyRt2P67PXAk+NXmTBcc97zw9t1FQrw==}
+
+  lodash.isplainobject@4.0.6:
+    resolution: {integrity: sha512-oSXzaWypCMHkPC3NvBEaPHf0KsA5mvPrOPgQWDsbg8n7orZ290M0BmC/jgRZ4vcJ6DTAhjrsSYgdsW/F+MFOBA==}
+
+  lodash.isstring@4.0.1:
+    resolution: {integrity: sha512-0wJxfxH1wgO3GrbuP+dTTk7op+6L41QCXbGINEmD+ny/G/eCqGzxyCsh7159S+mgDDcoarnBw6PC1PS5+wUGgw==}
 
   lodash.memoize@4.1.2:
     resolution: {integrity: sha512-t7j+NzmgnQzTAYXcsHYLgimltOV1MXHtlOWf6GjL9Kj8GK5FInw5JotxvbOs+IvV1/Dzo04/fCGfLVs7aXb4Ag==}
 
   lodash.merge@4.6.2:
     resolution: {integrity: sha512-0KpjqXRVvrYyCsX1swR/XTK0va6VQkQM6MNo7PqW77ByjAhoARA8EfrP1N4+KlKj8YS0ZUCtRT/YUuhyYDujIQ==}
+
+  lodash.once@4.1.1:
+    resolution: {integrity: sha512-Sb487aTOCr9drQVL8pIxOzVhafOjZN9UU54hiN8PU3uAiSV7lx1yYNpbNmex2PK6dSJoNTSJUUswT651yww3Mg==}
 
   lodash.snakecase@4.1.1:
     resolution: {integrity: sha512-QZ1d4xoBHYUeuouhEq3lk3Uq7ldgyFXGBhg04+oRLnIz8o9T65Eh+8YdroUwn846zchkA9yDsDl5CVVaV2nqYw==}
@@ -23054,7 +23094,7 @@ snapshots:
       browserslist: 4.24.3
       json5: 2.2.3
       nullthrows: 1.1.1
-      semver: 7.7.0
+      semver: 7.7.2
     transitivePeerDependencies:
       - '@parcel/core'
 
@@ -23079,7 +23119,7 @@ snapshots:
       posthtml: 0.16.6
       posthtml-parser: 0.12.1
       posthtml-render: 3.0.0
-      semver: 7.7.0
+      semver: 7.7.2
       srcset: 4.0.0
     transitivePeerDependencies:
       - '@parcel/core'
@@ -23123,7 +23163,7 @@ snapshots:
       clone: 2.1.2
       nullthrows: 1.1.1
       postcss-value-parser: 4.2.0
-      semver: 7.7.0
+      semver: 7.7.2
     transitivePeerDependencies:
       - '@parcel/core'
 
@@ -23135,7 +23175,7 @@ snapshots:
       posthtml: 0.16.6
       posthtml-parser: 0.12.1
       posthtml-render: 3.0.0
-      semver: 7.7.0
+      semver: 7.7.2
     transitivePeerDependencies:
       - '@parcel/core'
 
@@ -23162,7 +23202,7 @@ snapshots:
       posthtml: 0.16.6
       posthtml-parser: 0.12.1
       posthtml-render: 3.0.0
-      semver: 7.7.0
+      semver: 7.7.2
     transitivePeerDependencies:
       - '@parcel/core'
 
@@ -25480,7 +25520,7 @@ snapshots:
       magic-string: 0.30.5
       path-browserify: 1.0.1
       process: 0.11.10
-      semver: 7.7.0
+      semver: 7.7.2
       style-loader: 3.3.3(webpack@5.88.2)
       swc-loader: 0.2.3(@swc/core@1.11.4(@swc/helpers@0.5.15))(webpack@5.88.2)
       terser-webpack-plugin: 5.3.9(@swc/core@1.11.4(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack@5.88.2)
@@ -25557,7 +25597,7 @@ snapshots:
       prompts: 2.4.2
       puppeteer-core: 2.1.1
       read-pkg-up: 7.0.1
-      semver: 7.7.0
+      semver: 7.7.2
       simple-update-notifier: 2.0.0
       strip-json-comments: 3.1.1
       tempy: 1.0.1
@@ -25791,7 +25831,7 @@ snapshots:
       dequal: 2.0.3
       lodash: 4.17.21
       memoizerific: 1.11.3
-      semver: 7.7.0
+      semver: 7.7.2
       store2: 2.14.4
       telejson: 7.2.0
       ts-dedent: 2.2.0
@@ -25826,7 +25866,7 @@ snapshots:
       react-docgen: 7.0.1
       react-dom: 18.2.0(react@18.2.0)
       react-refresh: 0.14.0
-      semver: 7.7.0
+      semver: 7.7.2
       webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
     optionalDependencies:
       '@babel/core': 7.26.0
@@ -26953,6 +26993,11 @@ snapshots:
 
   '@types/json5@0.0.29': {}
 
+  '@types/jsonwebtoken@9.0.10':
+    dependencies:
+      '@types/ms': 0.7.31
+      '@types/node': 22.15.17
+
   '@types/kafkajs-snappy@1.0.0':
     dependencies:
       '@types/node': 22.15.17
@@ -27324,7 +27369,7 @@ snapshots:
       globby: 11.1.0
       is-glob: 4.0.3
       minimatch: 9.0.3
-      semver: 7.7.0
+      semver: 7.7.2
       ts-api-utils: 1.3.0(typescript@5.2.2)
     optionalDependencies:
       typescript: 5.2.2
@@ -32599,6 +32644,19 @@ snapshots:
     optionalDependencies:
       graceful-fs: 4.2.11
 
+  jsonwebtoken@9.0.2:
+    dependencies:
+      jws: 3.2.2
+      lodash.includes: 4.3.0
+      lodash.isboolean: 3.0.3
+      lodash.isinteger: 4.0.4
+      lodash.isnumber: 3.0.3
+      lodash.isplainobject: 4.0.6
+      lodash.isstring: 4.0.1
+      lodash.once: 4.1.1
+      ms: 2.1.3
+      semver: 7.7.2
+
   jsprim@2.0.2:
     dependencies:
       assert-plus: 1.0.0
@@ -32606,10 +32664,21 @@ snapshots:
       json-schema: 0.4.0
       verror: 1.10.0
 
+  jwa@1.4.2:
+    dependencies:
+      buffer-equal-constant-time: 1.0.1
+      ecdsa-sig-formatter: 1.0.11
+      safe-buffer: 5.2.1
+
   jwa@2.0.0:
     dependencies:
       buffer-equal-constant-time: 1.0.1
       ecdsa-sig-formatter: 1.0.11
+      safe-buffer: 5.2.1
+
+  jws@3.2.2:
+    dependencies:
+      jwa: 1.4.2
       safe-buffer: 5.2.1
 
   jws@4.0.0:
@@ -32927,13 +32996,27 @@ snapshots:
 
   lodash.flattendeep@4.4.0: {}
 
+  lodash.includes@4.3.0: {}
+
   lodash.isarguments@3.1.0: {}
 
+  lodash.isboolean@3.0.3: {}
+
   lodash.isequal@4.5.0: {}
+
+  lodash.isinteger@4.0.4: {}
+
+  lodash.isnumber@3.0.3: {}
+
+  lodash.isplainobject@4.0.6: {}
+
+  lodash.isstring@4.0.1: {}
 
   lodash.memoize@4.1.2: {}
 
   lodash.merge@4.6.2: {}
+
+  lodash.once@4.1.1: {}
 
   lodash.snakecase@4.1.1: {}
 
@@ -33605,7 +33688,7 @@ snapshots:
       make-fetch-happen: 13.0.1
       nopt: 7.2.1
       proc-log: 4.2.0
-      semver: 7.7.0
+      semver: 7.7.2
       tar: 6.2.1
       which: 4.0.0
     transitivePeerDependencies:
@@ -36567,7 +36650,7 @@ snapshots:
 
   simple-update-notifier@2.0.0:
     dependencies:
-      semver: 7.7.0
+      semver: 7.7.2
 
   sisteransi@1.0.5: {}
 

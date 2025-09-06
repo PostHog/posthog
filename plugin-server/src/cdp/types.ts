@@ -100,6 +100,8 @@ export type HogFunctionInvocationGlobals = {
         body: Record<string, any>
         stringBody: string
     }
+
+    unsubscribe_url?: string // For email actions, the unsubscribe URL to use
 }
 
 export type HogFunctionInvocationGlobalsWithInputs = HogFunctionInvocationGlobals & {

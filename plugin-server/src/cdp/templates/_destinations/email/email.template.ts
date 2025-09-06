@@ -40,6 +40,8 @@ export const template: HogFunctionTemplate = {
                 html: '<div>Hello from PostHog!</div>',
             },
             secret: false,
+            description: 'The email message to send. Configure the recipient, sender, subject, and content.',
+            templating: true,
         },
     ],
 }
