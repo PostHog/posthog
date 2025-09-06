@@ -58,6 +58,7 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
+from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
@@ -155,6 +156,7 @@ class Database(BaseModel):
 
     # Revenue analytics tables
     persons_revenue_analytics: PersonsRevenueAnalyticsTable = PersonsRevenueAnalyticsTable()
+    groups_revenue_analytics: GroupsRevenueAnalyticsTable = GroupsRevenueAnalyticsTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
@@ -435,6 +437,7 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
                 chain = ["revenue_analytics", field]
 
                 database.persons.fields[field_name] = ast.FieldTraverser(chain=chain)
+                database.groups.fields[field_name] = ast.FieldTraverser(chain=chain)
                 poe.fields[field_name] = ast.FieldTraverser(chain=chain)
 
 

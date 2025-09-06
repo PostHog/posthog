@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { Histogram } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 import RE2 from 're2'
 
 import { ExecResult } from '@posthog/hogvm'
@@ -22,8 +22,14 @@ const hogFunctionFilterDuration = new Histogram({
     name: 'cdp_hog_function_filter_duration_ms',
     help: 'Processing time for filtering a function',
     // We have a timeout so we don't need to worry about much more than that
-    buckets: [0, 10, 20, 50, 100, 200],
+    buckets: [0, 10, 20, 50, 100, 200, 300, 500, 1000],
     labelNames: ['type'],
+})
+
+const hogFunctionPreFilterCounter = new Counter({
+    name: 'cdp_hog_function_prefilter_result',
+    help: 'Count of pre-filter results',
+    labelNames: ['result'],
 })
 
 interface HogFilterResult {
@@ -107,6 +113,7 @@ export function convertClickhouseRawEventToFilterGlobals(event: RawClickHouseEve
     // Initialize response with basic structure
     const response: HogFunctionFilterGlobals = {
         event: event.event,
+        uuid: event.uuid,
         elements_chain: elementsChain,
         elements_chain_href: '',
         elements_chain_texts: [] as string[],
@@ -202,6 +209,7 @@ export function convertToHogFunctionFilterGlobal(
 
     const response: HogFunctionFilterGlobals = {
         event: globals.event.event,
+        uuid: globals.event.uuid,
         elements_chain: elementsChain,
         elements_chain_href: '',
         elements_chain_texts: [] as string[],
@@ -293,6 +301,22 @@ export function convertToHogFunctionFilterGlobal(
 }
 
 const HOG_FILTERING_TIMEOUT_MS = 100
+
+function preFilterResult(filters: HogFunctionType['filters'], filterGlobals: HogFunctionFilterGlobals): boolean {
+    const eventMatches = filters?.events?.some((eventFilter) => {
+        // We need to test if the id is null (all events) or if it is in the list of event matchers
+        return eventFilter.id === null || eventFilter.id === filterGlobals.event
+    })
+
+    // If none of the event filters match we return false
+    if (!eventMatches) {
+        return false
+    }
+    // If we get here, there is at least one event filter and it checks this event type
+    // hence we say its a match and return true
+    return true
+}
+
 /**
  * Shared utility to check if an event matches the filters of a HogFunction.
  * Used by both the HogExecutorService (for destinations) and HogTransformerService (for transformations).
@@ -302,12 +326,8 @@ export async function filterFunctionInstrumented(options: {
     filterGlobals: HogFunctionFilterGlobals
     /** Optional filters to use instead of those on the function */
     filters: HogFunctionType['filters']
-    /** Whether to enable telemetry for this function at the hogvm level */
-    enabledTelemetry?: boolean
-    /** The event UUID to use for logging */
-    eventUuid?: string
 }): Promise<HogFilterResult> {
-    const { fn, filters, filterGlobals, enabledTelemetry, eventUuid } = options
+    const { fn, filters, filterGlobals } = options
     const type = 'type' in fn ? fn.type : 'hogflow'
     const fnKind = 'type' in fn ? 'HogFunction' : 'HogFlow'
     const logs: LogEntry[] = []
@@ -320,15 +340,40 @@ export async function filterFunctionInstrumented(options: {
         metrics,
     }
 
+    let preFilterMatch = null
+
     try {
+        // If there are no filters (only bytecode exists then on the filter object)
+        // everything matches no need to execute bytecode (lets save those cpu cycles)
+        if (filters && Object.keys(filters).length === 1 && 'bytecode' in filters) {
+            hogFunctionPreFilterCounter.inc({ result: 'bytecode_execution_skipped__no_filters' })
+            result.match = true
+            return result
+        }
+
+        // check whether we have a match with our pre-filter
+        // Only run if we have event filters and NO action filters (as actions are pre-saved event filters)
+        if (filters?.events?.length && !filters?.actions?.length) {
+            preFilterMatch = preFilterResult(filters, filterGlobals)
+            if (preFilterMatch === false) {
+                hogFunctionPreFilterCounter.inc({ result: 'bytecode_execution_skipped__pre_filtered_out' })
+                result.match = false
+                metrics.push({
+                    team_id: fn.team_id,
+                    app_source_id: fn.id,
+                    metric_kind: 'other',
+                    metric_name: 'filtered',
+                    count: 1,
+                })
+                return result
+            }
+        }
+
         if (!filters?.bytecode) {
             throw new Error('Filters were not compiled correctly and so could not be executed')
         }
 
-        const execHogOutcome = await execHog(filters.bytecode, {
-            globals: filterGlobals,
-            telemetry: enabledTelemetry,
-        })
+        const execHogOutcome = await execHog(filters.bytecode, { globals: filterGlobals })
 
         if (execHogOutcome) {
             hogFunctionFilterDuration.observe({ type }, execHogOutcome.durationMs)
@@ -340,7 +385,7 @@ export async function filterFunctionInstrumented(options: {
                 functionName: fn.name,
                 teamId: fn.team_id,
                 duration: execHogOutcome.durationMs,
-                eventId: options?.eventUuid,
+                eventId: filterGlobals.uuid,
             })
         }
 
@@ -385,7 +430,7 @@ export async function filterFunctionInstrumented(options: {
             instance_id: new UUIDT().toString(),
             timestamp: DateTime.now(),
             level: 'error',
-            message: `Error filtering event ${eventUuid}: ${error.message}`,
+            message: `Error filtering event ${filterGlobals.uuid ?? ''}: ${error.message}`,
         })
         result.error = error.message
     }

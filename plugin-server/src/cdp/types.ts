@@ -48,6 +48,7 @@ export interface HogFunctionFilters {
     source?: 'events' | 'person-updates' // Special case to identify what kind of thing this filters on
     events?: HogFunctionFilterEvent[]
     actions?: HogFunctionFilterAction[]
+    properties?: Record<string, any>[] // Global property filters that apply to all events
     filter_test_accounts?: boolean
     bytecode?: HogBytecode
 }
@@ -108,6 +109,7 @@ export type HogFunctionInvocationGlobalsWithInputs = HogFunctionInvocationGlobal
 export type HogFunctionFilterGlobals = {
     // Filter Hog is built in the same way as analytics so the global object is meant to be an event
     event: string
+    uuid: string
     timestamp: string
     elements_chain: string
     elements_chain_href: string
@@ -182,6 +184,7 @@ export type MinimalAppMetric = {
     instance_id?: string // The specific instance of the item (can be the invocation ID or a sub item like an action ID)
     metric_kind: 'failure' | 'success' | 'other' | 'email' | 'billing'
     metric_name:
+        | 'early_exit'
         | 'succeeded'
         | 'failed'
         | 'filtered'

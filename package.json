@@ -65,7 +65,7 @@
         "overrides": {
             "playwright": "1.45.0",
             "typescript": "5.2.2",
-            "@posthog/icons": "0.28.0"
+            "@posthog/icons": "0.28.1"
         },
         "patchedDependencies": {
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",
@@ -78,7 +78,7 @@
             "stylelint --fix --allow-empty-input",
             "prettier --write"
         ],
-        "{cypress,playwright,frontend,products,common,ee}/**/*.{js,jsx,mjs,ts,tsx}": [
+        "{playwright,frontend,products,common,ee}/**/*.{js,jsx,mjs,ts,tsx}": [
             "oxlint --fix --fix-suggestions --fix-dangerously --quiet",
             "prettier --write"
         ],

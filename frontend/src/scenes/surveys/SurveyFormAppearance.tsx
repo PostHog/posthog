@@ -31,7 +31,7 @@ export function SurveyFormAppearance({
     }
 
     return survey.type !== SurveyType.API ? (
-        <div className="flex flex-col overflow-auto gap-2 pr-6 pt-8">
+        <div className="flex flex-col h-full gap-2 items-start flex-1 xl:pl-8 pt-8 xl:pt-0">
             <SurveyAppearancePreview
                 survey={survey as Survey}
                 previewPageIndex={previewPageIndex}
@@ -70,7 +70,7 @@ export function SurveyFormAppearance({
             </LemonField.Pure>
         </div>
     ) : (
-        <div className="flex flex-col max-w-sm">
+        <div className="flex flex-col">
             <h4 className="text-center">API survey response</h4>
             <SurveyAPIEditor survey={survey} />
         </div>

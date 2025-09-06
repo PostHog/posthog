@@ -4,15 +4,22 @@ use std::time::Instant;
 
 use axum::body::Body;
 use axum::{extract::MatchedPath, http::Request, middleware::Next, response::IntoResponse};
+use limiters::redis::QuotaResource;
 use metrics::counter;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 
+pub const CAPTURE_EVENTS_DROPPED_TOTAL: &str = "capture_events_dropped_total";
+
 pub fn report_dropped_events(cause: &'static str, quantity: u64) {
-    counter!("capture_events_dropped_total", "cause" => cause).increment(quantity);
+    counter!(CAPTURE_EVENTS_DROPPED_TOTAL, "cause" => cause).increment(quantity);
 }
 
 pub fn report_overflow_partition(quantity: u64) {
     counter!("capture_partition_key_capacity_exceeded_total").increment(quantity);
+}
+
+pub fn report_quota_limit_exceeded(resource: &QuotaResource, quantity: u64) {
+    counter!("capture_quota_limit_exceeded", "resource" => resource.as_str()).increment(quantity);
 }
 
 pub fn report_internal_error_metrics(
@@ -25,7 +32,7 @@ pub fn report_internal_error_metrics(
         ("stage", stage_tag),
         ("mode", capture_mode),
     ];
-    counter!("capture_internal_error_by_stage_and_type", &tags).increment(1);
+    counter!("capture_error_by_stage_and_type", &tags).increment(1);
 }
 
 pub fn setup_metrics_recorder() -> PrometheusHandle {

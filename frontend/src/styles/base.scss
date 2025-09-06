@@ -334,8 +334,6 @@
     --color-product-dashboards-light: rgb(255 139 7);
     --color-product-early-access-features-light: rgb(39 171 151);
     --color-product-early-access-features-dark: rgb(53 213 189);
-    --color-product-mcp-server-light: rgb(48 171 198);
-    --color-product-mcp-server-dark: rgb(48 171 198);
 
     // Insight colors
     --color-insight-funnel-light: rgb(47 128 250);
@@ -648,6 +646,8 @@
     --z-annotation-popover: 100;
     --z-drawer: 900;
     --z-notifications-popover: 800; // below the TZ aware popover but over the main-nav
+    --z-scene-layout-content-panel: 770;
+    --z-scene-layout-content-panel-under: 769;
     --z-layout-panel: 760;
     --z-layout-panel-under: 759;
     --z-layout-navbar-over: 757;

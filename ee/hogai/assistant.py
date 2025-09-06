@@ -1,6 +1,6 @@
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, Literal, Optional, cast, get_args
+from typing import Any, Literal, Optional, cast
 from uuid import UUID, uuid4
 
 import structlog
@@ -24,13 +24,12 @@ from posthog.schema import (
     FailureMessage,
     HumanMessage,
     MaxBillingContext,
-    NotebookUpdateMessage,
     ReasoningMessage,
     VisualizationMessage,
 )
 
+from posthog import event_usage
 from posthog.event_usage import report_user_action
-from posthog.exceptions_capture import capture_exception
 from posthog.models import Action, Team, User
 from posthog.sync import database_sync_to_async
 
@@ -38,7 +37,6 @@ from ee.hogai.graph import (
     AssistantGraph,
     FunnelGeneratorNode,
     InsightsAssistantGraph,
-    MemoryInitializerNode,
     QueryExecutorNode,
     RetentionGeneratorNode,
     SchemaGeneratorNode,
@@ -46,8 +44,10 @@ from ee.hogai.graph import (
     TrendsGeneratorNode,
 )
 from ee.hogai.graph.base import AssistantNode
+from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode
+from ee.hogai.graph.deep_research.graph import DeepResearchAssistantGraph
+from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState, PartialDeepResearchState
 from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
-from ee.hogai.notebook.notebook_serializer import NotebookSerializer
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import (
@@ -63,10 +63,12 @@ from ee.hogai.utils.state import (
     is_state_update,
     is_task_started_update,
     is_value_update,
+    merge_message_chunk,
     validate_state_update,
     validate_value_update,
 )
 from ee.hogai.utils.types import (
+    ASSISTANT_MESSAGE_TYPES,
     AssistantMessageOrStatusUnion,
     AssistantMessageUnion,
     AssistantMode,
@@ -75,7 +77,7 @@ from ee.hogai.utils.types import (
     AssistantState,
     PartialAssistantState,
 )
-from ee.hogai.utils.types.composed import MaxNodeName
+from ee.hogai.utils.types.composed import MaxGraphState, MaxNodeName
 from ee.models import Conversation
 
 VISUALIZATION_NODES: dict[MaxNodeName, type[SchemaGeneratorNode]] = {
@@ -85,7 +87,7 @@ VISUALIZATION_NODES: dict[MaxNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.SQL_GENERATOR: SQLGeneratorNode,
 }
 
-VISUALIZATION_NODES_TOOL_CALL_MODE: dict[MaxNodeName, type[AssistantNode]] = {
+VISUALIZATION_NODES_TOOL_CALL_MODE: dict[MaxNodeName, type[AssistantNode | DeepResearchNode]] = {
     **VISUALIZATION_NODES,
     AssistantNodeName.QUERY_EXECUTOR: QueryExecutorNode,
 }
@@ -100,21 +102,31 @@ STREAMING_NODES: set[MaxNodeName] = {
     TaxonomyNodeName.LOOP_NODE,
     AssistantNodeName.SESSION_SUMMARIZATION,
     AssistantNodeName.INSIGHTS_SEARCH,
+    DeepResearchNodeName.ONBOARDING,
+    DeepResearchNodeName.PLANNER,
+    DeepResearchNodeName.TASK_EXECUTOR,
 }
-"""Nodes that can stream messages to the client."""
+"""Nodes that can stream messages to the client directly from a streaming API (e.g. MaxChatOpenAI)."""
 
 
 VERBOSE_NODES: set[MaxNodeName] = STREAMING_NODES | {
     AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
     AssistantNodeName.ROOT_TOOLS,
     TaxonomyNodeName.TOOLS_NODE,
+    DeepResearchNodeName.PLANNER_TOOLS,
+    DeepResearchNodeName.TASK_EXECUTOR,
 }
 """Nodes that can send messages to the client."""
 
 THINKING_NODES: set[MaxNodeName] = {
     AssistantNodeName.QUERY_PLANNER,
+    AssistantNodeName.MEMORY_INITIALIZER,
     TaxonomyNodeName.LOOP_NODE,
     AssistantNodeName.SESSION_SUMMARIZATION,
+    DeepResearchNodeName.ONBOARDING,
+    DeepResearchNodeName.NOTEBOOK_PLANNING,
+    DeepResearchNodeName.PLANNER,
+    DeepResearchNodeName.REPORT,
 }
 """Nodes that pass on thinking messages to the client. Current implementation assumes o3/o4 style of reasoning summaries!"""
 
@@ -124,21 +136,24 @@ logger = structlog.get_logger(__name__)
 
 class Assistant:
     _team: Team
+    _state_class: type[MaxGraphState]
     _graph: CompiledStateGraph
     _user: User
     _contextual_tools: dict[str, Any]
     _conversation: Conversation
     _session_id: Optional[str]
     _latest_message: Optional[HumanMessage]
-    _state: Optional[AssistantState]
+    _state: Optional[MaxGraphState]
     _callback_handler: Optional[BaseCallbackHandler]
     _trace_id: Optional[str | UUID]
     _custom_update_ids: set[str]
     _reasoning_headline_chunk: Optional[str]
     """Like a message chunk, but specifically for the reasoning headline (and just a plain string)."""
     _last_reasoning_headline: Optional[str]
-    """Last emittted reasoning headline, to be able to carry it over."""
+    """Last emitted reasoning headline, to be able to carry it over."""
     _billing_context: Optional[MaxBillingContext]
+    _commentary_chunk: Optional[str]
+    """Buffer for accumulating partial commentary from tool call chunks."""
 
     def __init__(
         self,
@@ -166,8 +181,13 @@ class Assistant:
         match mode:
             case AssistantMode.ASSISTANT:
                 self._graph = AssistantGraph(team, user).compile_full_graph()
+                self._state_class = AssistantState
+            case AssistantMode.DEEP_RESEARCH:
+                self._graph = DeepResearchAssistantGraph(team, user).compile_full_graph()
+                self._state_class = DeepResearchState
             case AssistantMode.INSIGHTS_TOOL:
                 self._graph = InsightsAssistantGraph(team, user).compile_full_graph()
+                self._state_class = AssistantState
         self._chunks = AIMessageChunk(content="")
         self._tool_call_partial_state = tool_call_partial_state
         self._state = None
@@ -180,6 +200,7 @@ class Assistant:
                     "is_first_conversation": is_new_conversation,
                     "$session_id": self._session_id,
                     "assistant_mode": mode.value,
+                    "$groups": event_usage.groups(team=team),
                 },
                 trace_id=trace_id,
             )
@@ -191,6 +212,7 @@ class Assistant:
         self._reasoning_headline_chunk = None
         self._last_reasoning_headline = None
         self._billing_context = billing_context
+        self._commentary_chunk = None
 
     async def ainvoke(self) -> list[tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]]:
         """Returns all messages in once without streaming."""
@@ -225,7 +247,7 @@ class Assistant:
             if self._is_new_conversation:
                 yield AssistantEventType.CONVERSATION, self._conversation
 
-            if self._latest_message and self._mode == AssistantMode.ASSISTANT:
+            if self._latest_message and self._mode in [AssistantMode.ASSISTANT, AssistantMode.DEEP_RESEARCH]:
                 # Send the last message with the initialized id.
                 yield AssistantEventType.MESSAGE, self._latest_message
 
@@ -235,6 +257,9 @@ class Assistant:
                 async for update in generator:
                     if messages := await self._process_update(update):
                         for message in messages:
+                            # Filter out VisualizationMessages when in DeepResearch mode
+                            if isinstance(message, VisualizationMessage) and isinstance(state, DeepResearchState):
+                                continue
                             if isinstance(message, VisualizationMessage):
                                 last_viz_message = message
                             if isinstance(message, AssistantMessage):
@@ -283,20 +308,11 @@ class Assistant:
 
                 if not isinstance(e, GenerationCanceled):
                     logger.exception("Error in assistant stream", error=e)
-                    posthoganalytics.capture_exception(
-                        e,
-                        distinct_id=self._user.distinct_id if self._user else None,
-                        properties={
-                            "$session_id": self._session_id,
-                            "$ai_trace_id": self._trace_id,
-                            "thread_id": self._conversation.id,
-                            "tag": "max_ai",
-                        },
-                    )
+                    self._capture_exception(e)
 
                     # This is an unhandled error, so we just stop further generation at this point
                     snapshot = await self._graph.aget_state(config)
-                    state_snapshot = validate_state_update(snapshot.values)
+                    state_snapshot = validate_state_update(snapshot.values, self._state_class)
                     # Some nodes might have already sent a failure message, so we don't want to send another one.
                     if not state_snapshot.messages or not isinstance(state_snapshot.messages[-1], FailureMessage):
                         yield AssistantEventType.MESSAGE, FailureMessage()
@@ -334,7 +350,7 @@ class Assistant:
 
         # If the graph previously hasn't reset the state, it is an interrupt. We resume from the point of interruption.
         if snapshot.next and self._latest_message:
-            saved_state = validate_state_update(snapshot.values)
+            saved_state = validate_state_update(snapshot.values, self._state_class)
             if saved_state.graph_status == "interrupted":
                 self._state = saved_state
                 await self._graph.aupdate_state(
@@ -347,14 +363,23 @@ class Assistant:
                 return None
 
         # Append the new message and reset some fields to their default values.
-        if self._latest_message and self._mode == AssistantMode.ASSISTANT:
-            initial_state = AssistantState(
-                messages=[self._latest_message],
-                start_id=self._latest_message.id,
-                query_generation_retry_count=0,
-                graph_status=None,
-                rag_context=None,
-            )
+        initial_state: AssistantState | DeepResearchState
+        if self._latest_message and self._mode in [AssistantMode.ASSISTANT, AssistantMode.DEEP_RESEARCH]:
+            if self._mode == AssistantMode.DEEP_RESEARCH:
+                initial_state = DeepResearchState(
+                    messages=[self._latest_message],
+                    start_id=self._latest_message.id,
+                    graph_status=None,
+                    notebook_short_id=None,
+                )
+            else:
+                initial_state = AssistantState(
+                    messages=[self._latest_message],
+                    start_id=self._latest_message.id,
+                    query_generation_retry_count=0,
+                    graph_status=None,
+                    rag_context=None,
+                )
         else:
             initial_state = AssistantState(messages=[])
 
@@ -365,11 +390,12 @@ class Assistant:
         return initial_state
 
     async def _node_to_reasoning_message(
-        self, node_name: MaxNodeName, input: AssistantState
+        self, node_name: MaxNodeName, input: AssistantState | DeepResearchState
     ) -> Optional[ReasoningMessage]:
         match node_name:
             case AssistantNodeName.QUERY_PLANNER | TaxonomyNodeName.LOOP_NODE:
                 substeps: list[str] = []
+                input = cast(AssistantState, input)
                 if input:
                     if intermediate_steps := input.intermediate_steps:
                         for action, _ in intermediate_steps:
@@ -451,17 +477,39 @@ class Assistant:
                 return None
             case AssistantNodeName.SESSION_SUMMARIZATION:
                 return ReasoningMessage(content="Summarizing session recordings")
+            case DeepResearchNodeName.PLANNER_TOOLS:
+                assert isinstance(input.messages[-1], AssistantMessage)
+                tool_calls = input.messages[-1].tool_calls or []
+                assert len(tool_calls) <= 1
+                if len(tool_calls) == 0:
+                    return None
+                tool_call = tool_calls[0]
+                if tool_call.name == "todo_write":
+                    return ReasoningMessage(content="Writing todos")
+                elif tool_call.name == "todo_read":
+                    return ReasoningMessage(content="Reading todos")
+                elif tool_call.name == "artifacts_read":
+                    return ReasoningMessage(content="Reading artifacts")
+                elif tool_call.name == "execute_tasks":
+                    return ReasoningMessage(content="Executing tasks")
+                elif tool_call.name == "result_write":
+                    return ReasoningMessage(content="Writing intermediate results")
+                elif tool_call.name == "finalize_research":
+                    return ReasoningMessage(content="Finalizing research")
+                return None
             case _:
                 return None
 
     async def _process_update(self, update: Any) -> list[BaseModel] | None:
         if update[1] == "custom":
             # Custom streams come from a tool call
+            # If it's a LangGraph-based chunk, we remove the first two elements, which are "custom" and the parent graph namespace
             update = update[2]
+
         update = update[1:]  # we remove the first element, which is the node/subgraph node name
         if is_state_update(update):
             _, new_state = update
-            self._state = validate_state_update(new_state)
+            self._state = validate_state_update(new_state, self._state_class)
         elif is_value_update(update) and (new_messages := self._process_value_update(update)):
             return new_messages
         elif is_message_update(update) and (new_message := self._process_message_update(update)):
@@ -474,25 +522,25 @@ class Assistant:
         _, maybe_state_update = update
         state_update = validate_value_update(maybe_state_update)
         # this needs full type annotation otherwise mypy complains
-        visualization_nodes: dict[MaxNodeName, type[AssistantNode]] | dict[MaxNodeName, type[SchemaGeneratorNode]] = (
-            VISUALIZATION_NODES if self._mode == AssistantMode.ASSISTANT else VISUALIZATION_NODES_TOOL_CALL_MODE
-        )
+        visualization_nodes: (
+            dict[MaxNodeName, type[AssistantNode | DeepResearchNode]] | dict[MaxNodeName, type[SchemaGeneratorNode]]
+        ) = VISUALIZATION_NODES_TOOL_CALL_MODE if self._mode == AssistantMode.INSIGHTS_TOOL else VISUALIZATION_NODES
         if intersected_nodes := state_update.keys() & visualization_nodes.keys():
             # Reset chunks when schema validation fails.
             self._chunks = AIMessageChunk(content="")
 
             node_name: MaxNodeName = intersected_nodes.pop()
             node_val = state_update[node_name]
-            if not isinstance(node_val, PartialAssistantState):
+            if not isinstance(node_val, PartialAssistantState | PartialDeepResearchState):
                 return None
             if node_val.messages:
                 return list(node_val.messages)
-            elif node_val.intermediate_steps:
+            elif isinstance(node_val, PartialAssistantState) and node_val.intermediate_steps:
                 return [AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)]
 
         for node_name in VERBOSE_NODES:
             if node_val := state_update.get(node_name):
-                if isinstance(node_val, PartialAssistantState) and node_val.messages:
+                if isinstance(node_val, PartialAssistantState | PartialDeepResearchState) and node_val.messages:
                     self._chunks = AIMessageChunk(content="")
                     _messages: list[BaseModel] = []
                     for candidate_message in node_val.messages:
@@ -509,69 +557,38 @@ class Assistant:
 
     def _process_message_update(self, update: GraphMessageUpdateTuple) -> BaseModel | None:
         langchain_message, langgraph_state = update[1]
-        # Process message chunks
-        if isinstance(langchain_message, AIMessageChunk):
-            node_name: MaxNodeName = langgraph_state["langgraph_node"]
-            # Check for reasoning content first (for all nodes that support it)
-            if reasoning := langchain_message.additional_kwargs.get("reasoning"):
-                if reasoning_headline := self._chunk_reasoning_headline(reasoning):
-                    return ReasoningMessage(content=reasoning_headline)
 
-            # Only process streaming nodes
-            if node_name not in STREAMING_NODES:
-                return None
-
-            # Merge message chunks
-            self._merge_message_chunk(langchain_message)
-
-            if node_name == AssistantNodeName.MEMORY_INITIALIZER:
-                return self._process_memory_initializer_chunk(langchain_message)
-
-            # Extract and process content
-            message_content = extract_content_from_ai_message(self._chunks)
-            if not message_content:
-                return None
-
-            return AssistantMessage(content=message_content)
-        # Return ready messages as is
-        elif isinstance(langchain_message, get_args(AssistantMessageUnion)):
+        if isinstance(langchain_message, ASSISTANT_MESSAGE_TYPES):
+            # Immediately return assistant messages coming from custom message streams
             return langchain_message
-        return None
 
-    def _merge_message_chunk(self, langchain_message: AIMessageChunk) -> None:
-        """Merge a new message chunk with existing chunks, handling content format compatibility.
-
-        # This is because we reset to AIMessageChunk(content="") in a few places,
-        # but if we're switching between reasoning and non-reasoning models between different nodes,
-        # the format of the content will change, and we need to reset the chunks to the right format.
-        """
-
-        current_is_list = isinstance(self._chunks.content, list)
-        new_is_list = isinstance(langchain_message.content, list)
-
-        if current_is_list != new_is_list:
-            # Content types are incompatible - reset with new chunk
-            self._chunks = langchain_message
-        else:
-            # Compatible types - merge normally
-            self._chunks += langchain_message  # type: ignore
-
-    def _process_memory_initializer_chunk(self, langchain_message: AIMessageChunk) -> Optional[AssistantMessage]:
-        """Process memory initializer specific chunk logic."""
-        if not MemoryInitializerNode.should_process_message_chunk(langchain_message):
-            return None
-        return AssistantMessage(content=MemoryInitializerNode.format_message(cast(str, self._chunks.content)))
-
-    def _create_notebook_update_message(self, content: str) -> Optional[NotebookUpdateMessage]:
-        """Create a notebook update message from markdown content."""
-        if not self._state or not self._state.notebook_id:
-            logger.debug("No notebook id found in state", state=self._state)
+        if not isinstance(langchain_message, AIMessageChunk):
             return None
 
-        serializer = NotebookSerializer()
-        json_content = serializer.from_markdown_to_json(content)
-        # NOTE: this shouldn't have an id, because it's a partial update chunk, not the final message
-        return NotebookUpdateMessage(notebook_id=self._state.notebook_id, content=json_content)
+        node_name: MaxNodeName = langgraph_state["langgraph_node"]
+
+        # Check for commentary in tool call chunks first
+        if commentary := self._extract_commentary_from_tool_call_chunk(langchain_message):
+            return AssistantMessage(content=commentary)
+
+        # Check for reasoning content (for all nodes that support it)
+        if reasoning := langchain_message.additional_kwargs.get("reasoning"):
+            if reasoning_headline := self._chunk_reasoning_headline(reasoning):
+                return ReasoningMessage(content=reasoning_headline)
+
+        # Only process streaming nodes
+        if node_name not in STREAMING_NODES:
+            return None
+
+        # Merge message chunks
+        self._chunks = merge_message_chunk(self._chunks, langchain_message)
+
+        # Extract and process content
+        message_content = extract_content_from_ai_message(self._chunks)
+        if not message_content:
+            return None
+
+        return AssistantMessage(content=message_content)
 
     def _chunk_reasoning_headline(self, reasoning: dict[str, Any]) -> Optional[str]:
         """Process a chunk of OpenAI `reasoning`, and if a new headline was just finalized, return it."""
@@ -583,7 +600,7 @@ class Assistant:
                 return None
         except Exception as e:
             logger.exception("Error in chunk_reasoning_headline", error=e)
-            capture_exception(e)  # not expected, so let's capture
+            self._capture_exception(e)  # not expected, so let's capture
             self._reasoning_headline_chunk = None
             return None
 
@@ -616,6 +633,61 @@ class Assistant:
 
         return None
 
+    def _extract_commentary_from_tool_call_chunk(self, langchain_message: AIMessageChunk) -> Optional[str]:
+        """Extract commentary from tool call chunks.
+
+        Handles partial JSON parsing for "commentary": "some text" patterns
+        Returns the commentary content when a complete or partial one is found.
+        """
+        if not langchain_message.tool_call_chunks:
+            return None
+
+        for chunk in langchain_message.tool_call_chunks:
+            if not chunk or not chunk.get("args"):
+                continue
+
+            args_chunk = chunk["args"]
+            if not isinstance(args_chunk, str):
+                continue
+
+            # Accumulate chunks
+            if self._commentary_chunk is None:
+                self._commentary_chunk = args_chunk
+            else:
+                self._commentary_chunk = self._commentary_chunk + args_chunk
+
+            # Try to extract commentary from accumulated chunks
+            current_buffer = self._commentary_chunk
+
+            # Look for "commentary": pattern
+            commentary_pattern = '"commentary":'
+            if commentary_pattern in current_buffer:
+                # Find the start of the commentary value
+                start_idx = current_buffer.find(commentary_pattern) + len(commentary_pattern)
+                remaining = current_buffer[start_idx:].lstrip()
+
+                if remaining.startswith('"'):
+                    # We have the opening quote
+                    value_start = 1
+                    value_buffer = remaining[value_start:]
+
+                    # Check if we have a closing quote
+                    closing_quote_idx = value_buffer.find('"')
+
+                    if closing_quote_idx != -1:
+                        # Complete commentary found
+                        commentary = value_buffer[:closing_quote_idx]
+                        # Reset buffer for next commentary
+                        self._commentary_chunk = None
+                        return commentary
+                    else:
+                        # Partial commentary - return what we have so far
+                        # But only if there's actual content
+                        if value_buffer:
+                            return value_buffer
+
+        return None
+
     async def _process_task_started_update(self, update: GraphTaskStartedUpdateTuple) -> BaseModel | None:
         _, task_update = update
         node_name = task_update["payload"]["name"]  # type: ignore
@@ -636,27 +708,46 @@ class Assistant:
         )
         output = last_assistant_message.content if isinstance(last_assistant_message, AssistantMessage) else None
 
-        if self._mode == AssistantMode.ASSISTANT:
-            await database_sync_to_async(report_user_action)(
-                self._user,
-                "chat with ai",
-                {
-                    "prompt": self._latest_message.content if self._latest_message else None,
-                    "output": output,
-                    "response": visualization_response,
-                },
-            )
-        elif self._mode == AssistantMode.INSIGHTS_TOOL and self._tool_call_partial_state:
-            await database_sync_to_async(report_user_action)(
-                self._user,
-                "standalone ai tool call",
-                {
-                    "prompt": self._tool_call_partial_state.root_tool_insight_plan,
-                    "output": output,
-                    "response": visualization_response,
-                    "tool_name": "create_and_query_insight",
-                },
-            )
+        event_config = self._get_analytics_event_config(output, visualization_response)
+        if event_config:
+            await database_sync_to_async(report_user_action)(self._user, event_config["name"], event_config["args"])
+
+    def _get_analytics_event_config(
+        self, output: Optional[str], visualization_response: Optional[str]
+    ) -> Optional[dict[str, Any]]:
+        """Get analytics event configuration based on assistant mode."""
+        base_prompt = self._latest_message.content if self._latest_message else None
+
+        match self._mode:
+            case AssistantMode.ASSISTANT:
+                return {
+                    "name": "chat with ai",
+                    "args": {
+                        "prompt": base_prompt,
+                        "output": output,
+                        "response": visualization_response,
+                    },
+                }
+            case AssistantMode.DEEP_RESEARCH:
+                return {
+                    "name": "deep research",
+                    "args": {
+                        "prompt": base_prompt,
+                        "output": output,
+                    },
+                }
+            case AssistantMode.INSIGHTS_TOOL if self._tool_call_partial_state:
+                return {
+                    "name": "standalone ai tool call",
+                    "args": {
+                        "prompt": self._tool_call_partial_state.root_tool_insight_plan,
+                        "response": visualization_response,
+                        "output": output,
+                        "tool_name": "create_and_query_insight",
+                    },
+                }
+            case _:
+                return None
 
     @asynccontextmanager
     async def _lock_conversation(self):
@@ -667,3 +758,16 @@ class Assistant:
         finally:
             self._conversation.status = Conversation.Status.IDLE
             await self._conversation.asave(update_fields=["status", "updated_at"])
+
+    def _capture_exception(self, e: Exception):
+        posthoganalytics.capture_exception(
+            e,
+            distinct_id=self._user.distinct_id if self._user else None,
+            properties={
+                "$session_id": self._session_id,
+                "$ai_trace_id": self._trace_id,
+                "thread_id": self._conversation.id,
+                "tag": "max_ai",
+                "$groups": event_usage.groups(team=self._team),
+            },
+        )

@@ -12,7 +12,7 @@ from posthog.hogql.database.database import create_hogql_database
 
 from posthog.sync import database_sync_to_async
 
-from products.data_warehouse.backend.max_tools import HogQLGeneratorArgs, HogQLGeneratorTool
+from products.data_warehouse.backend.max_tools import HogQLGeneratorArgs, HogQLGeneratorNode, HogQLGeneratorTool
 
 from ee.hogai.eval.base import MaxPublicEval
 from ee.hogai.eval.scorers import SQLSemanticsCorrectness, SQLSyntaxCorrectness
@@ -72,6 +72,12 @@ async def database_schema(demo_org_team_user):
     return await serialize_database_schema(database, context)
 
 
+async def sql_syntax_scorer(input: EvalInput, expected: str, output: str, **kwargs) -> Score:
+    metadata: dict = kwargs["metadata"]
+    metric = SQLSyntaxCorrectness()
+    return await metric._run_eval_async(output=output, team=metadata["team"])
+
+
 async def sql_semantics_scorer(input: EvalInput, expected: str, output: str, **kwargs) -> Score:
     metadata: dict = kwargs["metadata"]
     metric = SQLSemanticsCorrectness()
@@ -81,13 +87,14 @@ async def sql_semantics_scorer(input: EvalInput, expected: str, output: str, **k
 
 
 @pytest.mark.django_db
-async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_schema, pytestconfig):
-    metadata = {"schema": database_schema}
+async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_schema, demo_org_team_user, pytestconfig):
+    _, team, _ = demo_org_team_user
+    metadata = {"schema": database_schema, "team": team}
 
     await MaxPublicEval(
         experiment_name="tool_generate_hogql_query",
         task=call_generate_hogql_query,
-        scores=[SQLSyntaxCorrectness(), sql_semantics_scorer],
+        scores=[sql_syntax_scorer, sql_semantics_scorer],
         data=[
             EvalCase(
                 input=EvalInput(instructions="List all events from the last 7 days"),
@@ -131,8 +138,8 @@ async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_sch
             EvalCase(
                 input=EvalInput(
                     instructions="how many bills did users pay from Australia? Output just a single number.",
-                    apply_patch=lambda tool: patch.object(
-                        tool,
+                    apply_patch=lambda _: patch.object(
+                        HogQLGeneratorNode,
                         "_aget_core_memory_text",
                         return_value='Use "paid_bill" event from the events table joined by "events.person_id = persons.id". The person properties have the "$geoip_country_code" field with two-letter country codes (uppercase).',
                     ).start(),
@@ -163,6 +170,13 @@ async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_sch
             ),
             EvalCase(
                 input=EvalInput(
+                    instructions="Count the browser languages currently used by users that signed up, and finally there are three columns: browser, browser language, and number of users. Include the time period from the 1st of January 2025 to the 1st of February 2025",
+                ),
+                expected="SELECT properties.$browser AS browser, properties.$browser_language AS browser_language, count(DISTINCT person_id) AS number_of_users FROM events WHERE event = 'signed_up' AND timestamp >= '2025-01-01T00:00:00:000' AND timestamp <= '2025-02-01T23:59:59:999' GROUP BY browser, browser_language ORDER BY number_of_users DESC",
+                metadata=metadata,
+            ),
+            EvalCase(
+                input=EvalInput(
                     instructions="want to see a pattern of traffic volume across all weekdays (for example, a breakdown showing counts for each weekday)",
                 ),
                 expected="SELECT toDayOfWeek(timestamp) AS weekday, count() AS event_count FROM events WHERE timestamp >= now() - INTERVAL 30 DAY GROUP BY weekday ORDER BY weekday",
@@ -179,7 +193,7 @@ async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_sch
             ),
             EvalCase(
                 input=EvalInput(instructions="How many unique users visited our site last week?"),
-                expected="SELECT count(DISTINCT distinct_id) FROM events WHERE event = '$pageview' AND timestamp >= now() - INTERVAL 7 DAY",
+                expected="SELECT count(DISTINCT person_id) FROM events WHERE event = '$pageview' AND timestamp >= now() - INTERVAL 7 DAY",
                 metadata=metadata,
             ),
             EvalCase(
@@ -193,7 +207,7 @@ async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_sch
                 input=EvalInput(
                     instructions="Get the daily count of unique users (including anonymous) who triggered any event, broken down by day for the past 2 weeks"
                 ),
-                expected="SELECT toStartOfDay(timestamp) AS day, count(DISTINCT distinct_id) AS unique_users FROM events WHERE timestamp >= now() - INTERVAL 14 DAY GROUP BY day ORDER BY day DESC",
+                expected="SELECT toStartOfDay(timestamp) AS day, count(DISTINCT person_id) AS unique_users FROM events WHERE timestamp >= now() - INTERVAL 14 DAY GROUP BY day ORDER BY day DESC",
                 metadata=metadata,
             ),
         ],

@@ -9,6 +9,9 @@ import { template as googleAdsTemplate } from './_destinations/google_ads/google
 import { template as googleSheetsTemplate } from './_destinations/google_sheets/google_sheets.template'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
 import { template as nativeWebhookTemplate } from './_destinations/native_webhook/webhook.template'
+import { template as posthogCaptureTemplate } from './_destinations/posthog_capture/posthog-capture.template'
+import { template as posthogGroupIdentifyTemplate } from './_destinations/posthog_capture/posthog-group-identify.template'
+import { template as posthogUpdatePersonPropertiesTemplate } from './_destinations/posthog_capture/posthog-update-person-properties.template'
 import { template as redditAdsTemplate } from './_destinations/reddit_ads/reddit.template'
 import { template as snapchatAdsTemplate } from './_destinations/snapchat_ads/snapchat.template'
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
@@ -42,6 +45,9 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     googleTagManagerTemplate,
     emailTemplate,
     clickupTemplate,
+    posthogCaptureTemplate,
+    posthogGroupIdentifyTemplate,
+    posthogUpdatePersonPropertiesTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [

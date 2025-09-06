@@ -45,7 +45,7 @@ class BaseAccessControlTest(APILicensedTest):
             payload.update(data)
 
         return self.client.put(
-            "/api/projects/@current/global_access_controls",
+            "/api/projects/@current/resource_access_controls",
             payload,
         )
 
@@ -996,8 +996,24 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "access_control:read" in response.json()["detail"]
 
-    def test_global_access_controls_get_requires_access_control_read_scope(self):
-        """Test that GET requests to global_access_controls endpoint require access_control:read scope"""
+    def test_resource_access_controls_get_requires_access_control_read_scope(self):
+        """Test that GET requests to resource_access_controls endpoint require access_control:read scope"""
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test_key",
+            secure_value=hash_key_value(key_value),
+            scopes=["project:read"],  # Only project:read, no access_control:read
+        )
+
+        response = self.client.get(
+            "/api/projects/@current/resource_access_controls", HTTP_AUTHORIZATION=f"Bearer {key_value}"
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "access_control:read" in response.json()["detail"]
+
+    def test_deprecated_global_access_controls_get_requires_access_control_read_scope(self):
+        """Test that GET requests to deprecated global_access_controls endpoint require access_control:read scope"""
         key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             user=self.user,
@@ -1022,15 +1038,15 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
         response = self.client.get("/api/projects/@current/access_controls", HTTP_AUTHORIZATION=f"Bearer {key_value}")
         assert response.status_code == status.HTTP_200_OK
 
-    def test_global_access_controls_get_succeeds_with_access_control_read_scope(self):
-        """Test that GET requests to global_access_controls endpoint succeed with access_control:read scope"""
+    def test_resource_access_controls_get_succeeds_with_access_control_read_scope(self):
+        """Test that GET requests to resource_access_controls endpoint succeed with access_control:read scope"""
         key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             user=self.user, label="test_key", secure_value=hash_key_value(key_value), scopes=["access_control:read"]
         )
 
         response = self.client.get(
-            "/api/projects/@current/global_access_controls", HTTP_AUTHORIZATION=f"Bearer {key_value}"
+            "/api/projects/@current/resource_access_controls", HTTP_AUTHORIZATION=f"Bearer {key_value}"
         )
         assert response.status_code == status.HTTP_200_OK
 
@@ -1150,8 +1166,8 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
         )
         assert response.status_code == status.HTTP_200_OK
 
-    def test_global_access_controls_put_fails_with_only_read_scope(self):
-        """Test that PUT requests to global_access_controls endpoint fail with only access_control:read scope"""
+    def test_resource_access_controls_put_fails_with_only_read_scope(self):
+        """Test that PUT requests to resource_access_controls endpoint fail with only access_control:read scope"""
         key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             user=self.user,
@@ -1161,15 +1177,15 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
         )
 
         response = self.client.put(
-            f"/api/projects/@current/global_access_controls",
+            f"/api/projects/@current/resource_access_controls",
             {"access_level": "editor", "resource": "notebook"},
             HTTP_AUTHORIZATION=f"Bearer {key_value}",
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "access_control:write" in response.json()["detail"]
 
-    def test_global_access_controls_put_succeeds_with_write_scope(self):
-        """Test that PUT requests to global_access_controls endpoint succeed with access_control:write scope"""
+    def test_resource_access_controls_put_succeeds_with_write_scope(self):
+        """Test that PUT requests to resource_access_controls endpoint succeed with access_control:write scope"""
         key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             user=self.user,
@@ -1179,7 +1195,7 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
         )
 
         response = self.client.put(
-            f"/api/projects/@current/global_access_controls",
+            f"/api/projects/@current/resource_access_controls",
             {"access_level": "editor", "resource": "dashboard"},
             HTTP_AUTHORIZATION=f"Bearer {key_value}",
         )

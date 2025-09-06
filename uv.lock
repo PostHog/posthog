@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = "==3.11.*"
 
 [[package]]
@@ -693,17 +693,17 @@ wheels = [
 
 [[package]]
 name = "chdb"
-version = "3.2.0"
+version = "3.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pandas" },
     { name = "pyarrow" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3b/5a/262f29b2463571f8e5d475b2a0fdecd0b7cf881c66524b228000ef3e1cfa/chdb-3.2.0-cp311-cp311-macosx_10_15_x86_64.whl", hash = "sha256:3ce03e8da61bfd3168849f4ef8292e681694b0e483afa4de00d4c6ab1cc77fee", size = 102643876, upload-time = "2025-04-24T02:38:57.737Z" },
-    { url = "https://files.pythonhosted.org/packages/11/16/9ee9ce1cf9f60ada5e9f4faf2c2fb27842c815294b8acaa0ee31e6b9ce8b/chdb-3.2.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:7698ec5645546b4ac19ea6c590be9ee42cfca8189b09868fc909e437740c8d1a", size = 78157522, upload-time = "2025-04-24T02:51:00.348Z" },
-    { url = "https://files.pythonhosted.org/packages/53/83/c968d33f4a889562ad243feeba5bdc216eab54f5820ab6e3465e5edde0eb/chdb-3.2.0-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:26e07867822d91dba58d38371baa32f64709592a7856e8e057527cf954a447d0", size = 113902355, upload-time = "2025-04-24T02:16:01.489Z" },
-    { url = "https://files.pythonhosted.org/packages/3d/c2/3cd3da42e68b58b31a6ef0b7da5db284a0fe48e9dcd69958d14e09d50c30/chdb-3.2.0-cp311-cp311-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:4f86fbcfca16ab9f6a4c9bbf824aa28b64ad57f572fe6d9ef342f864643e83f1", size = 140218548, upload-time = "2025-04-24T02:18:05.36Z" },
+    { url = "https://files.pythonhosted.org/packages/34/2d/ac956ecac132af6d64ab126612e361a3d928076ecaa032b24935dba196e5/chdb-3.3.0-cp311-cp311-macosx_10_15_x86_64.whl", hash = "sha256:78629588f694fe6b4307d86652e1afc16423048e0456c87e157d10d070749a8b", size = 102673574, upload-time = "2025-06-05T13:21:37.775Z" },
+    { url = "https://files.pythonhosted.org/packages/52/99/0ac1643a0a642a29ce2e645c02b75adb574193a4a9dc19a470284010cd50/chdb-3.3.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:e2b32ceafe56fb2034db79061193232434e2e77f47d7dfa603a3ce75ec543f36", size = 78187143, upload-time = "2025-06-06T02:00:22.296Z" },
+    { url = "https://files.pythonhosted.org/packages/1c/a1/21abde04c7b0bc83660a96c1032a4186d41c4d0c8060a425f200b22a96c1/chdb-3.3.0-cp311-cp311-manylinux1_x86_64.manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_5_x86_64.whl", hash = "sha256:cb986a0165496aa5e7f24339aaa869b2138e8bf6589b516aabc8d1da1825f175", size = 140277461, upload-time = "2025-06-05T13:04:59.492Z" },
+    { url = "https://files.pythonhosted.org/packages/db/b4/5c207fa19ad5881405ab214d75f12ff4301ab3f6786dd9ec94ae3f3eb33c/chdb-3.3.0-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:99a7bf6c1d1ddc6164d0c09f74a1e68550035229ddca130b1e2112743ecfe3d8", size = 113915772, upload-time = "2025-06-05T13:04:03.305Z" },
 ]
 
 [[package]]
@@ -2874,7 +2874,7 @@ wheels = [
 
 [[package]]
 name = "langchain-core"
-version = "0.3.69"
+version = "0.3.75"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jsonpatch" },
@@ -2885,23 +2885,23 @@ dependencies = [
     { name = "tenacity" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/82/26/c4770d3933237cde2918d502e3b0a8b6ce100b296840b632658f3e59b341/langchain_core-0.3.69.tar.gz", hash = "sha256:c132961117cc7f0227a4c58dd3e209674a6dd5b7e74abc61a0df93b0d736e283", size = 563824, upload-time = "2025-07-15T21:19:56.626Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/06/63/270b71a23e849984505ddc7c5c9fd3f4bd9cb14b1a484ee44c4e51c33cc2/langchain_core-0.3.75.tar.gz", hash = "sha256:ab0eb95a06ed6043f76162e6086b45037690cb70b7f090bd83b5ebb8a05b70ed", size = 570876, upload-time = "2025-08-26T15:24:12.246Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/51/7b/bb7b088440ff9cc55e9e6eba94162cbdcd3b1693c194e1ad4764acba29b9/langchain_core-0.3.69-py3-none-any.whl", hash = "sha256:383e9cb4919f7ef4b24bf8552ef42e4323c064924fea88b28dd5d7ddb740d3b8", size = 441556, upload-time = "2025-07-15T21:19:55.342Z" },
+    { url = "https://files.pythonhosted.org/packages/fb/42/0d0221cce6f168f644d7d96cb6c87c4e42fc55d2941da7a36e970e3ab8ab/langchain_core-0.3.75-py3-none-any.whl", hash = "sha256:03ca1fadf955ee3c7d5806a841f4b3a37b816acea5e61a7e6ba1298c05eea7f5", size = 443986, upload-time = "2025-08-26T15:24:10.883Z" },
 ]
 
 [[package]]
 name = "langchain-openai"
-version = "0.3.27"
+version = "0.3.32"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-core" },
     { name = "openai" },
     { name = "tiktoken" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6f/7b/e65261a08a03dd43f0ef8a539930b56548ac8136e71258c220d3589d1d07/langchain_openai-0.3.27.tar.gz", hash = "sha256:5d5a55adbff739274dfc3a4102925771736f893758f63679b64ae62fed79ca30", size = 753326, upload-time = "2025-06-27T17:56:29.904Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7e/19/167d9ad1b6bb75406c4acceda01ef0dc1101c7f629f74441fe8a787fb190/langchain_openai-0.3.32.tar.gz", hash = "sha256:782ad669bd1bdb964456d8882c5178717adcfceecb482cc20005f770e43d346d", size = 782982, upload-time = "2025-08-26T14:25:27.917Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/aa/31/1f0baf6490b082bf4d06f355c5e9c28728931dbf321f3ca03137617a692e/langchain_openai-0.3.27-py3-none-any.whl", hash = "sha256:efe636c3523978c44adc41cf55c8b3766c05c77547982465884d1258afe705df", size = 70368, upload-time = "2025-06-27T17:56:28.726Z" },
+    { url = "https://files.pythonhosted.org/packages/e6/3d/e22ee65fff79afe7bdfbd67844243eb279b440c882dad9e4262dcc87131f/langchain_openai-0.3.32-py3-none-any.whl", hash = "sha256:3354f76822f7cc76d8069831fe2a77f9bc7ff3b4f13af788bd94e4c6e853b400", size = 74531, upload-time = "2025-08-26T14:25:26.542Z" },
 ]
 
 [[package]]
@@ -3012,6 +3012,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/51/f6/eb645ca1ff7408bb69e9b1fe692cce1d74394efdbb40d6207096c0cd8381/lazy_object_proxy-1.11.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:090935756cc041e191f22f4f9c7fd4fe9a454717067adf5b1bbd2ce3046b556e", size = 28047, upload-time = "2025-04-16T16:53:34.679Z" },
     { url = "https://files.pythonhosted.org/packages/13/9c/aabbe1e8b99b8b0edb846b49a517edd636355ac97364419d9ba05b8fa19f/lazy_object_proxy-1.11.0-cp311-cp311-win_amd64.whl", hash = "sha256:76ec715017f06410f57df442c1a8d66e6b5f7035077785b129817f5ae58810a4", size = 28440, upload-time = "2025-04-16T16:53:36.113Z" },
     { url = "https://files.pythonhosted.org/packages/e7/1e/fb441c07b6662ec1fc92b249225ba6e6e5221b05623cb0131d082f782edc/lazy_object_proxy-1.11.0-py3-none-any.whl", hash = "sha256:a56a5093d433341ff7da0e89f9b486031ccd222ec8e52ec84d0ec1cdc819674b", size = 16635, upload-time = "2025-04-16T16:53:47.198Z" },
+]
+
+[[package]]
+name = "linkedin-api-client"
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/cd/15/414738916edeb9cc71ed9da3650791b5431c25e3adc294fc0f5ebaf472cd/linkedin_api_client-0.3.0.tar.gz", hash = "sha256:318cc34d06be32ebb2c8f8f25c57e928532deb3ed231c51f9d8adec5a816abb2", size = 35669, upload-time = "2023-06-29T16:06:12.241Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/43/57/31586d60aabd0c2e6de644406ee3c3f5df3ce9b99b57feab1d4f770e1f0d/linkedin_api_client-0.3.0-py3-none-any.whl", hash = "sha256:2d47745ca2487def4daec8ace4f341b64a59ee59878943cac5e7f22cff3443a6", size = 35626, upload-time = "2023-06-29T16:06:10.277Z" },
 ]
 
 [[package]]
@@ -3429,7 +3441,7 @@ wheels = [
 
 [[package]]
 name = "openai"
-version = "1.91.0"
+version = "1.102.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -3441,9 +3453,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/0f/e2/a22f2973b729eff3f1f429017bdf717930c5de0fbf9e14017bae330e4e7a/openai-1.91.0.tar.gz", hash = "sha256:d6b07730d2f7c6745d0991997c16f85cddfc90ddcde8d569c862c30716b9fc90", size = 472529, upload-time = "2025-06-23T18:27:10.961Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/07/55/da5598ed5c6bdd9939633854049cddc5cbac0da938dfcfcb3c6b119c16c0/openai-1.102.0.tar.gz", hash = "sha256:2e0153bcd64a6523071e90211cbfca1f2bbc5ceedd0993ba932a5869f93b7fc9", size = 519027, upload-time = "2025-08-26T20:50:29.397Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7a/d2/f99bdd6fc737d6b3cf0df895508d621fc9a386b375a1230ee81d46c5436e/openai-1.91.0-py3-none-any.whl", hash = "sha256:207f87aa3bc49365e014fac2f7e291b99929f4fe126c4654143440e0ad446a5f", size = 735837, upload-time = "2025-06-23T18:27:08.913Z" },
+    { url = "https://files.pythonhosted.org/packages/bd/0d/c9e7016d82c53c5b5e23e2bad36daebb8921ed44f69c0a985c6529a35106/openai-1.102.0-py3-none-any.whl", hash = "sha256:d751a7e95e222b5325306362ad02a7aa96e1fab3ed05b5888ce1c7ca63451345", size = 812015, upload-time = "2025-08-26T20:50:27.219Z" },
 ]
 
 [[package]]
@@ -3969,6 +3981,25 @@ wheels = [
 ]
 
 [[package]]
+name = "playwright"
+version = "1.54.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "greenlet" },
+    { name = "pyee" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f3/09/33d5bfe393a582d8dac72165a9e88b274143c9df411b65ece1cc13f42988/playwright-1.54.0-py3-none-macosx_10_13_x86_64.whl", hash = "sha256:bf3b845af744370f1bd2286c2a9536f474cc8a88dc995b72ea9a5be714c9a77d", size = 40439034, upload-time = "2025-07-22T13:58:04.816Z" },
+    { url = "https://files.pythonhosted.org/packages/e1/7b/51882dc584f7aa59f446f2bb34e33c0e5f015de4e31949e5b7c2c10e54f0/playwright-1.54.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:780928b3ca2077aea90414b37e54edd0c4bbb57d1aafc42f7aa0b3fd2c2fac02", size = 38702308, upload-time = "2025-07-22T13:58:08.211Z" },
+    { url = "https://files.pythonhosted.org/packages/73/a1/7aa8ae175b240c0ec8849fcf000e078f3c693f9aa2ffd992da6550ea0dff/playwright-1.54.0-py3-none-macosx_11_0_universal2.whl", hash = "sha256:81d0b6f28843b27f288cfe438af0a12a4851de57998009a519ea84cee6fbbfb9", size = 40439037, upload-time = "2025-07-22T13:58:11.37Z" },
+    { url = "https://files.pythonhosted.org/packages/34/a9/45084fd23b6206f954198296ce39b0acf50debfdf3ec83a593e4d73c9c8a/playwright-1.54.0-py3-none-manylinux1_x86_64.whl", hash = "sha256:09919f45cc74c64afb5432646d7fef0d19fff50990c862cb8d9b0577093f40cc", size = 45920135, upload-time = "2025-07-22T13:58:14.494Z" },
+    { url = "https://files.pythonhosted.org/packages/02/d4/6a692f4c6db223adc50a6e53af405b45308db39270957a6afebddaa80ea2/playwright-1.54.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:13ae206c55737e8e3eae51fb385d61c0312eeef31535643bb6232741b41b6fdc", size = 45302695, upload-time = "2025-07-22T13:58:18.901Z" },
+    { url = "https://files.pythonhosted.org/packages/72/7a/4ee60a1c3714321db187bebbc40d52cea5b41a856925156325058b5fca5a/playwright-1.54.0-py3-none-win32.whl", hash = "sha256:0b108622ffb6906e28566f3f31721cd57dda637d7e41c430287804ac01911f56", size = 35469309, upload-time = "2025-07-22T13:58:21.917Z" },
+    { url = "https://files.pythonhosted.org/packages/aa/77/8f8fae05a242ef639de963d7ae70a69d0da61d6d72f1207b8bbf74ffd3e7/playwright-1.54.0-py3-none-win_amd64.whl", hash = "sha256:9e5aee9ae5ab1fdd44cd64153313a2045b136fcbcfb2541cc0a3d909132671a2", size = 35469311, upload-time = "2025-07-22T13:58:24.707Z" },
+    { url = "https://files.pythonhosted.org/packages/33/ff/99a6f4292a90504f2927d34032a4baf6adb498dc3f7cf0f3e0e22899e310/playwright-1.54.0-py3-none-win_arm64.whl", hash = "sha256:a975815971f7b8dca505c441a4c56de1aeb56a211290f8cc214eeef5524e8d75", size = 31239119, upload-time = "2025-07-22T13:58:27.56Z" },
+]
+
+[[package]]
 name = "pluggy"
 version = "1.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4081,6 +4112,7 @@ dependencies = [
     { name = "langchain-openai" },
     { name = "langchain-perplexity" },
     { name = "langgraph" },
+    { name = "linkedin-api-client" },
     { name = "lxml" },
     { name = "lzstring" },
     { name = "markdown-it-py" },
@@ -4107,6 +4139,7 @@ dependencies = [
     { name = "pdpyras" },
     { name = "phonenumberslite" },
     { name = "pillow" },
+    { name = "playwright" },
     { name = "posthoganalytics" },
     { name = "psutil" },
     { name = "psycopg", extra = ["binary"] },
@@ -4247,7 +4280,7 @@ requires-dist = [
     { name = "brotli", specifier = "==1.1.0" },
     { name = "celery", specifier = "==5.3.4" },
     { name = "celery-redbeat", specifier = "==2.1.1" },
-    { name = "chdb", specifier = ">=3.1.2" },
+    { name = "chdb", specifier = "==3.3.0" },
     { name = "claude-code-sdk", specifier = ">=0.0.14" },
     { name = "clickhouse-connect", specifier = "==0.8.17" },
     { name = "clickhouse-driver", specifier = "==0.2.9" },
@@ -4305,9 +4338,10 @@ requires-dist = [
     { name = "kombu", specifier = "==5.3.2" },
     { name = "langchain", specifier = "==0.3.26" },
     { name = "langchain-community", specifier = "==0.3.27" },
-    { name = "langchain-openai", specifier = "==0.3.27" },
+    { name = "langchain-openai", specifier = "==0.3.32" },
     { name = "langchain-perplexity", specifier = ">=0.1.1" },
     { name = "langgraph", specifier = "==0.4.10" },
+    { name = "linkedin-api-client", specifier = ">=0.3.0" },
     { name = "lxml", specifier = "==5.2.1" },
     { name = "lzstring", specifier = "==1.0.4" },
     { name = "markdown-it-py", specifier = "~=3.0.0" },
@@ -4318,7 +4352,7 @@ requires-dist = [
     { name = "natsort", specifier = "==8.4.0" },
     { name = "nh3", specifier = "==0.2.14" },
     { name = "numpy", specifier = "==1.26.4" },
-    { name = "openai", specifier = "==1.91.0" },
+    { name = "openai", specifier = "==1.102.0" },
     { name = "openpyxl", specifier = "==3.1.2" },
     { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = "==1.33.1" },
     { name = "opentelemetry-instrumentation-aiokafka", specifier = "==0.54b1" },
@@ -4334,6 +4368,7 @@ requires-dist = [
     { name = "pdpyras", specifier = "==5.2.0" },
     { name = "phonenumberslite", specifier = "==8.13.6" },
     { name = "pillow", specifier = "==10.2.0" },
+    { name = "playwright", specifier = ">=1.54.0" },
     { name = "posthoganalytics", specifier = ">=6.3.1" },
     { name = "psutil", specifier = "==6.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
@@ -4802,6 +4837,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/66/dd/e0e6a4fb84c22050f6a9701ad9fd6a67ef82faa7ba97b97eb6fdc6b49b34/pydot-3.0.4.tar.gz", hash = "sha256:3ce88b2558f3808b0376f22bfa6c263909e1c3981e2a7b629b65b451eee4a25d", size = 168167, upload-time = "2025-01-05T16:18:45.763Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b0/5f/1ebfd430df05c4f9e438dd3313c4456eab937d976f6ab8ce81a98f9fb381/pydot-3.0.4-py3-none-any.whl", hash = "sha256:bfa9c3fc0c44ba1d132adce131802d7df00429d1a79cc0346b0a5cd374dbe9c6", size = 35776, upload-time = "2025-01-05T16:18:42.836Z" },
+]
+
+[[package]]
+name = "pyee"
+version = "13.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/95/03/1fd98d5841cd7964a27d729ccf2199602fe05eb7a405c1462eb7277945ed/pyee-13.0.0.tar.gz", hash = "sha256:b391e3c5a434d1f5118a25615001dbc8f669cf410ab67d04c4d4e07c55481c37", size = 31250, upload-time = "2025-03-17T18:53:15.955Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9b/4d/b9add7c84060d4c1906abe9a7e5359f2a60f7a9a4f67268b2766673427d8/pyee-13.0.0-py3-none-any.whl", hash = "sha256:48195a3cddb3b1515ce0695ed76036b5ccc2ef3a9f963ff9f77aec0139845498", size = 15730, upload-time = "2025-03-17T18:53:14.532Z" },
 ]
 
 [[package]]
