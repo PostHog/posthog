@@ -103,7 +103,7 @@ class TestProcessConversationActivity:
             patch(
                 "posthog.temporal.ai.conversation.ConversationRedisStream", return_value=mock_redis_stream
             ) as mock_redis_stream_class,
-            patch("posthog.temporal.ai.conversation.Assistant", return_value=mock_assistant),
+            patch("posthog.temporal.ai.conversation.Assistant.create", return_value=mock_assistant),
         ):
             # Execute the activity
             await process_conversation_activity(conversation_inputs)
@@ -149,7 +149,7 @@ class TestProcessConversationActivity:
                 new=AsyncMock(return_value=mock_conversation),
             ),
             patch("posthog.temporal.ai.conversation.ConversationRedisStream", return_value=mock_redis_stream),
-            patch("posthog.temporal.ai.conversation.Assistant", return_value=mock_assistant),
+            patch("posthog.temporal.ai.conversation.Assistant.create", return_value=mock_assistant),
         ):
             # Should raise the streaming error
             with pytest.raises(Exception, match="Streaming error"):
@@ -183,14 +183,16 @@ class TestProcessConversationActivity:
                 new=AsyncMock(return_value=mock_conversation),
             ),
             patch("posthog.temporal.ai.conversation.ConversationRedisStream", return_value=mock_redis_stream),
-            patch("posthog.temporal.ai.conversation.Assistant", return_value=mock_assistant) as mock_assistant_class,
+            patch(
+                "posthog.temporal.ai.conversation.Assistant.create", return_value=mock_assistant
+            ) as mock_assistant_create,
         ):
             # Execute the activity
             await process_conversation_activity(inputs)
 
             # Verify Assistant was created with None message
-            mock_assistant_class.assert_called_once()
-            call_args = mock_assistant_class.call_args
+            mock_assistant_create.assert_called_once()
+            call_args = mock_assistant_create.call_args
             assert call_args[1]["new_message"] is None
 
             # Verify write_to_stream was called once
@@ -212,7 +214,7 @@ class TestProcessConversationActivity:
                 new=AsyncMock(return_value=mock_conversation),
             ),
             patch("posthog.temporal.ai.conversation.ConversationRedisStream", return_value=mock_redis_stream),
-            patch("posthog.temporal.ai.conversation.Assistant", return_value=mock_assistant),
+            patch("posthog.temporal.ai.conversation.Assistant.create", return_value=mock_assistant),
             patch("posthog.temporal.ai.conversation.activity", mock_activity),
         ):
             # Track callback invocations

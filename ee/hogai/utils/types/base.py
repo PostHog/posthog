@@ -12,6 +12,7 @@ from posthog.schema import (
     AssistantEventType,
     AssistantFunnelsQuery,
     AssistantGenerationStatusEvent,
+    AssistantGenerationStatusType,
     AssistantHogQLQuery,
     AssistantMessage,
     AssistantRetentionQuery,
@@ -49,6 +50,7 @@ AssistantMessageOrStatusUnion = Union[AssistantMessageUnion, AssistantGeneration
 AssistantOutput = (
     tuple[Literal[AssistantEventType.CONVERSATION], Conversation]
     | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageOrStatusUnion]
+    | tuple[Literal[AssistantEventType.STATUS], AssistantGenerationStatusType]
 )
 
 AnyAssistantGeneratedQuery = (
@@ -150,6 +152,8 @@ class BaseState(BaseModel):
         """Returns a new instance with all fields reset to their default values."""
         return cls(**{k: v.default for k, v in cls.model_fields.items()})
 
+
+class BaseStateWithMessages(BaseState):
     start_id: Optional[str] = Field(default=None)
     """
     The ID of the message from which the conversation started.
@@ -158,17 +162,24 @@ class BaseState(BaseModel):
     """
     Whether the graph was interrupted or resumed.
     """
-
-
-class _SharedAssistantState(BaseState):
+    messages: Sequence[AssistantMessageUnion] = Field(default=[])
     """
-    The state of the root node.
+    Messages exposed to the user.
     """
 
+
+class BaseStateWithIntermediateSteps(BaseState):
     intermediate_steps: Optional[list[IntermediateStep]] = Field(default=None)
     """
     Actions taken by the query planner agent.
     """
+
+
+class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateSteps):
+    """
+    The state of the root node.
+    """
+
     plan: Optional[str] = Field(default=None)
     """
     The insight generation plan.
@@ -250,10 +261,7 @@ class AssistantState(_SharedAssistantState):
 
 
 class PartialAssistantState(_SharedAssistantState):
-    messages: Sequence[AssistantMessageUnion] = Field(default=[])
-    """
-    Messages exposed to the user.
-    """
+    pass
 
 
 class AssistantNodeName(StrEnum):

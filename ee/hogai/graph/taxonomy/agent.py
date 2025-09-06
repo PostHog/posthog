@@ -36,21 +36,20 @@ class TaxonomyAgent(BaseAssistantGraph[StateType], Generic[StateType, PartialSta
 
     def add_taxonomy_generator(self, next_node: TaxonomyNodeName = TaxonomyNodeName.END):
         """Add the taxonomy generator nodes to the graph."""
-        builder = self._graph
         self._has_start_node = True
 
         # Add the main loop node
         loop_node = self._loop_node_class(self._team, self._user, self._toolkit_class)
-        builder.add_node(TaxonomyNodeName.LOOP_NODE, loop_node)
-        builder.add_edge(TaxonomyNodeName.START, TaxonomyNodeName.LOOP_NODE)
+        self._graph.add_node(TaxonomyNodeName.LOOP_NODE, loop_node)
+        self._graph.add_edge(TaxonomyNodeName.START, TaxonomyNodeName.LOOP_NODE)
 
         # Add the tools node
         tools_node = self._tools_node_class(self._team, self._user, self._toolkit_class)
-        builder.add_node(TaxonomyNodeName.TOOLS_NODE, tools_node)
-        builder.add_edge(TaxonomyNodeName.LOOP_NODE, TaxonomyNodeName.TOOLS_NODE)
+        self._graph.add_node(TaxonomyNodeName.TOOLS_NODE, tools_node)
+        self._graph.add_edge(TaxonomyNodeName.LOOP_NODE, TaxonomyNodeName.TOOLS_NODE)
 
         # Add conditional edges based on the tools node's router
-        builder.add_conditional_edges(
+        self._graph.add_conditional_edges(
             TaxonomyNodeName.TOOLS_NODE,
             tools_node.router,
             {

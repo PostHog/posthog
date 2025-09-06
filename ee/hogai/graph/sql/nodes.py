@@ -12,6 +12,7 @@ from .toolkit import SQL_SCHEMA
 
 
 class SQLGeneratorNode(HogQLGeneratorMixin, SchemaGeneratorNode[AssistantHogQLQuery]):
+    REASONING_MESSAGE = "Creating SQL query"
     INSIGHT_NAME = "SQL"
     OUTPUT_MODEL = SQLSchemaGeneratorOutput
     OUTPUT_SCHEMA = SQL_SCHEMA

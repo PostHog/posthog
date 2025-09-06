@@ -14,6 +14,7 @@ TrendsSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantTrendsQuery]
 
 
 class TrendsGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
+    REASONING_MESSAGE = "Creating trends query"
     INSIGHT_NAME = "Trends"
     OUTPUT_MODEL = TrendsSchemaGeneratorOutput
     OUTPUT_SCHEMA = TRENDS_SCHEMA
