@@ -1,10 +1,9 @@
 import { useValues } from 'kea'
 
-import { IconCommit, IconCopy, IconExternal, IconGitBranch, IconGitRepository } from '@posthog/icons'
+import { IconCommit, IconExternal, IconGitBranch, IconGitRepository } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { ExceptionReleaseGitMeta } from 'lib/components/Errors/types'
-import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { ReleasePreviewOutput, releasePreviewLogic } from './releasePreviewLogic'
@@ -19,9 +18,20 @@ export function ReleasePopoverContent({}: ReleasesPopoverContentProps): JSX.Elem
     const title = 'Related release'
 
     return (
-        <div className="min-w-[20rem] max-w-[20rem] overflow-hidden">
-            <div className="border-b-1 p-2">
+        <div className="overflow-hidden">
+            <div className="border-b-1 p-2 flex items-center justify-between gap-3">
                 <h4 className="mb-0">{title}</h4>
+                {releasePreviewData.mostProbableRelease?.repositoryUrl && (
+                    <LemonButton
+                        to={releasePreviewData.mostProbableRelease.repositoryUrl}
+                        targetBlank
+                        size="xsmall"
+                        type="secondary"
+                        icon={<IconExternal />}
+                    >
+                        Open commit
+                    </LemonButton>
+                )}
             </div>
             <div className="p-2">
                 <MostProbableRelease release={releasePreviewData.mostProbableRelease!} />
@@ -32,63 +42,33 @@ export function ReleasePopoverContent({}: ReleasesPopoverContentProps): JSX.Elem
 
 function MostProbableRelease({ release }: { release: ExceptionReleaseGitMeta }): JSX.Element {
     return (
-        <div className="space-y-2">
-            <div className="flex items-center gap-2">
-                <div className="w-16 text-xs text-muted">Commit</div>
-                <div className="flex-1 flex items-center gap-2 min-w-0 justify-end">
-                    <LemonTag className="bg-fill-primary font-mono text-xs">
-                        <IconCommit className="text-sm text-secondary" />
-                        <span className="block truncate max-w-full" title={release.commitSha}>
-                            {release.commitSha.slice(0, 7)}
-                        </span>
+        <div className="space-y-3">
+            {/* First row: Commit and Branch pills */}
+            <div className="flex items-center gap-2 flex-wrap">
+                <LemonTag
+                    className="bg-fill-primary font-mono text-xs cursor-pointer hover:bg-fill-secondary"
+                    onClick={() => copyToClipboard(release.commitSha, 'full commit SHA')}
+                >
+                    <IconCommit className="text-sm text-secondary" />
+                    <span title={`${release.commitSha} (click to copy)`}>{release.commitSha.slice(0, 7)}</span>
+                </LemonTag>
+                {release.branch && (
+                    <LemonTag className="bg-fill-primary text-xs">
+                        <IconGitBranch className="text-sm text-secondary" />
+                        <span title={release.branch}>{release.branch}</span>
                     </LemonTag>
-                    <LemonButton
-                        size="xsmall"
-                        icon={<IconCopy />}
-                        tooltip="Copy full commit SHA"
-                        onClick={() => copyToClipboard(release.commitSha, 'full commit SHA')}
-                    />
-                </div>
+                )}
             </div>
-            {release.repositoryUrl && (
+
+            {/* Second row: Repository pill */}
+            {release.repositoryName && (
                 <div className="flex items-center gap-2">
-                    <div className="w-16 text-xs text-muted">URL</div>
-                    <div className="flex-1 flex min-w-0 items-center gap-2 justify-end">
-                        <Link
-                            to={release.repositoryUrl}
-                            target="_blank"
-                            className="text-xs inline-flex items-center gap-1 min-w-0 w-full"
-                        >
-                            <span className="flex-1 truncate max-w-full" title={release.repositoryUrl}>
-                                {release.repositoryUrl}
-                            </span>
-                            <IconExternal className="shrink-0" />
-                        </Link>
-                    </div>
+                    <LemonTag className="bg-fill-primary text-xs">
+                        <IconGitRepository className="text-sm text-secondary" />
+                        <span title={release.repositoryName}>{release.repositoryName}</span>
+                    </LemonTag>
                 </div>
             )}
-            <SimplePropertyRow label="Repository" value={release.repositoryName} icon={<IconGitRepository />} />
-            <SimplePropertyRow label="Branch" value={release.branch} icon={<IconGitBranch />} />
-        </div>
-    )
-}
-
-function SimplePropertyRow({ label, value, icon }: { label: string; value?: string; icon?: JSX.Element }): JSX.Element {
-    if (!value) {
-        return <></>
-    }
-
-    return (
-        <div className="flex items-center gap-2">
-            <div className="w-16 text-xs text-muted">{label}</div>
-            <div className="flex-1 min-w-0 flex justify-end">
-                <LemonTag className="bg-fill-primary text-xs">
-                    {icon && <span className="text-sm text-secondary">{icon}</span>}
-                    <span className="block truncate max-w-full" title={value}>
-                        {value}
-                    </span>
-                </LemonTag>
-            </div>
         </div>
     )
 }
