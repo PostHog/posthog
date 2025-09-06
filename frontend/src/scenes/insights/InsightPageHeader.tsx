@@ -2,7 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconInfo, IconPencil, IconShare, IconTrash, IconWarning } from '@posthog/icons'
+import { IconInfo, IconPencil, IconPeople, IconShare, IconTrash, IconWarning } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
@@ -775,7 +775,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         },
                                     })
                                 }}
+                                menuItem
                             >
+                                <IconPeople />
                                 Save as static cohort
                             </ButtonPrimitive>
                         )}
