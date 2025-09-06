@@ -13,6 +13,7 @@ import { AvailableFeature } from '~/types'
 import recordingEventsJson from '../__mocks__/recording_events_query'
 import { recordingMetaJson } from '../__mocks__/recording_meta'
 import { snapshotsAsJSONLines } from '../__mocks__/recording_snapshots'
+import { snapshotDataLogic } from './snapshotDataLogic'
 
 const pathForKeyZero = join(__dirname, './__mocks__/perf-snapshot-key0.jsonl')
 const pathForKeyOne = join(__dirname, './__mocks__/perf-snapshot-key1.jsonl')
@@ -28,6 +29,7 @@ jest.setTimeout(120_000)
 
 describe('sessionRecordingDataLogic performance', () => {
     let logic: ReturnType<typeof sessionRecordingDataLogic.build>
+    let snapshotLogic: ReturnType<typeof snapshotDataLogic.build>
 
     beforeEach(() => {
         useAvailableFeatures([AvailableFeature.RECORDINGS_PERFORMANCE])
@@ -95,10 +97,12 @@ describe('sessionRecordingDataLogic performance', () => {
 
     describe('loading snapshots', () => {
         const setupLogic = (): void => {
-            logic = sessionRecordingDataLogic({
+            const props = {
                 sessionRecordingId: uuid(),
                 blobV2PollingDisabled: true,
-            })
+            }
+            logic = sessionRecordingDataLogic(props)
+            snapshotLogic = snapshotDataLogic(props)
             logic.mount()
             // Most of these tests assume the metadata is being loaded upfront which is the typical case
             logic.actions.loadRecordingMeta()
@@ -120,8 +124,8 @@ describe('sessionRecordingDataLogic performance', () => {
                         'loadSnapshots',
                         'loadSnapshotSources',
                         'loadRecordingMetaSuccess',
-                        'loadSnapshotSourcesSuccess',
-                        'loadSnapshotsForSourceSuccess',
+                        snapshotLogic.actionTypes.loadSnapshotSourcesSuccess,
+                        snapshotLogic.actionTypes.loadSnapshotsForSourceSuccess,
                         'reportUsageIfFullyLoaded',
                     ])
                     .toFinishListeners()

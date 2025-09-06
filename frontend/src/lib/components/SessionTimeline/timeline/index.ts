@@ -32,5 +32,4 @@ export type ItemLoader<T extends TimelineItem> = {
 }
 
 export type ItemLoaderFactory<T extends TimelineItem> = (sessionId: string, timestamp: Dayjs) => ItemLoader<T>
-export * from './item-cache'
 export * from './item-collector'
