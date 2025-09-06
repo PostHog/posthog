@@ -4,14 +4,13 @@ use serde_json::Value;
 use sqlx::Executor;
 use uuid::Uuid;
 
-use crate::error::UnhandledError;
+use crate::{error::UnhandledError, frames::FrameId};
 
 use super::{Context, Frame};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ErrorTrackingStackFrame {
-    pub raw_id: String,
-    pub team_id: i32,
+    pub id: FrameId,
     pub created_at: DateTime<Utc>,
     pub symbol_set_id: Option<Uuid>,
     pub contents: Frame,
@@ -21,16 +20,14 @@ pub struct ErrorTrackingStackFrame {
 
 impl ErrorTrackingStackFrame {
     pub fn new(
-        raw_id: String,
-        team_id: i32,
+        id: FrameId,
         symbol_set_id: Option<Uuid>,
         contents: Frame,
         resolved: bool,
         context: Option<Context>,
     ) -> Self {
         Self {
-            raw_id,
-            team_id,
+            id,
             symbol_set_id,
             contents,
             resolved,
@@ -59,8 +56,8 @@ impl ErrorTrackingStackFrame {
                 resolved = $6,
                 context = $8
             "#,
-            self.raw_id,
-            self.team_id,
+            self.id.raw_id,
+            self.id.team_id,
             self.created_at,
             self.symbol_set_id,
             serde_json::to_value(&self.contents)?,
@@ -73,8 +70,7 @@ impl ErrorTrackingStackFrame {
 
     pub async fn load<'c, E>(
         e: E,
-        team_id: i32,
-        raw_id: &str,
+        id: &FrameId,
         result_ttl: Duration,
     ) -> Result<Option<Self>, UnhandledError>
     where
@@ -96,8 +92,8 @@ impl ErrorTrackingStackFrame {
             FROM posthog_errortrackingstackframe
             WHERE raw_id = $1 AND team_id = $2
             "#,
-            raw_id,
-            team_id
+            id.raw_id,
+            id.team_id
         )
         .fetch_optional(e)
         .await?;
@@ -127,8 +123,7 @@ impl ErrorTrackingStackFrame {
         frame.context = context.clone();
 
         Ok(Some(Self {
-            raw_id: found.raw_id,
-            team_id: found.team_id,
+            id: FrameId::new(found.raw_id, found.team_id),
             created_at: found.created_at,
             symbol_set_id: found.symbol_set_id,
             contents: frame,
