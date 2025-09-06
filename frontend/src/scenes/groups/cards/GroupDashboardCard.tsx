@@ -19,9 +19,18 @@ function GroupDetailDashboard({
     groupData: Group
 }): JSX.Element {
     const { groupTypeName } = useValues(groupLogic)
-    const { setProperties, setLoadLayoutFromServerOnPreview } = useActions(
-        dashboardLogic({ id: groupTypeDetailDashboard })
-    )
+    const dashboardLogicProps = {
+        id: groupTypeDetailDashboard,
+        variables: {
+            group_key: {
+                variableId: 'group_key',
+                code_name: 'group_key',
+                value: groupData.group_key,
+                isNull: false,
+            },
+        },
+    }
+    const { setProperties, setLoadLayoutFromServerOnPreview } = useActions(dashboardLogic(dashboardLogicProps))
 
     useEffect(() => {
         if (groupTypeDetailDashboard && groupData) {
