@@ -59,6 +59,7 @@ export interface MultitabEditorLogicProps {
     key: string
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
+    tabId?: string | null
 }
 
 export const editorModelsStateKey = (key: string | number): string => `${key}/editorModelQueries`
@@ -1389,6 +1390,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
     })),
     selectors({
+        tabId: [() => [(_, props) => props.tabId], (tabId) => tabId],
         activeTab: [
             (s) => [s.activeModelUri, s.allTabs],
             (activeModelUri, allTabs) => {
@@ -1510,20 +1512,18 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             },
         ],
         dataLogicKey: [
-            (s) => [s.activeModelUri, s.editingInsight],
-            (activeModelUri, editingInsight) => {
+            (s) => [s.activeModelUri, s.editingInsight, s.tabId],
+            (activeModelUri, editingInsight, tabId) => {
                 if (editingInsight) {
                     return `InsightViz.${editingInsight.short_id}`
                 }
-
-                return (
-                    activeModelUri?.uri.path ??
-                    insightVizDataNodeKey({
-                        dashboardItemId: DATAWAREHOUSE_EDITOR_ITEM_ID,
-                        cachedInsight: null,
-                        doNotLoad: true,
-                    })
-                )
+                return activeModelUri?.uri.path
+                    ? `${tabId}/${activeModelUri?.uri.path}`
+                    : insightVizDataNodeKey({
+                          dashboardItemId: DATAWAREHOUSE_EDITOR_ITEM_ID,
+                          cachedInsight: null,
+                          doNotLoad: true,
+                      })
             },
         ],
         localStorageResponse: [

@@ -23,7 +23,7 @@ import { editorSizingLogic } from './editorSizingLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { outputPaneLogic } from './outputPaneLogic'
 
-export function EditorScene(): JSX.Element {
+export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
     const ref = useRef(null)
     const navigatorRef = useRef(null)
     const queryPaneRef = useRef(null)
@@ -54,10 +54,11 @@ export function EditorScene(): JSX.Element {
         null as [Monaco, importedEditor.IStandaloneCodeEditor] | null
     )
     const [monaco, editor] = monacoAndEditor ?? []
-    const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
+    const codeEditorKey = `hogQLQueryEditor/${tabId}/${router.values.location.pathname}`
 
     const logic = multitabEditorLogic({
         key: codeEditorKey,
+        tabId,
         monaco,
         editor,
     })
@@ -88,6 +89,7 @@ export function EditorScene(): JSX.Element {
         onData: (data) => {
             const mountedLogic = multitabEditorLogic.findMounted({
                 key: codeEditorKey,
+                tabId,
                 monaco,
                 editor,
             })
@@ -99,6 +101,7 @@ export function EditorScene(): JSX.Element {
         onError: (error) => {
             const mountedLogic = multitabEditorLogic.findMounted({
                 key: codeEditorKey,
+                tabId,
                 monaco,
                 editor,
             })
@@ -132,7 +135,7 @@ export function EditorScene(): JSX.Element {
                                 <BindLogic logic={outputPaneLogic} props={{}}>
                                     <BindLogic
                                         logic={multitabEditorLogic}
-                                        props={{ key: codeEditorKey, monaco, editor }}
+                                        props={{ key: codeEditorKey, tabId, monaco, editor }}
                                     >
                                         <div
                                             data-attr="editor-scene"
