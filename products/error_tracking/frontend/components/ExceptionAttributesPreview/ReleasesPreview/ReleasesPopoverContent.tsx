@@ -34,14 +34,12 @@ function MostProbableRelease({ release }: { release: ExceptionReleaseGitMeta }):
     return (
         <div className="space-y-2">
             <div className="flex items-center gap-2">
-                <div className="w-28 text-xs text-muted flex items-center gap-1">
-                    <IconCommit className="w-3 h-3 text-muted-alt" />
-                    Commit
-                </div>
-                <div className="flex-1 flex items-center gap-2 min-w-0">
-                    <LemonTag className="bg-fill-primary font-mono text-xs flex-1 min-w-0">
+                <div className="w-16 text-xs text-muted">Commit</div>
+                <div className="flex-1 flex items-center gap-2 min-w-0 justify-end">
+                    <LemonTag className="bg-fill-primary font-mono text-xs">
+                        <IconCommit className="text-sm text-secondary" />
                         <span className="block truncate max-w-full" title={release.commitSha}>
-                            {release.commitSha}
+                            {release.commitSha.slice(0, 7)}
                         </span>
                     </LemonTag>
                     <LemonButton
@@ -54,8 +52,8 @@ function MostProbableRelease({ release }: { release: ExceptionReleaseGitMeta }):
             </div>
             {release.repositoryUrl && (
                 <div className="flex items-center gap-2">
-                    <div className="w-28 text-xs text-muted">URL</div>
-                    <div className="flex-1 flex min-w-0 items-center gap-2">
+                    <div className="w-16 text-xs text-muted">URL</div>
+                    <div className="flex-1 flex min-w-0 items-center gap-2 justify-end">
                         <Link
                             to={release.repositoryUrl}
                             target="_blank"
@@ -82,14 +80,14 @@ function SimplePropertyRow({ label, value, icon }: { label: string; value?: stri
 
     return (
         <div className="flex items-center gap-2">
-            <div className="w-28 text-xs text-muted flex items-center gap-1">
-                {icon && <span className="w-3 h-3 text-muted-alt">{icon}</span>}
-                {label}
-            </div>
-            <div className="flex-1 min-w-0">
-                <span className="text-xs block truncate max-w-full" title={value}>
-                    {value}
-                </span>
+            <div className="w-16 text-xs text-muted">{label}</div>
+            <div className="flex-1 min-w-0 flex justify-end">
+                <LemonTag className="bg-fill-primary text-xs">
+                    {icon && <span className="text-sm text-secondary">{icon}</span>}
+                    <span className="block truncate max-w-full" title={value}>
+                        {value}
+                    </span>
+                </LemonTag>
             </div>
         </div>
     )
