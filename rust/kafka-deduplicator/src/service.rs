@@ -48,8 +48,12 @@ impl KafkaDeduplicatorService {
         let store_manager = Arc::new(StoreManager::new(store_config));
 
         // Create checkpoint manager with the store manager
-        let mut checkpoint_manager =
-            CheckpointManager::new(store_manager.clone(), config.flush_interval(), None);
+        // TODO(eli): inject a CheckpointExporter here!
+        let mut checkpoint_manager = CheckpointManager::new(
+            config.checkpoint_config.clone(),
+            store_manager.clone(),
+            None,
+        );
         checkpoint_manager.start();
         info!(
             "Started checkpoint manager with flush interval: {:?}",

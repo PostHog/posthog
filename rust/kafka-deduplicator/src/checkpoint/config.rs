@@ -41,6 +41,7 @@ impl Default for CheckpointConfig {
             full_upload_interval: 10, // Every 10 incremental checkpoints
             aws_region: "us-east-1".to_string(),
             max_local_checkpoints: 5,
+            max_concurrent_checkpoints: 3,
             s3_timeout: Duration::from_secs(300), // 5 minutes
         }
     }
