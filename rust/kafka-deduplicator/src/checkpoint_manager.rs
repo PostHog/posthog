@@ -89,11 +89,11 @@ impl CheckpointManager {
                         break;
                     }
 
-                    request = self.checkpoint_receiver.recv() => {
-                        match request {
-                            Some(CheckpointRequest(partition)) => {
+                    msg = self.checkpoint_receiver.recv() => {
+                        match msg {
+                            Some(partition) => {
                                 // TODO(eli): handle return etc.
-                                self.checkpoint_partition(partition).await;
+                                let result = self.checkpoint_partition(partition).await?;
                             }
                             None => {
                                 debug!("Checkpoint manager: receiver closed, receive loop shutting down");
@@ -119,6 +119,9 @@ impl CheckpointManager {
                         info!("Checkpoint manager: submit loop shutting down");
                         break;
                     }
+
+                    // the inner loop can block but if we miss a few ticks before
+                    // completing the full partition loop, it's OK
                     _ = interval.tick() => {
                         let stores = store_manager.stores();
                         let store_count = stores.len();
@@ -130,30 +133,31 @@ impl CheckpointManager {
                         info!("Checkpoint manager: submit loop: checkpoint attempt for {} stores", store_count);
 
                         // Snapshot all entries to avoid holding locks
-                        let partitions: Vec<(Partition, DeduplicationStore)> = stores
+                        let partitions: Vec<Partition> = stores
                             .iter()
-                            .map(|entry| entry.first().clone())
+                            .keys()
+                            .cloned()
                             .collect();
 
-                        // Flush and update metrics for each store
-                        for (partition, store) in snapshot {
-                            // Check if store still exists (might have been removed during rebalancing)
-                            if store_manager.get(partition.topic(), partition.partition_number()).is_none() {
-                                debug!(
-                                    "Skipping flush for removed store {}:{}",
-                                    partition.topic(),
-                                    partition.partition_number()
-                                );
-                                continue;
-                            }
-
-                            // TODO(eli): submit to fixed size channel to worker pool (with timeout?)
-                            match self.submit_for_checkpoint(&partition, &store) {
-                                Ok(()) => {
-                                    info!("Checkpoint submitted for store {}:{}", partition.topic(), partition.partition_number());
+                        // Flush, checkpoint, and update metrics for each known store.
+                        // if we block here, we can miss a few ticks it's OK. If upon
+                        // successful receipt this partition's store is no longer owned
+                        // by the StoreManager, the receiver will bail out and continue
+                        for partition in partitions {
+                            tokio::select! {
+                                _ = cancel.cancelled() => {
+                                    info!("Checkpoint manager: inner submit loop shutting down after send attempt for {}:{}", partition.topic(), partition.partition_number());
+                                    break;
                                 }
-                                Err(e) => {
-                                    error!("Checkpoint submission failed for store {}:{}: {}", partition.topic(), partition.partition_number(), e);
+                                result = self.checkpoint_sender.send(partition) => {
+                                    match result {
+                                        Ok(()) => {
+                                            info!("Checkpoint submitted for store {}:{}", partition.topic(), partition.partition_number());
+                                        }
+                                        Err(e) => {
+                                            error!("Checkpoint submission failed for store {}:{}: {}", partition.topic(), partition.partition_number(), e);
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -173,11 +177,11 @@ impl CheckpointManager {
         // Cancel the task
         self.cancel_token.cancel();
 
-        // Wait for task to complete
-        if let Some(handle) = self.flush_task.take() {
+        // Wait for tasks to complete
+        for handle in self.checkpoint_tasks.drain(..) {
             if let Err(e) = handle.await {
                 warn!(
-                    "Checkpoint manager flush task failed to join cleanly: {}",
+                    "Checkpoint manager task failed to join cleanly: {}",
                     e
                 );
             }
@@ -223,11 +227,7 @@ impl CheckpointManager {
     }
 
     /// Create a checkpoint for a specific partition
-    pub async fn checkpoint_partition(
-        &self,
-        partition: &Partition,
-        checkpoint_path: &std::path::Path,
-    ) -> Result<Vec<String>> {
+    pub async fn checkpoint_partition(&self, partition: &Partition) -> Resut<Vec<String>> {
         let start_time = Instant::now();
 
         let store = match self.store_manager.stores().get(&partition) {
@@ -276,7 +276,7 @@ impl CheckpointManager {
                     "Checkpoint for {}:{} => created local checkpoint at {:?} with {} SST files",
                     partition.topic(),
                     partition.partition_number(),
-                    checkpoint_path,
+                    &local_checkpoint_path,
                     sst_files.len()
                 );
             }
@@ -294,7 +294,7 @@ impl CheckpointManager {
                     "Checkpoint for {}:{} => failed local checkpoint at {:?}: {}",
                     partition.topic(),
                     partition.partition_number(),
-                    checkpoint_path,
+                    &local_checkpoint_path,
                     error_chain.join(" -> ")
                 );
 
@@ -307,7 +307,7 @@ impl CheckpointManager {
             warn!("Checkpoint for {}:{} => after local checkpoint at {:?}: failed store metrics update: {}",
             partition.topic(),
             partition.partition_number(),
-            checkpoint_path,
+            &local_checkpoint_path,
             e);
         }
 
@@ -315,15 +315,14 @@ impl CheckpointManager {
             "Checkpoint for {}:{} => creating remote checkpoint from source: {:?}",
             partition.topic(),
             partition.partition_number(),
-            checkpoint_path
+            &local_checkpoint_path
         );
 
         match self.exporter.as_ref() {
             Some(exporter) => {
                 // TODO(eli): log error here so return can be handled with ? operator by caller
                 return exporter
-                    .upload_checkpoint_dir(checkpoint_path, &partition.topic())
-                    .await?;
+                    .perform_checkpoint(&local_checkpoint_path, &partition)
             }
 
             None => {
