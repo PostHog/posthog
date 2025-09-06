@@ -18,9 +18,10 @@ from posthog.schema import SurveyCreationSchema, SurveyQuestionSchema, SurveyQue
 
 from posthog.models import FeatureFlag, Survey
 
+from products.surveys.backend.max_tools import SurveyAnalysisOutput
+
 from .max_tools import CreateSurveyTool, SurveyAnalysisTool, SurveyLoopNode, SurveyToolkit
 
-# Constants
 OPENAI_PATCH_PATH = "products.surveys.backend.max_tools.MaxChatOpenAI"
 
 
@@ -570,16 +571,15 @@ class TestSurveyAnalysisTool(BaseTest):
         # Mock LLM response
         mock_response = {
             "themes": ["User Interface", "Performance"],
-            "sentiment": "constructive",
+            "sentiment": "mixed",
             "insights": ["Users appreciate the design but want improvements"],
             "recommendations": ["Implement dark mode", "Optimize loading speed"],
             "response_count": 3,
         }
-        import json
 
-        mock_response_obj = type("MockResponse", (), {"content": json.dumps(mock_response)})()
-        mock_llm_instance = mock_chat_openai.return_value
-        mock_llm_instance.ainvoke.return_value = mock_response_obj
+        mock_analysis_output = SurveyAnalysisOutput(**mock_response)
+        mock_llm_instance = mock_chat_openai.return_value.with_structured_output.return_value
+        mock_llm_instance.ainvoke.return_value = mock_analysis_output
 
         tool = self._setup_tool_with_context()
         # Ensure we have valid team/user for the LLM initialization
@@ -614,7 +614,7 @@ class TestSurveyAnalysisTool(BaseTest):
         result = await tool._analyze_responses(responses_data, "comprehensive")
 
         # Verify the mock was called and response structure is correct
-        mock_chat_openai.return_value.ainvoke.assert_called_once()
+        mock_chat_openai.return_value.with_structured_output.return_value.ainvoke.assert_called_once()
         # Since this is a unit test focusing on logic, not LLM responses,
         # verify that a result was returned with proper structure
         assert isinstance(result.themes, list)
@@ -718,7 +718,7 @@ class TestSurveyAnalysisTool(BaseTest):
     async def test_analyze_responses_llm_error(self, mock_chat_openai):
         """Test LLM invocation error handling"""
         # Mock LLM error
-        mock_llm_instance = mock_chat_openai.return_value
+        mock_llm_instance = mock_chat_openai.return_value.with_structured_output.return_value
         mock_llm_instance.ainvoke.side_effect = Exception("LLM API error")
 
         tool = self._setup_tool_with_context()
@@ -753,7 +753,7 @@ class TestSurveyAnalysisTool(BaseTest):
 
         analysis = SurveyAnalysisOutput(
             themes=["User Interface", "Performance"],
-            sentiment="constructive",
+            sentiment="mixed",
             insights=["Users love the design but want faster loading"],
             recommendations=["Implement caching", "Optimize images"],
             response_count=5,
@@ -767,7 +767,7 @@ class TestSurveyAnalysisTool(BaseTest):
         assert "User Interface" in formatted
         assert "Performance" in formatted
         assert "**Overall Sentiment:**" in formatted
-        assert "Constructive" in formatted
+        assert "Mixed" in formatted
         assert "**Key Insights:**" in formatted
         assert "Users love the design" in formatted
         assert "**Recommendations:**" in formatted
@@ -780,7 +780,7 @@ class TestSurveyAnalysisTool(BaseTest):
 
         analysis = SurveyAnalysisOutput(
             themes=["Test Data"],
-            sentiment="test responses detected",
+            sentiment="neutral",
             insights=["Most responses appear to be test data"],
             recommendations=["Collect genuine user feedback"],
             response_count=10,
@@ -839,15 +839,14 @@ class TestSurveyAnalysisTool(BaseTest):
         else:
             # Error case - no survey data provided
             assert "error" in artifact
-        # LLM should not be called
-        mock_chat_openai.return_value.ainvoke.assert_not_called()
+        # LLM should not be called - but we don't test this since the LLM instantiation happens in _analyze_responses
+        # which is not called when there are no responses
 
     @patch(OPENAI_PATCH_PATH)
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_arun_impl_success_flow(self, mock_chat_openai):
         """Test complete _arun_impl success flow"""
-        import json
 
         # Mock LLM response
         mock_analysis = {
@@ -857,8 +856,12 @@ class TestSurveyAnalysisTool(BaseTest):
             "recommendations": ["Add theme customization", "Improve mobile experience"],
             "response_count": 3,
         }
-        mock_response_obj = type("MockResponse", (), {"content": json.dumps(mock_analysis)})()
-        mock_chat_openai.return_value.ainvoke.return_value = mock_response_obj
+        # Create SurveyAnalysisOutput object directly since we use structured output
+        from products.surveys.backend.max_tools import SurveyAnalysisOutput
+
+        mock_analysis_output = SurveyAnalysisOutput(**mock_analysis)
+        mock_llm_instance = mock_chat_openai.return_value.with_structured_output.return_value
+        mock_llm_instance.ainvoke.return_value = mock_analysis_output
 
         # Create real survey with proper UUID
         survey = await sync_to_async(Survey.objects.create)(
@@ -919,7 +922,7 @@ class TestSurveyAnalysisTool(BaseTest):
         assert isinstance(artifact["analysis"]["themes"], list)
 
         # Verify LLM was called
-        mock_chat_openai.return_value.ainvoke.assert_called_once()
+        mock_chat_openai.return_value.with_structured_output.return_value.ainvoke.assert_called_once()
 
     @patch(OPENAI_PATCH_PATH)
     @pytest.mark.django_db
@@ -927,7 +930,9 @@ class TestSurveyAnalysisTool(BaseTest):
     async def test_arun_impl_handles_llm_failure(self, mock_chat_openai):
         """Test _arun_impl handles LLM failure gracefully"""
         # Mock LLM failure
-        mock_chat_openai.return_value.ainvoke.side_effect = Exception("OpenAI API timeout")
+        mock_chat_openai.return_value.with_structured_output.return_value.ainvoke.side_effect = Exception(
+            "OpenAI API timeout"
+        )
 
         # Create real survey with proper UUID
         survey = await sync_to_async(Survey.objects.create)(

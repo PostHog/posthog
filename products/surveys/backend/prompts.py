@@ -182,8 +182,8 @@ Across all questions:
 
 Output Limits (to optimize token usage and processing speed):
 - Provide maximum 5 themes (most important ones only)
-- Provide maximum 5 insights (key actionable findings)
-- Provide maximum 5 recommendations (top priority actions)
+- Provide maximum 3 insights (key actionable findings)
+- Provide maximum 3 recommendations (top priority actions)
 - Do NOT calculate response_count - this will be set automatically
 - Use only these sentiment values: "positive", "negative", "mixed", or "neutral"
 </instructions>

@@ -329,7 +329,38 @@ class SurveyAnalysisTool(MaxTool):
 
     args_schema: type[BaseModel] = SurveyAnalysisArgs
 
-    async def _analyze_responses(self, question_groups: list[SurveyAnalysisQuestionGroup]) -> SurveyAnalysisOutput:
+    def _extract_open_ended_responses(self) -> list[SurveyAnalysisQuestionGroup]:
+        """
+        Extract open-ended responses from context.
+        Returns a list of validated SurveyAnalysisQuestionGroup objects.
+        """
+        if not hasattr(self, "context") or not self.context:
+            return []
+
+        raw_responses = self.context.get("formatted_responses", [])
+        if not raw_responses:
+            return []
+
+        responses = []
+        for group in raw_responses:
+            try:
+                # Apply response limit and validate with Pydantic
+                validated_group = SurveyAnalysisQuestionGroup.model_validate(
+                    {
+                        **group,
+                        "responses": group.get("responses", [])[:50],  # Limit to 50 responses per question
+                    }
+                )
+                responses.append(validated_group)
+            except Exception:
+                # Skip invalid groups
+                continue
+
+        return responses
+
+    async def _analyze_responses(
+        self, question_groups: list[SurveyAnalysisQuestionGroup], analysis_focus: str = "comprehensive"
+    ) -> SurveyAnalysisOutput:
         """
         Analyze the extracted responses using LLM to generate themes, sentiment, and insights.
 
@@ -356,7 +387,7 @@ class SurveyAnalysisTool(MaxTool):
             )
 
         # Count total responses across all questions
-        total_response_count = sum(len(group.responses) for group in question_groups)
+        total_response_count = sum(len(group.responses or []) for group in question_groups)
 
         try:
             # Format the data for LLM analysis
@@ -377,8 +408,14 @@ class SurveyAnalysisTool(MaxTool):
             analysis_result = await llm.ainvoke([{"role": "system", "content": formatted_prompt}])
 
             # Ensure response_count is accurate (don't rely on LLM calculation)
-            analysis_result.response_count = total_response_count
+            if hasattr(analysis_result, "response_count"):
+                analysis_result.response_count = total_response_count
+            elif isinstance(analysis_result, dict):
+                analysis_result["response_count"] = total_response_count
 
+            # Ensure we return the proper type
+            if isinstance(analysis_result, dict):
+                return SurveyAnalysisOutput(**analysis_result)
             return analysis_result
 
         except Exception as e:
@@ -411,10 +448,11 @@ class SurveyAnalysisTool(MaxTool):
 
             # Group responses without repeating question for each response
             response_texts = []
-            for response in responses:
-                response_text = response.responseText
-                # Include only response text for analysis
-                response_texts.append(f'"{response_text}"')
+            if responses:  # Ensure responses is not None
+                for response in responses:
+                    response_text = response.responseText
+                    # Include only response text for analysis
+                    response_texts.append(f'"{response_text}"')
 
             formatted_sections.append("Responses:\n" + "\n".join(f"- {text}" for text in response_texts))
             formatted_sections.append("")  # Empty line between questions
