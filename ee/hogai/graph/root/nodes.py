@@ -84,6 +84,7 @@ RouteName = Literal[
     "insights_search",
     "billing",
     "session_summarization",
+    "create_dashboard",
 ]
 
 
@@ -467,6 +468,7 @@ class RootNode(RootNodeUIContextMixin):
 
         from ee.hogai.tool import (
             create_and_query_insight,
+            create_dashboard,
             get_contextual_tool_class,
             search_documentation,
             search_insights,
@@ -480,6 +482,8 @@ class RootNode(RootNodeUIContextMixin):
         # Check if session summarization is enabled for the user
         if self._has_session_summarization_feature_flag():
             available_tools.append(session_summarization)
+        # Add dashboard creation tool (always available)
+        available_tools.append(create_dashboard)
         if settings.INKEEP_API_KEY:
             available_tools.append(search_documentation)
         tool_names = self._get_contextual_tools(config).keys()
@@ -673,6 +677,13 @@ class RootNodeTools(AssistantNode):
                 summary_title=tool_call.args.get("summary_title"),
                 root_tool_calls_count=tool_call_count + 1,
             )
+        elif tool_call.name == "create_dashboard":
+            return PartialAssistantState(
+                root_tool_call_id=tool_call.id,
+                create_dashboard_query=tool_call.args["create_dashboard_query"],
+                search_insights_queries=tool_call.args["search_insights_queries"],
+                root_tool_calls_count=tool_call_count + 1,
+            )
         elif ToolClass := get_contextual_tool_class(tool_call.name):
             tool_class = ToolClass(team=self._team, user=self._user, state=state)
             try:
@@ -735,8 +746,10 @@ class RootNodeTools(AssistantNode):
     def router(self, state: AssistantState) -> RouteName:
         last_message = state.messages[-1]
 
-        if isinstance(last_message, AssistantToolCallMessage):
+        if isinstance(last_message, AssistantToolCallMessage) and not last_message.visible:
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
+        elif isinstance(last_message, AssistantToolCallMessage) and last_message.visible:
+            return "end"
         if isinstance(last_message, AssistantMessage) and state.root_tool_call_id:
             tool_calls = getattr(last_message, "tool_calls", None)
             if tool_calls and len(tool_calls) > 0:
@@ -744,12 +757,14 @@ class RootNodeTools(AssistantNode):
                 tool_call_name = tool_call.name
                 if tool_call_name == "retrieve_billing_information":
                     return "billing"
-            if state.root_tool_insight_plan:
-                return "insights"
-            elif state.search_insights_query:
-                return "insights_search"
-            elif state.session_summarization_query:
-                return "session_summarization"
-            else:
-                return "search_documentation"
+                elif tool_call_name == "create_dashboard":
+                    return "create_dashboard"
+                elif state.root_tool_insight_plan:
+                    return "insights"
+                elif state.search_insights_query:
+                    return "insights_search"
+                elif state.session_summarization_query:
+                    return "session_summarization"
+                else:
+                    return "search_documentation"
         return "end"

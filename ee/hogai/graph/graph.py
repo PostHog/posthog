@@ -15,6 +15,8 @@ from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, StateType
 from ee.hogai.utils.types.composed import MaxNodeName
 
+from .base import StateType
+from .dashboards.nodes import DashboardCreatorNode
 from .funnels.nodes import FunnelGeneratorNode, FunnelGeneratorToolsNode
 from .inkeep_docs.nodes import InkeepDocsNode
 from .insights.nodes import InsightSearchNode
@@ -242,6 +244,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             "end": AssistantNodeName.END,
             "insights_search": AssistantNodeName.INSIGHTS_SEARCH,
             "session_summarization": AssistantNodeName.SESSION_SUMMARIZATION,
+            "create_dashboard": AssistantNodeName.DASHBOARD_CREATOR,
         }
         root_node = RootNode(self._team, self._user)
         builder.add_node(AssistantNodeName.ROOT, root_node)
@@ -385,6 +388,13 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         builder.add_edge(AssistantNodeName.SESSION_SUMMARIZATION, AssistantNodeName.ROOT)
         return self
 
+    def add_dashboard_creator(self, end_node: AssistantNodeName = AssistantNodeName.END):
+        builder = self._graph
+        dashboard_creator_node = DashboardCreatorNode(self._team, self._user)
+        builder.add_node(AssistantNodeName.DASHBOARD_CREATOR, dashboard_creator_node)
+        builder.add_edge(AssistantNodeName.DASHBOARD_CREATOR, AssistantNodeName.ROOT)
+        return self
+
     def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
         return (
             self.add_title_generator()
@@ -397,5 +407,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             .add_billing()
             .add_insights_search()
             .add_session_summarization()
+            .add_dashboard_creator()
             .compile(checkpointer=checkpointer)
         )

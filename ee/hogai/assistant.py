@@ -102,6 +102,7 @@ STREAMING_NODES: set[MaxNodeName] = {
     TaxonomyNodeName.LOOP_NODE,
     AssistantNodeName.SESSION_SUMMARIZATION,
     AssistantNodeName.INSIGHTS_SEARCH,
+    AssistantNodeName.DASHBOARD_CREATOR,
     DeepResearchNodeName.ONBOARDING,
     DeepResearchNodeName.PLANNER,
     DeepResearchNodeName.TASK_EXECUTOR,
@@ -123,6 +124,7 @@ THINKING_NODES: set[MaxNodeName] = {
     AssistantNodeName.MEMORY_INITIALIZER,
     TaxonomyNodeName.LOOP_NODE,
     AssistantNodeName.SESSION_SUMMARIZATION,
+    AssistantNodeName.DASHBOARD_CREATOR,
     DeepResearchNodeName.ONBOARDING,
     DeepResearchNodeName.NOTEBOOK_PLANNING,
     DeepResearchNodeName.PLANNER,
@@ -477,6 +479,8 @@ class Assistant:
                 return None
             case AssistantNodeName.SESSION_SUMMARIZATION:
                 return ReasoningMessage(content="Summarizing session recordings")
+            case AssistantNodeName.DASHBOARD_CREATOR:
+                return ReasoningMessage(content="Creating dashboard")
             case DeepResearchNodeName.PLANNER_TOOLS:
                 assert isinstance(input.messages[-1], AssistantMessage)
                 tool_calls = input.messages[-1].tool_calls or []

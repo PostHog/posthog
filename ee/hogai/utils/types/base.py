@@ -240,6 +240,15 @@ class _SharedAssistantState(BaseState):
     """
     The short ID of the notebook being used.
     """
+    create_dashboard_query: Optional[str] = Field(default=None)
+    """
+    The user's query for creating a dashboard with insights.
+    """
+    insight_ids: Optional[list[int]] = Field(default=None)
+    """
+    The user's queries to search for insights.
+    """
+    search_insights_queries: Optional[list[str]] = Field(default=None)
 
 
 class AssistantState(_SharedAssistantState):
@@ -287,6 +296,7 @@ class AssistantNodeName(StrEnum):
     TITLE_GENERATOR = "title_generator"
     INSIGHTS_SEARCH = "insights_search"
     SESSION_SUMMARIZATION = "session_summarization"
+    DASHBOARD_CREATOR = "dashboard_creator"
 
 
 class AssistantMode(StrEnum):
