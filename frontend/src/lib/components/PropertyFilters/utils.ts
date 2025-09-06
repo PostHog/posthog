@@ -77,7 +77,7 @@ function flattenPropertyGroup(
 }
 
 export function convertPropertiesToPropertyGroup(
-    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined
+    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined | null
 ): PropertyGroupFilter {
     if (isPropertyGroup(properties)) {
         return properties
