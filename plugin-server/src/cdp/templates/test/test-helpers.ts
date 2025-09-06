@@ -1,6 +1,6 @@
 import Chance from 'chance'
 import merge from 'deepmerge'
-import { DateTime, Settings } from 'luxon'
+import { DateTime } from 'luxon'
 
 import { NativeDestinationExecutorService } from '~/cdp/services/native-destination-executor.service'
 import { defaultConfig } from '~/config/config'
@@ -346,13 +346,11 @@ export class DestinationTester {
     }
 
     beforeEach() {
-        Settings.defaultZone = 'UTC'
         const fixedTime = DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate()
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.getTime())
     }
 
     afterEach() {
-        Settings.defaultZone = 'system'
         jest.useRealTimers()
     }
 

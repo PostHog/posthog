@@ -9,7 +9,6 @@ describe('google template', () => {
     const tester = new TemplateTester(template)
 
     beforeEach(async () => {
-        Settings.defaultZone = 'UTC'
         await tester.beforeEach()
         const fixedTime = DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate()
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.getTime())
