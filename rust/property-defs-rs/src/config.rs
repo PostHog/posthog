@@ -161,7 +161,7 @@ impl TeamFilterMode {
 
 impl Config {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
-        ConsumerConfig::set_defaults("property-defs-rs", "clickhouse_events_json", true);
+        ConsumerConfig::set_defaults("property-defs-rs", "propdefs_events_json", true);
         Config::init_from_env()
     }
 }
