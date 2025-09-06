@@ -58,11 +58,31 @@ SELECT DISTINCT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND coho
 """
 
 GET_COHORTS_BY_PERSON_UUID = """
-SELECT DISTINCT cohort_id
-FROM cohortpeople
-WHERE team_id = %(team_id)s AND person_id = %(person_id)s
-GROUP BY person_id, cohort_id, team_id, version
-HAVING sum(sign) > 0
+WITH cohort_persons AS (
+    SELECT person_id, cohort_id, team_id, version, sign
+    FROM (
+        SELECT
+            person_id,
+            cohort_id,
+            team_id,
+            version,
+            sign,
+            ROW_NUMBER() OVER(PARTITION BY person_id, cohort_id, team_id ORDER BY version DESC) AS row_num
+        FROM cohortpeople
+        WHERE team_id = %(team_id)s
+          AND person_id = %(person_id)s
+    )
+    WHERE row_num = 1
+)
+SELECT cohort_id, version
+FROM cohort_persons
+GROUP BY
+  person_id,
+  cohort_id,
+  team_id,
+  version
+HAVING
+  SUM(sign) > 0;
 """
 
 GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID = f"""
