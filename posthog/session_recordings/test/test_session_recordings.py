@@ -807,8 +807,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @patch(
-        "ee.session_recordings.session_recording_extensions.object_storage.copy_objects",
-        return_value=2,
+        "posthog.session_recordings.session_recording_v2_service.copy_to_lts",
+        return_value="some-lts-path",
     )
     def test_persist_session_recording(self, _mock_copy_objects: MagicMock) -> None:
         self.produce_replay_summary("user", "1", now() - relativedelta(days=1), team_id=self.team.pk)
