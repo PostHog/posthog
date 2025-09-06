@@ -1,58 +1,113 @@
 use anyhow::Result;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
+use crate::checkpoint::export::CheckpointExporter;
 use crate::kafka::types::Partition;
 use crate::rocksdb::deduplication_store::DeduplicationStore;
 use crate::store_manager::StoreManager;
 
+const CHECKPOINT_SIZE_HISTOGRAM: &str = "checkpoint_size_bytes";
+const CHECKPOINT_DURATION_HISTOGRAM: &str = "checkpoint_duration_seconds";
+
+pub const CHECKPOINT_NAME_PREFIX: &str = "chkpt";
+
 /// Manages checkpointing and periodic flushing for all deduplication stores
 pub struct CheckpointManager {
+    config: CheckpointConfig,
+
     /// Reference to the store manager
     store_manager: Arc<StoreManager>,
+
+    // Checkpoint export module - if populated, locally checkpointed partitions will be backed up remotely
+    exporter: Arc<Option<Box<CheckpointExporter>>>,
+
+    checkpoint_sender: Sender<CheckpointRequest>,
+
+    checkpoint_receiver: Arc<Receiver<CheckpointRequest>>,
 
     /// Cancellation token for the flush task
     cancel_token: CancellationToken,
 
-    /// Handle to the flush task
-    flush_task: Option<JoinHandle<()>>,
-
-    /// Flush interval
-    flush_interval: Duration,
+    /// Handles to the checkpoint task loop and async checkpoint spawner
+    checkpoint_tasks: Vec<JoinHandle<()>>,
 }
 
 impl CheckpointManager {
     /// Create a new checkpoint manager
-    pub fn new(store_manager: Arc<StoreManager>, flush_interval: Duration) -> Self {
+    pub fn new(
+        config: CheckpointConfig,
+        store_manager: Arc<StoreManager>,
+        exporter: Option<Box<CheckpointExporter>>,
+    ) -> Self {
+        info!(
+            "Creating checkpoint manager (max_concurrent_checkpoints={},exporting={})",
+            max_concurrent_checkpoints,
+            exporter.is_some()
+        );
+
+        let exporter = Arc::new(exporter);
+        let (checkpoint_sender, checkpoint_receiver) = mspc::channel(max_concurrent_checkpoints);
+
         Self {
+            config,
             store_manager,
+            exporter: Arc::new(exporter),
+            checkpoint_sender,
+            checkpoint_receiver: Arc::new(checkpoint_receiver),
             cancel_token: CancellationToken::new(),
-            flush_task: None,
-            flush_interval,
+            checkpoint_tasks: Vec::new(),
         }
     }
 
     /// Start the periodic flush task
     pub fn start(&mut self) {
-        if self.flush_task.is_some() {
+        if self.checkpoint_tasks.len() > 0 {
             warn!("Checkpoint manager already started");
             return;
         }
 
         info!(
-            "Starting checkpoint manager with flush interval: {:?}",
-            self.flush_interval
+            "Starting checkpoint manager with interval: {:?}",
+            self.checkpoint_interval
         );
 
         let store_manager = self.store_manager.clone();
-        let cancel = self.cancel_token.child_token();
-        let flush_interval = self.flush_interval;
+        let cancel_recv_loop = self.cancel_token.child_token();
+        let checkpoint_interval = self.checkpoint_interval;
 
-        let handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(flush_interval);
+        let recv_handle = tokio::spawn(async move {
+            loop {
+                tokio::select! {
+
+                    _ = cancel_recv_loop.cancelled() => {
+                        info!("Checkpoint manager: receive loop shutting down");
+                        break;
+                    }
+
+                    request = self.checkpoint_receiver.recv() => {
+                        match request {
+                            Some(CheckpointRequest(partition)) => {
+                                // TODO(eli): handle return etc.
+                                self.checkpoint_partition(partition).await;
+                            }
+                            None => {
+                                debug!("Checkpoint manager: receiver closed, receive loop shutting down");
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        self.checkpoint_tasks.push(recv_handle);
+
+        let submit_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(checkpoint_interval);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
             // Skip first tick to avoid immediate flush
@@ -61,7 +116,7 @@ impl CheckpointManager {
             loop {
                 tokio::select! {
                     _ = cancel.cancelled() => {
-                        info!("Checkpoint manager shutting down");
+                        info!("Checkpoint manager: submit loop shutting down");
                         break;
                     }
                     _ = interval.tick() => {
@@ -72,15 +127,12 @@ impl CheckpointManager {
                             continue;
                         }
 
-                        info!("Starting periodic flush for {} stores", store_count);
+                        info!("Checkpoint manager: submit loop: checkpoint attempt for {} stores", store_count);
 
-                        // Snapshot all stores to avoid holding locks
-                        let snapshot: Vec<(Partition, DeduplicationStore)> = stores
+                        // Snapshot all entries to avoid holding locks
+                        let partitions: Vec<(Partition, DeduplicationStore)> = stores
                             .iter()
-                            .map(|entry| {
-                                let (partition, store) = entry.pair();
-                                (partition.clone(), store.clone())
-                            })
+                            .map(|entry| entry.first().clone())
                             .collect();
 
                         // Flush and update metrics for each store
@@ -95,31 +147,14 @@ impl CheckpointManager {
                                 continue;
                             }
 
-                            debug!("Flushing store {}:{}", partition.topic(), partition.partition_number());
-
-                            // Flush the store
-                            if let Err(e) = store.flush() {
-                                // Build the complete error chain
-                                let mut error_chain = vec![format!("{:?}", e)];
-                                let mut source = e.source();
-                                while let Some(err) = source {
-                                    error_chain.push(format!("Caused by: {err:?}"));
-                                    source = err.source();
+                            // TODO(eli): submit to fixed size channel to worker pool (with timeout?)
+                            match self.submit_for_checkpoint(&partition, &store) {
+                                Ok(()) => {
+                                    info!("Checkpoint submitted for store {}:{}", partition.topic(), partition.partition_number());
                                 }
-
-                                error!(
-                                    "Failed to flush store {}:{} - {}",
-                                    partition.topic(),
-                                    partition.partition_number(),
-                                    error_chain.join(" -> ")
-                                );
-
-                                continue;
-                            }
-
-                            // Update metrics
-                            if let Err(e) = store.update_metrics() {
-                                warn!("Failed to update metrics for store {}:{}: {}", partition.topic(), partition.partition_number(), e);
+                                Err(e) => {
+                                    error!("Checkpoint submission failed for store {}:{}: {}", partition.topic(), partition.partition_number(), e);
+                                }
                             }
                         }
 
@@ -128,8 +163,7 @@ impl CheckpointManager {
                 }
             }
         });
-
-        self.flush_task = Some(handle);
+        self.checkpoint_tasks.push(submit_handle);
     }
 
     /// Stop the checkpoint manager
@@ -179,32 +213,221 @@ impl CheckpointManager {
         Ok(())
     }
 
+    // TODO(eli): IMPLEMENT THIS - capped submission to worker pool for each partition checkpoint + upload; handle timeout as well?
+    pub fn submit_for_checkpoint(
+        &self,
+        _partition: &Partition,
+        _store: &DeduplicationStore,
+    ) -> Result<()> {
+        unimplemented!();
+    }
+
     /// Create a checkpoint for a specific partition
     pub async fn checkpoint_partition(
         &self,
-        topic: &str,
-        partition: i32,
+        partition: &Partition,
         checkpoint_path: &std::path::Path,
     ) -> Result<Vec<String>> {
-        let key = Partition::new(topic.to_string(), partition);
+        let start_time = Instant::now();
 
-        match self.store_manager.stores().get(&key) {
-            Some(entry) => {
-                let store = entry.value();
+        let store = match self.store_manager.stores().get(&partition) {
+            Some(entry) => entry.value(),
+
+            None => {
+                return Err(anyhow::anyhow!(
+                    "Store not found for {}:{}",
+                    partition.topic(),
+                    partition.partition_number(),
+                ))
+            }
+        };
+
+        info!(
+            "Checkpoint for {}:{} => creating local checkpoint at: {:?}",
+            partition.topic(),
+            partition.partition_number(),
+            checkpoint_path
+        );
+
+        // Create checkpoint directory with timestamp (microseconds for uniqueness)
+        // and ensure the checkpoint name is unique and lexicographically sortable
+        let checkpoint_timestamp = self.generate_checkpoint_timestamp();
+        let checkpoint_name = self.build_checkpoint_name(&partition, checkpoint_timestamp);
+        let local_checkpoint_path =
+            PathBuf::from(&self.config.local_checkpoint_dir).join(&checkpoint_name);
+
+        // Ensure local checkpoint directory exists
+        tokio::fs::create_dir_all(&self.config.local_checkpoint_dir)
+            .await
+            .context("Failed to create local checkpoint directory")?;
+
+        // this creates the local RocksDB checkpoint
+        match store.create_checkpoint_with_metadata(local_checkpoint_path) {
+            Ok(sst_files) => {
+                let checkpoint_duration = start_time.elapsed();
+                metrics::histogram!(CHECKPOINT_DURATION_HISTOGRAM)
+                    .record(checkpoint_duration.as_secs_f64());
+
+                // Get checkpoint size
+                let checkpoint_size = self.get_directory_size(&local_checkpoint_path).await?;
+                metrics::histogram!(CHECKPOINT_SIZE_HISTOGRAM).record(checkpoint_size as f64);
+
                 info!(
-                    "Creating checkpoint for {}:{} at {:?}",
-                    key.topic(),
-                    key.partition_number(),
+                    "Checkpoint for {}:{} => created local checkpoint at {:?} with {} SST files",
+                    partition.topic(),
+                    partition.partition_number(),
+                    checkpoint_path,
+                    sst_files.len()
+                );
+            }
+
+            Err(e) => {
+                // Build the complete error chain
+                let mut error_chain = vec![format!("{:?}", e)];
+                let mut source = e.source();
+                while let Some(err) = source {
+                    error_chain.push(format!("Caused by: {err:?}"));
+                    source = err.source();
+                }
+
+                error!(
+                    "Checkpoint for {}:{} => failed local checkpoint at {:?}: {}",
+                    partition.topic(),
+                    partition.partition_number(),
+                    checkpoint_path,
+                    error_chain.join(" -> ")
+                );
+
+                return Err(anyhow::anyhow!(error_chain.join(" -> ")));
+            }
+        }
+
+        // Update metrics
+        if let Err(e) = store.update_metrics() {
+            warn!("Checkpoint for {}:{} => after local checkpoint at {:?}: failed store metrics update: {}",
+            partition.topic(),
+            partition.partition_number(),
+            checkpoint_path,
+            e);
+        }
+
+        info!(
+            "Checkpoint for {}:{} => creating remote checkpoint from source: {:?}",
+            partition.topic(),
+            partition.partition_number(),
+            checkpoint_path
+        );
+
+        match self.exporter.as_ref() {
+            Some(exporter) => {
+                // TODO(eli): log error here so return can be handled with ? operator by caller
+                return exporter
+                    .upload_checkpoint_dir(checkpoint_path, &partition.topic())
+                    .await?;
+            }
+
+            None => {
+                warn!(
+                    "Checkpoint for {}:{} at {:?} => no exporter configured, skipping upload",
+                    partition.topic(),
+                    partition.partition_number(),
                     checkpoint_path
                 );
-                store.create_checkpoint_with_metadata(checkpoint_path)
+
+                Ok(None)
             }
-            None => Err(anyhow::anyhow!(
-                "Store not found for {}:{}",
-                key.topic(),
-                partition
-            )),
         }
+    }
+
+    // TODO(eli): discussed breaking this in to path-like elements but so far
+    // I'm leaning towards keeping it a single directory name. It's sortable,
+    // simple to work with, and maintains a 1:1 mapping between local paths under
+    // base dir and S3 snapshot paths under bucket key prefix. Can revisit if needed
+    fn build_checkpoint_name(&self, partition: &Partition, checkpoint_timestamp: u128) -> String {
+        format!(
+            "{}_{}_{}_{:018}",
+            CHECKPOINT_NAME_PREFIX,
+            partition.topic(),
+            partition.partition_number(),
+            checkpoint_timestamp
+        )
+    }
+
+    // Generates a UNIX epoch timestamp in microseconds as a u128
+    fn generate_checkpoint_timestamp(&self) -> u128 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .context("failed to generate checkpoint timestamp")?
+            .as_micros()
+    }
+
+    async fn get_directory_size(&self, path: &Path) -> Result<u64> {
+        let mut total_size = 0u64;
+        let mut stack = vec![path.to_path_buf()];
+
+        while let Some(current_path) = stack.pop() {
+            let mut entries = tokio::fs::read_dir(&current_path)
+                .await
+                .with_context(|| format!("Failed to read directory: {current_path:?}"))?;
+
+            while let Some(entry) = entries.next_entry().await? {
+                let path = entry.path();
+                let metadata = entry.metadata().await?;
+
+                if metadata.is_dir() {
+                    stack.push(path);
+                } else {
+                    total_size += metadata.len();
+                }
+            }
+        }
+
+        Ok(total_size)
+    }
+
+    async fn cleanup_local_checkpoints(&self) -> Result<()> {
+        let checkpoint_dir = PathBuf::from(&self.config.local_checkpoint_dir);
+
+        if !checkpoint_dir.exists() {
+            return Ok(());
+        }
+
+        let mut entries = tokio::fs::read_dir(&checkpoint_dir)
+            .await
+            .context("Failed to read checkpoint directory")?;
+
+        let mut checkpoint_dirs = Vec::new();
+
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+            if path.is_dir() {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if name.starts_with(CHECKPOINT_NAME_PREFIX) {
+                        checkpoint_dirs.push(path);
+                    }
+                }
+            }
+        }
+
+        // Sort by name (which includes timestamp)
+        checkpoint_dirs.sort();
+
+        if checkpoint_dirs.len() <= self.config.max_local_checkpoints {
+            return Ok(());
+        }
+
+        let dirs_to_remove = checkpoint_dirs.len() - self.config.max_local_checkpoints;
+
+        for dir in checkpoint_dirs.into_iter().take(dirs_to_remove) {
+            if let Err(e) = tokio::fs::remove_dir_all(&dir).await {
+                error!("Failed to remove old checkpoint directory {:?}: {}", dir, e);
+                // Continue with other removals
+            } else {
+                info!("Removed old checkpoint directory: {:?}", dir);
+            }
+        }
+
+        Ok(())
     }
 }
 

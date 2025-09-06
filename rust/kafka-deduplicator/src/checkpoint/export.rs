@@ -12,12 +12,8 @@ use crate::kafka::types::Partition;
 use crate::rocksdb::deduplication_store::DeduplicationStore;
 
 const CHECKPOINT_LAST_TIMESTAMP_GAUGE: &str = "checkpoint_last_timestamp";
-const CHECKPOINT_DURATION_HISTOGRAM: &str = "checkpoint_duration_seconds";
-const CHECKPOINT_SIZE_HISTOGRAM: &str = "checkpoint_size_bytes";
 const CHECKPOINT_UPLOAD_DURATION_HISTOGRAM: &str = "checkpoint_upload_duration_seconds";
 const CHECKPOINT_ERRORS_COUNTER: &str = "checkpoint_errors_total";
-
-pub const CHECKPOINT_NAME_PREFIX: &str = "chkpt";
 
 #[derive(Debug)]
 pub struct CheckpointExporter {
@@ -77,7 +73,7 @@ impl CheckpointExporter {
             return Err(e);
         }
 
-        Ok(true);
+        Ok(true)
     }
 
     /// Get the timestamp of the last checkpoint
@@ -92,27 +88,13 @@ impl CheckpointExporter {
         statuses.contains(partition)
     }
 
-    async fn perform_checkpoint(&self, store: &DeduplicationStore) -> Result<()> {
+    // returns the remote key prefix for this checkpoint or an error
+    pub async fn perform_checkpoint(
+        &self,
+        local_checkpoint_path: &Path,
+        store: &DeduplicationStore,
+    ) -> Result<String> {
         let start_time = Instant::now();
-        let partition: Partition =
-            Partition::new(store.get_topic().to_string(), store.get_partition());
-
-        info!("Starting checkpoint creation");
-
-        // Create checkpoint directory with timestamp (microseconds for uniqueness)
-        // and ensure the checkpoint name is unique and lexicographically sortable
-        let checkpoint_timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .context("Failed to get current timestamp")?
-            .as_micros();
-        let checkpoint_name = self.build_checkpoint_name(&partition, checkpoint_timestamp);
-        let local_checkpoint_path =
-            PathBuf::from(&self.config.local_checkpoint_dir).join(&checkpoint_name);
-
-        // Ensure local checkpoint directory exists
-        tokio::fs::create_dir_all(&self.config.local_checkpoint_dir)
-            .await
-            .context("Failed to create local checkpoint directory")?;
 
         // Determine if this should be a full upload or incremental
         let current_part_counter: u32;
@@ -131,14 +113,6 @@ impl CheckpointExporter {
         let sst_files = store
             .create_checkpoint_with_metadata(&local_checkpoint_path)
             .context("Failed to create checkpoint")?;
-
-        let checkpoint_duration = start_time.elapsed();
-        metrics::histogram!(CHECKPOINT_DURATION_HISTOGRAM)
-            .record(checkpoint_duration.as_secs_f64());
-
-        // Get checkpoint size
-        let checkpoint_size = self.get_directory_size(&local_checkpoint_path).await?;
-        metrics::histogram!(CHECKPOINT_SIZE_HISTOGRAM).record(checkpoint_size as f64);
 
         info!(
             "Created checkpoint {} with {} SST files, size: {} bytes, duration: {:?}",
@@ -202,93 +176,11 @@ impl CheckpointExporter {
             warn!("Uploader not available, checkpoint will remain local only");
         }
 
+        // TODO(eli): MOVE TO CHECKPOINT MANAGER
         // Cleanup old local checkpoints
         self.cleanup_local_checkpoints().await?;
 
         info!("Checkpoint {} completed successfully", checkpoint_name);
-        Ok(())
-    }
-
-    async fn get_directory_size(&self, path: &Path) -> Result<u64> {
-        let mut total_size = 0u64;
-        let mut stack = vec![path.to_path_buf()];
-
-        while let Some(current_path) = stack.pop() {
-            let mut entries = tokio::fs::read_dir(&current_path)
-                .await
-                .with_context(|| format!("Failed to read directory: {current_path:?}"))?;
-
-            while let Some(entry) = entries.next_entry().await? {
-                let path = entry.path();
-                let metadata = entry.metadata().await?;
-
-                if metadata.is_dir() {
-                    stack.push(path);
-                } else {
-                    total_size += metadata.len();
-                }
-            }
-        }
-
-        Ok(total_size)
-    }
-
-    async fn cleanup_local_checkpoints(&self) -> Result<()> {
-        let checkpoint_dir = PathBuf::from(&self.config.local_checkpoint_dir);
-
-        if !checkpoint_dir.exists() {
-            return Ok(());
-        }
-
-        let mut entries = tokio::fs::read_dir(&checkpoint_dir)
-            .await
-            .context("Failed to read checkpoint directory")?;
-
-        let mut checkpoint_dirs = Vec::new();
-
-        while let Some(entry) = entries.next_entry().await? {
-            let path = entry.path();
-            if path.is_dir() {
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if name.starts_with(CHECKPOINT_NAME_PREFIX) {
-                        checkpoint_dirs.push(path);
-                    }
-                }
-            }
-        }
-
-        // Sort by name (which includes timestamp)
-        checkpoint_dirs.sort();
-
-        if checkpoint_dirs.len() <= self.config.max_local_checkpoints {
-            return Ok(());
-        }
-
-        let dirs_to_remove = checkpoint_dirs.len() - self.config.max_local_checkpoints;
-
-        for dir in checkpoint_dirs.into_iter().take(dirs_to_remove) {
-            if let Err(e) = tokio::fs::remove_dir_all(&dir).await {
-                error!("Failed to remove old checkpoint directory {:?}: {}", dir, e);
-                // Continue with other removals
-            } else {
-                info!("Removed old checkpoint directory: {:?}", dir);
-            }
-        }
-
-        Ok(())
-    }
-
-    // TODO(eli): discussed breaking this in to path-like elements but so far
-    // I'm leaning towards keeping it a single directory name. It's sortable,
-    // simple to work with, and maintains a 1:1 mapping between local paths under
-    // base dir and S3 snapshot paths under bucket key prefix. Can revisit if needed
-    fn build_checkpoint_name(&self, partition: &Partition, checkpoint_timestamp: u128) -> String {
-        format!(
-            "{}_{}_{}_{:018}",
-            CHECKPOINT_NAME_PREFIX,
-            partition.topic(),
-            partition.partition_number(),
-            checkpoint_timestamp
-        )
+        Ok(remote_key_prefix)
     }
 }

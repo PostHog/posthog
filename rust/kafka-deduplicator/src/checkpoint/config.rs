@@ -24,6 +24,9 @@ pub struct CheckpointConfig {
     /// Maximum number of local checkpoints to keep
     pub max_local_checkpoints: usize,
 
+    /// Maximum number of concurrent checkpoints to perform
+    pub max_concurrent_checkpoints: usize,
+
     /// Timeout for S3 operations
     pub s3_timeout: Duration,
 }
