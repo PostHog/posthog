@@ -1,6 +1,8 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
+import { AccessControlResourceType } from '~/types'
+
 import { LemonSwitchProps, LemonSwitch as RawLemonSwitch } from './LemonSwitch'
 
 const LemonSwitch = ({ checked, ...props }: Partial<LemonSwitchProps>): JSX.Element => {
@@ -116,3 +118,30 @@ export const SizesLoading = (): JSX.Element => {
     )
 }
 SizesLoading.parameters = { testOptions: { waitForLoadersToDisappear: false } }
+
+export const WithAccessControl = (): JSX.Element => {
+    return (
+        <div className="deprecated-space-y-2">
+            <LemonSwitch
+                label="Enabled (admin ≥ admin)"
+                checked={true}
+                onChange={() => {}}
+                accessControl={{
+                    userLevel: 'admin',
+                    minLevel: 'admin',
+                    resource: AccessControlResourceType.Project,
+                }}
+            />
+            <LemonSwitch
+                label="Disabled (viewer < admin)"
+                checked={false}
+                onChange={() => {}}
+                accessControl={{
+                    userLevel: 'viewer',
+                    minLevel: 'admin',
+                    resource: AccessControlResourceType.Project,
+                }}
+            />
+        </div>
+    )
+}

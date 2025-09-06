@@ -11,6 +11,8 @@ import { IconCalculate, IconLink } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, delay, range } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
+import { AccessControlResourceType } from '~/types'
+
 import { LemonButton, LemonButtonProps, LemonButtonWithDropdown, LemonButtonWithDropdownProps } from './LemonButton'
 import { More } from './More'
 
@@ -437,6 +439,33 @@ export const WithOverflowingContent = (): JSX.Element => {
                 Truncating {longText}
             </LemonButton>
             <LemonButton type="secondary">{longText}</LemonButton>
+        </div>
+    )
+}
+
+export const WithAccessControl = (): JSX.Element => {
+    return (
+        <div className="flex gap-2">
+            <LemonButton
+                type="primary"
+                accessControl={{
+                    userLevel: 'admin',
+                    minLevel: 'admin',
+                    resource: AccessControlResourceType.Project,
+                }}
+            >
+                Enabled (admin ≥ admin)
+            </LemonButton>
+            <LemonButton
+                type="primary"
+                accessControl={{
+                    userLevel: 'viewer',
+                    minLevel: 'admin',
+                    resource: AccessControlResourceType.Project,
+                }}
+            >
+                Disabled (viewer {'<'} admin)
+            </LemonButton>
         </div>
     )
 }
