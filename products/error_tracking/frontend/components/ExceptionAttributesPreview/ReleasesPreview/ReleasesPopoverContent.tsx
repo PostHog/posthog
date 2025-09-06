@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconCommit, IconExternal, IconGitBranch, IconGitRepository } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { ExceptionReleaseGitMeta } from 'lib/components/Errors/types'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -29,7 +29,7 @@ export function ReleasePopoverContent({}: ReleasesPopoverContentProps): JSX.Elem
                         type="secondary"
                         icon={<IconExternal />}
                     >
-                        Open commit
+                        View commit
                     </LemonButton>
                 )}
             </div>
@@ -43,26 +43,31 @@ export function ReleasePopoverContent({}: ReleasesPopoverContentProps): JSX.Elem
 function MostProbableRelease({ release }: { release: ExceptionReleaseGitMeta }): JSX.Element {
     return (
         <div>
-            {/* All pills in one row */}
             <div className="flex items-center gap-2 flex-wrap">
-                <LemonTag
-                    className="bg-fill-primary font-mono text-xs cursor-pointer hover:bg-fill-secondary"
-                    onClick={() => copyToClipboard(release.commitSha, 'full commit SHA')}
-                >
-                    <IconCommit className="text-sm text-secondary" />
-                    <span title={`${release.commitSha} (click to copy)`}>{release.commitSha.slice(0, 7)}</span>
-                </LemonTag>
-                {release.branch && (
-                    <LemonTag className="bg-fill-primary text-xs">
-                        <IconGitBranch className="text-sm text-secondary" />
-                        <span title={release.branch}>{release.branch}</span>
+                <Tooltip title="Click to copy full commit SHA to clipboard">
+                    <LemonTag
+                        className="bg-fill-primary font-mono text-xs cursor-pointer hover:bg-fill-secondary"
+                        onClick={() => copyToClipboard(release.commitSha, 'full commit SHA')}
+                    >
+                        <IconCommit className="text-sm text-secondary" />
+                        <span title={`${release.commitSha} (click to copy)`}>{release.commitSha.slice(0, 7)}</span>
                     </LemonTag>
+                </Tooltip>
+                {release.branch && (
+                    <Tooltip title="Git branch name">
+                        <LemonTag className="bg-fill-primary text-xs">
+                            <IconGitBranch className="text-sm text-secondary" />
+                            <span title={release.branch}>{release.branch}</span>
+                        </LemonTag>
+                    </Tooltip>
                 )}
                 {release.repositoryName && (
-                    <LemonTag className="bg-fill-primary text-xs">
-                        <IconGitRepository className="text-sm text-secondary" />
-                        <span title={release.repositoryName}>{release.repositoryName}</span>
-                    </LemonTag>
+                    <Tooltip title="Git repository name">
+                        <LemonTag className="bg-fill-primary text-xs">
+                            <IconGitRepository className="text-sm text-secondary" />
+                            <span title={release.repositoryName}>{release.repositoryName}</span>
+                        </LemonTag>
+                    </Tooltip>
                 )}
             </div>
         </div>
