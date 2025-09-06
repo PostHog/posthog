@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { IconCopy, IconExternal } from '@posthog/icons'
+import { IconCommit, IconCopy, IconExternal, IconGitBranch, IconGitRepository } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { ExceptionReleaseGitMeta } from 'lib/components/Errors/types'
@@ -34,7 +34,10 @@ function MostProbableRelease({ release }: { release: ExceptionReleaseGitMeta }):
     return (
         <div className="space-y-2">
             <div className="flex items-center gap-2">
-                <div className="w-20 text-xs text-muted">Commit SHA</div>
+                <div className="w-28 text-xs text-muted flex items-center gap-1">
+                    <IconCommit className="w-3 h-3 text-muted-alt" />
+                    Commit
+                </div>
                 <div className="flex-1 flex items-center gap-2 min-w-0">
                     <LemonTag className="bg-fill-primary font-mono text-xs flex-1 min-w-0">
                         <span className="block truncate max-w-full" title={release.commitSha}>
@@ -51,7 +54,7 @@ function MostProbableRelease({ release }: { release: ExceptionReleaseGitMeta }):
             </div>
             {release.repositoryUrl && (
                 <div className="flex items-center gap-2">
-                    <div className="w-20 text-xs text-muted">URL</div>
+                    <div className="w-28 text-xs text-muted">URL</div>
                     <div className="flex-1 flex min-w-0 items-center gap-2">
                         <Link
                             to={release.repositoryUrl}
@@ -66,20 +69,23 @@ function MostProbableRelease({ release }: { release: ExceptionReleaseGitMeta }):
                     </div>
                 </div>
             )}
-            <SimplePropertyRow label="Repository" value={release.repositoryName} />
-            <SimplePropertyRow label="Branch" value={release.branch} />
+            <SimplePropertyRow label="Repository" value={release.repositoryName} icon={<IconGitRepository />} />
+            <SimplePropertyRow label="Branch" value={release.branch} icon={<IconGitBranch />} />
         </div>
     )
 }
 
-function SimplePropertyRow({ label, value }: { label: string; value?: string }): JSX.Element {
+function SimplePropertyRow({ label, value, icon }: { label: string; value?: string; icon?: JSX.Element }): JSX.Element {
     if (!value) {
         return <></>
     }
 
     return (
         <div className="flex items-center gap-2">
-            <div className="w-20 text-xs text-muted">{label}</div>
+            <div className="w-28 text-xs text-muted flex items-center gap-1">
+                {icon && <span className="w-3 h-3 text-muted-alt">{icon}</span>}
+                {label}
+            </div>
             <div className="flex-1 min-w-0">
                 <span className="text-xs block truncate max-w-full" title={value}>
                     {value}
