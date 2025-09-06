@@ -182,12 +182,12 @@
             events.`$session_id` AS `$session_id`
      FROM events
      LEFT OUTER JOIN
-       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) PREWHERE greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(90)))
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) PREWHERE greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(90)))
      WHERE equals(events.team_id, 99999)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
   LEFT JOIN
     (SELECT person.id AS id,
@@ -218,12 +218,12 @@
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
   INNER JOIN
-    (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+    (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
      FROM person_distinct_id2
      WHERE equals(person_distinct_id2.team_id, 99999)
      GROUP BY person_distinct_id2.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi ON equals(session_replay_events.distinct_id, raw_session_replay_events__pdi.distinct_id)
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi ON equals(session_replay_events.distinct_id, raw_session_replay_events__pdi.distinct_id)
   WHERE and(equals(session_replay_events.team_id, 99999), ifNull(equals(raw_session_replay_events__pdi.distinct_id, 'd1'), 0))
   ORDER BY session_replay_events.session_id ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -243,19 +243,19 @@
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
   INNER JOIN
-    (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS raw_session_replay_events__pdi___person_id,
-            argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+    (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS raw_session_replay_events__pdi___person_id,
+            tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
      FROM person_distinct_id2
      WHERE equals(person_distinct_id2.team_id, 99999)
      GROUP BY person_distinct_id2.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi ON equals(session_replay_events.distinct_id, raw_session_replay_events__pdi.distinct_id)
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi ON equals(session_replay_events.distinct_id, raw_session_replay_events__pdi.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id
      FROM person
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi__person ON equals(raw_session_replay_events__pdi.raw_session_replay_events__pdi___person_id, raw_session_replay_events__pdi__person.id)
+     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi__person ON equals(raw_session_replay_events__pdi.raw_session_replay_events__pdi___person_id, raw_session_replay_events__pdi__person.id)
   WHERE and(equals(session_replay_events.team_id, 99999), ifNull(equals(raw_session_replay_events__pdi__person.id, toUUIDOrNull('00000000-0000-4000-8000-000000000000')), 0))
   ORDER BY session_replay_events.session_id ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -276,13 +276,13 @@
          any(raw_session_replay_events__pdi__person.properties___person_property) AS `any(person.properties.person_property)`
   FROM session_replay_events
   INNER JOIN
-    (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS raw_session_replay_events__pdi___person_id,
-            argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+    (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS raw_session_replay_events__pdi___person_id,
+            tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
      FROM person_distinct_id2
      WHERE equals(person_distinct_id2.team_id, 99999)
      GROUP BY person_distinct_id2.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi ON equals(session_replay_events.distinct_id, raw_session_replay_events__pdi.distinct_id)
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi ON equals(session_replay_events.distinct_id, raw_session_replay_events__pdi.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'person_property'), ''), 'null'), '^"|"$', '') AS properties___person_property
@@ -314,13 +314,13 @@
          any(raw_session_replay_events__pdi__person.properties___person_property) AS `any(person.properties.person_property)`
   FROM session_replay_events
   INNER JOIN
-    (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS raw_session_replay_events__pdi___person_id,
-            argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+    (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS raw_session_replay_events__pdi___person_id,
+            tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
      FROM person_distinct_id2
      WHERE equals(person_distinct_id2.team_id, 99999)
      GROUP BY person_distinct_id2.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi ON equals(session_replay_events.distinct_id, raw_session_replay_events__pdi.distinct_id)
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi ON equals(session_replay_events.distinct_id, raw_session_replay_events__pdi.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'person_property'), ''), 'null'), '^"|"$', '') AS properties___person_property
@@ -352,13 +352,13 @@
          any(raw_session_replay_events__pdi__person.properties___person_property) AS `any(person.properties.person_property)`
   FROM session_replay_events
   INNER JOIN
-    (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS raw_session_replay_events__pdi___person_id,
-            argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+    (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS raw_session_replay_events__pdi___person_id,
+            tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
      FROM person_distinct_id2
      WHERE equals(person_distinct_id2.team_id, 99999)
      GROUP BY person_distinct_id2.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi ON equals(session_replay_events.distinct_id, raw_session_replay_events__pdi.distinct_id)
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS raw_session_replay_events__pdi ON equals(session_replay_events.distinct_id, raw_session_replay_events__pdi.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'person_property'), ''), 'null'), '^"|"$', '') AS properties___person_property

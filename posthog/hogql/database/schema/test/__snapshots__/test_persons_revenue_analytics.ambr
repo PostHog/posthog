@@ -4,7 +4,7 @@
   SELECT persons__revenue_analytics.revenue AS revenue,
          persons__revenue_analytics.revenue AS `$virt_revenue`
   FROM
-    (SELECT argMax(person.id, person.version) AS persons___id,
+    (SELECT tupleElement(argMax(tuple(person.id), person.version), 1) AS persons___id,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -12,7 +12,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.id, '00000000-0000-0000-0000-000000000000')))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             accurateCastOrNull(revenue_analytics_customer.id, 'UUID') AS person_id,
@@ -52,18 +52,18 @@
           (SELECT DISTINCT events__person.id AS person_id
            FROM events
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            LEFT JOIN
              (SELECT person.id AS id
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
            WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
         ORDER BY persons.created_at DESC) AS revenue_analytics_customer
      LEFT JOIN
@@ -96,12 +96,12 @@
                  if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
         FROM events
         LEFT OUTER JOIN
-          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item ON equals(revenue_analytics_customer.id, revenue_analytics_revenue_item.customer_id)
      GROUP BY person_id) AS persons__revenue_analytics ON equals(persons.persons___id, persons__revenue_analytics.person_id)
@@ -123,12 +123,12 @@
   SELECT persons.id AS id,
          persons__revenue_analytics.revenue AS `$virt_revenue`
   FROM
-    (SELECT argMax(person.id, person.version) AS persons___id,
+    (SELECT tupleElement(argMax(tuple(person.id), person.version), 1) AS persons___id,
             person.id AS id
      FROM person
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             accurateCastOrNull(revenue_analytics_customer__persons.id, 'UUID') AS person_id,
@@ -161,19 +161,19 @@
        (SELECT persons.id AS id,
                persons__pdi.distinct_id AS revenue_analytics_customer__persons___pdi___distinct_id
         FROM
-          (SELECT argMax(person.id, person.version) AS persons___id,
+          (SELECT tupleElement(argMax(tuple(person.id), person.version), 1) AS persons___id,
                   person.id AS id
            FROM person
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
-           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+           HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
         LEFT JOIN
-          (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+          (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                   person_distinct_id2.distinct_id AS distinct_id
            FROM person_distinct_id2
            WHERE equals(person_distinct_id2.team_id, 99999)
            GROUP BY person_distinct_id2.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.email, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
+           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.email, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
      LEFT JOIN
        (SELECT if(ifNull(greater(invoice.period_months, 1), 0), concat(ifNull(toString(invoice.invoice_item_id), ''), '_', ifNull(toString(invoice.month_index), '')), invoice.invoice_item_id) AS id,
                invoice.invoice_item_id AS invoice_item_id,
@@ -238,12 +238,12 @@
   '''
   SELECT persons__revenue_analytics.revenue AS `$virt_revenue`
   FROM
-    (SELECT argMax(person.id, person.version) AS persons___id,
+    (SELECT tupleElement(argMax(tuple(person.id), person.version), 1) AS persons___id,
             person.id AS id
      FROM person
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             accurateCastOrNull(revenue_analytics_customer__persons.id, 'UUID') AS person_id,
@@ -276,19 +276,19 @@
        (SELECT persons.id AS id,
                persons__pdi.distinct_id AS revenue_analytics_customer__persons___pdi___distinct_id
         FROM
-          (SELECT argMax(person.id, person.version) AS persons___id,
+          (SELECT tupleElement(argMax(tuple(person.id), person.version), 1) AS persons___id,
                   person.id AS id
            FROM person
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
-           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+           HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
         LEFT JOIN
-          (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+          (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                   person_distinct_id2.distinct_id AS distinct_id
            FROM person_distinct_id2
            WHERE equals(person_distinct_id2.team_id, 99999)
            GROUP BY person_distinct_id2.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.email, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
+           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.email, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
      LEFT JOIN
        (SELECT if(ifNull(greater(invoice.period_months, 1), 0), concat(ifNull(toString(invoice.invoice_item_id), ''), '_', ifNull(toString(invoice.month_index), '')), invoice.invoice_item_id) AS id,
                invoice.invoice_item_id AS invoice_item_id,
@@ -355,12 +355,12 @@
          persons__revenue_analytics.revenue AS revenue,
          persons__revenue_analytics.revenue AS `$virt_revenue`
   FROM
-    (SELECT argMax(person.id, person.version) AS persons___id,
+    (SELECT tupleElement(argMax(tuple(person.id), person.version), 1) AS persons___id,
             person.id AS id
      FROM person
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             accurateCastOrNull(revenue_analytics_customer__persons.id, 'UUID') AS person_id,
@@ -393,19 +393,19 @@
        (SELECT persons.id AS id,
                persons__pdi.distinct_id AS revenue_analytics_customer__persons___pdi___distinct_id
         FROM
-          (SELECT argMax(person.id, person.version) AS persons___id,
+          (SELECT tupleElement(argMax(tuple(person.id), person.version), 1) AS persons___id,
                   person.id AS id
            FROM person
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
-           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+           HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
         LEFT JOIN
-          (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+          (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                   person_distinct_id2.distinct_id AS distinct_id
            FROM person_distinct_id2
            WHERE equals(person_distinct_id2.team_id, 99999)
            GROUP BY person_distinct_id2.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.email, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
+           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.email, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
      LEFT JOIN
        (SELECT if(ifNull(greater(invoice.period_months, 1), 0), concat(ifNull(toString(invoice.invoice_item_id), ''), '_', ifNull(toString(invoice.month_index), '')), invoice.invoice_item_id) AS id,
                invoice.invoice_item_id AS invoice_item_id,
@@ -471,12 +471,12 @@
   SELECT persons.id AS id,
          persons__revenue_analytics.revenue AS revenue
   FROM
-    (SELECT argMax(person.id, person.version) AS persons___id,
+    (SELECT tupleElement(argMax(tuple(person.id), person.version), 1) AS persons___id,
             person.id AS id
      FROM person
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             accurateCastOrNull(revenue_analytics_customer__persons.id, 'UUID') AS person_id,
@@ -509,19 +509,19 @@
        (SELECT persons.id AS id,
                persons__pdi.distinct_id AS revenue_analytics_customer__persons___pdi___distinct_id
         FROM
-          (SELECT argMax(person.id, person.version) AS persons___id,
+          (SELECT tupleElement(argMax(tuple(person.id), person.version), 1) AS persons___id,
                   person.id AS id
            FROM person
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
-           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+           HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
         LEFT JOIN
-          (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+          (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                   person_distinct_id2.distinct_id AS distinct_id
            FROM person_distinct_id2
            WHERE equals(person_distinct_id2.team_id, 99999)
            GROUP BY person_distinct_id2.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
+           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
      LEFT JOIN
        (SELECT if(ifNull(greater(invoice.period_months, 1), 0), concat(ifNull(toString(invoice.invoice_item_id), ''), '_', ifNull(toString(invoice.month_index), '')), invoice.invoice_item_id) AS id,
                invoice.invoice_item_id AS invoice_item_id,
@@ -587,12 +587,12 @@
   SELECT persons.id AS id,
          persons__revenue_analytics.revenue AS `$virt_revenue`
   FROM
-    (SELECT argMax(person.id, person.version) AS persons___id,
+    (SELECT tupleElement(argMax(tuple(person.id), person.version), 1) AS persons___id,
             person.id AS id
      FROM person
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             accurateCastOrNull(revenue_analytics_customer__persons.id, 'UUID') AS person_id,
@@ -625,19 +625,19 @@
        (SELECT persons.id AS id,
                persons__pdi.distinct_id AS revenue_analytics_customer__persons___pdi___distinct_id
         FROM
-          (SELECT argMax(person.id, person.version) AS persons___id,
+          (SELECT tupleElement(argMax(tuple(person.id), person.version), 1) AS persons___id,
                   person.id AS id
            FROM person
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
-           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+           HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
         LEFT JOIN
-          (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+          (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                   person_distinct_id2.distinct_id AS distinct_id
            FROM person_distinct_id2
            WHERE equals(person_distinct_id2.team_id, 99999)
            GROUP BY person_distinct_id2.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
+           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
      LEFT JOIN
        (SELECT if(ifNull(greater(invoice.period_months, 1), 0), concat(ifNull(toString(invoice.invoice_item_id), ''), '_', ifNull(toString(invoice.month_index), '')), invoice.invoice_item_id) AS id,
                invoice.invoice_item_id AS invoice_item_id,
@@ -704,12 +704,12 @@
          persons__revenue_analytics.revenue AS revenue,
          persons__revenue_analytics.revenue AS `$virt_revenue`
   FROM
-    (SELECT argMax(person.id, person.version) AS persons___id,
+    (SELECT tupleElement(argMax(tuple(person.id), person.version), 1) AS persons___id,
             person.id AS id
      FROM person
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             accurateCastOrNull(revenue_analytics_customer__persons.id, 'UUID') AS person_id,
@@ -742,19 +742,19 @@
        (SELECT persons.id AS id,
                persons__pdi.distinct_id AS revenue_analytics_customer__persons___pdi___distinct_id
         FROM
-          (SELECT argMax(person.id, person.version) AS persons___id,
+          (SELECT tupleElement(argMax(tuple(person.id), person.version), 1) AS persons___id,
                   person.id AS id
            FROM person
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
-           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+           HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
         LEFT JOIN
-          (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+          (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                   person_distinct_id2.distinct_id AS distinct_id
            FROM person_distinct_id2
            WHERE equals(person_distinct_id2.team_id, 99999)
            GROUP BY person_distinct_id2.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(JSONExtractString(revenue_analytics_customer.metadata, 'id'), revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
+           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(JSONExtractString(revenue_analytics_customer.metadata, 'id'), revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
      LEFT JOIN
        (SELECT if(ifNull(greater(invoice.period_months, 1), 0), concat(ifNull(toString(invoice.invoice_item_id), ''), '_', ifNull(toString(invoice.month_index), '')), invoice.invoice_item_id) AS id,
                invoice.invoice_item_id AS invoice_item_id,
@@ -852,19 +852,19 @@
        (SELECT persons.id AS id,
                persons__pdi.distinct_id AS revenue_analytics_customer__persons___pdi___distinct_id
         FROM
-          (SELECT argMax(person.id, person.version) AS persons___id,
+          (SELECT tupleElement(argMax(tuple(person.id), person.version), 1) AS persons___id,
                   person.id AS id
            FROM person
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
-           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+           HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
         LEFT JOIN
-          (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+          (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                   person_distinct_id2.distinct_id AS distinct_id
            FROM person_distinct_id2
            WHERE equals(person_distinct_id2.team_id, 99999)
            GROUP BY person_distinct_id2.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.email, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
+           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.email, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
      LEFT JOIN
        (SELECT if(ifNull(greater(invoice.period_months, 1), 0), concat(ifNull(toString(invoice.invoice_item_id), ''), '_', ifNull(toString(invoice.month_index), '')), invoice.invoice_item_id) AS id,
                invoice.invoice_item_id AS invoice_item_id,
@@ -963,20 +963,20 @@
                   ifNull(nullIf(toString(e__pdi__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM events AS e SAMPLE 1
            INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id,
-                     argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS e__pdi___person_id,
+                     tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id
               FROM person_distinct_id2
               WHERE equals(person_distinct_id2.team_id, 99999)
               GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
            LEFT JOIN
-             (SELECT argMax(person.id, person.version) AS e__pdi__person___id,
+             (SELECT tupleElement(argMax(tuple(person.id), person.version), 1) AS e__pdi__person___id,
                      person.id AS id
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.e__pdi__person___id)
+              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.e__pdi__person___id)
            LEFT JOIN
              (SELECT 99999 AS team_id,
                      accurateCastOrNull(revenue_analytics_customer.id, 'UUID') AS person_id,
@@ -1016,19 +1016,19 @@
                    (SELECT DISTINCT events__pdi__person.id AS person_id
                     FROM events
                     INNER JOIN
-                      (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id,
-                              argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+                      (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS events__pdi___person_id,
+                              tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                               person_distinct_id2.distinct_id AS distinct_id
                        FROM person_distinct_id2
                        WHERE equals(person_distinct_id2.team_id, 99999)
                        GROUP BY person_distinct_id2.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                     LEFT JOIN
                       (SELECT person.id AS id
                        FROM person
                        WHERE equals(person.team_id, 99999)
                        GROUP BY person.id
-                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
+                       HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
                     WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
                  ORDER BY persons.created_at DESC) AS revenue_analytics_customer
               LEFT JOIN
@@ -1061,12 +1061,12 @@
                           if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
                  FROM events
                  INNER JOIN
-                   (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+                   (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                            person_distinct_id2.distinct_id AS distinct_id
                     FROM person_distinct_id2
                     WHERE equals(person_distinct_id2.team_id, 99999)
                     GROUP BY person_distinct_id2.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                  ORDER BY timestamp DESC) AS revenue_analytics_revenue_item ON equals(revenue_analytics_customer.id, revenue_analytics_revenue_item.customer_id)
               GROUP BY person_id) AS e__pdi__person__revenue_analytics ON equals(e__pdi__person.e__pdi__person___id, e__pdi__person__revenue_analytics.person_id)
@@ -1263,12 +1263,12 @@
                   ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM events AS e SAMPLE 1
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
              (SELECT 99999 AS team_id,
                      accurateCastOrNull(revenue_analytics_customer.id, 'UUID') AS person_id,
@@ -1308,12 +1308,12 @@
                    (SELECT DISTINCT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
                  ORDER BY persons.created_at DESC) AS revenue_analytics_customer
               LEFT JOIN
@@ -1346,12 +1346,12 @@
                           if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
                  FROM events
                  LEFT OUTER JOIN
-                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                  ORDER BY timestamp DESC) AS revenue_analytics_revenue_item ON equals(revenue_analytics_customer.id, revenue_analytics_revenue_item.customer_id)
               GROUP BY person_id) AS e__poe__revenue_analytics ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__poe__revenue_analytics.person_id)
@@ -1416,19 +1416,19 @@
                   ifNull(nullIf(toString(e__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM events AS e SAMPLE 1
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
-             (SELECT argMax(person.id, person.version) AS e__person___id,
+             (SELECT tupleElement(argMax(tuple(person.id), person.version), 1) AS e__person___id,
                      person.id AS id
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.e__person___id)
+              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.e__person___id)
            LEFT JOIN
              (SELECT 99999 AS team_id,
                      accurateCastOrNull(revenue_analytics_customer.id, 'UUID') AS person_id,
@@ -1468,18 +1468,18 @@
                    (SELECT DISTINCT events__person.id AS person_id
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     LEFT JOIN
                       (SELECT person.id AS id
                        FROM person
                        WHERE equals(person.team_id, 99999)
                        GROUP BY person.id
-                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                       HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
                     WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
                  ORDER BY persons.created_at DESC) AS revenue_analytics_customer
               LEFT JOIN
@@ -1512,12 +1512,12 @@
                           if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
                  FROM events
                  LEFT OUTER JOIN
-                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                  WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                  ORDER BY timestamp DESC) AS revenue_analytics_revenue_item ON equals(revenue_analytics_customer.id, revenue_analytics_revenue_item.customer_id)
               GROUP BY person_id) AS e__person__revenue_analytics ON equals(e__person.e__person___id, e__person__revenue_analytics.person_id)
