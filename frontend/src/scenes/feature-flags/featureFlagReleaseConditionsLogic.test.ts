@@ -508,6 +508,25 @@ describe('the feature flag release conditions logic', () => {
                 },
             ])
         })
+
+        it('preserves affected user calculations when reordering', () => {
+            const filters = generateFeatureFlagFilters([
+                { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                { properties: [], rollout_percentage: 75, variant: null, sort_key: 'B' },
+                { properties: [], rollout_percentage: 100, variant: null, sort_key: 'C' },
+            ])
+            logic.actions.setFilters(filters)
+
+            for (let i = 0; i < 3; i++) {
+                logic.actions.setAffectedUsers(i, i * 100)
+            }
+
+            logic.actions.moveConditionSetDown(0)
+            expect(logic.values.affectedUsers).toEqual({ 0: 100, 1: 0, 2: 200 })
+
+            logic.actions.moveConditionSetUp(1)
+            expect(logic.values.affectedUsers).toEqual({ 0: 0, 1: 100, 2: 200 })
+        })
     })
 
     describe('condition set descriptions', () => {

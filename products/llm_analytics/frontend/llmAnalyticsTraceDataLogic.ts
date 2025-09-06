@@ -20,7 +20,7 @@ import {
     findSidebarOccurrences,
     findTraceOccurrences,
 } from './searchUtils'
-import { formatLLMUsage, normalizeMessages } from './utils'
+import { formatLLMUsage, isLLMTraceEvent, normalizeMessages } from './utils'
 
 export interface TraceDataLogicProps {
     traceId: string
@@ -198,6 +198,16 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
         enrichedTree: [
             (s) => [s.filteredTree],
             (filteredTree: TraceTreeNode[]): EnrichedTraceTreeNode[] => filteredTree.map(enrichNode),
+        ],
+        eventMetadata: [
+            (s) => [s.event],
+            (event): Record<string, unknown> | undefined => {
+                if (event && isLLMTraceEvent(event)) {
+                    // Filter out all system properties as they're typically useless for datasets.
+                    return Object.fromEntries(Object.entries(event.properties).filter(([key]) => !key.startsWith('$')))
+                }
+                return undefined
+            },
         ],
     }),
 ])
