@@ -98,6 +98,8 @@ pub struct FeatureFlag {
     pub version: Option<i32>,
     #[serde(default)]
     pub evaluation_runtime: Option<String>,
+    #[serde(default)]
+    pub evaluation_tags: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -113,6 +115,8 @@ pub struct FeatureFlagRow {
     pub version: Option<i32>,
     #[serde(default)]
     pub evaluation_runtime: Option<String>,
+    #[serde(default)]
+    pub evaluation_tags: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
