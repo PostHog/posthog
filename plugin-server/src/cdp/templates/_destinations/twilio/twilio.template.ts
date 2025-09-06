@@ -84,7 +84,7 @@ if (inputs.debug) {
             secret: false,
             required: true,
             description: 'Phone number to send the SMS to (in E.164 format, e.g., +1234567890).',
-            default: '{person.properties.phone}',
+            default: '{{ person.properties.phone }}',
         },
         {
             key: 'message',
@@ -93,7 +93,7 @@ if (inputs.debug) {
             secret: false,
             required: true,
             description: 'SMS message content (max 1600 characters).',
-            default: 'PostHog event {event.event} was triggered',
+            default: 'PostHog event {{ event.event }} was triggered',
         },
         {
             key: 'debug',

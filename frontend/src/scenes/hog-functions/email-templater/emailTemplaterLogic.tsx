@@ -33,6 +33,7 @@ export type EmailTemplate = {
 }
 
 export interface EmailTemplaterLogicProps {
+    defaultValue: EmailTemplate | null
     value: EmailTemplate | null
     onChange: (value: EmailTemplate) => void
     variables?: Record<string, any>
@@ -141,14 +142,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
     forms(({ actions, values, props }) => ({
         emailTemplate: {
-            defaults: {
-                from: '',
-                subject: '',
-                to: '',
-                html: '',
-                design: null as object | null,
-                text: '',
-            } as EmailTemplate,
+            defaults: props.defaultValue,
             submit: async (value) => {
                 const editor = values.emailEditorRef?.editor
                 if (!editor || !values.isEmailEditorReady) {
