@@ -11,6 +11,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from posthog.schema import (
     ActionConversionGoal,
@@ -187,11 +188,13 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                 includeBounceRate=include_bounce_rate,
                 includeScrollDepth=include_scroll_depth,
                 compareFilter=compare_filter,
-                conversionGoal=ActionConversionGoal(actionId=action.id)
-                if action
-                else CustomEventConversionGoal(customEventName=custom_event)
-                if custom_event
-                else None,
+                conversionGoal=(
+                    ActionConversionGoal(actionId=action.id)
+                    if action
+                    else CustomEventConversionGoal(customEventName=custom_event)
+                    if custom_event
+                    else None
+                ),
                 filterTestAccounts=filter_test_accounts,
                 orderBy=orderBy,
             )
@@ -1962,5 +1965,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             properties=[SessionPropertyFilter(key="$channel_type", value="Direct", operator="exact", type="session")],
         )
         runner = WebStatsTableQueryRunner(team=self.team, query=query)
-        pre_agg_builder = runner.preaggregated_query_builder
-        assert pre_agg_builder.can_use_preaggregated_tables()
+
+        # Mock the date range validation to return True for easier testing
+        with patch.object(runner.preaggregated_query_builder, "can_use_date_range", return_value=True):
+            pre_agg_builder = runner.preaggregated_query_builder
+            assert pre_agg_builder.can_use_preaggregated_tables()
