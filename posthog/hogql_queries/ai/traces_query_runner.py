@@ -179,7 +179,8 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                         ifNull(properties.$ai_span_name, properties.$ai_trace_name),
                         timestamp,
                     )
-                ) AS trace_name
+                ) AS trace_name,
+                argMin(properties.temporal_workflow_id, timestamp) AS temporal_workflow_id
             FROM events
             WHERE event IN (
                 '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
@@ -236,6 +237,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             "total_cost": "totalCost",
             "events": "events",
             "trace_name": "traceName",
+            "temporal_workflow_id": "temporalWorkflowId",
         }
 
         generations = []
