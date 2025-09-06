@@ -4,7 +4,7 @@ import { IconDashboard } from '@posthog/icons'
 
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Dashboards',
@@ -35,6 +35,8 @@ export const manifest: ProductManifest = {
             path: `Dashboard`,
             type: 'dashboard',
             href: urls.dashboards() + '#newDashboard=modal',
+            icon: <IconDashboard />,
+            iconColor: ['var(--color-product-dashboards-light)'] as FileSystemIconColor,
         },
     ],
 }

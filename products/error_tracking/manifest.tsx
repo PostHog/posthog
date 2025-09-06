@@ -1,8 +1,10 @@
 import { combineUrl } from 'kea-router'
 
+import { IconWarning } from '@posthog/icons'
+
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Error tracking',
@@ -62,7 +64,9 @@ export const manifest: ProductManifest = {
         {
             path: 'Error tracking',
             category: 'Behavior',
-            iconType: 'errorTracking',
+            type: 'error_tracking',
+            icon: <IconWarning />,
+            iconColor: ['var(--color-product-error-tracking-light)'] as FileSystemIconColor,
             href: urls.errorTracking(),
         },
     ],

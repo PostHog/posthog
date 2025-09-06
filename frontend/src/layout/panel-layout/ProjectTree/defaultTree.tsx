@@ -7,6 +7,7 @@ import {
     IconBook,
     IconChevronRight,
     IconCursor,
+    IconDashboard,
     IconDatabase,
     IconFunnels,
     IconGraph,
@@ -14,7 +15,9 @@ import {
     IconHogQL,
     IconLifecycle,
     IconLive,
+    IconNotebook,
     IconNotification,
+    IconPeople,
     IconPieChart,
     IconPiggyBank,
     IconPlug,
@@ -27,7 +30,6 @@ import {
 } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconCohort } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import {
@@ -125,7 +127,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         iconColor: ['var(--color-insight-sql-light)'],
     },
     cohort: {
-        icon: <IconCohort />,
+        icon: <IconPeople />,
     },
     insight: {
         icon: <IconGraph />,
@@ -228,21 +230,29 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
             path: `Data/Source`,
             type: 'hog_function/source',
             href: urls.pipelineNodeNew(PipelineStage.Source),
+            icon: <IconPlug />,
+            iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
         },
         {
             path: `Data/Destination`,
             type: 'hog_function/destination',
             href: urls.pipelineNodeNew(PipelineStage.Destination),
+            icon: <IconPlug />,
+            iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
         },
         {
             path: `Data/Transformation`,
             type: 'hog_function/transformation',
             href: urls.pipelineNodeNew(PipelineStage.Transformation),
+            icon: <IconPlug />,
+            iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
         },
         {
             path: `Data/Site app`,
             type: 'hog_function/site_app',
             href: urls.pipelineNodeNew(PipelineStage.SiteApp),
+            icon: <IconPlug />,
+            iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
         },
     ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 
@@ -251,31 +261,31 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
     {
         path: 'Event definitions',
         category: 'Definitions',
-        iconType: 'definitions',
+        icon: <IconApps />,
         href: urls.eventDefinitions(),
     },
     {
         path: 'Property definitions',
         category: 'Definitions',
-        iconType: 'definitions',
+        icon: <IconApps />,
         href: urls.propertyDefinitions(),
     },
     {
         path: 'Annotations',
         category: 'Metadata',
-        iconType: 'notification',
+        icon: <IconNotification />,
         href: urls.annotations(),
     },
     {
         path: 'Comments',
         category: 'Metadata',
-        iconType: 'notification',
+        icon: <IconNotification />,
         href: urls.comments(),
     },
     {
         path: 'Ingestion warnings',
         category: 'Pipeline',
-        iconType: 'warning',
+        icon: <IconWarning />,
         href: urls.ingestionWarnings(),
         flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
     },
@@ -283,21 +293,21 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         path: `Sources`,
         category: 'Pipeline',
         type: 'hog_function/source',
-        iconType: 'plug',
+        icon: <IconPlug />,
         href: urls.pipeline(PipelineTab.Sources),
     } as FileSystemImport,
     {
         path: `Transformations`,
         category: 'Pipeline',
         type: 'hog_function/transformation',
-        iconType: 'plug',
+        icon: <IconPlug />,
         href: urls.pipeline(PipelineTab.Transformations),
     } as FileSystemImport,
     {
         path: `Destinations`,
         category: 'Pipeline',
         type: 'hog_function/destination',
-        iconType: 'plug',
+        icon: <IconPlug />,
         href: urls.pipeline(PipelineTab.Destinations),
     } as FileSystemImport,
 ]
@@ -309,31 +319,41 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             path: 'Dashboards',
             category: 'Analytics',
             type: 'dashboard',
+            icon: <IconDashboard />,
+            iconColor: ['var(--color-product-dashboards-light)'] as FileSystemIconColor,
             href: urls.dashboards(),
         },
         {
             path: 'Notebooks',
             category: 'Tools',
             type: 'notebook',
+            icon: <IconNotebook />,
             href: urls.notebooks(),
         },
         {
             path: `Data pipelines`,
             category: 'Tools',
             type: 'hog_function',
-            iconType: 'plug',
+            icon: <IconPlug />,
+            iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
             href: urls.pipeline(),
         } as FileSystemImport,
         {
             path: `SQL editor`,
             category: 'Analytics',
             type: 'sql',
+            icon: <IconDatabase />,
+            iconColor: ['var(--color-product-data-warehouse-light)'] as FileSystemIconColor,
             href: urls.sqlEditor(),
         } as FileSystemImport,
         {
             path: 'Heatmaps',
             category: 'Behavior',
-            iconType: 'heatmap',
+            icon: <IconApp />,
+            iconColor: [
+                'var(--color-product-heatmaps-light)',
+                'var(--color-product-heatmaps-dark)',
+            ] as FileSystemIconColor,
             href: urls.heatmaps(),
             flag: FEATURE_FLAGS.HEATMAPS_UI,
             tags: ['alpha'],
@@ -355,7 +375,7 @@ export const getDefaultTreePersons = (): FileSystemImport[] => [
     {
         path: 'Persons',
         category: 'People',
-        iconType: 'cohort',
+        icon: <IconPeople />,
         href: urls.persons(),
         visualOrder: 10,
     },

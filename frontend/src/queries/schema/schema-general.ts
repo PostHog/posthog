@@ -20,6 +20,7 @@ import {
     ExperimentHoldoutType,
     ExperimentMetricGoal,
     ExperimentMetricMathType,
+    FileSystemIconColor,
     FilterLogicalOperator,
     FilterType,
     FunnelConversionWindowTimeUnit,
@@ -2384,6 +2385,10 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     protocol?: string
     /** Category label to place this under */
     category?: string
+    /** Icon of the item */
+    icon?: React.ReactNode
+    /** Color of the icon */
+    iconColor?: FileSystemIconColor
 }
 
 export interface PersistedFolder {

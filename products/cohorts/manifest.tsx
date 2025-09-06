@@ -2,7 +2,7 @@ import { IconPeople } from '@posthog/icons'
 
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Cohorts',
@@ -16,6 +16,7 @@ export const manifest: ProductManifest = {
             icon: <IconPeople />,
             href: (ref: string) => urls.cohort(ref),
             filterKey: 'cohort',
+            iconColor: ['var(--color-product-cohorts-light)'] as FileSystemIconColor,
         },
     },
     treeItemsNew: [
@@ -23,6 +24,8 @@ export const manifest: ProductManifest = {
             path: `Cohort`,
             type: 'cohort',
             href: urls.cohort('new'),
+            icon: <IconPeople />,
+            iconColor: ['var(--color-product-cohorts-light)'] as FileSystemIconColor,
         },
     ],
     treeItemsProducts: [],

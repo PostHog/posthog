@@ -3,7 +3,7 @@ import { IconMessage } from '@posthog/icons'
 import { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Surveys',
@@ -27,6 +27,8 @@ export const manifest: ProductManifest = {
             path: `Survey`,
             type: 'survey',
             href: urls.survey('new'),
+            icon: <IconMessage />,
+            iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
         },
     ],
     treeItemsProducts: [
