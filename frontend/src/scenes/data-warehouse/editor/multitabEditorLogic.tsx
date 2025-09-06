@@ -15,6 +15,7 @@ import { initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { removeUndefinedAndNull } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -1178,7 +1179,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
 
             const savedInsight = await insightsApi.update(values.editingInsight.id, insightRequest)
-
+            await insightLogic({ dashboardItemId: savedInsight.short_id }).actions?.setInsight(savedInsight, {
+                fromPersistentApi: true,
+                overrideQuery: true,
+            })
             if (values.activeModelUri) {
                 actions.updateTab({
                     ...values.activeModelUri,
