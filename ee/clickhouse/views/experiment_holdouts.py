@@ -50,6 +50,20 @@ class ExperimentHoldoutSerializer(serializers.ModelSerializer):
             )
         return updated_filters
 
+    def validate_filters(self, filters):
+        for filter in filters:
+            if "rollout_percentage" in filter:
+                rollout_percentage = filter.get("rollout_percentage")
+                if rollout_percentage is None:
+                    raise serializers.ValidationError("Rollout percentage must be present.")
+                if rollout_percentage < 0 or rollout_percentage > 100:
+                    raise serializers.ValidationError("Rollout percentage must be between 0 and 100.")
+
+            else:
+                raise serializers.ValidationError("Rollout percentage must be present.")
+
+        return filters
+
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> ExperimentHoldout:
         request = self.context["request"]
         validated_data["created_by"] = request.user
