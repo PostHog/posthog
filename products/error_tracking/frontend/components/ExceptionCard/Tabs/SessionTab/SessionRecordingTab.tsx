@@ -16,14 +16,14 @@ export function SessionRecordingTab(): JSX.Element {
     return (
         <TabsPrimitiveContent value="recording">
             {match(loading)
-                .with(true, () => <SessionRecordingLoading />)
+                .with(true, () => <SessionLoading />)
                 .with(false, () => <SessionRecordingContent />)
                 .exhaustive()}
         </TabsPrimitiveContent>
     )
 }
 
-export function SessionRecordingLoading(): JSX.Element {
+export function SessionLoading(): JSX.Element {
     return (
         <div className="flex justify-center w-full h-[300px] items-center">
             <Spinner />
