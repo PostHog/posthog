@@ -33,7 +33,7 @@ jobs:
             # also want this to run on master so we need to checkout
             - uses: actions/checkout@v4
 
-            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
+            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v2
               id: filter
               with:
                   filters: |
