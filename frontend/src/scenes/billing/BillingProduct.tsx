@@ -27,6 +27,7 @@ import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 import { summarizeUsage } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
+import { REALTIME_DESTINATIONS_BILLING_START_DATE } from './constants'
 import { paymentEntryLogic } from './paymentEntryLogic'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
@@ -77,6 +78,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
 
+    const productDisplayNameOverrides: Record<string, string> = {
+        realtime_destinations: 'Data pipelines',
+    }
+    const displayProductName = productDisplayNameOverrides[product.type] || product.name
+
     const upgradeToPlanKey = upgradePlan?.plan_key
     const currentPlanKey = currentPlan?.plan_key
 
@@ -111,12 +117,21 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     <div className="flex gap-4 items-center justify-between">
                         {/* Product name and description */}
                         <div className="flex gap-x-2">
-                            <div>{getProductIcon(product.name, product.icon_key, 'text-2xl shrink-0')}</div>
+                            <div>{getProductIcon(displayProductName, product.icon_key, 'text-2xl shrink-0')}</div>
                             <div>
                                 <h3 className="font-bold mb-0 flex items-center gap-x-2">
-                                    {product.name}{' '}
+                                    {displayProductName}{' '}
                                     {isTemporaryFreeProduct && (
                                         <LemonTag type="highlight">included with your plan</LemonTag>
+                                    )}
+                                    {product.type === 'realtime_destinations' && (
+                                        <Tooltip
+                                            title={`Data pipelines are moving to new usage-based pricing on ${REALTIME_DESTINATIONS_BILLING_START_DATE}.`}
+                                        >
+                                            <LemonTag type="success" icon={<IconInfo />}>
+                                                Migrated
+                                            </LemonTag>
+                                        </Tooltip>
                                     )}
                                 </h3>
                                 <div>{product.description}</div>
@@ -247,11 +262,12 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     product: BillingProductV2Type | BillingProductV2AddonType
                                     displayName: string
                                 }) => {
-                                    const isSessionReplay = variant.key === 'session_replay'
-                                    const currentAmount = isSessionReplay
+                                    const isMainProductVariant =
+                                        variant.key === 'session_replay' || variant.key === 'realtime_destinations'
+                                    const currentAmount = isMainProductVariant
                                         ? (product as BillingProductV2Type).current_amount_usd_before_addons || '0'
                                         : (variant.product as BillingProductV2AddonType).current_amount_usd || '0'
-                                    const projectedAmount = isSessionReplay
+                                    const projectedAmount = isMainProductVariant
                                         ? projectedAmountExcludingAddons
                                         : variant.product.projected_amount_usd || '0'
                                     const discountMultiplier = 1 - combinedMonetaryData.discountPercent / 100
@@ -293,7 +309,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     <div className="ml-16">
                                                         <BillingGauge
                                                             items={
-                                                                isSessionReplay
+                                                                isMainProductVariant
                                                                     ? billingGaugeItems.filter(
                                                                           (item) =>
                                                                               item.type !==

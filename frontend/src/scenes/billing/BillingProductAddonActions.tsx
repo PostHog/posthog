@@ -15,6 +15,7 @@ import { formatFlatRate } from './BillingProductAddon'
 import { getProration } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
+import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
 
 interface BillingProductAddonActionsProps {
     productRef: React.RefObject<HTMLDivElement>
@@ -23,9 +24,13 @@ interface BillingProductAddonActionsProps {
 
 export const BillingProductAddonActions = ({ addon, productRef }: BillingProductAddonActionsProps): JSX.Element => {
     const { billing, billingError, timeTotalInSeconds, timeRemainingInSeconds } = useValues(billingLogic)
-    const { currentAndUpgradePlans, billingProductLoading, trialLoading, isSubscribedToAnotherAddon } = useValues(
-        billingProductLogic({ product: addon, productRef })
-    )
+    const {
+        currentAndUpgradePlans,
+        billingProductLoading,
+        trialLoading,
+        isSubscribedToAnotherAddon,
+        isDataPipelinesDeprecated,
+    } = useValues(billingProductLogic({ product: addon, productRef }))
 
     const {
         toggleIsPricingModalOpen,
@@ -57,6 +62,11 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
                 overlay={
                     <LemonButton
                         fullWidth
+                        disabledReason={
+                            isDataPipelinesDeprecated
+                                ? `Data pipelines are moving to new, usage-based pricing with a large free allowance and old ingestion-based pricing ends on ${DATA_PIPELINES_CUTOFF_DATE}.`
+                                : undefined
+                        }
                         onClick={() => {
                             setSurveyResponse('$survey_response_1', addon.type)
                             reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
@@ -120,8 +130,10 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
                         size="small"
                         disableClientSideRouting
                         disabledReason={
-                            (billingError && billingError.message) ||
-                            (billing?.subscription_level === 'free' && 'Upgrade to add add-ons')
+                            isDataPipelinesDeprecated
+                                ? `Data pipelines are moving to new, usage-based pricing with a large free allowance. You can no longer upgrade to the data pipelines add-on.`
+                                : (billingError && billingError.message) ||
+                                  (billing?.subscription_level === 'free' && 'Upgrade to add add-ons')
                         }
                         loading={billingProductLoading === addon.type || trialLoading}
                         onClick={

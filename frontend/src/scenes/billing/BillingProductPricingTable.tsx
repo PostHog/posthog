@@ -136,7 +136,7 @@ export const BillingProductPricingTable = ({
                       }
                       // take the tier.current_amount_usd and add it to the same tier level for all the addons
                       const totalForTier =
-                          product.type === 'session_replay'
+                          product.type === 'session_replay' || product.type === 'realtime_destinations'
                               ? parseFloat(tier.current_amount_usd || '0')
                               : parseFloat(tier.current_amount_usd || '') +
                                 ('addons' in product
@@ -147,7 +147,7 @@ export const BillingProductPricingTable = ({
                                       ) || 0
                                     : 0)
                       const projectedTotalForTier =
-                          product.type === 'session_replay'
+                          product.type === 'session_replay' || product.type === 'realtime_destinations'
                               ? parseFloat(tier.projected_amount_usd || '0')
                               : (parseFloat(tier.projected_amount_usd || '') || 0) +
                                 ('addons' in product
@@ -214,7 +214,8 @@ export const BillingProductPricingTable = ({
 
     return (
         <div className="pl-16 pb-8">
-            {(product.tiered || product.type === 'mobile_replay') && tableTierData ? (
+            {(product.tiered || product.type === 'mobile_replay' || product.type === 'batch_exports') &&
+            tableTierData ? (
                 <>
                     <LemonTable
                         stealth

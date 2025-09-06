@@ -19,6 +19,7 @@ import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 import { billingLogic } from './billingLogic'
 import { billingProductAddonLogic } from './billingProductAddonLogic'
 import { billingProductLogic } from './billingProductLogic'
+import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
 
 export const formatFlatRate = (flatRate: number, unit: string | null): string | ReactNode => {
     if (!unit) {
@@ -36,9 +37,8 @@ export const formatFlatRate = (flatRate: number, unit: string | null): string | 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
     const { billing } = useValues(billingLogic)
-    const { isPricingModalOpen, currentAndUpgradePlans, surveyID, showTierBreakdown } = useValues(
-        billingProductLogic({ product: addon, productRef })
-    )
+    const { isPricingModalOpen, currentAndUpgradePlans, surveyID, showTierBreakdown, isDataPipelinesDeprecated } =
+        useValues(billingProductLogic({ product: addon, productRef }))
     const { toggleIsPricingModalOpen, setShowTierBreakdown } = useActions(billingProductLogic({ product: addon }))
     const logic = billingProductAddonLogic({ addon })
     const { gaugeItems } = useValues(logic)
@@ -103,6 +103,17 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                     </LemonTag>
                                 </div>
                             )}
+                            {isDataPipelinesDeprecated && (
+                                <div>
+                                    <Tooltip
+                                        title={`Data pipelines are moving to new, usage-based pricing with a large free allowance. You can no longer upgrade to this add-on and old ingestion-based pricing ends on ${DATA_PIPELINES_CUTOFF_DATE}.`}
+                                    >
+                                        <LemonTag type="warning" icon={<IconInfo />}>
+                                            Deprecated
+                                        </LemonTag>
+                                    </Tooltip>
+                                </div>
+                            )}
                         </div>
                         <p className="ml-0 mb-0">{addon.description} </p>
                         {is_enhanced_persons_og_customer && (
@@ -125,13 +136,15 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
             </div>
 
             {/* Features */}
-            <div className={clsx('mt-3', { 'ml-11': addon.type !== 'mobile_replay' })}>
+            <div
+                className={clsx('mt-3', { 'ml-11': addon.type !== 'mobile_replay' && addon.type !== 'batch_exports' })}
+            >
                 <BillingAddonFeaturesList
                     addonFeatures={addonFeatures?.filter((feature) => !feature.entitlement_only) || []}
                     addonType={addon.type}
                 />
 
-                {addon.type === 'mobile_replay' && addon.subscribed && (
+                {(addon.type === 'mobile_replay' || addon.type === 'batch_exports') && addon.subscribed && (
                     <>
                         <div className="flex w-full items-center gap-x-8">
                             <LemonButton
