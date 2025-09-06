@@ -1,6 +1,7 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -78,22 +79,37 @@ impl CheckpointManager {
 
         let store_manager = self.store_manager.clone();
         let cancel_recv_loop = self.cancel_token.child_token();
-        let checkpoint_interval = self.checkpoint_interval;
+        let checkpoint_interval = self.config.checkpoint_interval.clone();
 
         let recv_handle = tokio::spawn(async move {
+            // TODO(eli): this pattern is not sound yet at all!!! TIGHTEN THIS UP!
+            let mut partition_tasks = Vec::new();
+
             loop {
                 tokio::select! {
 
                     _ = cancel_recv_loop.cancelled() => {
                         info!("Checkpoint manager: receive loop shutting down");
+                        for task in partition_tasks.drain(..) {
+                            task.abort();
+                        }
                         break;
                     }
 
                     msg = self.checkpoint_receiver.recv() => {
                         match msg {
                             Some(partition) => {
-                                // TODO(eli): handle return etc.
-                                let result = self.checkpoint_partition(partition).await?;
+                                // TODO(eli): maybe don't worry about return values here?
+                                partition_tasks.push(tokio::spawn(async move {
+                                    match self.checkpoint_partition(partition).await {
+                                        Ok(()) => {
+                                            info!("Checkpoint submitted for store {}:{}", partition.topic(), partition.partition_number());
+                                        }
+                                        Err(e) => {
+                                            error!("Checkpoint submission failed for store {}:{}: {}", partition.topic(), partition.partition_number(), e);
+                                        }
+                                    }
+                                }));
                             }
                             None => {
                                 debug!("Checkpoint manager: receiver closed, receive loop shutting down");
@@ -144,7 +160,7 @@ impl CheckpointManager {
                         // successful receipt this partition's store is no longer owned
                         // by the StoreManager, the receiver will bail out and continue
                         for partition in partitions {
-                            tokio::select! {
+                            let task_handle = tokio::select! {
                                 _ = cancel.cancelled() => {
                                     info!("Checkpoint manager: inner submit loop shutting down after send attempt for {}:{}", partition.topic(), partition.partition_number());
                                     break;
@@ -180,10 +196,7 @@ impl CheckpointManager {
         // Wait for tasks to complete
         for handle in self.checkpoint_tasks.drain(..) {
             if let Err(e) = handle.await {
-                warn!(
-                    "Checkpoint manager task failed to join cleanly: {}",
-                    e
-                );
+                warn!("Checkpoint manager task failed to join cleanly: {}", e);
             }
         }
 
@@ -217,17 +230,10 @@ impl CheckpointManager {
         Ok(())
     }
 
-    // TODO(eli): IMPLEMENT THIS - capped submission to worker pool for each partition checkpoint + upload; handle timeout as well?
-    pub fn submit_for_checkpoint(
-        &self,
-        _partition: &Partition,
-        _store: &DeduplicationStore,
-    ) -> Result<()> {
-        unimplemented!();
-    }
-
-    /// Create a checkpoint for a specific partition
-    pub async fn checkpoint_partition(&self, partition: &Partition) -> Resut<Vec<String>> {
+    /// Create a checkpoint for a specific partition; returns an error or the
+    /// remote key prefix of the exported checkpoint if successful, or None if
+    /// the export failed. TODO(eli): STRAIGHTEN OUT RETURN VALUES THIS IS STUPID
+    pub async fn checkpoint_partition(&self, partition: &Partition) -> Result<Option<String>> {
         let start_time = Instant::now();
 
         let store = match self.store_manager.stores().get(&partition) {
@@ -322,7 +328,8 @@ impl CheckpointManager {
             Some(exporter) => {
                 // TODO(eli): log error here so return can be handled with ? operator by caller
                 return exporter
-                    .perform_checkpoint(&local_checkpoint_path, &partition)
+                    .perform_checkpoint(&local_checkpoint_path, &checkpoint_name, &store)
+                    .await;
             }
 
             None => {
@@ -436,7 +443,7 @@ impl Drop for CheckpointManager {
         self.cancel_token.cancel();
 
         // We can't await in drop, so the task will clean up asynchronously
-        if self.flush_task.is_some() {
+        if self.checkpoint_tasks.len() > 0 {
             debug!("CheckpointManager dropped, flush task will terminate");
         }
     }

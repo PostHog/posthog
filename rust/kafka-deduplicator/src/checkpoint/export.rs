@@ -35,6 +35,8 @@ impl CheckpointExporter {
         }
     }
 
+    // TODO(eli): move this management and coordination plumbing to checkpoint manager!
+
     /// Trigger a checkpoint if one is not already in progress
     pub async fn maybe_checkpoint(&self, store: &DeduplicationStore) -> Result<bool> {
         // Try to acquire the checkpoint lock - if already locked, skip
@@ -89,9 +91,10 @@ impl CheckpointExporter {
     }
 
     // returns the remote key prefix for this checkpoint or an error
-    pub async fn perform_checkpoint(
+    pub async fn export_checkpoint(
         &self,
         local_checkpoint_path: &Path,
+        checkpoint_name: &str,
         store: &DeduplicationStore,
     ) -> Result<String> {
         let start_time = Instant::now();
