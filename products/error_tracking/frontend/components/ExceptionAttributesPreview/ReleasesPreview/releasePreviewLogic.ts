@@ -64,9 +64,7 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
                     const resultMap: Record<string, RawEventExceptionRelease> = response.results || {}
 
                     // we reverse the list in order to pick the frame which is "the closest" to the error. We call this frame "kaboom frame".
-                    const selectedFrame = [...(dto.frames || [])]
-                        .reverse()
-                        .find((f) => resultMap[f.raw_id] && resultMap[f.raw_id].metadata?.git)
+                    const selectedFrame = [...(dto.frames || [])].reverse().find((f) => resultMap[f.raw_id])
 
                     if (selectedFrame) {
                         const relatedRelease = resultMap[selectedFrame.raw_id]
