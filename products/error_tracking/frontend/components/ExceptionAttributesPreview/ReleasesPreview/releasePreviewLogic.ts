@@ -3,7 +3,12 @@ import { loaders } from 'kea-loaders/lib'
 
 import api from 'lib/api'
 import 'lib/components/Errors/stackFrameLogic'
-import { ErrorTrackingStackFrame, ParsedEventExceptionRelease } from 'lib/components/Errors/types'
+import {
+    ErrorTrackingStackFrame,
+    ParsedEventExceptionRelease,
+    RawEventExceptionRelease,
+} from 'lib/components/Errors/types'
+import { parseExceptionRelease } from 'lib/components/Errors/utils'
 
 import type { releasePreviewLogicType } from './releasePreviewLogicType'
 
@@ -56,17 +61,17 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
 
                     const rawIds = dto.frames.map((f) => f.raw_id)
                     const response = await api.errorTracking.stackFrameReleaseMetadata(rawIds)
-                    const resultMap = response.results || {}
+                    const resultMap: Record<string, RawEventExceptionRelease> = response.results || {}
 
                     // we reverse the list in order to pick the frame which is "the closest" to the error. We call this frame "kaboom frame".
                     const selectedFrame = [...(dto.frames || [])]
                         .reverse()
-                        .find((f) => resultMap[f.raw_id] && resultMap[f.raw_id].git)
+                        .find((f) => resultMap[f.raw_id] && resultMap[f.raw_id].metadata?.git)
 
                     if (selectedFrame) {
                         const relatedRelease = resultMap[selectedFrame.raw_id]
                         return {
-                            mostProbableRelease: relatedRelease,
+                            mostProbableRelease: parseExceptionRelease(relatedRelease),
                             otherReleases: [],
                         }
                     }
@@ -82,10 +87,6 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
 ])
 
 export class ExceptionReleaseMetadataParser {
-    static getReleasePillTitle(release: ParsedEventExceptionRelease): string {
-        return release.metadata?.git?.commitId?.slice(0, 7) ?? release.version.slice(0, 7) ?? ''
-    }
-
     static getViewCommitLink(release: ParsedEventExceptionRelease): string | undefined {
         const hasRemoteUrl = release.metadata?.git?.remoteUrl !== undefined
         const hasCommitId = release.metadata?.git?.commitId !== undefined
@@ -140,5 +141,4 @@ export class ExceptionReleaseMetadataParser {
 
 export interface ReleasePreviewOutput {
     mostProbableRelease?: ParsedEventExceptionRelease
-    otherReleases: ParsedEventExceptionRelease[]
 }

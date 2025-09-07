@@ -118,18 +118,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
 
     const exceptionReleases: ParsedEventExceptionRelease[] = (Object.values(releases) as RawEventExceptionRelease[])
         .filter((release) => release.metadata?.git)
-        .map((release) => ({
-            metadata: {
-                git: {
-                    commitId: release.metadata?.git?.commit_id,
-                    remoteUrl: release.metadata?.git?.remote_url,
-                    repoName: release.metadata?.git?.repo_name,
-                    branch: release.metadata?.git?.branch,
-                },
-            },
-            version: release.version,
-            timestamp: release.timestamp,
-        }))
+        .map((release) => parseExceptionRelease(release))
 
     return {
         type,
@@ -186,4 +175,19 @@ export function getSessionId(properties: ErrorEventProperties): string | undefin
 
 export function getRecordingStatus(properties: ErrorEventProperties): string | undefined {
     return properties['$recording_status'] as string | undefined
+}
+
+export function parseExceptionRelease(release: RawEventExceptionRelease): ParsedEventExceptionRelease {
+    return {
+        metadata: {
+            git: {
+                commitId: release.metadata?.git?.commit_id,
+                remoteUrl: release.metadata?.git?.remote_url,
+                repoName: release.metadata?.git?.repo_name,
+                branch: release.metadata?.git?.branch,
+            },
+        },
+        version: release.version,
+        timestamp: release.timestamp,
+    }
 }

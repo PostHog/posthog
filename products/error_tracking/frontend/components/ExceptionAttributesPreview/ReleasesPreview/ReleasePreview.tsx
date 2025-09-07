@@ -8,7 +8,7 @@ import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic
 import { ParsedEventExceptionRelease } from 'lib/components/Errors/types'
 
 import { ReleasePopoverContent } from './ReleasesPopoverContent'
-import { ExceptionReleaseMetadataParser, releasePreviewLogic } from './releasePreviewLogic'
+import { releasePreviewLogic } from './releasePreviewLogic'
 
 export interface ReleasePreviewProps {
     exceptionReleases?: ParsedEventExceptionRelease[]
@@ -49,11 +49,13 @@ export function ReleasePreview({ exceptionReleases }: ReleasePreviewProps): JSX.
                     onMouseLeave={() => setIsOpen(false)}
                 >
                     <IconCommit className="text-sm text-secondary" />
-                    <span>
-                        {ExceptionReleaseMetadataParser.getReleasePillTitle(releasePreviewData.mostProbableRelease)}
-                    </span>
+                    <span>{releasePillTitle(releasePreviewData.mostProbableRelease)}</span>
                 </LemonTag>
             </span>
         </Popover>
     )
+}
+
+function releasePillTitle(release: ParsedEventExceptionRelease): string {
+    return release.metadata?.git?.commitId?.slice(0, 7) ?? release.version.slice(0, 7) ?? ''
 }
