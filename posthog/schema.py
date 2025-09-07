@@ -3916,6 +3916,10 @@ class HogQLQueryModifiers(BaseModel):
     sessionsV2JoinMode: Optional[SessionsV2JoinMode] = None
     timings: Optional[bool] = None
     useMaterializedViews: Optional[bool] = None
+    usePreaggregatedTableTransforms: Optional[bool] = Field(
+        default=None,
+        description="Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
+    )
     usePresortedEventsTable: Optional[bool] = None
     useWebAnalyticsPreAggregatedTables: Optional[bool] = None
 

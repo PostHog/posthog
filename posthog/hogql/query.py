@@ -119,7 +119,7 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor._apply_optimizers")
     def _apply_optimizers(self):
-        if self.query_modifiers.useWebAnalyticsPreAggregatedTables:
+        if self.query_modifiers.usePreaggregatedTableTransforms:
             with self.timings.measure("preaggregated_table_transforms"):
                 assert self.hogql_context is not None
                 assert self.hogql_context.team is not None
