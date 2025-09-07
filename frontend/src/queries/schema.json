@@ -12204,6 +12204,26 @@
             "required": ["id", "path"],
             "type": "object"
         },
+        "FileSystemIconColor": {
+            "anyOf": [
+                {
+                    "items": {
+                        "type": "string"
+                    },
+                    "maxItems": 1,
+                    "minItems": 1,
+                    "type": "array"
+                },
+                {
+                    "items": {
+                        "type": "string"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                }
+            ]
+        },
         "FileSystemIconType": {
             "enum": [
                 "plug",
@@ -12254,6 +12274,30 @@
                 "href": {
                     "description": "Object's URL",
                     "type": "string"
+                },
+                "icon": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/React.ReactChild"
+                        },
+                        {
+                            "$ref": "#/definitions/React.ReactFragment"
+                        },
+                        {
+                            "$ref": "#/definitions/React.ReactPortal"
+                        },
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Icon of the item"
+                },
+                "iconColor": {
+                    "$ref": "#/definitions/FileSystemIconColor",
+                    "description": "Color of the icon"
                 },
                 "iconType": {
                     "$ref": "#/definitions/FileSystemIconType"
@@ -20846,6 +20890,163 @@
             },
             "required": ["query"],
             "type": "object"
+        },
+        "React.JSXElementConstructor<any>": {
+            "anyOf": [
+                {
+                    "$comment": "(props: P) => ReactElement<any, any> | null",
+                    "properties": {
+                        "namedArgs": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "props": {}
+                            },
+                            "required": ["props"],
+                            "type": "object"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "$comment": "new (props: P) => Component<any, any>",
+                    "properties": {
+                        "namedArgs": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "props": {}
+                            },
+                            "required": ["props"],
+                            "type": "object"
+                        }
+                    },
+                    "type": "object"
+                }
+            ]
+        },
+        "React.Key": {
+            "type": ["string", "number"]
+        },
+        "React.ReactChild": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/React.ReactElement"
+                },
+                {
+                    "$ref": "#/definitions/React.ReactText"
+                }
+            ]
+        },
+        "React.ReactElement": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/React.Key"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "props": {},
+                "type": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/React.JSXElementConstructor%3Cany%3E"
+                        }
+                    ]
+                }
+            },
+            "required": ["type", "props", "key"],
+            "type": "object"
+        },
+        "React.ReactFragment": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "type": "object"
+                }
+            ]
+        },
+        "React.ReactNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/React.ReactChild"
+                },
+                {
+                    "$ref": "#/definitions/React.ReactFragment"
+                },
+                {
+                    "$ref": "#/definitions/React.ReactPortal"
+                },
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                },
+                {
+                    "not": {}
+                }
+            ]
+        },
+        "React.ReactPortal": {
+            "additionalProperties": false,
+            "properties": {
+                "children": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/React.ReactChild"
+                        },
+                        {
+                            "$ref": "#/definitions/React.ReactFragment"
+                        },
+                        {
+                            "$ref": "#/definitions/React.ReactPortal"
+                        },
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "key": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/React.Key"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "props": {},
+                "type": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/React.JSXElementConstructor%3Cany%3E"
+                        }
+                    ]
+                }
+            },
+            "required": ["key", "props", "type"],
+            "type": "object"
+        },
+        "React.ReactText": {
+            "type": ["string", "number"]
         },
         "ReasoningMessage": {
             "additionalProperties": false,
