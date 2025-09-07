@@ -222,10 +222,8 @@ class BaseAssistant(ABC):
                                     self._custom_update_ids.add(message.id)
                                 elif message.id in self._custom_update_ids:
                                     continue
-                            if not stream_only_assistant_messages and isinstance(message, ReasoningMessage):
-                                continue
-                            if not stream_only_assistant_messages and isinstance(
-                                message, AssistantGenerationStatusEvent
+                            if stream_only_assistant_messages and isinstance(
+                                message, get_args(ReasoningMessage | AssistantGenerationStatusEvent)
                             ):
                                 continue
                             yield AssistantEventType.MESSAGE, cast(AssistantMessageOrStatusUnion, message)
