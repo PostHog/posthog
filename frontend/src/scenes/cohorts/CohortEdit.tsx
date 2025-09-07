@@ -376,7 +376,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 {/* TODO: @adamleithp Adding a csv file doesn't show up with cohort.csv... */}
                                 <LemonField
                                     name="csv"
-                                    label={newSceneLayout ? null : isNewCohort ? null : 'Add users'}
+                                    label={newSceneLayout ? null : isNewCohort ? null : 'Upload users'}
                                     data-attr="cohort-csv"
                                 >
                                     {({ onChange }) => (
