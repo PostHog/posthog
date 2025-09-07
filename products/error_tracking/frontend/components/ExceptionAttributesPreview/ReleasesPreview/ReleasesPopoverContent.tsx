@@ -4,14 +4,15 @@ import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { ParsedEventExceptionRelease } from 'lib/components/Errors/types'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { ExceptionReleaseMetadataParser, ReleasePreviewOutput } from './releasePreviewLogic'
+import { GitMetadataParser } from './gitMetadataParser'
+import { ReleasePreviewOutput } from './releasePreviewLogic'
 
 export interface ReleasesPopoverContentProps {
     releasePreviewData: ReleasePreviewOutput
 }
 
 export function ReleasePopoverContent({ releasePreviewData }: ReleasesPopoverContentProps): JSX.Element {
-    const viewCommitLink = ExceptionReleaseMetadataParser.getViewCommitLink(releasePreviewData.mostProbableRelease!)
+    const viewCommitLink = GitMetadataParser.getViewCommitLink(releasePreviewData.mostProbableRelease!)
 
     return (
         <div className="overflow-hidden">

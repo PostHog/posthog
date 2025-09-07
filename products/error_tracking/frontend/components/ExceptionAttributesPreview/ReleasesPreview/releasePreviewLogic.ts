@@ -86,59 +86,6 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
     })),
 ])
 
-export class ExceptionReleaseMetadataParser {
-    static getViewCommitLink(release: ParsedEventExceptionRelease): string | undefined {
-        const hasRemoteUrl = release.metadata?.git?.remoteUrl !== undefined
-        const hasCommitId = release.metadata?.git?.commitId !== undefined
-
-        return hasRemoteUrl && hasCommitId
-            ? this.resolveRemoteUrlWithCommitToLink(release.metadata?.git?.remoteUrl, release.metadata?.git?.commitId)
-            : undefined
-    }
-
-    static resolveRemoteUrlWithCommitToLink(remoteUrl: string, commitSha: string): string {
-        if (ExceptionReleaseMetadataParser.remoteUrlIsSsh(remoteUrl)) {
-            const normalized = ExceptionReleaseMetadataParser.normalizeRemoteUrl(remoteUrl)
-
-            return `${normalized}/commit/${commitSha}`
-        }
-        return remoteUrl
-    }
-
-    static remoteUrlIsSsh(remoteUrl: string): boolean {
-        return remoteUrl.startsWith('git@')
-    }
-
-    static normalizeRemoteUrl(remoteUrl: string): string {
-        if (!ExceptionReleaseMetadataParser.remoteUrlIsSsh(remoteUrl)) {
-            return remoteUrl
-        }
-        // git@github.com:user/repo.git
-        // 1. provider: between 'git@' and ':'
-        // 2. user: after ':' and before first '/'
-        // 3. path: after first '/'
-        // Compose: https://provider/user/path (strip .git if present)
-
-        const atIdx = remoteUrl.indexOf('@')
-        const colonIdx = remoteUrl.indexOf(':')
-        if (atIdx === -1 || colonIdx === -1) {
-            return remoteUrl
-        }
-        const provider = remoteUrl.slice(atIdx + 1, colonIdx)
-        const afterColon = remoteUrl.slice(colonIdx + 1)
-        const slashIdx = afterColon.indexOf('/')
-        if (slashIdx === -1) {
-            return remoteUrl
-        }
-        const user = afterColon.slice(0, slashIdx)
-        let path = afterColon.slice(slashIdx + 1)
-        if (path.endsWith('.git')) {
-            path = path.slice(0, -4)
-        }
-        return `https://${provider}/${user}/${path}`
-    }
-}
-
 export interface ReleasePreviewOutput {
     mostProbableRelease?: ParsedEventExceptionRelease
 }
