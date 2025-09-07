@@ -24,13 +24,17 @@ export function ReleasePopoverContent({ releasePreviewData }: ReleasesPopoverCon
                 )}
             </div>
             <div className="p-2">
-                <MostProbableRelease release={releasePreviewData.mostProbableRelease!} />
+                {releasePreviewData.mostProbableRelease?.metadata?.git ? (
+                    <GitRelease release={releasePreviewData.mostProbableRelease!} />
+                ) : (
+                    <GitlessRelease release={releasePreviewData.mostProbableRelease!} />
+                )}
             </div>
         </div>
     )
 }
 
-function MostProbableRelease({ release }: { release: ParsedEventExceptionRelease }): JSX.Element {
+function GitRelease({ release }: { release: ParsedEventExceptionRelease }): JSX.Element {
     return (
         <div>
             <div className="flex items-center gap-2 flex-wrap">
@@ -61,6 +65,17 @@ function MostProbableRelease({ release }: { release: ParsedEventExceptionRelease
                         </LemonTag>
                     </Tooltip>
                 )}
+            </div>
+        </div>
+    )
+}
+
+function GitlessRelease({ release }: { release: ParsedEventExceptionRelease }): JSX.Element {
+    return (
+        <div>
+            <div className="flex items-center gap-2 flex-wrap">
+                <span>This is gitless release</span>
+                <span>{release.version}</span>
             </div>
         </div>
     )

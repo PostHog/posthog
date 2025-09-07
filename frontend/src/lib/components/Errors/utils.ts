@@ -116,9 +116,9 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
     const handled = exceptionList?.[0]?.mechanism?.handled ?? false
     const runtime: ErrorTrackingRuntime = getRuntimeFromLib(lib)
 
-    const exceptionReleases: ParsedEventExceptionRelease[] = (Object.values(releases) as RawEventExceptionRelease[])
-        .filter((release) => release.metadata?.git)
-        .map((release) => parseExceptionRelease(release))
+    const exceptionReleases: ParsedEventExceptionRelease[] = (
+        Object.values(releases) as RawEventExceptionRelease[]
+    ).map((release) => parseExceptionRelease(release))
 
     return {
         type,
@@ -178,14 +178,18 @@ export function getRecordingStatus(properties: ErrorEventProperties): string | u
 }
 
 export function parseExceptionRelease(release: RawEventExceptionRelease): ParsedEventExceptionRelease {
+    const gitMetadata = release.metadata?.git
+        ? {
+              commitId: release.metadata?.git?.commit_id,
+              remoteUrl: release.metadata?.git?.remote_url,
+              repoName: release.metadata?.git?.repo_name,
+              branch: release.metadata?.git?.branch,
+          }
+        : undefined
+
     return {
         metadata: {
-            git: {
-                commitId: release.metadata?.git?.commit_id,
-                remoteUrl: release.metadata?.git?.remote_url,
-                repoName: release.metadata?.git?.repo_name,
-                branch: release.metadata?.git?.branch,
-            },
+            git: gitMetadata,
         },
         version: release.version,
         timestamp: release.timestamp,
