@@ -24,13 +24,13 @@ export function ReleasePopoverContent({ release }: ReleasesPopoverContentProps):
                 )}
             </div>
             <div className="p-2">
-                {release?.metadata?.git ? <GitRelease release={release} /> : <GitlessRelease release={release} />}
+                {release?.metadata?.git ? <GitContent release={release} /> : <GitlessContent release={release} />}
             </div>
         </div>
     )
 }
 
-function GitRelease({ release }: { release: ParsedEventExceptionRelease }): JSX.Element {
+function GitContent({ release }: { release: ParsedEventExceptionRelease }): JSX.Element {
     return (
         <div>
             <div className="flex items-center gap-2 flex-wrap">
@@ -66,7 +66,7 @@ function GitRelease({ release }: { release: ParsedEventExceptionRelease }): JSX.
     )
 }
 
-function GitlessRelease({ release }: { release: ParsedEventExceptionRelease }): JSX.Element {
+function GitlessContent({ release }: { release: ParsedEventExceptionRelease }): JSX.Element {
     return (
         <div className="flex items-center justify-between gap-2">
             <LemonTag className="bg-fill-primary text-xs">

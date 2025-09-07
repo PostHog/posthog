@@ -444,17 +444,14 @@ class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel,
         if not isinstance(raw_ids, list):
             return Response({"detail": "raw_ids must be a list"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Initialize the map with nulls for all requested raw_ids
         result: dict[str, Mapping[str, Any] | None] = {raw_id: None for raw_id in raw_ids}
 
         if not raw_ids:
             return Response({"results": result})
 
-        # Fetch frames for the current team and requested raw_ids, joining through to release
         frames = self.queryset.filter(team_id=self.team.id, raw_id__in=raw_ids).select_related("symbol_set__release")
 
         for frame in frames:
-            # Only set if not already found a release for this raw_id
             if result.get(frame.raw_id) is None:
                 release = frame.symbol_set.release if frame.symbol_set else None
                 if release is not None:

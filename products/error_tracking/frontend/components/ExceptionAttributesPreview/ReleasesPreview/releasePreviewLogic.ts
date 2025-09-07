@@ -28,12 +28,15 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
                     exceptionReleases?: ParsedEventExceptionRelease[]
                     frames?: ErrorTrackingStackFrame[]
                 }) => {
-                    // we can't do anything if there are no frames nor existing releases
+                    // we can't do anything if there are neither frames nor existing releases
                     if (!dto.frames && !dto.exceptionReleases) {
                         return undefined
                     }
 
-                    // if there is only one associated release, we just return it because this will for sure be that release
+                    // if there is only one associated release, there is no need to look for the kaboom frame
+                    // because we would find the same release anyways. This is a big performance win. I calculated
+                    // how many events are related to how many releases and 95% events in the last 30 days are related to
+                    // at most 1 release
                     if (dto.exceptionReleases?.length === 1) {
                         return dto.exceptionReleases[0]
                     }
