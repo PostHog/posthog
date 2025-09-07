@@ -5,24 +5,24 @@ import { IconCommit } from '@posthog/icons'
 import { LemonTag, Popover } from '@posthog/lemon-ui'
 
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
-import { ExceptionReleaseGitMeta } from 'lib/components/Errors/types'
+import { ParsedEventExceptionRelease } from 'lib/components/Errors/types'
 
 import { ReleasePopoverContent } from './ReleasesPopoverContent'
-import { releasePreviewLogic } from './releasePreviewLogic'
+import { ExceptionReleaseMetadataParser, releasePreviewLogic } from './releasePreviewLogic'
 
 export interface ReleasePreviewProps {
-    gitReleasesMeta?: ExceptionReleaseGitMeta[]
+    exceptionReleases?: ParsedEventExceptionRelease[]
 }
 
-export function ReleasePreview({ gitReleasesMeta }: ReleasePreviewProps): JSX.Element {
+export function ReleasePreview({ exceptionReleases }: ReleasePreviewProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
     const { releasePreviewData } = useValues(releasePreviewLogic)
     const { frames } = useValues(errorPropertiesLogic)
     const { loadRelease } = useActions(releasePreviewLogic)
 
     useEffect(() => {
-        loadRelease({ gitReleasesMeta, frames })
-    }, [frames, loadRelease, gitReleasesMeta])
+        loadRelease({ exceptionReleases, frames })
+    }, [frames, loadRelease, exceptionReleases])
 
     if (!releasePreviewData.mostProbableRelease) {
         return <></>
@@ -49,7 +49,9 @@ export function ReleasePreview({ gitReleasesMeta }: ReleasePreviewProps): JSX.El
                     onMouseLeave={() => setIsOpen(false)}
                 >
                     <IconCommit className="text-sm text-secondary" />
-                    <span>{releasePreviewData.mostProbableRelease?.commitSha?.slice(0, 7)}</span>
+                    <span>
+                        {ExceptionReleaseMetadataParser.getReleasePillTitle(releasePreviewData.mostProbableRelease)}
+                    </span>
                 </LemonTag>
             </span>
         </Popover>

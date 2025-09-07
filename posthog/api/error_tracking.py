@@ -456,9 +456,9 @@ class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel,
             # Only set if not already found a release for this raw_id
             if result.get(frame.raw_id) is None:
                 release = frame.symbol_set.release if frame.symbol_set else None
-                metadata = release.metadata if release else None
-                if metadata is not None:
-                    result[frame.raw_id] = metadata
+                if release is not None:
+                    serializer = ErrorTrackingReleaseSerializer(release)
+                    result[frame.raw_id] = serializer.data
 
         return Response({"results": result})
 

@@ -114,20 +114,33 @@ export interface ExceptionAttributes {
     level?: string
     url?: string
     handled?: boolean
-    gitReleasesMeta?: ExceptionReleaseGitMeta[]
+    exceptionReleases?: ParsedEventExceptionRelease[]
 }
 
-export interface ExceptionReleaseGitMeta {
-    commitSha: string
-    repositoryUrl?: string
-    repositoryName?: string
-    branch?: string
-}
-
-export interface ExceptionRelease {
+export interface RawEventExceptionRelease {
     metadata?: {
-        git?: ExceptionReleaseGitMeta
+        git?: {
+            commit_id?: string
+            remote_url?: string
+            repo_name?: string
+            branch?: string
+        }
     }
+    version: string
+    timestamp: string
+}
+
+export interface ParsedEventExceptionRelease {
+    metadata?: {
+        git?: {
+            commitId?: string
+            remoteUrl?: string
+            repoName?: string
+            branch?: string
+        }
+    }
+    version: string
+    timestamp: string
 }
 
 export type SymbolSetStatus = 'valid' | 'invalid'

@@ -5,8 +5,9 @@ import {
     ErrorTrackingException,
     ErrorTrackingRuntime,
     ExceptionAttributes,
-    ExceptionReleaseGitMeta,
     FingerprintRecordPart,
+    ParsedEventExceptionRelease,
+    RawEventExceptionRelease,
 } from './types'
 
 export function hasStacktrace(exceptionList: ErrorTrackingException[]): boolean {
@@ -77,17 +78,6 @@ export function concatValues(
     return definedKeys.map((key) => attrs[key]).join(' ')
 }
 
-interface ExceptionReleaseFromEvent {
-    metadata?: {
-        git?: {
-            commit_id: string
-            remote_url: string
-            repo_name: string
-            branch: string
-        }
-    }
-}
-
 export function getExceptionAttributes(properties: Record<string, any>): ExceptionAttributes {
     const {
         $lib: lib,
@@ -126,17 +116,20 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
     const handled = exceptionList?.[0]?.mechanism?.handled ?? false
     const runtime: ErrorTrackingRuntime = getRuntimeFromLib(lib)
 
-    const gitReleasesMeta = (Object.values(releases) as ExceptionReleaseFromEvent[])
-        .filter((release: any) => release.metadata?.git)
-        .map(
-            (release: any) =>
-                ({
-                    commitSha: release.metadata?.git?.commit_id,
-                    repositoryUrl: release.metadata?.git?.remote_url,
-                    repositoryName: release.metadata?.git?.repo_name,
+    const exceptionReleases: ParsedEventExceptionRelease[] = (Object.values(releases) as RawEventExceptionRelease[])
+        .filter((release) => release.metadata?.git)
+        .map((release) => ({
+            metadata: {
+                git: {
+                    commitId: release.metadata?.git?.commit_id,
+                    remoteUrl: release.metadata?.git?.remote_url,
+                    repoName: release.metadata?.git?.repo_name,
                     branch: release.metadata?.git?.branch,
-                }) satisfies ExceptionReleaseGitMeta
-        )
+                },
+            },
+            version: release.version,
+            timestamp: release.timestamp,
+        }))
 
     return {
         type,
@@ -154,7 +147,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         handled,
         level,
         ingestionErrors,
-        gitReleasesMeta,
+        exceptionReleases,
     }
 }
 
