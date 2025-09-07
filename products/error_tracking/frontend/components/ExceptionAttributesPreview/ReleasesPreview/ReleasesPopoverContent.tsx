@@ -1,4 +1,4 @@
-import { IconCommit, IconExternal, IconGitBranch, IconGitRepository } from '@posthog/icons'
+import { IconCommit, IconExternal, IconGitBranch, IconGitRepository, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { ParsedEventExceptionRelease } from 'lib/components/Errors/types'
@@ -72,11 +72,14 @@ function GitRelease({ release }: { release: ParsedEventExceptionRelease }): JSX.
 
 function GitlessRelease({ release }: { release: ParsedEventExceptionRelease }): JSX.Element {
     return (
-        <div>
-            <div className="flex items-center gap-2 flex-wrap">
-                <span>This is gitless release</span>
+        <div className="flex items-center justify-between">
+            <LemonTag className="bg-fill-primary text-xs">
+                <IconCommit className="text-sm text-secondary" />
                 <span>{release.version}</span>
-            </div>
+            </LemonTag>
+            <Tooltip title="No git release information available. Version you see was manually provided by you using '--version' flag in the 'upload' CLI command">
+                <IconInfo className="text-muted-alt" />
+            </Tooltip>
         </div>
     )
 }
