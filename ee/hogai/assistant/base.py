@@ -169,15 +169,15 @@ class BaseAssistant(ABC):
         pass
 
     async def ainvoke(self) -> list[tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]]:
-        """Returns all messages in once without streaming."""
-        messages = []
+        """Returns all messages at once without streaming."""
+        messages: list[tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]] = []
 
-        async for event_type, message in self.astream(stream_messages=False, stream_first_message=False):
-            if event_type == AssistantEventType.MESSAGE and not isinstance(
-                message, (ReasoningMessage | AssistantGenerationStatusEvent | Conversation)
-            ):
-                messages.append((event_type, cast(AssistantMessageUnion, message)))
-
+        async for event_type, message in self.astream(
+            stream_message_chunks=False, stream_first_message=False, stream_only_assistant_messages=True
+        ):
+            messages.append(
+                (cast(Literal[AssistantEventType.MESSAGE], event_type), cast(AssistantMessageUnion, message))
+            )
         return messages
 
     @async_to_sync
@@ -186,14 +186,17 @@ class BaseAssistant(ABC):
         return await self.ainvoke()
 
     async def astream(
-        self, stream_messages: bool = True, stream_subgraphs: bool = True, stream_first_message: bool = True
+        self,
+        stream_message_chunks: bool = True,
+        stream_subgraphs: bool = True,
+        stream_first_message: bool = True,
+        stream_only_assistant_messages: bool = False,
     ) -> AsyncGenerator[AssistantOutput, None]:
         state = await self._init_or_update_state()
         config = self._get_config()
 
-        # Some execution modes don't need to stream messages.
         stream_mode: list[StreamMode] = ["values", "updates", "debug", "custom"]
-        if stream_messages:
+        if stream_message_chunks:
             stream_mode.append("messages")
 
         generator: AsyncIterator[Any] = self._graph.astream(
@@ -202,7 +205,7 @@ class BaseAssistant(ABC):
 
         async with self._lock_conversation():
             # Assign the conversation id to the client.
-            if self._is_new_conversation:
+            if not stream_only_assistant_messages and self._is_new_conversation:
                 yield AssistantEventType.CONVERSATION, self._conversation
 
             if stream_first_message and self._latest_message:
@@ -219,6 +222,12 @@ class BaseAssistant(ABC):
                                     self._custom_update_ids.add(message.id)
                                 elif message.id in self._custom_update_ids:
                                     continue
+                            if not stream_only_assistant_messages and isinstance(message, ReasoningMessage):
+                                continue
+                            if not stream_only_assistant_messages and isinstance(
+                                message, AssistantGenerationStatusEvent
+                            ):
+                                continue
                             yield AssistantEventType.MESSAGE, cast(AssistantMessageOrStatusUnion, message)
 
                 # Check if the assistant has requested help.
@@ -308,9 +317,6 @@ class BaseAssistant(ABC):
         initial_state = self.get_initial_state()
         if self._initial_state:
             for key, value in self._initial_state.model_dump(exclude_none=True).items():
-                # Don't overwrite messages with an empty list from partial state
-                if key == "messages" and value == [] and initial_state.messages:
-                    continue
                 setattr(initial_state, key, value)
         self._state = initial_state
         return initial_state
@@ -318,7 +324,7 @@ class BaseAssistant(ABC):
     async def _node_to_reasoning_message(
         self, node_name: MaxNodeName, input: AssistantMaxGraphState
     ) -> Optional[ReasoningMessage]:
-        async_callable = self._graph.get_reasoning_message_by_node_name.get(node_name)
+        async_callable = self._graph.aget_reasoning_message_by_node_name.get(node_name)
         if async_callable:
             return await async_callable(input, self._last_reasoning_headline or "")
         return None
@@ -510,7 +516,6 @@ class BaseAssistant(ABC):
         node_name = task_update["payload"]["name"]  # type: ignore
         node_input = task_update["payload"]["input"]  # type: ignore
 
-        # First check if this node has a reasoning message in the parent graph
         if reasoning_message := await self._node_to_reasoning_message(node_name, node_input):
             return reasoning_message
 
@@ -519,14 +524,14 @@ class BaseAssistant(ABC):
     async def _report_conversation_state(
         self,
         event_name: str,
-        event_data: dict[str, Any],
+        properties: dict[str, Any],
     ):
         if not self._user:
             return
         await database_sync_to_async(report_user_action)(
             self._user,
             event_name,
-            event_data,
+            properties,
         )
 
     @asynccontextmanager

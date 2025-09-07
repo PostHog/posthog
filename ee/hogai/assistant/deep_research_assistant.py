@@ -2,9 +2,6 @@ from collections.abc import AsyncGenerator
 from typing import Any, Optional
 from uuid import UUID
 
-from langchain_core.messages import AIMessageChunk
-from pydantic import BaseModel
-
 from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, VisualizationMessage
 
 from posthog.models import Team, User
@@ -20,7 +17,6 @@ from ee.hogai.graph import (
 from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState, PartialDeepResearchState
 from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
-from ee.hogai.utils.state import GraphMessageUpdateTuple
 from ee.hogai.utils.types import AssistantMode, AssistantNodeName, AssistantOutput
 from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models import Conversation
@@ -116,10 +112,16 @@ class DeepResearchAssistant(BaseAssistant):
         return PartialDeepResearchState(messages=[self._latest_message], graph_status="resumed")
 
     async def astream(
-        self, stream_messages: bool = True, stream_subgraphs: bool = True, stream_first_message: bool = True
+        self,
+        stream_message_chunks: bool = True,
+        stream_subgraphs: bool = True,
+        stream_first_message: bool = True,
+        stream_only_assistant_messages: bool = False,
     ) -> AsyncGenerator[AssistantOutput, None]:
         last_ai_message: AssistantMessage | None = None
-        async for stream_event in super().astream(stream_messages, stream_subgraphs, stream_first_message):
+        async for stream_event in super().astream(
+            stream_message_chunks, stream_subgraphs, stream_first_message, stream_only_assistant_messages
+        ):
             _, message = stream_event
             if isinstance(message, VisualizationMessage):
                 # We don't want to send single visualization messages to the client in deep research mode
@@ -128,22 +130,10 @@ class DeepResearchAssistant(BaseAssistant):
                 last_ai_message = message
             yield stream_event
 
-        output = last_ai_message.content if isinstance(last_ai_message, AssistantMessage) else None
         await self._report_conversation_state(
             "deep research",
             {
                 "prompt": self._latest_message.content if self._latest_message else None,
-                "output": output,
+                "output": last_ai_message,
             },
         )
-
-    def _process_message_update(self, update: GraphMessageUpdateTuple) -> BaseModel | None:
-        langchain_message, _ = update[1]
-
-        if isinstance(langchain_message, AssistantMessage):
-            return langchain_message
-
-        if not isinstance(langchain_message, AIMessageChunk):
-            return None
-
-        return super()._process_message_update(update)

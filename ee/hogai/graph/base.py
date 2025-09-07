@@ -7,7 +7,7 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantMessage, AssistantToolCall, MaxBillingContext, MaxUIContext
 
-from posthog.models.team.team import Team
+from posthog.models import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 

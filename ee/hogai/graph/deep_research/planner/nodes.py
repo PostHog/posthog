@@ -188,6 +188,8 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
     ) -> ReasoningMessage | None:
         if not isinstance(input, BaseStateWithMessages):
             return None
+        if not input.messages:
+            return None
         assert isinstance(input.messages[-1], AssistantMessage)
         tool_calls = input.messages[-1].tool_calls or []
         assert len(tool_calls) <= 1

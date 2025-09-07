@@ -170,7 +170,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 assistant._graph = test_graph
             else:
                 # Try to get the reasoning message mapping from the original graph if available
-                reasoning_mapping = getattr(test_graph, "get_reasoning_message_by_node_name", {})
+                reasoning_mapping = getattr(test_graph, "aget_reasoning_message_by_node_name", {})
                 assistant._graph = AssistantCompiledStateGraph(test_graph, reasoning_mapping)
 
         # Capture and parse output of assistant.astream()

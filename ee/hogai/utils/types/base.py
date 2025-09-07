@@ -12,7 +12,6 @@ from posthog.schema import (
     AssistantEventType,
     AssistantFunnelsQuery,
     AssistantGenerationStatusEvent,
-    AssistantGenerationStatusType,
     AssistantHogQLQuery,
     AssistantMessage,
     AssistantRetentionQuery,
@@ -50,7 +49,6 @@ AssistantMessageOrStatusUnion = Union[AssistantMessageUnion, AssistantGeneration
 AssistantOutput = (
     tuple[Literal[AssistantEventType.CONVERSATION], Conversation]
     | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageOrStatusUnion]
-    | tuple[Literal[AssistantEventType.STATUS], AssistantGenerationStatusType]
 )
 
 AnyAssistantGeneratedQuery = (

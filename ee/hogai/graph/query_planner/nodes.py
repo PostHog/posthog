@@ -56,8 +56,6 @@ from .toolkit import (
 
 
 class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
-    REASONING_MESSAGE = "Picking relevant events and properties"
-
     def _get_dynamic_entity_tools(self):
         """Create dynamic Pydantic models with correct entity types for this team."""
         # Create Literal type with actual entity names

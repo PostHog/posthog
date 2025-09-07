@@ -40,42 +40,46 @@ from .trends.nodes import TrendsGeneratorNode, TrendsGeneratorToolsNode
 global_checkpointer = DjangoCheckpointer()
 
 
-GetReasoningMessageFunc = Callable[[BaseState, str], Coroutine[Any, Any, ReasoningMessage | None]]
-GetReasoningMessageMapType = dict[MaxNodeName, GetReasoningMessageFunc]
+# Type alias for async reasoning message function, takes a state and an optional default message content and returns an optional reasoning message
+GetReasoningMessageAfunc = Callable[[BaseState, str | None], Coroutine[Any, Any, ReasoningMessage | None]]
+GetReasoningMessageMapType = dict[MaxNodeName, GetReasoningMessageAfunc]
 
 
+# Protocol to check if a node has a reasoning message function at runtime
 @runtime_checkable
 class HasReasoningMessage(Protocol):
-    get_reasoning_message: GetReasoningMessageFunc
+    get_reasoning_message: GetReasoningMessageAfunc
 
 
 class AssistantCompiledStateGraph(CompiledStateGraph):
-    """Wrapper around CompiledStateGraph that preserves reasoning message information."""
+    """Wrapper around CompiledStateGraph that preserves reasoning message information.
+
+    Note: This uses __dict__ copying as a workaround since CompiledStateGraph
+    doesn't support standard inheritance. This is brittle and may break with
+    library updates.
+    """
 
     def __init__(
-        self, compiled_graph: CompiledStateGraph, get_reasoning_message_by_node_name: GetReasoningMessageMapType
+        self, compiled_graph: CompiledStateGraph, aget_reasoning_message_by_node_name: GetReasoningMessageMapType
     ):
-        # Copy all attributes from the compiled graph to make this a proper subclass
+        # Copy the internal state from the compiled graph without calling super().__init__
+        # This is a workaround since CompiledStateGraph doesn't support standard inheritance
         self.__dict__.update(compiled_graph.__dict__)
-        self._get_reasoning_message_by_node_name = get_reasoning_message_by_node_name
-
-    @property
-    def get_reasoning_message_by_node_name(self) -> GetReasoningMessageMapType:
-        return self._get_reasoning_message_by_node_name
+        self.aget_reasoning_message_by_node_name = aget_reasoning_message_by_node_name
 
 
 class BaseAssistantGraph(Generic[StateType]):
     _team: Team
     _user: User
     _graph: StateGraph
-    _get_reasoning_message_by_node_name: GetReasoningMessageMapType
+    aget_reasoning_message_by_node_name: GetReasoningMessageMapType
 
     def __init__(self, team: Team, user: User, state_type: type[StateType]):
         self._team = team
         self._user = user
         self._graph = StateGraph(state_type)
         self._has_start_node = False
-        self._get_reasoning_message_by_node_name = {}
+        self.aget_reasoning_message_by_node_name = {}
 
     def add_edge(self, from_node: MaxNodeName, to_node: MaxNodeName):
         if from_node == AssistantNodeName.START:
@@ -86,12 +90,12 @@ class BaseAssistantGraph(Generic[StateType]):
     def add_node(self, node: MaxNodeName, action: Any):
         self._graph.add_node(node, action)
         if isinstance(action, HasReasoningMessage):
-            self._get_reasoning_message_by_node_name[node] = action.get_reasoning_message
+            self.aget_reasoning_message_by_node_name[node] = action.get_reasoning_message
         return self
 
     def add_subgraph(self, node_name: MaxNodeName, subgraph: AssistantCompiledStateGraph):
         self._graph.add_node(node_name, subgraph)
-        self._get_reasoning_message_by_node_name.update(subgraph.get_reasoning_message_by_node_name)
+        self.aget_reasoning_message_by_node_name.update(subgraph.aget_reasoning_message_by_node_name)
         return self
 
     def compile(self, checkpointer: DjangoCheckpointer | None | Literal[False] = None):
@@ -101,16 +105,17 @@ class BaseAssistantGraph(Generic[StateType]):
         compiled_graph = self._graph.compile(
             checkpointer=checkpointer if checkpointer is not None else global_checkpointer
         )
-        return AssistantCompiledStateGraph(compiled_graph, self._get_reasoning_message_by_node_name)
+        return AssistantCompiledStateGraph(
+            compiled_graph, aget_reasoning_message_by_node_name=self.aget_reasoning_message_by_node_name
+        )
 
     def add_title_generator(self, end_node: MaxNodeName = AssistantNodeName.END):
-        builder = self._graph
         self._has_start_node = True
 
         title_generator = TitleGeneratorNode(self._team, self._user)
-        builder.add_node(AssistantNodeName.TITLE_GENERATOR, title_generator)
-        builder.add_edge(AssistantNodeName.START, AssistantNodeName.TITLE_GENERATOR)
-        builder.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
+        self._graph.add_node(AssistantNodeName.TITLE_GENERATOR, title_generator)
+        self._graph.add_edge(AssistantNodeName.START, AssistantNodeName.TITLE_GENERATOR)
+        self._graph.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
         return self
 
 
@@ -375,15 +380,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             inkeep_docs_node.router,
             path_map=cast(dict[Hashable, str], path_map),
         )
-        return self
-
-    def add_title_generator(self, end_node: MaxNodeName = AssistantNodeName.END):
-        self._has_start_node = True
-
-        title_generator = TitleGeneratorNode(self._team, self._user)
-        self.add_node(AssistantNodeName.TITLE_GENERATOR, title_generator)
-        self._graph.add_edge(AssistantNodeName.START, AssistantNodeName.TITLE_GENERATOR)
-        self._graph.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
         return self
 
     def add_billing(self):

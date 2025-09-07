@@ -106,13 +106,19 @@ class InsightsAssistant(BaseAssistant):
         )
 
     async def astream(
-        self, stream_messages: bool = True, stream_subgraphs: bool = True, stream_first_message: bool = False
+        self,
+        stream_message_chunks: bool = True,
+        stream_subgraphs: bool = True,
+        stream_first_message: bool = False,
+        stream_only_assistant_messages: bool = False,
     ) -> AsyncGenerator[AssistantOutput, None]:
         last_ai_message: AssistantMessage | None = None
         last_viz_message: VisualizationMessage | None = None
 
         # stream_first_message is always False for this mode
-        async for stream_event in super().astream(stream_messages, stream_subgraphs, False):
+        async for stream_event in super().astream(
+            stream_message_chunks, stream_subgraphs, False, stream_only_assistant_messages
+        ):
             _, message = stream_event
             if isinstance(message, VisualizationMessage):
                 last_viz_message = message
@@ -123,12 +129,11 @@ class InsightsAssistant(BaseAssistant):
         if not self._initial_state:
             return
         visualization_response = last_viz_message.model_dump_json(exclude_none=True) if last_viz_message else None
-        output = last_ai_message.content if isinstance(last_ai_message, AssistantMessage) else None
         await self._report_conversation_state(
             "standalone ai tool call",
             {
                 "prompt": self._initial_state.root_tool_insight_plan,
-                "output": output,
+                "output": last_ai_message,
                 "response": visualization_response,
                 "tool_name": "create_and_query_insight",
             },
