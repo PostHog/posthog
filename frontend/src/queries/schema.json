@@ -12073,7 +12073,8 @@
                 "MongoDB",
                 "TemporalIO",
                 "DoIt",
-                "LinkedinAds"
+                "LinkedinAds",
+                "RedditAds"
             ],
             "type": "string"
         },
@@ -13784,6 +13785,10 @@
                 "useMaterializedViews": {
                     "type": "boolean"
                 },
+                "usePreaggregatedTableTransforms": {
+                    "description": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
+                    "type": "boolean"
+                },
                 "usePresortedEventsTable": {
                     "type": "boolean"
                 },
@@ -14979,6 +14984,10 @@
                     "type": "boolean"
                 },
                 "showValuesOnSeries": {
+                    "type": "boolean"
+                },
+                "stacked": {
+                    "default": true,
                     "type": "boolean"
                 },
                 "toggledLifecycles": {
@@ -21696,11 +21705,16 @@
                 "goal": {
                     "type": "number"
                 },
+                "mrr_or_gross": {
+                    "default": "gross",
+                    "enum": ["mrr", "gross"],
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 }
             },
-            "required": ["name", "due_date", "goal"],
+            "required": ["name", "due_date", "goal", "mrr_or_gross"],
             "type": "object"
         },
         "RevenueAnalyticsGrossRevenueQuery": {

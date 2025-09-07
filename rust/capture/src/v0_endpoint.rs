@@ -421,6 +421,13 @@ pub fn process_single_event(
         .as_ref()
         .and_then(|ts| DateTime::parse_from_rfc3339(ts).ok());
 
+    // redact the IP address of internally-generated events when tagged as such
+    let resolved_ip = if event.properties.contains_key("capture_internal") {
+        "127.0.0.1".to_string()
+    } else {
+        context.client_ip.clone()
+    };
+
     let data = serde_json::to_string(&event).map_err(|e| {
         error!("failed to encode data field: {}", e);
         CaptureError::NonRetryableSinkError
@@ -436,7 +443,7 @@ pub fn process_single_event(
         distinct_id: event
             .extract_distinct_id()
             .ok_or(CaptureError::MissingDistinctId)?,
-        ip: context.client_ip.clone(),
+        ip: resolved_ip,
         data,
         now: context.now.clone(),
         sent_at: context.sent_at,

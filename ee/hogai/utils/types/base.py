@@ -241,6 +241,10 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     Whether to use current filters from user's UI to find relevant sessions.
     """
+    summary_title: Optional[str] = Field(default=None)
+    """
+    The name of the summary to generate, based on the user's query and/or current filters.
+    """
     notebook_short_id: Optional[str] = Field(default=None)
     """
     The short ID of the notebook being used.

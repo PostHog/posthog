@@ -3,12 +3,13 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconArrowLeft, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonTab, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter } from 'lib/utils'
 
+import { campaignLogic } from '../../campaignLogic'
 import { HOG_FLOW_EDITOR_MODES, HogFlowEditorMode, hogFlowEditorLogic } from '../hogFlowEditorLogic'
-import { getHogFlowStep } from '../steps/HogFlowSteps'
+import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { HogFlowEditorPanelBuild } from './HogFlowEditorPanelBuild'
 import { HogFlowEditorPanelBuildDetail } from './HogFlowEditorPanelBuildDetail'
 import { HogFlowEditorPanelLogs } from './HogFlowEditorPanelLogs'
@@ -28,7 +29,9 @@ export function HogFlowEditorPanel(): JSX.Element | null {
 
     const width = mode !== 'build' ? '36rem' : selectedNode ? '36rem' : '22rem'
 
-    const Step = selectedNode ? getHogFlowStep(selectedNode.data.type) : null
+    const Step = useHogFlowStep(selectedNode?.data)
+    const { actionValidationErrorsById } = useValues(campaignLogic)
+    const validationResult = actionValidationErrorsById[selectedNode?.id ?? '']
 
     return (
         <div
@@ -70,6 +73,13 @@ export function HogFlowEditorPanel(): JSX.Element | null {
                         <span className="flex gap-1 items-center font-medium rounded-md mr-3">
                             <span className="text-lg">{Step?.icon}</span>
                             <span className="font-semibold">{selectedNode.data.name}</span> step
+                            {validationResult?.valid === false && (
+                                <Tooltip title="Some fields need attention">
+                                    <div>
+                                        <LemonBadge status="warning" size="small" content="!" />
+                                    </div>
+                                </Tooltip>
+                            )}
                             {selectedNode.deletable && (
                                 <LemonButton
                                     size="xsmall"

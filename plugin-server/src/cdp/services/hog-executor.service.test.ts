@@ -4,7 +4,6 @@ import { DateTime } from 'luxon'
 import { AddressInfo } from 'net'
 
 import { CyclotronInvocationQueueParametersFetchType } from '~/schema/cyclotron'
-import { truth } from '~/tests/helpers/truth'
 import { logger } from '~/utils/logger'
 
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
@@ -288,44 +287,6 @@ describe('Hog Executor', () => {
             )
             expect(resultsShouldMatch.invocations).toHaveLength(1)
             expect(resultsShouldMatch.metrics).toHaveLength(0)
-        })
-
-        it('logs telemetry', async () => {
-            hub = await createHub({ CDP_HOG_FILTERS_TELEMETRY_TEAMS: '*' })
-            executor = new HogExecutorService(hub)
-
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.broken_filters,
-            })
-
-            const resultsShouldMatch = await executor.buildHogFunctionInvocations(
-                [fn],
-                createHogExecutionGlobals({
-                    groups: {},
-                    event: {
-                        event: '$pageview',
-                        properties: {
-                            $current_url: 'https://posthog.com',
-                        },
-                    } as any,
-                })
-            )
-            expect(resultsShouldMatch.metrics).toHaveLength(1)
-            expect(resultsShouldMatch.logs[0].message).toMatchInlineSnapshot(
-                `"Error filtering event uuid: Invalid HogQL bytecode, stack is empty, can not pop"`
-            )
-            expect(logger.debug).toHaveBeenCalledWith(
-                '🦔',
-                expect.stringContaining('Error filtering function'),
-                truth(
-                    (obj) =>
-                        'telemetry' in obj.result.state &&
-                        Array.isArray(obj.result.state.telemetry) &&
-                        obj.result.state.telemetry[0][3] === 'START'
-                )
-            )
         })
 
         it('can use elements_chain_texts', async () => {

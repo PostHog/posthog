@@ -97,10 +97,28 @@ export const getResponseFieldWithId = (
 }
 
 export function sanitizeSurveyDisplayConditions(
-    displayConditions?: SurveyDisplayConditions | null
+    displayConditions?: SurveyDisplayConditions | null,
+    surveyType?: SurveyType
 ): SurveyDisplayConditions | null {
     if (!displayConditions) {
         return null
+    }
+
+    if (surveyType === SurveyType.ExternalSurvey) {
+        return {
+            actions: {
+                values: [],
+            },
+            events: {
+                values: [],
+            },
+            deviceTypes: undefined,
+            deviceTypesMatchType: undefined,
+            linkedFlagVariant: undefined,
+            seenSurveyWaitPeriodInDays: undefined,
+            url: undefined,
+            urlMatchType: undefined,
+        }
     }
 
     const trimmedUrl = displayConditions.url?.trim()
@@ -130,7 +148,8 @@ export function sanitizeSurveyDisplayConditions(
 
 export function sanitizeSurveyAppearance(
     appearance?: SurveyAppearance | null,
-    isPartialResponsesEnabled = false
+    isPartialResponsesEnabled = false,
+    surveyType?: SurveyType
 ): SurveyAppearance | null {
     if (!appearance) {
         return null
@@ -147,6 +166,8 @@ export function sanitizeSurveyAppearance(
         submitButtonTextColor: sanitizeColor(appearance.submitButtonTextColor),
         thankYouMessageHeader: sanitizeHTML(appearance.thankYouMessageHeader ?? ''),
         thankYouMessageDescription: sanitizeHTML(appearance.thankYouMessageDescription ?? ''),
+        surveyPopupDelaySeconds:
+            surveyType === SurveyType.ExternalSurvey ? undefined : appearance.surveyPopupDelaySeconds,
     }
 }
 
@@ -465,7 +486,11 @@ export function sanitizeSurvey(survey: Partial<Survey>): Partial<Survey> {
             description: sanitizeHTML(question.description ?? ''),
         })) || []
 
-    const sanitizedAppearance = sanitizeSurveyAppearance(survey.appearance, survey.enable_partial_responses ?? false)
+    const sanitizedAppearance = sanitizeSurveyAppearance(
+        survey.appearance,
+        survey.enable_partial_responses ?? false,
+        survey.type
+    )
 
     // Remove widget-specific fields if survey type is not Widget
     if (survey.type !== SurveyType.Widget && sanitizedAppearance) {
@@ -474,13 +499,20 @@ export function sanitizeSurvey(survey: Partial<Survey>): Partial<Survey> {
         delete sanitizedAppearance.widgetColor
     }
 
-    const conditions = sanitizeSurveyDisplayConditions(survey.conditions)
+    const conditions = sanitizeSurveyDisplayConditions(survey.conditions, survey.type)
     const sanitized: Partial<Survey> = {
         ...survey,
         conditions: conditions,
         questions: sanitizedQuestions,
         appearance: sanitizedAppearance,
     }
+
+    if (survey.type === SurveyType.ExternalSurvey) {
+        sanitized.remove_targeting_flag = true
+        sanitized.linked_flag_id = null
+        sanitized.targeting_flag_filters = undefined
+    }
+
     if (!conditions || Object.keys(conditions).length === 0) {
         delete sanitized.conditions
     }
