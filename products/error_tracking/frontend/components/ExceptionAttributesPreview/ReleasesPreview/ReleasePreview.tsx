@@ -16,7 +16,7 @@ export interface ReleasePreviewProps {
 
 export function ReleasePreview({ exceptionReleases }: ReleasePreviewProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
-    const { releasePreviewData } = useValues(releasePreviewLogic)
+    const { release } = useValues(releasePreviewLogic)
     const { frames } = useValues(errorPropertiesLogic)
     const { loadRelease } = useActions(releasePreviewLogic)
 
@@ -24,14 +24,14 @@ export function ReleasePreview({ exceptionReleases }: ReleasePreviewProps): JSX.
         loadRelease({ exceptionReleases, frames })
     }, [frames, loadRelease, exceptionReleases])
 
-    if (!releasePreviewData.mostProbableRelease) {
+    if (!release) {
         return <></>
     }
 
     return (
         <Popover
             visible={isOpen}
-            overlay={<ReleasePopoverContent releasePreviewData={releasePreviewData} />}
+            overlay={<ReleasePopoverContent release={release} />}
             placement="right"
             padded={false}
             showArrow
@@ -49,7 +49,7 @@ export function ReleasePreview({ exceptionReleases }: ReleasePreviewProps): JSX.
                     onMouseLeave={() => setIsOpen(false)}
                 >
                     <IconCommit className="text-sm text-secondary" />
-                    <span>{releasePillTitle(releasePreviewData.mostProbableRelease)}</span>
+                    <span>{releasePillTitle(release)}</span>
                 </LemonTag>
             </span>
         </Popover>

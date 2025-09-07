@@ -5,14 +5,13 @@ import { ParsedEventExceptionRelease } from 'lib/components/Errors/types'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { GitMetadataParser } from './gitMetadataParser'
-import { ReleasePreviewOutput } from './releasePreviewLogic'
 
 export interface ReleasesPopoverContentProps {
-    releasePreviewData: ReleasePreviewOutput
+    release: ParsedEventExceptionRelease
 }
 
-export function ReleasePopoverContent({ releasePreviewData }: ReleasesPopoverContentProps): JSX.Element {
-    const viewCommitLink = GitMetadataParser.getViewCommitLink(releasePreviewData.mostProbableRelease!)
+export function ReleasePopoverContent({ release }: ReleasesPopoverContentProps): JSX.Element {
+    const viewCommitLink = GitMetadataParser.getViewCommitLink(release)
 
     return (
         <div className="overflow-hidden">
@@ -25,11 +24,7 @@ export function ReleasePopoverContent({ releasePreviewData }: ReleasesPopoverCon
                 )}
             </div>
             <div className="p-2">
-                {releasePreviewData.mostProbableRelease?.metadata?.git ? (
-                    <GitRelease release={releasePreviewData.mostProbableRelease!} />
-                ) : (
-                    <GitlessRelease release={releasePreviewData.mostProbableRelease!} />
-                )}
+                {release?.metadata?.git ? <GitRelease release={release} /> : <GitlessRelease release={release} />}
             </div>
         </div>
     )

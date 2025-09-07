@@ -20,10 +20,8 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
     ]),
 
     loaders(() => ({
-        releasePreviewData: [
-            {
-                mostProbableRelease: undefined,
-            } satisfies ReleasePreviewOutput,
+        release: [
+            undefined as ParsedEventExceptionRelease | undefined,
             {
                 loadRelease: async (dto: {
                     // we have exceptionReleases from the already loaded event. Cymbal enriches event with that data
@@ -32,16 +30,12 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
                 }) => {
                     // we can't do anything if there are no frames nor existing releases
                     if (!dto.frames && !dto.exceptionReleases) {
-                        return {
-                            mostProbableRelease: undefined,
-                        }
+                        return undefined
                     }
 
                     // if there is only one associated release, we just return it because this will for sure be that release
                     if (dto.exceptionReleases?.length === 1) {
-                        return {
-                            mostProbableRelease: dto.exceptionReleases[0],
-                        }
+                        return dto.exceptionReleases[0]
                     }
 
                     // otherwise - this is a case where there are multiple releases associated with an error
@@ -50,9 +44,7 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
 
                     // if there are no frames, we can't load any releases
                     if (!dto.frames || dto.frames.length === 0) {
-                        return {
-                            mostProbableRelease: undefined,
-                        }
+                        return undefined
                     }
 
                     const rawIds = dto.frames.map((f) => f.raw_id)
@@ -64,20 +56,12 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
 
                     if (kaboomFrame) {
                         const relatedRelease = resultMap[kaboomFrame.raw_id]
-                        return {
-                            mostProbableRelease: parseExceptionRelease(relatedRelease),
-                        }
+                        return parseExceptionRelease(relatedRelease)
                     }
 
-                    return {
-                        mostProbableRelease: undefined,
-                    }
+                    return undefined
                 },
             },
         ],
     })),
 ])
-
-export interface ReleasePreviewOutput {
-    mostProbableRelease?: ParsedEventExceptionRelease
-}
