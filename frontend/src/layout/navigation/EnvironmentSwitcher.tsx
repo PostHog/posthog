@@ -275,11 +275,6 @@ export function EnvironmentSwitcherOverlay({
                     ) : (
                         <span className="truncate">{currentProject?.name ?? 'Project'}</span>
                     )}
-                    {!iconOnly && (
-                        <LemonTag size="small" className="border-text-3000 uppercase ml-1.5">
-                            <span className="truncate max-w-[100px]">{currentTeam.name}</span>
-                        </LemonTag>
-                    )}
                     {!iconOnly && <DropdownMenuOpenIndicator />}
                 </ButtonPrimitive>
             </PopoverPrimitiveTrigger>
