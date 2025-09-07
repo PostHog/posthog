@@ -43,7 +43,7 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | s
     && sudo apt install gh -y
 
 # Install node via NVM (https://github.com/nvm-sh/nvm)
-ARG NODE_VERSION="18"
+ARG NODE_VERSION="22"
 RUN if [ "${NODE_VERSION}" != "none" ]; then su vscode -c "umask 0002 && . /usr/local/share/nvm/nvm.sh && nvm install ${NODE_VERSION} 2>&1"; fi
 
 # install pnpm globally, this container doesn't expose a supported shell to the pnpm installer
