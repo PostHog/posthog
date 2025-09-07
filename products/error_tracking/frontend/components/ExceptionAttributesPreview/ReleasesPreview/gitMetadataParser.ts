@@ -13,7 +13,6 @@ export class GitMetadataParser {
     }
 
     static resolveRemoteUrlWithCommitToLink(remoteUrl: string, commitSha: string): string | undefined {
-        // Try parsing as SSH first, then HTTPS
         let parsed = GitMetadataParser.parseSshRemoteUrl(remoteUrl)
 
         if (!parsed) {
@@ -29,10 +28,6 @@ export class GitMetadataParser {
 
     static parseSshRemoteUrl(remoteUrl: string): { provider: string; user: string; path: string } | undefined {
         // git@github.com:user/repo.git
-        // 1. provider: between 'git@' and ':'
-        // 2. user: after ':' and before first '/'
-        // 3. path: after first '/'
-        // Compose: https://provider/user/path (strip .git if present)
 
         const atIdx = remoteUrl.indexOf('@')
         const colonIdx = remoteUrl.indexOf(':')
@@ -56,7 +51,6 @@ export class GitMetadataParser {
 
     static parseHttpsRemoteUrl(remoteUrl: string): { provider: string; user: string; path: string } | undefined {
         // https://github.com/user/repo.git
-        // Parse the URL to extract provider domain, user, and repo path
 
         const httpsPrefix = 'https://'
         if (!remoteUrl.startsWith(httpsPrefix)) {

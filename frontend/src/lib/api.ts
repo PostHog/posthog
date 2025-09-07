@@ -175,6 +175,7 @@ import {
     ErrorTrackingStackFrame,
     ErrorTrackingStackFrameRecord,
     ErrorTrackingSymbolSet,
+    RawEventExceptionRelease,
     SymbolSetStatusFilter,
 } from './components/Errors/types'
 import {
@@ -2801,7 +2802,7 @@ const api = {
 
         async stackFrameReleaseMetadata(
             raw_ids: ErrorTrackingStackFrame['raw_id'][]
-        ): Promise<{ results: Record<string, any> }> {
+        ): Promise<{ results: Record<string, RawEventExceptionRelease> }> {
             return await new ApiRequest().errorTrackingStackFramesReleaseMetadata().create({ data: { raw_ids } })
         },
 

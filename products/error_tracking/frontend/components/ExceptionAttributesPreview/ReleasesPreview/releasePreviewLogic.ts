@@ -3,11 +3,7 @@ import { loaders } from 'kea-loaders/lib'
 
 import api from 'lib/api'
 import 'lib/components/Errors/stackFrameLogic'
-import {
-    ErrorTrackingStackFrame,
-    ParsedEventExceptionRelease,
-    RawEventExceptionRelease,
-} from 'lib/components/Errors/types'
+import { ErrorTrackingStackFrame, ParsedEventExceptionRelease } from 'lib/components/Errors/types'
 import { parseExceptionRelease } from 'lib/components/Errors/utils'
 
 import type { releasePreviewLogicType } from './releasePreviewLogicType'
@@ -27,56 +23,54 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
         releasePreviewData: [
             {
                 mostProbableRelease: undefined,
-                otherReleases: [],
-            } as ReleasePreviewOutput,
+            } satisfies ReleasePreviewOutput,
             {
                 loadRelease: async (dto: {
-                    // we have gitReleasesMeta from the already loaded event. Cymbal enriches event with that data.
+                    // we have exceptionReleases from the already loaded event. Cymbal enriches event with that data
                     exceptionReleases?: ParsedEventExceptionRelease[]
                     frames?: ErrorTrackingStackFrame[]
                 }) => {
-                    // we can't do anything if there is neither frames nor existing gitReleasesMeta
+                    // we can't do anything if there are no frames nor existing releases
                     if (!dto.frames && !dto.exceptionReleases) {
                         return {
                             mostProbableRelease: undefined,
-                            otherReleases: [],
                         }
                     }
 
-                    // if there is only one associated release, we just return it. No need to fetch anything extra. This will for sure be that release
+                    // if there is only one associated release, we just return it because this will for sure be that release
                     if (dto.exceptionReleases?.length === 1) {
                         return {
                             mostProbableRelease: dto.exceptionReleases[0],
-                            otherReleases: [],
                         }
                     }
+
+                    // otherwise - this is a case where there are multiple releases associated with an error
+                    // it means that individual stack frames are not all associated with the same release
+                    // we need to find the most probable release by checking the frames
 
                     // if there are no frames, we can't load any releases
                     if (!dto.frames || dto.frames.length === 0) {
                         return {
                             mostProbableRelease: undefined,
-                            otherReleases: [],
                         }
                     }
 
                     const rawIds = dto.frames.map((f) => f.raw_id)
                     const response = await api.errorTracking.stackFrameReleaseMetadata(rawIds)
-                    const resultMap: Record<string, RawEventExceptionRelease> = response.results || {}
+                    const resultMap = response.results || {}
 
-                    // we reverse the list in order to pick the frame which is "the closest" to the error. We call this frame "kaboom frame".
-                    const selectedFrame = [...(dto.frames || [])].reverse().find((f) => resultMap[f.raw_id])
+                    // we reverse the list in order to pick the stack frame which is "the closest" to the error
+                    const kaboomFrame = [...(dto.frames || [])].reverse().find((f) => resultMap[f.raw_id])
 
-                    if (selectedFrame) {
-                        const relatedRelease = resultMap[selectedFrame.raw_id]
+                    if (kaboomFrame) {
+                        const relatedRelease = resultMap[kaboomFrame.raw_id]
                         return {
                             mostProbableRelease: parseExceptionRelease(relatedRelease),
-                            otherReleases: [],
                         }
                     }
 
                     return {
                         mostProbableRelease: undefined,
-                        otherReleases: [],
                     }
                 },
             },
