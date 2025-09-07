@@ -128,9 +128,9 @@ export function Info(): JSX.Element {
                 renameDebounceMs={1000}
             />
             <SceneDivider />
-            <div className="grid gap-8 overflow-hidden grid-cols-1 min-[1300px]:grid-cols-2">
+            <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1200px]:grid-cols-[1fr_26rem]">
                 {/* Column 1 */}
-                <div className="flex flex-col gap-4 overflow-hidden">
+                <div className="flex flex-col gap-0 overflow-hidden">
                     {/* Row 1: Status, Feature flag, Stats engine */}
                     <div className="inline-flex deprecated-space-x-8">
                         <div className="flex flex-col" data-attr="experiment-status">
@@ -250,12 +250,12 @@ export function Info(): JSX.Element {
                 </div>
 
                 {/* Column 2 */}
-                <div className="flex flex-col gap-4 overflow-hidden items-start min-[1300px]:items-end">
+                <div className="flex flex-col gap-4 overflow-hidden items-start min-[1200px]:items-end">
                     {/* Row 1: Duration */}
                     {!isExperimentDraft && <ExperimentDuration />}
 
                     {/* Row 2: Last refreshed, Created by */}
-                    <div className="flex flex-col overflow-hidden items-start min-[1300px]:items-end">
+                    <div className="flex flex-col overflow-hidden items-start min-[1200px]:items-end">
                         <div className="inline-flex deprecated-space-x-8">
                             {experiment.start_date && (
                                 <ExperimentLastRefresh
