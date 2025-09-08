@@ -8,7 +8,7 @@ import { parseDate } from './timestamps'
 const timestampComparisonCounter = new Counter({
     name: 'timestamp_header_comparison_total',
     help: 'Count of timestamp header comparisons by result',
-    labelNames: ['result', 'context', 'team_id'],
+    labelNames: ['result', 'context'],
 })
 
 /**
@@ -36,14 +36,12 @@ export function compareTimestamps(
     loggingSampleRate: number = 0.0
 ): void {
     const contextLabel = context || 'timestamp_comparison'
-    const teamIdLabel = teamId.toString()
 
     if (!headers?.timestamp) {
         timestampComparisonCounter
             .labels({
                 result: 'header_missing',
                 context: contextLabel,
-                team_id: teamIdLabel,
             })
             .inc()
         return
@@ -56,7 +54,6 @@ export function compareTimestamps(
                 .labels({
                     result: 'header_invalid',
                     context: contextLabel,
-                    team_id: teamIdLabel,
                 })
                 .inc()
             return
@@ -73,7 +70,6 @@ export function compareTimestamps(
                 .labels({
                     result: 'exact_match',
                     context: contextLabel,
-                    team_id: teamIdLabel,
                 })
                 .inc()
         } else {
@@ -81,7 +77,6 @@ export function compareTimestamps(
                 .labels({
                     result: 'difference_detected',
                     context: contextLabel,
-                    team_id: teamIdLabel,
                 })
                 .inc()
 
@@ -103,7 +98,6 @@ export function compareTimestamps(
             .labels({
                 result: 'parse_error',
                 context: contextLabel,
-                team_id: teamIdLabel,
             })
             .inc()
 

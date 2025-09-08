@@ -91,7 +91,7 @@ describe('compareTimestamps', () => {
         }
 
         expect(() => {
-            compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context')
+            compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context', 1.0)
         }).not.toThrow()
 
         expect(mockLabels).toHaveBeenCalled()
@@ -186,7 +186,6 @@ describe('compareTimestamps', () => {
         expect(mockLabels).toHaveBeenCalledWith({
             result: 'difference_detected',
             context: 'test-context',
-            team_id: '123',
         })
     })
 
@@ -203,7 +202,6 @@ describe('compareTimestamps', () => {
         expect(mockLabels).toHaveBeenCalledWith({
             result: 'difference_detected',
             context: 'test-context',
-            team_id: '123',
         })
     })
 
@@ -214,11 +212,10 @@ describe('compareTimestamps', () => {
 
         compareTimestamps('invalid-date-format', headers, 123, 'test-uuid', 'test-context', 1.0)
 
-        expect(mockLoggerWarn).toHaveBeenCalledWith('Failed to compare timestamps', expect.any(Object))
+        expect(mockLoggerWarn).not.toHaveBeenCalled() // No logging for header_invalid
         expect(mockLabels).toHaveBeenCalledWith({
-            result: 'parse_error',
+            result: 'header_invalid',
             context: 'test-context',
-            team_id: '123',
         })
     })
 
@@ -231,9 +228,8 @@ describe('compareTimestamps', () => {
 
         expect(mockLoggerWarn).not.toHaveBeenCalled()
         expect(mockLabels).toHaveBeenCalledWith({
-            result: 'parse_error',
+            result: 'header_invalid',
             context: 'test-context',
-            team_id: '123',
         })
     })
 
