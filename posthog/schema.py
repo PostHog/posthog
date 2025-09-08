@@ -4544,6 +4544,9 @@ class SavedInsightNode(BaseModel):
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResults: Optional[bool] = None
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
+    showSavedFilters: Optional[bool] = Field(
+        default=None, description="Show saved filters feature for this table (requires uniqueKey)"
+    )
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
     showTable: Optional[bool] = None
@@ -13989,6 +13992,9 @@ class DataTableNode(BaseModel):
     )
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
+    showSavedFilters: Optional[bool] = Field(
+        default=None, description="Show saved filters feature for this table (requires uniqueKey)"
+    )
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
     showTestAccountFilters: Optional[bool] = Field(default=None, description="Show filter to exclude test accounts")

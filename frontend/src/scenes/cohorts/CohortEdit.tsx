@@ -224,8 +224,6 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         resourceType={{
                             to: urls.cohorts(),
                             type: RESOURCE_TYPE,
-                            typePlural: 'cohorts',
-                            tooltip: 'Go to all cohorts',
                         }}
                         isLoading={cohortLoading}
                         onNameChange={(value) => {

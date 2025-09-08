@@ -189,15 +189,15 @@ export const fixLogDeduplication = (logs: LogEntry[]): LogEntrySerialized[] => {
     return preparedLogs
 }
 
-export function isLegacyPluginHogFunction(hogFunction: HogFunctionType): boolean {
+export function isLegacyPluginHogFunction(hogFunction: Pick<HogFunctionType, 'template_id'>): boolean {
     return hogFunction.template_id?.startsWith('plugin-') ?? false
 }
 
-export function isSegmentPluginHogFunction(hogFunction: HogFunctionType): boolean {
+export function isSegmentPluginHogFunction(hogFunction: Pick<HogFunctionType, 'template_id'>): boolean {
     return hogFunction.template_id?.startsWith('segment-') ?? false
 }
 
-export function isNativeHogFunction(hogFunction: HogFunctionType): boolean {
+export function isNativeHogFunction(hogFunction: Pick<HogFunctionType, 'template_id'>): boolean {
     return hogFunction.template_id?.startsWith('native-') ?? false
 }
 

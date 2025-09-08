@@ -1,7 +1,8 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '~/types'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
+import { FileSystemIconColor, ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
     name: 'Data Warehouse',
@@ -24,9 +25,10 @@ export const manifest: ProductManifest = {
         {
             path: 'Data Warehouse',
             category: 'Tools',
-            iconType: 'database',
             href: urls.dataWarehouse(),
             flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
+            iconType: 'data_warehouse' as FileSystemIconType,
+            iconColor: ['var(--color-product-data-warehouse-light)'] as FileSystemIconColor,
         },
     ],
 }
