@@ -1,4 +1,4 @@
-import { Hub } from '../types'
+import { Hub } from '../../types'
 import { EncryptedFields } from './encryption-utils'
 
 describe('Encrypted fields', () => {

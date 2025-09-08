@@ -881,7 +881,7 @@ class TestPreaggregatedTableTransformationIntegration(APIBaseTest, ClickhouseTes
         response = execute_hogql_query(
             parse_select("select count(), uniq(person_id) from events where equals(event, '$pageview')"),
             team=self.team,
-            modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
+            modifiers=HogQLQueryModifiers(usePreaggregatedTableTransforms=True),
         )
         assert response.hogql and PREAGGREGATED_TABLE_NAME in response.hogql
         assert response.results == [(1, 1)]
@@ -896,7 +896,7 @@ class TestPreaggregatedTableTransformationIntegration(APIBaseTest, ClickhouseTes
                 "select count() as c, uniq(person_id) as p, uniq($session_id) as s, toStartOfDay(timestamp) as t, properties.utm_source as u from events where equals(event, '$pageview') and properties.utm_campaign == '' group by t, u, properties.utm_medium having c > 0 and u == ''"
             ),
             team=self.team,
-            modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
+            modifiers=HogQLQueryModifiers(usePreaggregatedTableTransforms=True),
         )
         assert response.hogql and PREAGGREGATED_TABLE_NAME in response.hogql
         assert len(response.results) == 1
@@ -924,7 +924,7 @@ class TestPreaggregatedTableTransformationIntegration(APIBaseTest, ClickhouseTes
         response = execute_hogql_query(
             parse_select(original_query),
             team=self.team,
-            modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
+            modifiers=HogQLQueryModifiers(usePreaggregatedTableTransforms=True),
         )
         assert response.results == [(1, self.TEST_DATA_DATE)]
 
@@ -936,7 +936,7 @@ class TestPreaggregatedTableTransformationIntegration(APIBaseTest, ClickhouseTes
         original_query = TrendsQuery(
             series=[EventsNode(name="$pageview", event="$pageview", math=BaseMathType.TOTAL)],
             dateRange=DateRange(date_from="2024-11-22", date_to="2024-11-26"),
-            modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
+            modifiers=HogQLQueryModifiers(usePreaggregatedTableTransforms=True),
         )
         tqr = TrendsQueryRunner(team=self.team, query=original_query)
         response = tqr.calculate()
@@ -960,7 +960,7 @@ class TestPreaggregatedTableTransformationIntegration(APIBaseTest, ClickhouseTes
         original_query = TrendsQuery(
             series=[EventsNode(name="$pageview", event="$pageview", math=BaseMathType.DAU)],
             dateRange=DateRange(date_from="2024-11-22", date_to="2024-11-26"),
-            modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
+            modifiers=HogQLQueryModifiers(usePreaggregatedTableTransforms=True),
         )
         tqr = TrendsQueryRunner(team=self.team, query=original_query)
         response = tqr.calculate()

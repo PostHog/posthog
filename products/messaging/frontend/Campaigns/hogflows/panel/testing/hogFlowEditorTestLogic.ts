@@ -246,7 +246,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             submit: async (testInvocation: HogflowTestInvocation) => {
                 try {
                     const apiResponse = await api.hogFlows.createTestInvocation(values.campaign.id, {
-                        configuration: {},
+                        configuration: values.campaign,
                         globals: JSON.parse(testInvocation.globals),
                         mock_async_functions: testInvocation.mock_async_functions,
                         current_action_id: values.selectedNodeId ?? undefined,

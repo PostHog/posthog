@@ -163,6 +163,8 @@ zsh = '''
     # ensure even with your shell prefs in place we know this is a Flox.dev env
     export PS1="%K{white}%F{black}(flox)%k%f $PS1"
   fi
+  # Ensure flox binaries (especially Node.js) take precedence over system binaries
+  export PATH="$FLOX_ENV/bin:$PATH"
   source $UV_PROJECT_ENVIRONMENT/bin/activate
 '''
 fish = '''

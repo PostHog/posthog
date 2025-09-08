@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from posthog.test.base import APIBaseTest
 
 from rest_framework import status
@@ -460,6 +462,32 @@ class TestDatasetsApi(APIBaseTest):
         # Should be ordered by most recently updated first
         self.assertEqual(results[0]["name"], "Training Alpha")
         self.assertEqual(results[1]["name"], "Training Beta")
+
+    def test_can_filter_datasets_by_array_of_ids(self):
+        item1 = Dataset.objects.create(name="Training Alpha", description="First", team=self.team, created_by=self.user)
+        Dataset.objects.create(name="Training Beta", description="Second", team=self.team, created_by=self.user)
+        item3 = Dataset.objects.create(name="Test Dataset", team=self.team, created_by=self.user)
+
+        # Test filtering by a single id
+        response = self.client.get(f"/api/environments/{self.team.id}/datasets/", {"id__in": str(item1.id)})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]["id"], str(item1.id))
+
+        # Test filtering by multiple ids
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/datasets/", {"id__in": ",".join([str(item1.id), str(item3.id)])}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 2)
+        returned_ids = {result["id"] for result in response.data["results"]}
+        self.assertEqual(returned_ids, {str(item1.id), str(item3.id)})
+
+        # Test that non-existent ids return empty results
+        fake_id = uuid4()
+        response = self.client.get(f"/api/environments/{self.team.id}/datasets/", {"id__in": str(fake_id)})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 0)
 
 
 class TestDatasetItemsApi(APIBaseTest):
