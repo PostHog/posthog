@@ -38,10 +38,12 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.temporal.common.client import sync_connect
 from posthog.warehouse.data_load.saved_query_service import (
     delete_saved_query_schedule,
+    pause_saved_query_schedule,
     recreate_model_paths,
     saved_query_workflow_exists,
     sync_saved_query_workflow,
     trigger_saved_query_schedule,
+    unpause_saved_query_schedule,
 )
 from posthog.warehouse.models import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -85,6 +87,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "edited_history_id",
             "latest_history_id",
             "soft_update",
+            "is_materialized",
         ]
         read_only_fields = [
             "id",
@@ -95,6 +98,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "last_run_at",
             "latest_error",
             "latest_history_id",
+            "is_materialized",
         ]
         extra_kwargs = {
             "soft_update": {"write_only": True},
@@ -246,14 +250,16 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError("The query was modified by someone else.")
 
             if sync_frequency == "never":
-                delete_saved_query_schedule(str(locked_instance.id))
+                pause_saved_query_schedule(str(locked_instance.id))
                 locked_instance.sync_frequency_interval = None
                 validated_data["sync_frequency_interval"] = None
+                validated_data["is_materialized"] = True
             elif sync_frequency:
                 sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
                 validated_data["sync_frequency_interval"] = sync_frequency_interval
                 was_sync_frequency_updated = True
                 locked_instance.sync_frequency_interval = sync_frequency_interval
+                validated_data["is_materialized"] = True
 
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
 
@@ -321,6 +327,8 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
         if was_sync_frequency_updated:
             schedule_exists = saved_query_workflow_exists(str(instance.id))
+            if schedule_exists and before_update and before_update.sync_frequency_interval is None:
+                unpause_saved_query_schedule(str(instance.id))
             sync_saved_query_workflow(view, create=not schedule_exists)
 
         return view
@@ -483,6 +491,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             saved_query.last_run_at = None
             saved_query.latest_error = None
             saved_query.status = None
+            saved_query.is_materialized = False
 
             # delete the materialized table reference
             if saved_query.table is not None:
