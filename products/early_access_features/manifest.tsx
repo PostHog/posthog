@@ -1,6 +1,6 @@
-import { IconRocket } from '@posthog/icons'
-
 import { urls } from 'scenes/urls'
+
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -36,7 +36,7 @@ export const manifest: ProductManifest = {
     fileSystemTypes: {
         early_access_feature: {
             name: 'Early access feature',
-            icon: <IconRocket />,
+            iconType: 'early_access_feature' as FileSystemIconType,
             href: (ref: string) => urls.earlyAccessFeature(ref),
             iconColor: [
                 'var(--color-product-early-access-features-light)',
@@ -50,7 +50,7 @@ export const manifest: ProductManifest = {
             path: `Early access feature`,
             type: 'early_access_feature',
             href: urls.earlyAccessFeature('new'),
-            icon: <IconRocket />,
+            iconType: 'early_access_feature' as FileSystemIconType,
             iconColor: [
                 'var(--color-product-early-access-features-light)',
                 'var(--color-product-early-access-features-dark)',
@@ -63,6 +63,11 @@ export const manifest: ProductManifest = {
             category: 'Features',
             type: 'early_access_feature',
             href: urls.earlyAccessFeatures(),
+            iconType: 'early_access_feature' as FileSystemIconType,
+            iconColor: [
+                'var(--color-product-early-access-features-light)',
+                'var(--color-product-early-access-features-dark)',
+            ] as FileSystemIconColor,
         },
     ],
 }

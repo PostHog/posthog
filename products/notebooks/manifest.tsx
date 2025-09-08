@@ -1,8 +1,6 @@
-import { IconNotebook } from '@posthog/icons'
-
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Notebooks',
@@ -14,10 +12,9 @@ export const manifest: ProductManifest = {
     fileSystemTypes: {
         notebook: {
             name: 'Notebook',
-            icon: <IconNotebook />,
+            iconType: 'notebook',
             href: (ref: string) => urls.notebook(ref),
             filterKey: 'notebook',
-            iconColor: ['var(--color-product-notebooks-light)'] as FileSystemIconColor,
         },
     },
     treeItemsNew: [
@@ -25,8 +22,7 @@ export const manifest: ProductManifest = {
             path: `Notebook`,
             type: 'notebook',
             href: urls.notebook('new'),
-            icon: <IconNotebook />,
-            iconColor: ['var(--color-product-notebooks-light)'] as FileSystemIconColor,
+            iconType: 'notebook',
         },
     ],
 }

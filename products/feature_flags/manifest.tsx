@@ -1,5 +1,3 @@
-import { IconToggle } from '@posthog/icons'
-
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
@@ -14,7 +12,7 @@ export const manifest: ProductManifest = {
     fileSystemTypes: {
         feature_flag: {
             name: 'Feature flag',
-            icon: <IconToggle />,
+            iconType: 'feature_flag',
             href: (ref: string) => urls.featureFlag(ref),
             iconColor: ['var(--color-product-feature-flags-light)'],
             filterKey: 'feature_flag',
@@ -25,7 +23,7 @@ export const manifest: ProductManifest = {
             path: `Feature flag`,
             type: 'feature_flag',
             href: urls.featureFlag('new'),
-            icon: <IconToggle />,
+            iconType: 'feature_flag',
             iconColor: ['var(--color-product-feature-flags-light)'] as FileSystemIconColor,
         },
     ],

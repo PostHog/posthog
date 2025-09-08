@@ -1,6 +1,6 @@
-import { IconPeople } from '@posthog/icons'
-
 import { urls } from 'scenes/urls'
+
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -13,7 +13,7 @@ export const manifest: ProductManifest = {
     fileSystemTypes: {
         cohort: {
             name: 'Cohort',
-            icon: <IconPeople />,
+            iconType: 'cohort' as FileSystemIconType,
             href: (ref: string) => urls.cohort(ref),
             filterKey: 'cohort',
             iconColor: ['var(--color-product-cohorts-light)'] as FileSystemIconColor,
@@ -24,7 +24,7 @@ export const manifest: ProductManifest = {
             path: `Cohort`,
             type: 'cohort',
             href: urls.cohort('new'),
-            icon: <IconPeople />,
+            iconType: 'cohort' as FileSystemIconType,
             iconColor: ['var(--color-product-cohorts-light)'] as FileSystemIconColor,
         },
     ],

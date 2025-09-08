@@ -1,6 +1,6 @@
-import { IconCursor } from '@posthog/icons'
-
 import { urls } from 'scenes/urls'
+
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { ActionType, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -49,7 +49,7 @@ export const manifest: ProductManifest = {
             name: 'Action',
             href: (ref: string) => urls.action(ref),
             filterKey: 'action',
-            icon: <IconCursor />,
+            iconType: 'action' as FileSystemIconType,
             iconColor: ['var(--color-product-actions-light)'] as FileSystemIconColor,
         },
     },
@@ -58,7 +58,7 @@ export const manifest: ProductManifest = {
             type: 'action',
             path: 'Action',
             href: urls.createAction(),
-            icon: <IconCursor />,
+            iconType: 'action' as FileSystemIconType,
             iconColor: ['var(--color-product-actions-light)'] as FileSystemIconColor,
         },
     ],
@@ -67,7 +67,7 @@ export const manifest: ProductManifest = {
             path: 'Actions',
             category: 'Definitions',
             href: urls.actions(),
-            icon: <IconCursor />,
+            iconType: 'action' as FileSystemIconType,
             iconColor: ['var(--color-product-actions-light)'] as FileSystemIconColor,
         },
     ],

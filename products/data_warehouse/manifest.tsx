@@ -1,8 +1,7 @@
-import { IconDatabase } from '@posthog/icons'
-
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { FileSystemIconColor, ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
@@ -28,7 +27,7 @@ export const manifest: ProductManifest = {
             category: 'Tools',
             href: urls.dataWarehouse(),
             flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
-            icon: <IconDatabase />,
+            iconType: 'data_warehouse' as FileSystemIconType,
             iconColor: ['var(--color-product-data-warehouse-light)'] as FileSystemIconColor,
         },
     ],

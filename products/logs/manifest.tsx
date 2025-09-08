@@ -1,7 +1,7 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Logs',
@@ -25,7 +25,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Logs',
             category: 'Tools',
-            iconType: 'live',
+            iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
             href: urls.logs(),
             flag: FEATURE_FLAGS.LOGS,
             tags: ['alpha'],
