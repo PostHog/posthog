@@ -25,6 +25,8 @@ export interface LLMAnalyticsTraceDataNodeLogicParams {
     cachedResults?: AnyResponseType | null
 }
 
+const EXCEPTION_LOOKUP_WINDOW_MINUTES = 20
+
 export function getDataNodeLogicProps({
     traceId,
     query,
@@ -50,7 +52,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     actions({
         setTraceId: (traceId: string) => ({ traceId }),
         setEventId: (eventId: string | null) => ({ eventId }),
-        setDateFrom: (dateFrom: string) => ({ dateFrom }),
+        setDateRange: (dateFrom: string | null, dateTo?: string | null) => ({ dateFrom, dateTo }),
         setIsRenderingMarkdown: (isRenderingMarkdown: boolean) => ({ isRenderingMarkdown }),
         toggleMarkdownRendering: true,
         setIsRenderingXml: (isRenderingXml: boolean) => ({ isRenderingXml }),
@@ -61,15 +63,21 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         showAllMessages: (type: 'input' | 'output') => ({ type }),
         hideAllMessages: (type: 'input' | 'output') => ({ type }),
         applySearchResults: (inputMatches: boolean[], outputMatches: boolean[]) => ({ inputMatches, outputMatches }),
-        showDisplayOptionsModal: true,
-        hideDisplayOptionsModal: true,
         setDisplayOption: (displayOption: DisplayOption) => ({ displayOption }),
     }),
 
     reducers({
         traceId: ['' as string, { setTraceId: (_, { traceId }) => traceId }],
         eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
-        dateFrom: [null as string | null, { setDateFrom: (_, { dateFrom }) => dateFrom }],
+        dateRange: [
+            null as { dateFrom: string | null; dateTo: string | null } | null,
+            {
+                setDateRange: (_, { dateFrom, dateTo }) => ({
+                    dateFrom: dateFrom ?? null,
+                    dateTo: dateTo ?? null,
+                }),
+            },
+        ],
         searchQuery: ['' as string, { setSearchQuery: (_, { searchQuery }) => String(searchQuery || '') }],
         isRenderingMarkdown: [
             true as boolean,
@@ -126,13 +134,6 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                 },
             },
         ],
-        displayOptionsModalVisible: [
-            false as boolean,
-            {
-                showDisplayOptionsModal: () => true,
-                hideDisplayOptionsModal: () => false,
-            },
-        ],
         displayOption: [
             DisplayOption.CollapseExceptOutputAndLastInput as DisplayOption,
             persistConfig,
@@ -147,16 +148,16 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         inputMessageShowStates: [(s) => [s.messageShowStates], (messageStates) => messageStates.input],
         outputMessageShowStates: [(s) => [s.messageShowStates], (messageStates) => messageStates.output],
         query: [
-            (s) => [s.traceId, s.dateFrom],
-            (traceId, dateFrom): DataTableNode => {
+            (s) => [s.traceId, s.dateRange],
+            (traceId, dateRange): DataTableNode => {
                 const tracesQuery: TracesQuery = {
                     kind: NodeKind.TracesQuery,
                     traceId,
-                    dateRange: dateFrom
+                    dateRange: dateRange?.dateFrom
                         ? // dateFrom is a minimum timestamp of an event for a trace.
                           {
-                              date_from: dateFrom,
-                              date_to: dayjs(dateFrom).add(10, 'minutes').toISOString(),
+                              date_from: dateRange.dateFrom,
+                              date_to: dateRange?.dateTo || dayjs(dateRange.dateFrom).add(10, 'minutes').toISOString(),
                           }
                         : // By default will look for traces from the beginning.
                           {
@@ -219,14 +220,20 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
 
             if (searchQuery !== currentSearchInUrl) {
                 // Update the URL with the search query
-                const { traceId, eventId, dateFrom } = values
+                const { traceId, eventId, dateRange } = values
                 if (traceId) {
                     const params: any = {}
                     if (eventId) {
                         params.event = eventId
                     }
-                    if (dateFrom) {
-                        params.timestamp = dateFrom
+                    if (dateRange) {
+                        if (dateRange.dateFrom && !dateRange.dateTo) {
+                            params.timestamp = dateRange.dateFrom
+                        } else if (dateRange.dateFrom && dateRange.dateTo) {
+                            params.exception_ts = dayjs(dateRange.dateFrom)
+                                .add(EXCEPTION_LOOKUP_WINDOW_MINUTES, 'minutes')
+                                .toISOString()
+                        }
                     }
                     if (searchQuery) {
                         params.search = searchQuery
@@ -240,10 +247,19 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     })),
 
     urlToAction(({ actions }) => ({
-        [urls.llmAnalyticsTrace(':id')]: ({ id }, { event, timestamp, search }) => {
+        [urls.llmAnalyticsTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search }) => {
             actions.setTraceId(id ?? '')
             actions.setEventId(event || null)
-            actions.setDateFrom(timestamp || null)
+            if (timestamp) {
+                actions.setDateRange(timestamp || null)
+            } else if (exception_ts) {
+                // Increase the lookup window to 20 minutes before and after the exception timestamp, which gives in total 60 minutes.
+                const parsedDate = dayjs(exception_ts)
+                actions.setDateRange(
+                    parsedDate.subtract(EXCEPTION_LOOKUP_WINDOW_MINUTES, 'minutes').toISOString(),
+                    parsedDate.add(EXCEPTION_LOOKUP_WINDOW_MINUTES, 'minutes').toISOString()
+                )
+            }
             // Set search from URL param if provided, otherwise clear it
             actions.setSearchQuery(search || '')
         },

@@ -9,15 +9,15 @@ class PersonDBRouter:
     PERSONS_DB_MODELS = {
         "person",
         "persondistinctid",
-        "personlessdistinctid",  # Assuming app_label 'posthog'
-        "personoverridemapping",  # Assuming app_label 'posthog'
-        "personoverride",  # Assuming app_label 'posthog'
-        "pendingpersonoverride",  # Assuming app_label 'posthog'
-        "flatpersonoverride",  # Assuming app_label 'posthog'
-        "featureflaghashkeyoverride",  # Assuming app_label 'posthog'
-        "cohortpeople",  # Assuming app_label 'posthog'
-        "groups",  # Assuming app_label 'posthog'
-        "grouptypemapping",  # Assuming app_label 'posthog'
+        "personlessdistinctid",
+        "personoverridemapping",
+        "personoverride",
+        "pendingpersonoverride",
+        "flatpersonoverride",
+        "featureflaghashkeyoverride",
+        "cohortpeople",
+        "group",
+        "grouptypemapping",
     }
     PERSONS_APP_LABEL = "posthog"  # Assuming all models are in the 'posthog' app
 

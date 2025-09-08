@@ -30,11 +30,6 @@ export function getDefaultConfig(): PluginsServerConfig {
               : '',
         DATABASE_READONLY_URL: '',
         PLUGIN_STORAGE_DATABASE_URL: '',
-        COUNTERS_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_counters'
-            : isDevEnv()
-              ? 'postgres://posthog:posthog@localhost:5432/counters'
-              : '',
         PERSONS_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv()
@@ -62,6 +57,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         CONSUMER_BATCH_SIZE: 500,
         CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: 30_000,
+        CONSUMER_LOOP_STALL_THRESHOLD_MS: 60_000, // 1 minute - consider loop stalled after this
+        CONSUMER_LOOP_BASED_HEALTH_CHECK: false, // Use consumer loop monitoring for health checks instead of heartbeats
         CONSUMER_MAX_BACKGROUND_TASKS: 1,
         CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: false,
         CONSUMER_AUTO_CREATE_TOPICS: true,
@@ -137,6 +134,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
         LAZY_LOADER_DEFAULT_BUFFER_MS: 10,
+        CAPTURE_INTERNAL_URL: isProdEnv()
+            ? 'http://capture.posthog.svc.cluster.local:3000/capture'
+            : 'http://localhost:8010/capture',
 
         // posthog
         POSTHOG_API_KEY: '',
@@ -209,7 +209,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
         CDP_OVERFLOW_QUEUE_ENABLED: false,
         CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS: isProdEnv() ? false : true, // For prod we primarily use overflow and some more manual control
-        CDP_AGGREGATION_WRITER_ENABLED: false,
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
@@ -219,7 +218,6 @@ export function getDefaultConfig(): PluginsServerConfig {
 
         HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
         HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: KAFKA_LOG_ENTRIES,
-        HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
 
         // Destination Migration Diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
@@ -295,6 +293,13 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_PROPERTIES_TRIM_TARGET_BYTES: 512 * 1024,
         // Limit per merge for moving distinct IDs. 0 disables limiting (move all)
         PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 0,
+        // Topic for async person merge processing
+        PERSON_MERGE_ASYNC_TOPIC: '',
+        // Enable async person merge processing
+        PERSON_MERGE_ASYNC_ENABLED: false,
+        // Batch size for sync person merge processing (0 = unlimited, process all distinct IDs in one query)
+        PERSON_MERGE_SYNC_BATCH_SIZE: 0,
+
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
@@ -347,17 +352,6 @@ export function overrideWithEnv(
         const encodedUser = encodeURIComponent(newConfig.POSTHOG_DB_USER)
         const encodedPassword = encodeURIComponent(newConfig.POSTHOG_DB_PASSWORD)
         newConfig.DATABASE_URL = `postgres://${encodedUser}:${encodedPassword}@${newConfig.POSTHOG_POSTGRES_HOST}:${newConfig.POSTHOG_POSTGRES_PORT}/${newConfig.POSTHOG_DB_NAME}`
-    }
-
-    if (
-        !newConfig.COUNTERS_DATABASE_URL &&
-        newConfig.POSTGRES_COUNTERS_HOST &&
-        newConfig.POSTGRES_COUNTERS_USER &&
-        newConfig.POSTGRES_COUNTERS_PASSWORD
-    ) {
-        const encodedUser = encodeURIComponent(newConfig.POSTGRES_COUNTERS_USER)
-        const encodedPassword = encodeURIComponent(newConfig.POSTGRES_COUNTERS_PASSWORD)
-        newConfig.COUNTERS_DATABASE_URL = `postgres://${encodedUser}:${encodedPassword}@${newConfig.POSTGRES_COUNTERS_HOST}:5432/counters`
     }
 
     if (!Object.keys(KAFKAJS_LOG_LEVEL_MAPPING).includes(newConfig.KAFKAJS_LOG_LEVEL)) {

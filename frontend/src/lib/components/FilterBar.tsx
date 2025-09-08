@@ -4,6 +4,9 @@ import { useState } from 'react'
 import { IconFilter } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { cn } from 'lib/utils/css-classes'
+
 export interface FilterBarProps {
     top?: React.ReactNode
     left?: React.ReactNode
@@ -12,9 +15,15 @@ export interface FilterBarProps {
 
 export const FilterBar = ({ top, left, right }: FilterBarProps): JSX.Element => {
     const [expanded, setExpanded] = useState(false)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     return (
-        <div className="sticky z-20 bg-primary border-b py-2 top-[var(--breadcrumbs-height-compact)] space-y-2">
+        <div
+            className={cn(
+                'sticky z-20 bg-primary border-b py-2 top-[var(--breadcrumbs-height-compact)] space-y-2',
+                newSceneLayout && 'top-0 -mx-4 px-4'
+            )}
+        >
             {top}
 
             <div className="flex flex-col md:flex-row md:justify-between gap-2">

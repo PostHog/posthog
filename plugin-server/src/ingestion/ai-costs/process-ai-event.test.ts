@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { processAiEvent } from './process-ai-event'
+import { normalizeTraceProperties, processAiEvent } from './process-ai-event'
 import { costsByModel } from './providers'
 
 jest.mock('./providers', () => {
@@ -19,19 +19,19 @@ jest.mock('./providers', () => {
             'claude-2': { model: 'claude-2', cost: { prompt_token: 0.6, completion_token: 0.6 } },
             'gemini-2.5-pro-preview': {
                 model: 'gemini-2.5-pro-preview',
-                cost: { prompt_token: 0.7, completion_token: 0.7 },
+                cost: { prompt_token: 0.00000125, completion_token: 0.00001, cache_read_token: 3.1e-7 },
             },
             'gemini-2.5-pro-preview:large': {
                 model: 'gemini-2.5-pro-preview:large',
-                cost: { prompt_token: 0.8, completion_token: 0.8 },
+                cost: { prompt_token: 0.0000025, completion_token: 0.000015, cache_read_token: 0.000000625 },
             },
             'gemini-2.5-flash': {
                 model: 'gemini-2.5-flash',
-                cost: { prompt_token: 0.15, completion_token: 0.6 },
+                cost: { prompt_token: 3e-7, completion_token: 0.0000025, cache_read_token: 7.5e-8 },
             },
-            'gemini-2.0-flash': {
-                model: 'gemini-2.0-flash',
-                cost: { prompt_token: 0.00000015, completion_token: 0.000000075 },
+            'gemini-2.0-flash-001': {
+                model: 'gemini-2.0-flash-001',
+                cost: { prompt_token: 1e-7, completion_token: 4e-7, cache_read_token: 2.5e-8 },
             },
             'o1-mini': {
                 model: 'o1-mini',
@@ -411,13 +411,13 @@ describe('processAiEvent()', () => {
 
             const result = processAiEvent(event)
 
-            // For gemini-2.5-flash: prompt_token = 0.15, completion_token = 0.6
-            // Input cost: 100 * 0.15 = 15
-            // Output cost: (50 + 200) * 0.6 = 250 * 0.6 = 150
-            // Total cost: 15 + 150 = 165
-            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(15, 2)
-            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(150, 2)
-            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(165, 2)
+            // For gemini-2.5-flash: prompt_token = 3e-7, completion_token = 0.0000025
+            // Input cost: 100 * 3e-7 = 0.00003
+            // Output cost: (50 + 200) * 0.0000025 = 250 * 0.0000025 = 0.000625
+            // Total cost: 0.00003 + 0.000625 = 0.000655
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.00003, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.000625, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.000655, 6)
         })
 
         it('handles undefined reasoning tokens for gemini-2.5-*', () => {
@@ -429,13 +429,13 @@ describe('processAiEvent()', () => {
 
             const result = processAiEvent(event)
 
-            // For gemini-2.5-flash: prompt_token = 0.15, completion_token = 0.6
-            // Input cost: 100 * 0.15 = 15
-            // Output cost: (50 + 0) * 0.6 = 50 * 0.6 = 30 (undefined reasoning tokens treated as 0)
-            // Total cost: 15 + 30 = 45
-            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(15, 2)
-            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(30, 2)
-            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(45, 2)
+            // For gemini-2.5-flash: prompt_token = 3e-7, completion_token = 0.0000025
+            // Input cost: 100 * 3e-7 = 0.00003
+            // Output cost: (50 + 0) * 0.0000025 = 50 * 0.0000025 = 0.000125 (undefined reasoning tokens treated as 0)
+            // Total cost: 0.00003 + 0.000125 = 0.000155
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.00003, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.000125, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.000155, 6)
         })
 
         it('does not include reasoning tokens for gemini-2.0-*', () => {
@@ -447,13 +447,13 @@ describe('processAiEvent()', () => {
 
             const result = processAiEvent(event)
 
-            // For gemini-2.0-flash: prompt_token = 0.00000015, completion_token = 0.000000075
-            // Input cost: 100 * 0.00000015 = 0.000015
-            // Output cost: 50 * 0.000000075 = 0.00000375 (reasoning tokens ignored)
-            // Total cost: 0.000015 + 0.00000375 = 0.00001875
-            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.000015, 8)
-            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.00000375, 8)
-            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.00001875, 8)
+            // Model will match gemini-2.0-flash-001: prompt_token = 1e-7, completion_token = 4e-7
+            // Input cost: 100 * 1e-7 = 0.00001
+            // Output cost: 50 * 4e-7 = 0.00002 (reasoning tokens ignored)
+            // Total cost: 0.00001 + 0.00002 = 0.00003
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.00001, 7)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.00002, 7)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.00003, 7)
         })
 
         it('does not include reasoning tokens for non gemini models', () => {
@@ -473,5 +473,373 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.00022, 5)
             expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.00033, 5)
         })
+    })
+
+    describe('gemini cache handling', () => {
+        it('handles cache read tokens with correct cost calculation for gemini-2.5-pro-preview', () => {
+            event.properties!.$ai_provider = 'gemini'
+            event.properties!.$ai_model = 'gemini-2.5-pro-preview'
+            event.properties!.$ai_input_tokens = 1000
+            event.properties!.$ai_cache_read_input_tokens = 400
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            // Regular tokens: 1000 - 400 = 600
+            // Input cost: (600 * 0.00000125) + (400 * 3.1e-7) = 0.00075 + 0.000124 = 0.000874
+            // Output cost: 50 * 0.00001 = 0.0005
+            // Total cost: 0.000874 + 0.0005 = 0.001374
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.000874, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.0005, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.001374, 6)
+        })
+
+        it('handles cache read tokens for gemini-2.5-pro-preview:large', () => {
+            event.properties!.$ai_provider = 'gemini'
+            event.properties!.$ai_model = 'gemini-2.5-pro-preview'
+            event.properties!.$ai_input_tokens = 250000 // > 200k triggers large model
+            event.properties!.$ai_cache_read_input_tokens = 100000
+            event.properties!.$ai_output_tokens = 500
+
+            const result = processAiEvent(event)
+
+            // Model should be switched to gemini-2.5-pro-preview:large
+            expect(result.properties!.$ai_model_cost_used).toBe('gemini-2.5-pro-preview:large')
+
+            // Regular tokens: 250000 - 100000 = 150000
+            // Input cost: (150000 * 0.0000025) + (100000 * 0.000000625) = 0.375 + 0.0625 = 0.4375
+            // Output cost: 500 * 0.000015 = 0.0075
+            // Total cost: 0.4375 + 0.0075 = 0.445
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.4375, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.0075, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.445, 6)
+        })
+
+        it('handles cache read tokens for gemini-2.0-flash', () => {
+            event.properties!.$ai_provider = 'gemini'
+            event.properties!.$ai_model = 'gemini-2.0-flash'
+            event.properties!.$ai_input_tokens = 1000
+            event.properties!.$ai_cache_read_input_tokens = 400
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            // Model will match gemini-2.0-flash-001 from generated-providers.json
+            // Regular tokens: 1000 - 400 = 600
+            // Input cost: (600 * 1e-7) + (400 * 2.5e-8) = 0.00006 + 0.00001 = 0.00007
+            // Output cost: 50 * 4e-7 = 0.00002
+            // Total cost: 0.00007 + 0.00002 = 0.00009
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.00007, 7)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.00002, 7)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.00009, 7)
+        })
+
+        it('handles zero cache tokens correctly for gemini', () => {
+            event.properties!.$ai_provider = 'gemini'
+            event.properties!.$ai_model = 'gemini-2.5-pro-preview'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_cache_read_input_tokens = 0
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            // Input cost: 100 * 0.00000125 = 0.000125
+            // Output cost: 50 * 0.00001 = 0.0005
+            // Total cost: 0.000125 + 0.0005 = 0.000625
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.000125, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.0005, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.000625, 6)
+        })
+
+        it('handles combined cache and reasoning tokens for gemini-2.5-pro-preview', () => {
+            event.properties!.$ai_provider = 'gemini'
+            event.properties!.$ai_model = 'gemini-2.5-pro-preview'
+            event.properties!.$ai_input_tokens = 1000
+            event.properties!.$ai_cache_read_input_tokens = 400
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_reasoning_tokens = 200
+
+            const result = processAiEvent(event)
+
+            // Regular tokens: 1000 - 400 = 600
+            // Input cost: (600 * 0.00000125) + (400 * 3.1e-7) = 0.00075 + 0.000124 = 0.000874
+            // Output cost: (50 + 200) * 0.00001 = 250 * 0.00001 = 0.0025
+            // Total cost: 0.000874 + 0.0025 = 0.003374
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.000874, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.0025, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.003374, 6)
+        })
+
+        it('handles gemini-2.5-flash with cache from generated providers', () => {
+            event.properties!.$ai_provider = 'gemini'
+            event.properties!.$ai_model = 'gemini-2.5-flash'
+            event.properties!.$ai_input_tokens = 1000
+            event.properties!.$ai_cache_read_input_tokens = 400
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_reasoning_tokens = 100
+
+            const result = processAiEvent(event)
+
+            // Regular tokens: 1000 - 400 = 600
+            // Input cost: (600 * 3e-7) + (400 * 7.5e-8) = 0.00018 + 0.00003 = 0.00021
+            // Output cost: (50 + 100) * 0.0000025 = 150 * 0.0000025 = 0.000375
+            // Total cost: 0.00021 + 0.000375 = 0.000585
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.00021, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.000375, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.000585, 6)
+        })
+    })
+})
+
+describe('normalizeTraceProperties()', () => {
+    it('converts numeric trace_id to string', () => {
+        const event: PluginEvent = {
+            event: '$ai_span',
+            properties: {
+                $ai_trace_id: 12345,
+                $ai_parent_id: 67890,
+            },
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+        const result = normalizeTraceProperties(event)
+        expect(result.properties!.$ai_trace_id).toBe('12345')
+        expect(result.properties!.$ai_parent_id).toBe('67890')
+    })
+
+    it('preserves string trace_id', () => {
+        const event: PluginEvent = {
+            event: '$ai_span',
+            properties: {
+                $ai_trace_id: 'abc-123',
+                $ai_parent_id: 'def-456',
+            },
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+        const result = normalizeTraceProperties(event)
+        expect(result.properties!.$ai_trace_id).toBe('abc-123')
+        expect(result.properties!.$ai_parent_id).toBe('def-456')
+    })
+
+    it('handles null and undefined values', () => {
+        const event: PluginEvent = {
+            event: '$ai_span',
+            properties: {
+                $ai_trace_id: null,
+                $ai_parent_id: undefined,
+            },
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+        const result = normalizeTraceProperties(event)
+        expect(result.properties!.$ai_trace_id).toBe(null)
+        expect(result.properties!.$ai_parent_id).toBe(undefined)
+    })
+
+    it('normalizes span_id and generation_id', () => {
+        const event: PluginEvent = {
+            event: '$ai_generation',
+            properties: {
+                $ai_span_id: 111,
+                $ai_generation_id: 222,
+            },
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+        const result = normalizeTraceProperties(event)
+        expect(result.properties!.$ai_span_id).toBe('111')
+        expect(result.properties!.$ai_generation_id).toBe('222')
+    })
+
+    it('handles boolean trace IDs', () => {
+        const event: PluginEvent = {
+            event: '$ai_span',
+            properties: {
+                $ai_trace_id: true,
+                $ai_parent_id: false,
+            },
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+        const result = normalizeTraceProperties(event)
+        expect(result.properties!.$ai_trace_id).toBe('true')
+        expect(result.properties!.$ai_parent_id).toBe('false')
+    })
+
+    it('sets arrays to undefined', () => {
+        const event: PluginEvent = {
+            event: '$ai_span',
+            properties: {
+                $ai_trace_id: [1, 2, 3],
+                $ai_parent_id: ['a', 'b', 'c'],
+            },
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+        const result = normalizeTraceProperties(event)
+        expect(result.properties!.$ai_trace_id).toBe(undefined)
+        expect(result.properties!.$ai_parent_id).toBe(undefined)
+    })
+
+    it('sets objects to undefined', () => {
+        const event: PluginEvent = {
+            event: '$ai_span',
+            properties: {
+                $ai_trace_id: { id: 123, type: 'trace' },
+                $ai_parent_id: { nested: { value: 456 } },
+            },
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+        const result = normalizeTraceProperties(event)
+        expect(result.properties!.$ai_trace_id).toBe(undefined)
+        expect(result.properties!.$ai_parent_id).toBe(undefined)
+    })
+
+    it('handles mixed valid and invalid types', () => {
+        const event: PluginEvent = {
+            event: '$ai_span',
+            properties: {
+                $ai_trace_id: 123,
+                $ai_parent_id: 'string-id',
+                $ai_span_id: [1, 2],
+                $ai_generation_id: { id: 'gen' },
+            },
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+        const result = normalizeTraceProperties(event)
+        expect(result.properties!.$ai_trace_id).toBe('123')
+        expect(result.properties!.$ai_parent_id).toBe('string-id') // Already a string
+        expect(result.properties!.$ai_span_id).toBe(undefined)
+        expect(result.properties!.$ai_generation_id).toBe(undefined)
+    })
+
+    it('handles event without properties', () => {
+        const event: PluginEvent = {
+            event: '$ai_span',
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+        const result = normalizeTraceProperties(event)
+        expect(result).toEqual(event)
+    })
+})
+
+describe('processAiEvent() trace normalization', () => {
+    it('normalizes trace properties for all AI event types', () => {
+        const eventTypes = ['$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback']
+
+        for (const eventType of eventTypes) {
+            const event: PluginEvent = {
+                event: eventType,
+                properties: {
+                    $ai_trace_id: 123,
+                    $ai_parent_id: 456,
+                    $ai_model: 'testing_model',
+                    $ai_input_tokens: 100,
+                    $ai_output_tokens: 50,
+                },
+                ip: '',
+                site_url: '',
+                team_id: 0,
+                now: '',
+                distinct_id: '',
+                uuid: '',
+                timestamp: '',
+            }
+            const result = processAiEvent(event)
+            expect(result.properties!.$ai_trace_id).toBe('123')
+            expect(result.properties!.$ai_parent_id).toBe('456')
+        }
+    })
+
+    it('normalizes trace properties even for non-cost events', () => {
+        const event: PluginEvent = {
+            event: '$ai_metric',
+            properties: {
+                $ai_trace_id: 999,
+                $ai_metric_name: 'test_metric',
+                $ai_metric_value: 42,
+            },
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+        const result = processAiEvent(event)
+        expect(result.properties!.$ai_trace_id).toBe('999')
+        // Should not have cost fields added
+        expect(result.properties!.$ai_total_cost_usd).toBeUndefined()
+    })
+
+    it('does not normalize non-AI events', () => {
+        const event: PluginEvent = {
+            event: '$pageview',
+            properties: {
+                $ai_trace_id: 123,
+                $ai_parent_id: 456,
+            },
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+        const result = processAiEvent(event)
+        // Should not be normalized since it's not an AI event
+        expect(result.properties!.$ai_trace_id).toBe(123)
+        expect(result.properties!.$ai_parent_id).toBe(456)
     })
 })

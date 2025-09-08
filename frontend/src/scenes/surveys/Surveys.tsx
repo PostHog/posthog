@@ -97,7 +97,7 @@ function NewSurveyButton(): JSX.Element {
                 })
 
                 if (toolOutput?.error || !toolOutput?.survey_id) {
-                    return captureMaxAISurveyCreationException(toolOutput.error)
+                    return captureMaxAISurveyCreationException(toolOutput.error, SURVEY_CREATED_SOURCE.MAX_AI)
                 }
 
                 // Refresh surveys list to show new survey, then redirect to it

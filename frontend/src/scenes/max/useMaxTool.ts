@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import React, { useEffect } from 'react'
+
+import { IconWrench } from '@posthog/icons'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
@@ -8,6 +10,8 @@ import { SidePanelTab } from '~/types'
 
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
+import { maxLogic } from './maxLogic'
+import { createSuggestionGroup } from './utils'
 
 export interface UseMaxToolOptions extends Omit<ToolRegistration, 'name' | 'description'> {
     /** Whether MaxTool functionality is active. When false, tool is not registered. */
@@ -42,6 +46,7 @@ export function useMaxTool({
     const { registerTool, deregisterTool } = useActions(maxGlobalLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
+    const { setActiveGroup } = useActions(maxLogic)
 
     const definition = TOOL_DEFINITIONS[identifier as keyof typeof TOOL_DEFINITIONS]
     const isMaxAvailable = useFeatureFlag('ARTIFICIAL_HOG')
@@ -74,7 +79,7 @@ export function useMaxTool({
         icon,
         JSON.stringify(context), // oxlint-disable-line react-hooks/exhaustive-deps
         introOverride,
-        JSON.stringify(suggestions), // oxlint-disable-line react-hooks/exhaustive-deps
+        suggestions,
         callback,
         registerTool,
         deregisterTool,
@@ -86,15 +91,13 @@ export function useMaxTool({
         openMax: !active
             ? null
             : (): void => {
-                  // Include both initial prompt and suggestions
-                  let options = initialMaxPrompt
+                  // Show the suggestions from this specific tool
                   if (suggestions && suggestions.length > 0) {
-                      options = JSON.stringify({
-                          prompt: initialMaxPrompt,
-                          suggestions: suggestions,
-                      })
+                      setActiveGroup(
+                          createSuggestionGroup(definition.name, React.createElement(IconWrench), suggestions)
+                      )
                   }
-                  openSidePanel(SidePanelTab.Max, options)
+                  openSidePanel(SidePanelTab.Max, initialMaxPrompt)
                   onMaxOpen?.()
               },
     }

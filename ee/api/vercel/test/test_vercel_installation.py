@@ -93,4 +93,4 @@ class TestVercelInstallationAPI(VercelTestBase):
     def test_invalid_installation_id_format(self):
         url = "/api/vercel/v1/installations/invalid-id/"
         response = self._request("get", url=url, auth_type="system")
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

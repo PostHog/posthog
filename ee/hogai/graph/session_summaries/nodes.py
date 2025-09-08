@@ -16,6 +16,7 @@ from posthog.schema import (
 )
 
 from posthog.models.notebook.notebook import Notebook
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
 from posthog.temporal.ai.session_summary.summarize_session_group import (
@@ -44,6 +45,7 @@ from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssis
 
 class SessionSummarizationNode(AssistantNode):
     logger = structlog.get_logger(__name__)
+    REASONING_MESSAGE = "Summarizing session recordings"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -82,15 +84,17 @@ class SessionSummarizationNode(AssistantNode):
             self.logger.exception("Stream writer not available for notebook update")
             return
         # Check if we have a notebook_id in the state
-        if not state.notebook_id:
-            self.logger.exception("No notebook_id in state, skipping notebook update")
+        if not state.notebook_short_id:
+            self.logger.exception("No notebook_short_id in state, skipping notebook update")
             return
         if partial:
             # Create a notebook update message; not providing id to count it as a partial message on FE
-            notebook_message = NotebookUpdateMessage(notebook_id=state.notebook_id, content=content)
+            notebook_message = NotebookUpdateMessage(notebook_id=state.notebook_short_id, content=content)
         else:
             # If not partial - means the final state of the notebook to show "Open the notebook" button in the UI
-            notebook_message = NotebookUpdateMessage(notebook_id=state.notebook_id, content=content, id=str(uuid4()))
+            notebook_message = NotebookUpdateMessage(
+                notebook_id=state.notebook_short_id, content=content, id=str(uuid4())
+            )
         # Stream the notebook update
         message = (notebook_message, {"langgraph_node": AssistantNodeName.SESSION_SUMMARIZATION})
         writer(("session_summarization_node", "messages", message))
@@ -100,7 +104,7 @@ class SessionSummarizationNode(AssistantNode):
         from products.replay.backend.max_tools import SessionReplayFilterOptionsGraph
 
         graph = SessionReplayFilterOptionsGraph(self._team, self._user).compile_full_graph()
-        # Call with your query
+        # Call with user's query
         result = await graph.ainvoke(
             {
                 "change": plain_text_query,
@@ -124,12 +128,8 @@ class SessionSummarizationNode(AssistantNode):
         max_filters = cast(MaxRecordingUniversalFilters, filters_data)
         return max_filters
 
-    def _get_session_ids_with_filters(
-        self, replay_filters: MaxRecordingUniversalFilters, limit: int = MAX_SESSIONS_TO_SUMMARIZE
-    ) -> list[str] | None:
-        from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
-
-        # Convert Max filters into recordings query format
+    def _convert_max_filters_to_recordings_query(self, replay_filters: MaxRecordingUniversalFilters) -> RecordingsQuery:
+        """Convert Max-generated filters into recordings query format"""
         properties = []
         if replay_filters.filter_group and replay_filters.filter_group.values:
             for inner_group in replay_filters.filter_group.values:
@@ -141,22 +141,48 @@ class SessionSummarizationNode(AssistantNode):
             properties=properties,
             filter_test_accounts=replay_filters.filter_test_accounts,
             order=replay_filters.order,
-            # Handle duration filters
+            # Handle duration filters - preserve the original key (e.g., "active_seconds" or "duration")
             having_predicates=(
                 [
-                    {"key": "duration", "type": "recording", "operator": dur.operator, "value": dur.value}
+                    {"key": dur.key, "type": "recording", "operator": dur.operator, "value": dur.value}
                     for dur in (replay_filters.duration or [])
                 ]
                 if replay_filters.duration
                 else None
             ),
-            limit=limit,
         )
+        return recordings_query
+
+    def _convert_current_filters_to_recordings_query(self, current_filters: dict[str, Any]) -> RecordingsQuery:
+        """Convert current filters into recordings query format"""
+        from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
+            convert_filters_to_recordings_query,
+        )
+
+        # Create a temporary playlist object to use the conversion function
+        temp_playlist = SessionRecordingPlaylist(filters=current_filters)
+        recordings_query = convert_filters_to_recordings_query(temp_playlist)
+        return recordings_query
+
+    def _get_session_ids_with_filters(
+        self, replay_filters: RecordingsQuery, limit: int = MAX_SESSIONS_TO_SUMMARIZE
+    ) -> list[str] | None:
+        """Get session ids from DB with filters"""
+        from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
+
         # Execute the query to get session IDs
-        query_runner = SessionRecordingListFromQuery(
-            team=self._team, query=recordings_query, hogql_query_modifiers=None
-        )
-        results = query_runner.run()
+        replay_filters.limit = limit
+        try:
+            query_runner = SessionRecordingListFromQuery(
+                team=self._team, query=replay_filters, hogql_query_modifiers=None, limit=limit
+            )
+            results = query_runner.run()
+        except Exception as e:
+            self.logger.exception(
+                f"Error getting session ids for session summarization with filters query "
+                f"({replay_filters.model_dump_json(exclude_none=True)}): {e}"
+            )
+            return None
         # Extract session IDs
         session_ids = [recording["session_id"] for recording in results.results]
         return session_ids if session_ids else None
@@ -187,13 +213,20 @@ class SessionSummarizationNode(AssistantNode):
         return "\n".join(summaries)
 
     async def _summarize_sessions_as_group(
-        self, session_ids: list[str], state: AssistantState, writer: StreamWriter | None, notebook: Notebook | None
+        self,
+        session_ids: list[str],
+        state: AssistantState,
+        writer: StreamWriter | None,
+        notebook: Notebook | None,
+        summary_title: str | None,
     ) -> str:
         """Summarize sessions as a group (for larger sets)."""
         min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self._team)
 
         # Initialize intermediate state with plan
-        self._intermediate_state = SummaryNotebookIntermediateState(team_name=self._team.name)
+        self._intermediate_state = SummaryNotebookIntermediateState(
+            team_name=self._team.name, summary_title=summary_title
+        )
 
         # Stream initial plan
         initial_state = self._intermediate_state.format_intermediate_state()
@@ -241,7 +274,11 @@ class SessionSummarizationNode(AssistantNode):
                 # Replace the intermediate state with final report
                 summary = data
                 summary_content = generate_notebook_content_from_summary(
-                    summary=summary, session_ids=session_ids, project_name=self._team.name, team_id=self._team.id
+                    summary=summary,
+                    session_ids=session_ids,
+                    project_name=self._team.name,
+                    team_id=self._team.id,
+                    summary_title=summary_title,
                 )
                 self._stream_notebook_content(summary_content, state, writer, partial=False)
                 # Update the notebook through BE for cases where the chat was closed
@@ -281,6 +318,7 @@ class SessionSummarizationNode(AssistantNode):
             return self._create_error_response(self._base_error_instructions, state)
         # If the current filters were marked as relevant, but not present in the context
         current_filters = self._get_contextual_tools(config).get("search_session_recordings", {}).get("current_filters")
+        summary_title = state.summary_title
         try:
             # Use current filters, if provided
             if state.should_use_current_filters:
@@ -292,7 +330,7 @@ class SessionSummarizationNode(AssistantNode):
                     )
                     return self._create_error_response(self._base_error_instructions, state)
                 current_filters = cast(dict[str, Any], current_filters)
-                replay_filters = MaxRecordingUniversalFilters.model_validate(current_filters)
+                replay_filters = self._convert_current_filters_to_recordings_query(current_filters)
             # If not - generate filters to get session ids from DB
             else:
                 generated_filters = await self._generate_replay_filters(state.session_summarization_query)
@@ -303,7 +341,7 @@ class SessionSummarizationNode(AssistantNode):
                         start_time,
                     )
                     return self._create_error_response(self._base_error_instructions, state)
-                replay_filters = generated_filters
+                replay_filters = self._convert_max_filters_to_recordings_query(generated_filters)
             # Query the filters to get session ids
             session_ids = await database_sync_to_async(self._get_session_ids_with_filters, thread_sensitive=False)(
                 replay_filters
@@ -332,10 +370,12 @@ class SessionSummarizationNode(AssistantNode):
             else:
                 # Check if the notebook is provided, create a notebook to fill if not
                 notebook = None
-                if not state.notebook_id:
-                    notebook = await create_empty_notebook_for_summary(user=self._user, team=self._team)
+                if not state.notebook_short_id:
+                    notebook = await create_empty_notebook_for_summary(
+                        user=self._user, team=self._team, summary_title=summary_title
+                    )
                     # Could be moved to a separate "create notebook" node (or reuse the one from deep research)
-                    state.notebook_id = notebook.short_id
+                    state.notebook_short_id = notebook.short_id
                 # For large groups, process in detail, searching for patterns
                 # TODO: Allow users to define the pattern themselves (or rather catch it from the query)
                 self._stream_progress(
@@ -343,7 +383,7 @@ class SessionSummarizationNode(AssistantNode):
                     writer=writer,
                 )
                 summaries_content = await self._summarize_sessions_as_group(
-                    session_ids=session_ids, state=state, writer=writer, notebook=notebook
+                    session_ids=session_ids, state=state, writer=writer, notebook=notebook, summary_title=summary_title
                 )
             return PartialAssistantState(
                 messages=[
@@ -356,7 +396,7 @@ class SessionSummarizationNode(AssistantNode):
                 session_summarization_query=None,
                 root_tool_call_id=None,
                 # Ensure to pass the notebook id to the next node
-                notebook_id=state.notebook_id,
+                notebook_short_id=state.notebook_short_id,
             )
         except Exception as err:
             self._log_failure("Session summarization failed", conversation_id, start_time, err)
@@ -373,7 +413,7 @@ class SessionSummarizationNode(AssistantNode):
             ],
             session_summarization_query=None,
             root_tool_call_id=None,
-            notebook_id=state.notebook_id,
+            notebook_short_id=state.notebook_short_id,
         )
 
     def _log_failure(self, message: str, conversation_id: str, start_time: float, error: Any = None):
