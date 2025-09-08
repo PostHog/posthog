@@ -215,7 +215,7 @@ export function ExternalDataSourceConfiguration({
                                                     source_table_name: joinName,
                                                     source_table_key: 'id',
                                                     joining_table_name: 'groups',
-                                                    joining_table_key: 'group_key',
+                                                    joining_table_key: 'key',
                                                     field_name: 'groups',
                                                 })
                                             }
