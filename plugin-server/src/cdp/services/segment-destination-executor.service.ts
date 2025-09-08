@@ -200,19 +200,19 @@ export class SegmentDestinationExecutorService {
                         body,
                     }
 
+                    result.metrics!.push({
+                        team_id: invocation.hogFunction.team_id,
+                        app_source_id: invocation.hogFunction.id,
+                        metric_kind: 'other',
+                        metric_name: 'fetch',
+                        count: 1,
+                    })
+
                     if (isTestFunction && options?.method?.toUpperCase() !== 'GET') {
                         // For testing we mock out all non-GET requests
                         addLog('info', 'Fetch called but mocked due to test function', {
                             url: endpoint,
                             options: fetchOptions,
-                        })
-
-                        result.metrics!.push({
-                            team_id: invocation.hogFunction.team_id,
-                            app_source_id: invocation.hogFunction.id,
-                            metric_kind: 'other',
-                            metric_name: 'fetch',
-                            count: 1,
                         })
                         // Simulate a mini bit of fetch delay
                         await new Promise((resolve) => setTimeout(resolve, 200))
