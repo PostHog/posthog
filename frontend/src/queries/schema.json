@@ -8864,6 +8864,10 @@
                     "description": "Show a results table",
                     "type": "boolean"
                 },
+                "showSavedFilters": {
+                    "description": "Show saved filters feature for this table (requires uniqueKey)",
+                    "type": "boolean"
+                },
                 "showSavedQueries": {
                     "description": "Shows a list of saved queries",
                     "type": "boolean"
@@ -22543,6 +22547,10 @@
                 },
                 "showResultsTable": {
                     "description": "Show a results table",
+                    "type": "boolean"
+                },
+                "showSavedFilters": {
+                    "description": "Show saved filters feature for this table (requires uniqueKey)",
                     "type": "boolean"
                 },
                 "showSavedQueries": {
