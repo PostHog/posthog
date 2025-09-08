@@ -11,7 +11,7 @@ use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
 use crate::kafka::message::{AckableMessage, MessageProcessor};
-use crate::rocksdb::deduplication_store::{DeduplicationStore, DeduplicationStoreConfig};
+use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
 use crate::store_manager::StoreManager;
 use crate::utils::timestamp;
 
