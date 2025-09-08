@@ -58,21 +58,11 @@ SELECT DISTINCT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND coho
 """
 
 GET_COHORTS_BY_PERSON_UUID = """
-SELECT cohort_id, version
-  FROM (
-      SELECT
-          person_id,
-          cohort_id,
-          team_id,
-          version,
-          sign,
-          ROW_NUMBER() OVER(PARTITION BY person_id, cohort_id, team_id ORDER BY version DESC) AS row_num
-      FROM cohortpeople
-      WHERE team_id = %(team_id)s
-        AND person_id = %(person_id)s
-  ) ranked_cohorts
-  WHERE row_num = 1
-    AND sign > 0
+SELECT cohort_id, argMax(version, version) as latest_version
+  FROM cohortpeople
+  WHERE team_id = %(team_id)s AND person_id = %(person_id)s
+  GROUP BY cohort_id
+  HAVING argMax(sign, version) > 0
 """
 
 GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID = f"""
