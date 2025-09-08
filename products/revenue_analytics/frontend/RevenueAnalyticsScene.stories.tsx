@@ -1,4 +1,4 @@
-import { Meta, StoryObj } from '@storybook/react'
+import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
 
@@ -9,12 +9,11 @@ import { urls } from 'scenes/urls'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import externalDataSourceResponseMock from '~/mocks/fixtures/api/projects/team_id/external_data_sources/externalDataSource.json'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
-import { RevenueAnalyticsGroupBy } from '~/queries/schema/schema-general'
+import { RevenueAnalyticsBreakdown } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, RevenueAnalyticsPropertyFilter } from '~/types'
 
 import databaseSchemaMock from './__mocks__/DatabaseSchemaQuery.json'
 import revenueAnalyticsGrossRevenueQueryMock from './__mocks__/RevenueAnalyticsGrossRevenueQuery.json'
-import revenueAnalyticsGrowthRateMock from './__mocks__/RevenueAnalyticsGrowthRateQuery.json'
 import revenueAnalyticsMRRQueryMock from './__mocks__/RevenueAnalyticsMRRQuery.json'
 import revenueAnalyticsMetricsQueryMock from './__mocks__/RevenueAnalyticsMetricsQuery.json'
 import revenueAnalyticsOverviewMock from './__mocks__/RevenueAnalyticsOverviewQuery.json'
@@ -28,7 +27,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS, FEATURE_FLAGS.MRR_BREAKDOWN_REVENUE_ANALYTICS],
+        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS],
         pageUrl: urls.revenueAnalytics(),
         testOptions: {
             waitForLoadersToDisappear: true,
@@ -54,8 +53,6 @@ const meta: Meta = {
 
                     if (queryKind === 'DatabaseSchemaQuery') {
                         return [200, databaseSchemaMock]
-                    } else if (queryKind === 'RevenueAnalyticsGrowthRateQuery') {
-                        return [200, revenueAnalyticsGrowthRateMock]
                     } else if (queryKind === 'RevenueAnalyticsMetricsQuery') {
                         return [200, revenueAnalyticsMetricsQueryMock]
                     } else if (queryKind === 'RevenueAnalyticsOverviewQuery') {
@@ -81,23 +78,25 @@ const PRODUCT_A_PROPERTY_FILTER: RevenueAnalyticsPropertyFilter = {
     type: PropertyFilterType.RevenueAnalytics,
 }
 
+const PRODUCT_A_BREAKDOWN: RevenueAnalyticsBreakdown = {
+    property: 'revenue_analytics_product.name',
+    type: 'revenue_analytics',
+}
+
 export function RevenueAnalyticsDashboard(): JSX.Element {
-    const { setGrowthRateDisplayMode, setTopCustomersDisplayMode, setGroupBy, setRevenueAnalyticsFilters } =
-        useActions(revenueAnalyticsLogic)
+    const { setTopCustomersDisplayMode, addBreakdown, setRevenueAnalyticsFilters } = useActions(revenueAnalyticsLogic)
 
     useEffect(() => {
-        setGrowthRateDisplayMode('table')
         setTopCustomersDisplayMode('table')
         setRevenueAnalyticsFilters([PRODUCT_A_PROPERTY_FILTER])
-        setGroupBy([RevenueAnalyticsGroupBy.PRODUCT])
-    }, [setGrowthRateDisplayMode, setTopCustomersDisplayMode, setRevenueAnalyticsFilters, setGroupBy])
+        addBreakdown(PRODUCT_A_BREAKDOWN)
+    }, [setTopCustomersDisplayMode, setRevenueAnalyticsFilters, addBreakdown])
 
     return <App />
 }
 
 export function RevenueAnalyticsDashboardSyncInProgress(): JSX.Element {
-    const { setGrowthRateDisplayMode, setTopCustomersDisplayMode, setGroupBy, setRevenueAnalyticsFilters } =
-        useActions(revenueAnalyticsLogic)
+    const { setTopCustomersDisplayMode, addBreakdown, setRevenueAnalyticsFilters } = useActions(revenueAnalyticsLogic)
 
     useStorybookMocks({
         get: {
@@ -114,15 +113,10 @@ export function RevenueAnalyticsDashboardSyncInProgress(): JSX.Element {
     })
 
     useEffect(() => {
-        setGrowthRateDisplayMode('line')
         setTopCustomersDisplayMode('line')
         setRevenueAnalyticsFilters([PRODUCT_A_PROPERTY_FILTER])
-        setGroupBy([RevenueAnalyticsGroupBy.PRODUCT])
-    }, [setGrowthRateDisplayMode, setTopCustomersDisplayMode, setRevenueAnalyticsFilters, setGroupBy])
+        addBreakdown(PRODUCT_A_BREAKDOWN)
+    }, [setTopCustomersDisplayMode, setRevenueAnalyticsFilters, addBreakdown])
 
     return <App />
-}
-
-export const RevenueAnalyticsDashboardWithoutFeatureFlag: StoryObj<typeof meta> = {
-    parameters: { featureFlags: [] },
 }

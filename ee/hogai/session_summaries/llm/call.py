@@ -15,6 +15,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.utils import get_instance_region
 
 from ee.hogai.session_summaries.constants import (
+    BASE_LLM_CALL_TIMEOUT_S,
     SESSION_SUMMARIES_REASONING_EFFORT,
     SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS,
     SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS,
@@ -42,13 +43,13 @@ def _get_default_posthog_client() -> Client:
 def get_openai_client() -> OpenAI:
     """Get configured OpenAI client or raise appropriate error."""
     client = _get_default_posthog_client()
-    return OpenAI(posthog_client=client)
+    return OpenAI(posthog_client=client, timeout=BASE_LLM_CALL_TIMEOUT_S)
 
 
 def get_async_openai_client() -> AsyncOpenAI:
     """Get configured OpenAI client or raise appropriate error."""
     client = _get_default_posthog_client()
-    return AsyncOpenAI(posthog_client=client)
+    return AsyncOpenAI(posthog_client=client, timeout=BASE_LLM_CALL_TIMEOUT_S)
 
 
 def _prepare_messages(

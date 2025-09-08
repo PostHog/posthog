@@ -150,15 +150,33 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         ],
         filter_test_accounts: false,
         goals: [
+            // Past goal
             {
                 due_date: '2020-12-31',
                 name: '2020 Q4',
                 goal: 1_000_000,
+                mrr_or_gross: 'gross',
             },
+            // Very in the future to avoid flappy snapshots until 2035, assuming I'll be a multimillionaire by then and wont have to handle this
+            // These are both "Current" goals since they're for the same day
             {
-                due_date: '2035-12-31', // Very in the future to avoid flappy snapshots until 2035, assuming I'll be a multimillionaire by then and wont have to handle this
+                due_date: '2035-12-31',
                 name: '2035 Q4',
                 goal: 1_500_000,
+                mrr_or_gross: 'gross',
+            },
+            {
+                due_date: '2035-12-31',
+                name: '2035 Q4 MRR',
+                goal: 1_200_000,
+                mrr_or_gross: 'mrr',
+            },
+            // Future goal
+            {
+                due_date: '2040-12-31',
+                name: '2040 Q4',
+                goal: 1_800_000,
+                mrr_or_gross: 'gross',
             },
         ],
     },
@@ -229,11 +247,13 @@ export const MOCK_DEFAULT_USER: UserType = {
     anonymize_data: false,
     toolbar_mode: 'toolbar',
     has_password: true,
+    id: 179,
     is_staff: true,
     is_impersonated: false,
     is_email_verified: true,
     is_2fa_enabled: false,
     has_social_auth: false,
+    has_sso_enforcement: false,
     sensitive_session_expires_at: dayjs().add(1, 'hour').toISOString(),
     theme_mode: null,
     team: MOCK_DEFAULT_TEAM,

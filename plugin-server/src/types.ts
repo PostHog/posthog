@@ -20,9 +20,10 @@ import {
 
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
-import { EncryptedFields } from './cdp/encryption-utils'
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './cdp/types'
+import { EncryptedFields } from './cdp/utils/encryption-utils'
+import { InternalCaptureService } from './common/services/internal-capture'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { ActionManagerCDP } from './utils/action-manager-cdp'
@@ -40,6 +41,7 @@ import { AppMetrics } from './worker/ingestion/app-metrics'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { ClickhouseGroupRepository } from './worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
+import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
 import { RustyHook } from './worker/rusty-hook'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
@@ -82,7 +84,6 @@ export enum PluginServerMode {
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_behavioural_events = 'cdp-behavioural-events',
-    cdp_aggregation_writer = 'cdp-aggregation-writer',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
@@ -95,10 +96,65 @@ export const stringToPluginServerMode = Object.fromEntries(
     ])
 ) as Record<string, PluginServerMode>
 
+interface HealthCheckResultResponse {
+    service: string
+    status: 'ok' | 'error' | 'degraded'
+    message?: string
+    details?: Record<string, any>
+}
+
+export abstract class HealthCheckResult {
+    public status: 'ok' | 'error' | 'degraded'
+
+    constructor(status: 'ok' | 'error' | 'degraded') {
+        this.status = status
+    }
+
+    public abstract toResponse(serviceId: string): HealthCheckResultResponse
+
+    public isError(): boolean {
+        return this.status === 'error'
+    }
+}
+
+export class HealthCheckResultOk extends HealthCheckResult {
+    constructor() {
+        super('ok')
+    }
+    public toResponse(serviceId: string): HealthCheckResultResponse {
+        return { service: serviceId, status: this.status }
+    }
+}
+
+export class HealthCheckResultError extends HealthCheckResult {
+    constructor(
+        public message: string,
+        public details: Record<string, any>
+    ) {
+        super('error')
+    }
+
+    public toResponse(serviceId: string): HealthCheckResultResponse {
+        return { service: serviceId, status: this.status, message: this.message, details: this.details }
+    }
+}
+
+export class HealthCheckResultDegraded extends HealthCheckResult {
+    constructor(
+        public message: string,
+        public details: Record<string, any>
+    ) {
+        super('degraded')
+    }
+    public toResponse(serviceId: string): HealthCheckResultResponse {
+        return { service: serviceId, status: this.status, message: this.message, details: this.details }
+    }
+}
+
 export type PluginServerService = {
     id: string
     onShutdown: () => Promise<any>
-    healthcheck: () => boolean | Promise<boolean>
+    healthcheck: () => HealthCheckResult | Promise<HealthCheckResult>
 }
 
 export type CdpConfig = {
@@ -117,7 +173,6 @@ export type CdpConfig = {
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
     CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS: boolean // If true then degraded functions will be automatically disabled
-    CDP_AGGREGATION_WRITER_ENABLED: boolean // If true then the CDP aggregation writer consumer will be enabled
     CDP_WATCHER_SEND_EVENTS: boolean // If true then the watcher will send events to posthog for messaging
     CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS: number // How long to buffer results before observing them
     CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS: number // How many results to buffer before observing them
@@ -156,7 +211,6 @@ export type CdpConfig = {
 
     HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
     HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
-    HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC: string
 
     CDP_EMAIL_TRACKING_URL: string
 }
@@ -203,6 +257,12 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PERSON_PROPERTIES_TRIM_TARGET_BYTES: number // target size in bytes we trim JSON to before writing (customer-facing 512kb)
     // Limit per merge for moving distinct IDs. 0 disables limiting.
     PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: number
+    // Topic for async person merge processing
+    PERSON_MERGE_ASYNC_TOPIC: string
+    // Enable async person merge processing
+    PERSON_MERGE_ASYNC_ENABLED: boolean
+    // Batch size for sync person merge processing (0 = unlimited)
+    PERSON_MERGE_SYNC_BATCH_SIZE: number
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number // maximum number of concurrent updates to groups table per batch
     GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number // maximum number of retries for optimistic update
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number // starting interval for exponential backoff between retries for optimistic update
@@ -218,7 +278,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PERSONS_MIGRATION_DATABASE_URL: string // Read-write Postgres database for persons during dual write/migration
     PERSONS_MIGRATION_READONLY_DATABASE_URL: string // Optional read-only replica to the persons Postgres database during dual write/migration
     PLUGIN_STORAGE_DATABASE_URL: string // Optional read-write Postgres database for plugin storage
-    COUNTERS_DATABASE_URL: string // Optional read-write Postgres database for counters
     POSTGRES_CONNECTION_POOL_SIZE: number
     POSTHOG_DB_NAME: string | null
     POSTHOG_DB_USER: string
@@ -251,6 +310,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     CONSUMER_BATCH_SIZE: number // Primarily for kafka consumers the batch size to use
     CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: number // Primarily for kafka consumers the max heartbeat interval to use after which it will be considered unhealthy
+    CONSUMER_LOOP_STALL_THRESHOLD_MS: number // Threshold in ms after which the consumer loop is considered stalled
+    CONSUMER_LOOP_BASED_HEALTH_CHECK: boolean // Use consumer loop monitoring for health checks instead of heartbeats
     CONSUMER_MAX_BACKGROUND_TASKS: number
     CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean
     CONSUMER_AUTO_CREATE_TOPICS: boolean
@@ -315,6 +376,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
+    CAPTURE_INTERNAL_URL: string
 
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
@@ -429,6 +491,7 @@ export interface Hub extends PluginsServerConfig {
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
     clickhouseGroupRepository: ClickhouseGroupRepository
+    personRepository: PersonRepository
     celery: Celery
     // geoip database, setup in workers
     geoipService: GeoIPService
@@ -441,6 +504,7 @@ export interface Hub extends PluginsServerConfig {
     pubSub: PubSub
     integrationManager: IntegrationManagerService
     quotaLimiting: QuotaLimiting
+    internalCaptureService: InternalCaptureService
 }
 
 export interface PluginServerCapabilities {
@@ -460,7 +524,6 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
     cdpBehaviouralEvents?: boolean
-    cdpAggregationWriter?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
 }

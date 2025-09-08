@@ -20,6 +20,16 @@ import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 const ALWAYS_EXTRA_TABS = [SidePanelTab.Settings, SidePanelTab.Activity, SidePanelTab.Status, SidePanelTab.Exports]
 
+const TABS_REQUIRING_A_TEAM = [
+    SidePanelTab.Max,
+    SidePanelTab.Notebooks,
+    SidePanelTab.Activity,
+    SidePanelTab.Activation,
+    SidePanelTab.Discussion,
+    SidePanelTab.AccessControl,
+    SidePanelTab.Exports,
+]
+
 export const sidePanelLogic = kea<sidePanelLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelLogic']),
     connect(() => ({
@@ -60,11 +70,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             (selectedTab, sidePanelOpen, isCloudOrDev, featureFlags, sceneSidePanelContext, currentTeam) => {
                 const tabs: SidePanelTab[] = []
 
-                if (
-                    (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] &&
-                        !featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG]) ||
-                    (sidePanelOpen && selectedTab === SidePanelTab.Max)
-                ) {
+                if (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] || (sidePanelOpen && selectedTab === SidePanelTab.Max)) {
                     // Show Max if user is already enrolled into beta OR they got a link to Max (even if they haven't enrolled)
                     tabs.push(SidePanelTab.Max)
                 }
@@ -97,6 +103,9 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.Status)
                 }
 
+                if (!currentTeam) {
+                    return tabs.filter((tab) => !TABS_REQUIRING_A_TEAM.includes(tab))
+                }
                 return tabs
             },
         ],
