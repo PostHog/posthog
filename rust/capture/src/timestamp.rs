@@ -229,20 +229,25 @@ fn handle_timestamp(
 }
 
 /// Parse a date string using multiple parsing strategies
-/// 
+///
 /// This function tries parsing in order of preference:
-/// 1. Numeric timestamps (milliseconds/seconds since epoch)
-/// 2. jiff for ISO 8601, RFC3339, civil datetime, and date-only formats
-/// 3. dateparser for slash-separated dates, RFC2822, and other common formats
+/// 1. dateparser for most common formats (ISO 8601, slash-separated, RFC2822, numeric timestamps)
+/// 2. jiff for formats that dateparser doesn't handle (civil datetime with T but no timezone)
 fn parse_date(supposed_iso_string: &str) -> Option<DateTime<Utc>> {
-    // First try parsing as a numeric timestamp (milliseconds since epoch)
-    if let Ok(js_timestamp) = supposed_iso_string.parse::<f64>() {
-        if let Some(dt) = DateTime::from_timestamp_millis(js_timestamp as i64) {
-            return Some(dt);
-        }
+    // Try dateparser first - it handles most formats including:
+    // - ISO 8601/RFC3339: 2023-01-01T12:00:00Z, 2023-01-01T12:00:00+02:00
+    // - Date-only: 2023-01-01
+    // - Civil datetime with space: 2023-01-01 12:00:00
+    // - Slash-separated: 01/01/2023, 2023/01/01
+    // - RFC2822: Tue, 1 Jul 2003 10:52:37 +0200
+    // - Numeric timestamps: 1672574400000, 1672574400
+    if let Ok(dt) = dateparser::parse(supposed_iso_string) {
+        return Some(dt);
     }
 
-    // Use jiff for flexible date/time parsing - handles ISO 8601/RFC3339 formats automatically
+    // Fallback to jiff for formats that dateparser doesn't handle
+    // Primarily: civil datetime with T but no timezone (2023-01-01T12:00:00)
+
     // Try parsing as a timestamp first (with timezone)
     if let Ok(jiff_timestamp) = supposed_iso_string.parse::<JiffTimestamp>() {
         // Convert jiff timestamp to chrono
@@ -285,12 +290,6 @@ fn parse_date(supposed_iso_string: &str) -> Option<DateTime<Utc>> {
                 }
             }
         }
-    }
-
-    // Fallback to dateparser for formats that jiff doesn't handle
-    // This handles: slash-separated dates (01/01/2023), RFC2822, and many other formats
-    if let Ok(dt) = dateparser::parse(supposed_iso_string) {
-        return Some(dt);
     }
 
     None
@@ -597,29 +596,98 @@ mod tests {
     }
 
     #[test]
-    fn test_dateparser_capabilities() {
-        // Test if dateparser can handle formats that we currently need custom logic for
+    fn test_dateparser_vs_jiff_capabilities() {
+        // Test if dateparser can handle ALL formats, including those currently handled by jiff
         let test_cases = vec![
-            // Slash-separated formats
-            "01/01/2023",
-            "12/31/2023",
-            "2023/01/01",
+            // ISO 8601/RFC3339 formats (currently handled by jiff)
+            ("2023-01-01T12:00:00Z", "ISO 8601 with Z"),
+            ("2023-01-01T12:00:00.123Z", "ISO 8601 with milliseconds"),
+            ("2023-01-01T12:00:00+02:00", "ISO 8601 with timezone"),
+            ("2023-01-01T12:00:00-05:00", "ISO 8601 with negative timezone"),
+            ("2023-01-01T12:00:00+00:00", "ISO 8601 explicit UTC"),
 
-            // RFC2822 formats
-            "Tue, 1 Jul 2003 10:52:37 +0200",
-            "Thu, 13 Feb 1969 23:32:54 -0330",
-            "Mon, 24 Nov 1997 14:22:01 +0000",
+            // Civil datetime formats (currently handled by jiff)
+            ("2023-01-01 12:00:00", "Civil datetime"),
+            ("2023-01-01T12:00:00", "Civil datetime with T"),
+
+            // Date-only formats (currently handled by jiff)
+            ("2023-01-01", "Date only"),
+            ("2023-12-31", "Date only end of year"),
+
+            // Slash-separated formats (currently handled by dateparser)
+            ("01/01/2023", "MM/DD/YYYY"),
+            ("12/31/2023", "MM/DD/YYYY end of year"),
+            ("2023/01/01", "YYYY/MM/DD"),
+
+            // RFC2822 formats (currently handled by dateparser)
+            ("Tue, 1 Jul 2003 10:52:37 +0200", "RFC2822"),
+            ("Thu, 13 Feb 1969 23:32:54 -0330", "RFC2822 old date"),
+            ("Mon, 24 Nov 1997 14:22:01 +0000", "RFC2822 UTC"),
+
+            // Numeric timestamps (currently handled by custom logic)
+            ("1672574400000", "Millisecond timestamp"),
+            ("1672574400", "Second timestamp"),
         ];
 
-        for date_str in test_cases {
+        let mut dateparser_can_handle_all = true;
+
+        for (date_str, description) in test_cases {
             // Test with dateparser
             let dateparser_result = dateparser::parse(date_str);
-            println!("dateparser '{}': {:?}", date_str, dateparser_result.is_ok());
 
             // Compare with our current implementation
             let current_result = parse_date(date_str);
-            println!("current    '{}': {:?}", date_str, current_result.is_some());
+
+            println!("Testing {}: '{}'", description, date_str);
+            println!("  dateparser: {:?}", dateparser_result.is_ok());
+            println!("  current:    {:?}", current_result.is_some());
+
+            if !dateparser_result.is_ok() && current_result.is_some() {
+                dateparser_can_handle_all = false;
+                println!("  ❌ dateparser failed where current succeeded");
+            } else if dateparser_result.is_ok() && current_result.is_some() {
+                println!("  ✅ both succeeded");
+            } else if !dateparser_result.is_ok() && !current_result.is_some() {
+                println!("  ⚪ both failed");
+            }
+            println!();
         }
+
+        if dateparser_can_handle_all {
+            println!("🎉 dateparser can potentially replace both jiff AND custom logic!");
+        } else {
+            println!("⚠️ dateparser cannot replace all current functionality");
+        }
+    }
+
+    #[test]
+    fn test_simplified_architecture() {
+        // Verify that our new dateparser-first architecture works correctly
+        let test_cases = vec![
+            // Most common formats should be handled by dateparser (first priority)
+            "2023-01-01T12:00:00Z",        // ISO 8601 with Z
+            "2023-01-01T12:00:00+02:00",   // ISO 8601 with timezone
+            "2023-01-01 12:00:00",         // Civil datetime with space
+            "2023-01-01",                  // Date only
+            "01/01/2023",                  // Slash-separated MM/DD/YYYY
+            "Tue, 1 Jul 2003 10:52:37 +0200", // RFC2822
+            "1672574400000",               // Numeric timestamp (milliseconds)
+            "1672574400",                  // Numeric timestamp (seconds)
+
+            // Edge case that should be handled by jiff fallback
+            "2023-01-01T12:00:00",         // Civil datetime with T (dateparser fails on this)
+        ];
+
+        for date_str in test_cases {
+            let result = parse_date(date_str);
+            assert!(result.is_some(), "Failed to parse with new architecture: {}", date_str);
+
+            // Verify the result is a valid UTC datetime
+            let dt = result.unwrap();
+            assert!(dt.year() >= 1 && dt.year() <= 9999, "Year out of expected range for: {}", date_str);
+        }
+
+        println!("✅ All formats successfully parsed with simplified dateparser-first architecture");
     }
 
     #[test]
