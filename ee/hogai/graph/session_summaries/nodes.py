@@ -45,6 +45,7 @@ from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssis
 
 class SessionSummarizationNode(AssistantNode):
     logger = structlog.get_logger(__name__)
+    REASONING_MESSAGE = "Summarizing session recordings"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

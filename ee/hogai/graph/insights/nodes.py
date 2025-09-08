@@ -112,6 +112,8 @@ class InsightSearchNode(AssistantNode):
     INSIGHTS_CUTOFF_DAYS = 180
     MAX_SERIES_TO_PROCESS = 3
 
+    REASONING_MESSAGE = "Searching for insights"
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._current_page = 0
