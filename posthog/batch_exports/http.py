@@ -646,8 +646,15 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
         batch_export = self.get_object()
 
+        # Remove any additional fields from stored configuration
+        _, workflow_inputs = DESTINATION_WORKFLOWS[batch_export.destination.type]
+        workflow_fields = {field.name for field in dataclasses.fields(BaseBatchExportInputs)} | {
+            field.name for field in dataclasses.fields(workflow_inputs)
+        }
+        stored_config = {k: v for k, v in batch_export.destination.config.items() if k in workflow_fields}
+
         data = request.data
-        data["destination"]["config"] = {**batch_export.destination.config, **data["destination"]["config"]}
+        data["destination"]["config"] = {**stored_config, **data["destination"]["config"]}
 
         serializer = self.get_serializer(data=data)
         _ = serializer.is_valid(raise_exception=True)
