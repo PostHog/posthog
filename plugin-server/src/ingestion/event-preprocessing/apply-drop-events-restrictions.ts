@@ -1,23 +1,16 @@
 import { Message } from 'node-rdkafka'
 
 import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
+import { EventHeaders } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
 
 export function applyDropEventsRestrictions(
     message: Message,
-    eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    eventIngestionRestrictionManager: EventIngestionRestrictionManager,
+    headers?: EventHeaders
 ): Message | null {
-    let distinctId: string | undefined
-    let token: string | undefined
-
-    message.headers?.forEach((header) => {
-        if ('distinct_id' in header) {
-            distinctId = header['distinct_id'].toString()
-        }
-        if ('token' in header) {
-            token = header['token'].toString()
-        }
-    })
+    const distinctId = headers?.distinct_id
+    const token = headers?.token
 
     if (eventIngestionRestrictionManager.shouldDropEvent(token, distinctId)) {
         eventDroppedCounter

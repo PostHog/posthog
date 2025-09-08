@@ -1,6 +1,6 @@
 import { Counter } from 'prom-client'
 
-import { KafkaEventHeaders } from '../../types'
+import { EventHeaders } from '../../types'
 import { logger } from '../../utils/logger'
 import { parseDate } from './timestamps'
 
@@ -16,7 +16,7 @@ const timestampComparisonCounter = new Counter({
  */
 export function compareTimestamps(
     currentTimestamp: string,
-    headers: KafkaEventHeaders | undefined,
+    headers: EventHeaders | undefined,
     teamId: number,
     eventUuid?: string,
     context?: string

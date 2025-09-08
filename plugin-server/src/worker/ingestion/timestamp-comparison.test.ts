@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { KafkaEventHeaders } from '../../types'
+import { EventHeaders } from '../../types'
 import { compareTimestamps } from './timestamp-comparison'
 
 // Mock the logger
@@ -40,7 +40,7 @@ describe('compareTimestamps', () => {
     })
 
     it('should handle missing timestamp header without throwing', () => {
-        const headers: KafkaEventHeaders = {
+        const headers: EventHeaders = {
             token: 'test-token',
             distinct_id: 'test-id',
             // timestamp is missing
@@ -55,7 +55,7 @@ describe('compareTimestamps', () => {
     })
 
     it('should handle invalid timestamp header without throwing', () => {
-        const headers: KafkaEventHeaders = {
+        const headers: EventHeaders = {
             timestamp: 'not-a-number',
         }
 
@@ -70,7 +70,7 @@ describe('compareTimestamps', () => {
     it('should handle exact match without throwing', () => {
         const timestamp = '2023-01-01T12:00:00Z'
         const timestampMs = DateTime.fromISO(timestamp).toMillis()
-        const headers: KafkaEventHeaders = {
+        const headers: EventHeaders = {
             timestamp: timestampMs.toString(),
         }
 
@@ -86,7 +86,7 @@ describe('compareTimestamps', () => {
         const timestamp = '2023-01-01T12:00:00Z'
         const timestampMs = DateTime.fromISO(timestamp).toMillis()
         const differentTimestampMs = timestampMs + 5000 // 5 seconds difference
-        const headers: KafkaEventHeaders = {
+        const headers: EventHeaders = {
             timestamp: differentTimestampMs.toString(),
         }
 
@@ -107,7 +107,7 @@ describe('compareTimestamps', () => {
     })
 
     it('should use default context when not provided', () => {
-        const headers: KafkaEventHeaders = {
+        const headers: EventHeaders = {
             timestamp: '1672574400000', // 2023-01-01T12:00:00Z
         }
 
@@ -123,7 +123,7 @@ describe('compareTimestamps', () => {
         // Test with RFC2822 format - the function should handle it via parseDate
         const timestamp = 'Sun, 01 Jan 2023 12:00:00 GMT'
         const timestampMs = DateTime.fromRFC2822(timestamp).toMillis()
-        const headers: KafkaEventHeaders = {
+        const headers: EventHeaders = {
             timestamp: timestampMs.toString(),
         }
 
@@ -136,7 +136,7 @@ describe('compareTimestamps', () => {
     })
 
     it('should work without optional parameters', () => {
-        const headers: KafkaEventHeaders = {
+        const headers: EventHeaders = {
             timestamp: '1672574400000',
         }
 
@@ -162,7 +162,7 @@ describe('compareTimestamps', () => {
         ]
 
         testCases.forEach(({ timestamp, header }) => {
-            const headers: KafkaEventHeaders = { timestamp: header }
+            const headers: EventHeaders = { timestamp: header }
 
             expect(() => {
                 compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context')

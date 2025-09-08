@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { HogTransformerService } from '../../../cdp/hog-transformations/hog-transformer.service'
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
-import { Hub, KafkaConsumerBreadcrumb, KafkaEventHeaders, PipelineEvent, Team } from '../../../types'
+import { EventHeaders, Hub, KafkaConsumerBreadcrumb, PipelineEvent, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { normalizeProcessPerson } from '../../../utils/event'
@@ -63,7 +63,7 @@ export class EventPipelineRunner {
     personsStoreForBatch: PersonsStoreForBatch
     groupStoreForBatch: GroupStoreForBatch
     mergeMode: MergeMode
-    headers?: KafkaEventHeaders
+    headers?: EventHeaders
 
     constructor(
         hub: Hub,
@@ -72,7 +72,7 @@ export class EventPipelineRunner {
         breadcrumbs: KafkaConsumerBreadcrumb[] = [],
         personsStoreForBatch: PersonsStoreForBatch,
         groupStoreForBatch: GroupStoreForBatch,
-        headers?: KafkaEventHeaders
+        headers?: EventHeaders
     ) {
         this.hub = hub
         this.originalEvent = event

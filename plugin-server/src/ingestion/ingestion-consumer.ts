@@ -7,18 +7,18 @@ import { MessageSizeTooLarge } from '~/utils/db/error'
 import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
-import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
+import { KafkaConsumer, parseEventHeaders, parseKafkaHeaders } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
 import { latestOffsetTimestampGauge, setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
 import {
+    EventHeaders,
     HealthCheckResult,
     HealthCheckResultError,
     Hub,
     IncomingEventWithTeam,
     KafkaConsumerBreadcrumb,
     KafkaConsumerBreadcrumbSchema,
-    KafkaEventHeaders,
     PipelineEvent,
     PluginServerService,
     PluginsServerConfig,
@@ -613,7 +613,7 @@ export class IngestionConsumer {
         breadcrumbs: KafkaConsumerBreadcrumb[] = [],
         personsStoreForBatch: PersonsStoreForBatch,
         groupStoreForBatch: GroupStoreForBatch,
-        headers?: KafkaEventHeaders
+        headers?: EventHeaders
     ): EventPipelineRunner {
         return new EventPipelineRunner(
             this.hub,
@@ -630,14 +630,17 @@ export class IngestionConsumer {
         const preprocessedEvents: IncomingEventWithTeam[] = []
 
         for (const message of messages) {
-            const filteredMessage = applyDropEventsRestrictions(message, this.eventIngestionRestrictionManager)
+            const headers = parseEventHeaders(message.headers)
+
+            const filteredMessage = applyDropEventsRestrictions(message, this.eventIngestionRestrictionManager, headers)
             if (!filteredMessage) {
                 continue
             }
 
             const forceOverflowDecision = applyForceOverflowRestrictions(
                 filteredMessage,
-                this.eventIngestionRestrictionManager
+                this.eventIngestionRestrictionManager,
+                headers
             )
             if (forceOverflowDecision.shouldRedirect && this.overflowEnabled()) {
                 ingestionEventOverflowed.inc(1)
@@ -653,13 +656,6 @@ export class IngestionConsumer {
                 continue
             }
 
-            // Parse Kafka headers to access timestamp header and other metadata
-            const rawHeaders = parseKafkaHeaders(filteredMessage.headers)
-            const headers: KafkaEventHeaders = {
-                token: rawHeaders.token,
-                distinct_id: rawHeaders.distinct_id,
-                timestamp: rawHeaders.timestamp,
-            }
             const eventWithHeaders = { ...parsedEvent, headers }
 
             const eventWithTeam = await resolveTeam(this.hub, eventWithHeaders)

@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { KafkaEventHeaders } from '../../../types'
+import { EventHeaders } from '../../../types'
 import { normalizeEvent, normalizeProcessPerson } from '../../../utils/event'
 import { logger } from '../../../utils/logger'
 import { compareTimestamps } from '../timestamp-comparison'
@@ -11,7 +11,7 @@ import { parseEventTimestamp } from '../timestamps'
 export function normalizeEventStep(
     event: PluginEvent,
     processPerson: boolean,
-    headers?: KafkaEventHeaders
+    headers?: EventHeaders
 ): Promise<[PluginEvent, DateTime]> {
     let timestamp: DateTime
     try {

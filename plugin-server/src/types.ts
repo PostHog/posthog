@@ -1340,7 +1340,7 @@ export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
     token?: string
 }
 
-export interface KafkaEventHeaders {
+export interface EventHeaders {
     token?: string
     distinct_id?: string
     timestamp?: string
@@ -1349,14 +1349,14 @@ export interface KafkaEventHeaders {
 export interface IncomingEvent {
     message: Message
     event: PipelineEvent
-    headers?: KafkaEventHeaders
+    headers?: EventHeaders
 }
 
 export interface IncomingEventWithTeam {
     message: Message
     event: PipelineEvent
     team: Team
-    headers?: KafkaEventHeaders
+    headers?: EventHeaders
 }
 
 export type RedisPool = GenericPool<Redis>

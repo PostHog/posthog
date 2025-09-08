@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { EventHeaders } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
 
 export type ForceOverflowDecision = {
@@ -9,19 +10,11 @@ export type ForceOverflowDecision = {
 
 export function applyForceOverflowRestrictions(
     message: Message,
-    eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    eventIngestionRestrictionManager: EventIngestionRestrictionManager,
+    headers?: EventHeaders
 ): ForceOverflowDecision {
-    let distinctId: string | undefined
-    let token: string | undefined
-
-    message.headers?.forEach((header) => {
-        if ('distinct_id' in header) {
-            distinctId = header['distinct_id'].toString()
-        }
-        if ('token' in header) {
-            token = header['token'].toString()
-        }
-    })
+    const distinctId = headers?.distinct_id
+    const token = headers?.token
 
     const shouldForceOverflow = eventIngestionRestrictionManager.shouldForceOverflow(token, distinctId)
 
