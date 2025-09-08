@@ -12226,30 +12226,43 @@
         },
         "FileSystemIconType": {
             "enum": [
-                "plug",
-                "cohort",
-                "insight",
-                "definitions",
-                "warning",
-                "errorTracking",
-                "ai",
-                "cursor",
+                "dashboard",
+                "llm_analytics",
+                "product_analytics",
+                "revenue_analytics",
+                "sql_editor",
+                "web_analytics",
+                "error_tracking",
                 "heatmap",
-                "database",
-                "folder",
-                "handMoney",
-                "live",
-                "notification",
-                "pieChart",
-                "piggyBank",
-                "sql",
-                "insightFunnel",
-                "insightTrends",
-                "insightRetention",
-                "insightUserPaths",
-                "insightLifecycle",
-                "insightStickiness",
-                "insightHogQL"
+                "session_replay",
+                "survey",
+                "user_interview",
+                "early_access_feature",
+                "experiment",
+                "feature_flag",
+                "data_pipeline",
+                "data_warehouse",
+                "task",
+                "link",
+                "logs",
+                "messaging",
+                "notebook",
+                "action",
+                "comment",
+                "annotation",
+                "event_definition",
+                "property_definition",
+                "ingestion_warning",
+                "person",
+                "cohort",
+                "group",
+                "insight_funnel",
+                "insight_trend",
+                "insight_retention",
+                "insight_user_path",
+                "insight_lifecycle",
+                "insight_stickiness",
+                "insight_hogql"
             ],
             "type": "string"
         },
@@ -12274,26 +12287,6 @@
                 "href": {
                     "description": "Object's URL",
                     "type": "string"
-                },
-                "icon": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/React.ReactChild"
-                        },
-                        {
-                            "$ref": "#/definitions/React.ReactFragment"
-                        },
-                        {
-                            "$ref": "#/definitions/React.ReactPortal"
-                        },
-                        {
-                            "type": "boolean"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Icon of the item"
                 },
                 "iconColor": {
                     "$ref": "#/definitions/FileSystemIconColor",
@@ -20890,163 +20883,6 @@
             },
             "required": ["query"],
             "type": "object"
-        },
-        "React.JSXElementConstructor<any>": {
-            "anyOf": [
-                {
-                    "$comment": "(props: P) => ReactElement<any, any> | null",
-                    "properties": {
-                        "namedArgs": {
-                            "additionalProperties": false,
-                            "properties": {
-                                "props": {}
-                            },
-                            "required": ["props"],
-                            "type": "object"
-                        }
-                    },
-                    "type": "object"
-                },
-                {
-                    "$comment": "new (props: P) => Component<any, any>",
-                    "properties": {
-                        "namedArgs": {
-                            "additionalProperties": false,
-                            "properties": {
-                                "props": {}
-                            },
-                            "required": ["props"],
-                            "type": "object"
-                        }
-                    },
-                    "type": "object"
-                }
-            ]
-        },
-        "React.Key": {
-            "type": ["string", "number"]
-        },
-        "React.ReactChild": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/React.ReactElement"
-                },
-                {
-                    "$ref": "#/definitions/React.ReactText"
-                }
-            ]
-        },
-        "React.ReactElement": {
-            "additionalProperties": false,
-            "properties": {
-                "key": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/React.Key"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "props": {},
-                "type": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "$ref": "#/definitions/React.JSXElementConstructor%3Cany%3E"
-                        }
-                    ]
-                }
-            },
-            "required": ["type", "props", "key"],
-            "type": "object"
-        },
-        "React.ReactFragment": {
-            "anyOf": [
-                {
-                    "additionalProperties": false,
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "type": "object"
-                }
-            ]
-        },
-        "React.ReactNode": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/React.ReactChild"
-                },
-                {
-                    "$ref": "#/definitions/React.ReactFragment"
-                },
-                {
-                    "$ref": "#/definitions/React.ReactPortal"
-                },
-                {
-                    "type": "boolean"
-                },
-                {
-                    "type": "null"
-                },
-                {
-                    "not": {}
-                }
-            ]
-        },
-        "React.ReactPortal": {
-            "additionalProperties": false,
-            "properties": {
-                "children": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/React.ReactChild"
-                        },
-                        {
-                            "$ref": "#/definitions/React.ReactFragment"
-                        },
-                        {
-                            "$ref": "#/definitions/React.ReactPortal"
-                        },
-                        {
-                            "type": "boolean"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "key": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/React.Key"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "props": {},
-                "type": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "$ref": "#/definitions/React.JSXElementConstructor%3Cany%3E"
-                        }
-                    ]
-                }
-            },
-            "required": ["key", "props", "type"],
-            "type": "object"
-        },
-        "React.ReactText": {
-            "type": ["string", "number"]
         },
         "ReasoningMessage": {
             "additionalProperties": false,
