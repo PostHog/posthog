@@ -103,7 +103,6 @@ export function SharePasswordsTable({ dashboardId, insightId, recordingId }: Sha
                                             <LemonButton
                                                 icon={<IconTrash />}
                                                 size="xsmall"
-                                                className="opacity-0 group-hover:opacity-100 transition-opacity"
                                                 onClick={() => {
                                                     LemonDialog.open({
                                                         title: 'Remove password?',

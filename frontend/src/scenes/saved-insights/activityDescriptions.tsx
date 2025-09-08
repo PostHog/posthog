@@ -382,5 +382,33 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         }
     }
 
+    if (logItem.activity === 'share_login_success') {
+        const clientIp = logItem.detail.changes?.[0]?.after?.client_ip || 'unknown IP'
+        const passwordNote = logItem.detail.changes?.[0]?.after?.password_note || 'unknown password'
+
+        return {
+            description: (
+                <>
+                    <strong>Anonymous user</strong> successfully authenticated to shared insight{' '}
+                    {nameOrLinkToInsight(logItem?.detail.short_id, logItem.detail.name)} from {clientIp} using password{' '}
+                    <strong>{passwordNote}</strong>
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity === 'share_login_failed') {
+        const clientIp = logItem.detail.changes?.[0]?.after?.client_ip || 'unknown IP'
+
+        return {
+            description: (
+                <>
+                    <strong>Anonymous user</strong> failed to authenticate to shared insight{' '}
+                    {nameOrLinkToInsight(logItem?.detail.short_id, logItem.detail.name)} from {clientIp}
+                </>
+            ),
+        }
+    }
+
     return defaultDescriber(logItem, asNotification, nameOrLinkToInsight(logItem?.detail.short_id))
 }

@@ -24,6 +24,34 @@ export function replayActivityDescriber(logItem: ActivityLogItem, asNotification
         }
     }
 
+    if (logItem.activity === 'share_login_success') {
+        const clientIp = logItem.detail.changes?.[0]?.after?.client_ip || 'unknown IP'
+        const passwordNote = logItem.detail.changes?.[0]?.after?.password_note || 'unknown password'
+
+        return {
+            description: (
+                <>
+                    <strong>Anonymous user</strong> successfully authenticated to shared session recording{' '}
+                    <b>{logItem.detail?.name || 'session recording'}</b> from {clientIp} using password{' '}
+                    <strong>{passwordNote}</strong>
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity === 'share_login_failed') {
+        const clientIp = logItem.detail.changes?.[0]?.after?.client_ip || 'unknown IP'
+
+        return {
+            description: (
+                <>
+                    <strong>Anonymous user</strong> failed to authenticate to shared session recording{' '}
+                    <b>{logItem.detail?.name || 'session recording'}</b> from {clientIp}
+                </>
+            ),
+        }
+    }
+
     // Fall back to default describer for other activities like 'deleted', 'created', etc.
     return defaultDescriber(logItem, asNotification)
 }

@@ -11,12 +11,13 @@ from django.utils.timezone import now
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.sharing import shared_url_as_png
+from posthog.api.sharing import _log_share_password_attempt, shared_url_as_png
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, ExportedAsset
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
+from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 
@@ -995,3 +996,113 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
 
         response = self.client.get(f"/shared/{access_token}")
         assert response.status_code == 404
+
+
+class TestSharePasswordLogging(APIBaseTest):
+    """Test the _log_share_password_attempt function for activity logging"""
+
+    dashboard: Dashboard = None  # type: ignore
+    sharing_config: SharingConfiguration = None  # type: ignore
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.dashboard = Dashboard.objects.create(team=cls.team, name="test dashboard", created_by=cls.user)
+        cls.sharing_config = SharingConfiguration.objects.create(
+            team=cls.team,
+            dashboard=cls.dashboard,
+            access_token="test_access_token_123456",
+            enabled=True,
+            password_required=True,
+        )
+
+    def test_log_share_password_attempt_success(self):
+        """Test successful password validation logging"""
+        # Create a SharePassword
+        share_password = SharePassword.objects.create(
+            sharing_configuration=self.sharing_config,
+            password_hash="test_hash",
+            note="Test password for dashboard access",
+            created_by=self.user,
+        )
+
+        # Mock request with IP
+        mock_request = Mock()
+        mock_request.META = {"REMOTE_ADDR": "192.168.1.100"}
+
+        # Clear any existing activity logs
+        ActivityLog.objects.filter(scope="Dashboard").delete()
+
+        # Call the function
+        _log_share_password_attempt(
+            resource=self.sharing_config, request=mock_request, success=True, validated_password=share_password
+        )
+
+        # Check activity log was created
+        activity_logs = ActivityLog.objects.filter(scope="Dashboard")
+        assert activity_logs.count() == 1
+
+        log = activity_logs.first()
+        assert log.activity == "share_login_success"
+        assert log.team_id == self.team.id
+        assert log.organization_id == self.team.organization.id
+        assert log.user is None  # Anonymous user
+        assert log.was_impersonated is False
+        assert log.item_id == str(self.dashboard.id)  # Uses dashboard ID as item_id
+
+        # Check detail contains expected data
+        assert log.detail["name"] == "test dashboard"  # Should now contain the actual dashboard name
+        assert len(log.detail["changes"]) == 1
+
+        change = log.detail["changes"][0]
+        assert change["type"] == "Dashboard"
+        assert change["action"] == "changed"
+        assert change["field"] == "authentication_attempt"
+
+        change_data = change["after"]
+        assert change_data["access_token_suffix"] == "123456"  # Last 6 chars
+        assert change_data["client_ip"] == "192.168.1.100"
+        assert change_data["success"] is True
+        assert change_data["resource_type"] == "dashboard"
+        assert change_data["password_id"] == share_password.id
+        assert change_data["password_note"] == "Test password for dashboard access"
+
+    def test_log_share_password_attempt_failure(self):
+        """Test failed password validation logging"""
+        # Mock request with different IP
+        mock_request = Mock()
+        mock_request.META = {"REMOTE_ADDR": "10.0.0.5"}
+
+        # Clear any existing activity logs
+        ActivityLog.objects.filter(scope="Dashboard").delete()
+
+        # Call the function for failed attempt
+        _log_share_password_attempt(resource=self.sharing_config, request=mock_request, success=False)
+
+        # Check activity log was created
+        activity_logs = ActivityLog.objects.filter(scope="Dashboard")
+        assert activity_logs.count() == 1
+
+        log = activity_logs.first()
+        assert log.activity == "share_login_failed"
+        assert log.team_id == self.team.id
+        assert log.organization_id == self.team.organization.id
+        assert log.user is None  # Anonymous user
+        assert log.was_impersonated is False
+        assert log.item_id == str(self.dashboard.id)  # Uses dashboard ID as item_id
+
+        # Check detail contains expected data
+        assert log.detail["name"] == "test dashboard"  # Should now contain the actual dashboard name
+        assert len(log.detail["changes"]) == 1
+
+        change = log.detail["changes"][0]
+        assert change["type"] == "Dashboard"
+        assert change["action"] == "changed"
+        assert change["field"] == "authentication_attempt"
+
+        change_data = change["after"]
+        assert change_data["access_token_suffix"] == "123456"  # Last 6 chars
+        assert change_data["client_ip"] == "10.0.0.5"
+        assert change_data["success"] is False
+        assert change_data["resource_type"] == "dashboard"
+        assert "password_id" not in change_data  # No password_id for failed attempts

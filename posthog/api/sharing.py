@@ -55,6 +55,67 @@ def shared_url_as_png(url: str = "") -> str:
     return urlunparse(new_url)
 
 
+def _log_share_password_attempt(
+    resource: SharingConfiguration, request: Request, success: bool, validated_password: Optional[SharePassword] = None
+) -> None:
+    """Log password validation attempts for sharing configurations"""
+    client_ip = request.META.get("REMOTE_ADDR", "unknown")
+
+    if resource.dashboard:
+        scope = "Dashboard"
+        item_id = str(resource.dashboard.id)
+        resource_type = "dashboard"
+        resource_name = resource.dashboard.name
+    elif resource.insight:
+        scope = "Insight"
+        item_id = str(resource.insight.id)
+        resource_type = "insight"
+        resource_name = resource.insight.name
+    else:
+        return
+
+    base_params = {
+        "organization_id": resource.team.organization.id,
+        "team_id": resource.team.id,
+        "user": None,
+        "was_impersonated": False,
+        "item_id": item_id,
+        "scope": scope,
+    }
+
+    change_data = {
+        "access_token_suffix": resource.access_token[-6:] if resource.access_token else None,
+        "client_ip": client_ip,
+        "success": success,
+        "resource_type": resource_type,
+    }
+
+    if success and validated_password:
+        change_data["password_id"] = validated_password.id
+        change_data["password_note"] = validated_password.note or "Untitled password"
+        activity_name = "share_login_success"
+        detail_name = resource_name
+    else:
+        activity_name = "share_login_failed"
+        detail_name = resource_name
+
+    log_activity(
+        **base_params,
+        activity=activity_name,
+        detail=Detail(
+            name=detail_name,
+            changes=[
+                Change(
+                    type=scope,  # Use the same scope as the activity log (Dashboard/Insight/Replay)
+                    action="changed",
+                    field="authentication_attempt",
+                    after=change_data,
+                )
+            ],
+        ),
+    )
+
+
 # NOTE: We can't use a standard permission system as we are using Detail view on a non-detail route
 def check_can_edit_sharing_configuration(
     view: "SharingConfigurationViewSet", request: Request, sharing: SharingConfiguration
@@ -565,7 +626,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     validated_password = self._validate_share_password(resource, request.data["password"])
 
                 if not validated_password:
+                    _log_share_password_attempt(resource, request, success=False)
                     return response.Response({"error": "Incorrect password"}, status=401)
+
+                _log_share_password_attempt(resource, request, success=True, validated_password=validated_password)
 
                 # Password is correct - generate JWT token, set cookie, and return token
                 jwt_token = resource.generate_password_protected_token(validated_password)
