@@ -8,24 +8,13 @@ import structlog
 from temporalio import workflow
 from temporalio.worker import Worker
 
+from posthog.temporal.queues import TemporalTaskQueues
+
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
     from django.core.management.base import BaseCommand
 
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.constants import (
-    BATCH_EXPORTS_TASK_QUEUE,
-    BILLING_TASK_QUEUE,
-    DATA_MODELING_TASK_QUEUE,
-    DATA_WAREHOUSE_COMPACTION_TASK_QUEUE,
-    DATA_WAREHOUSE_TASK_QUEUE,
-    GENERAL_PURPOSE_TASK_QUEUE,
-    MAX_AI_TASK_QUEUE,
-    SYNC_BATCH_EXPORTS_TASK_QUEUE,
-    TASKS_TASK_QUEUE,
-    TEST_TASK_QUEUE,
-    VIDEO_EXPORT_TASK_QUEUE,
-)
 from posthog.temporal.ai import (
     ACTIVITIES as AI_ACTIVITIES,
     WORKFLOWS as AI_WORKFLOWS,
@@ -94,14 +83,41 @@ from products.tasks.backend.temporal import (
 BILLING_WORKFLOWS: list = []
 BILLING_ACTIVITIES: list = []
 
+WORKFLOWS_DICT = {}
+ACTIVITIES_DICT = {}
+
 # Workflow and activity index
-WORKFLOWS_DICT = {
-    SYNC_BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_WORKFLOWS,
-    BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_WORKFLOWS,
-    DATA_WAREHOUSE_TASK_QUEUE: DATA_SYNC_WORKFLOWS + DATA_MODELING_WORKFLOWS,
-    DATA_WAREHOUSE_COMPACTION_TASK_QUEUE: DATA_SYNC_WORKFLOWS + DATA_MODELING_WORKFLOWS,
-    DATA_MODELING_TASK_QUEUE: DATA_MODELING_WORKFLOWS,
-    GENERAL_PURPOSE_TASK_QUEUE: PROXY_SERVICE_WORKFLOWS
+
+
+def add_workflows(task_queue: str, workflows: list):
+    # adds workflows to the WORKFLOWS_DICT, supporting multiple task queues
+    if task_queue not in WORKFLOWS_DICT:
+        WORKFLOWS_DICT[task_queue] = []
+
+    # Use set to avoid duplicates, then convert back to list
+    WORKFLOWS_DICT[task_queue] = list(set(WORKFLOWS_DICT[task_queue]) | set(workflows))
+
+
+def add_activities(task_queue: str, activities: list):
+    # adds activities to the ACTIVITIES_DICT, supporting multiple task queues
+    if task_queue not in ACTIVITIES_DICT:
+        ACTIVITIES_DICT[task_queue] = []
+
+    # Use set to avoid duplicates, then convert back to list
+    ACTIVITIES_DICT[task_queue] = list(set(ACTIVITIES_DICT[task_queue]) | set(activities))
+
+
+add_workflows(
+    TemporalTaskQueues.SYNC_BATCH_EXPORTS_TASK_QUEUE,
+    BATCH_EXPORTS_WORKFLOWS,
+)
+add_workflows(TemporalTaskQueues.BATCH_EXPORTS_TASK_QUEUE, BATCH_EXPORTS_WORKFLOWS)
+add_workflows(TemporalTaskQueues.DATA_WAREHOUSE_TASK_QUEUE, DATA_SYNC_WORKFLOWS)
+add_workflows(TemporalTaskQueues.DATA_WAREHOUSE_COMPACTION_TASK_QUEUE, DATA_SYNC_WORKFLOWS)
+add_workflows(TemporalTaskQueues.DATA_MODELING_TASK_QUEUE, DATA_MODELING_WORKFLOWS)
+add_workflows(
+    TemporalTaskQueues.GENERAL_PURPOSE_TASK_QUEUE,
+    PROXY_SERVICE_WORKFLOWS
     + DELETE_PERSONS_WORKFLOWS
     + USAGE_REPORTS_WORKFLOWS
     + SESSION_RECORDINGS_WORKFLOWS
@@ -109,19 +125,21 @@ WORKFLOWS_DICT = {
     + SALESFORCE_ENRICHMENT_WORKFLOWS
     + PRODUCT_ANALYTICS_WORKFLOWS
     + SUBSCRIPTION_WORKFLOWS,
-    TASKS_TASK_QUEUE: TASKS_WORKFLOWS,
-    MAX_AI_TASK_QUEUE: AI_WORKFLOWS,
-    TEST_TASK_QUEUE: TEST_WORKFLOWS,
-    BILLING_TASK_QUEUE: BILLING_WORKFLOWS,
-    VIDEO_EXPORT_TASK_QUEUE: VIDEO_EXPORT_WORKFLOWS,
-}
-ACTIVITIES_DICT = {
-    SYNC_BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_ACTIVITIES,
-    BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_ACTIVITIES,
-    DATA_WAREHOUSE_TASK_QUEUE: DATA_SYNC_ACTIVITIES + DATA_MODELING_ACTIVITIES,
-    DATA_WAREHOUSE_COMPACTION_TASK_QUEUE: DATA_SYNC_ACTIVITIES + DATA_MODELING_ACTIVITIES,
-    DATA_MODELING_TASK_QUEUE: DATA_MODELING_ACTIVITIES,
-    GENERAL_PURPOSE_TASK_QUEUE: PROXY_SERVICE_ACTIVITIES
+)
+add_workflows(TemporalTaskQueues.TASKS_TASK_QUEUE, TASKS_WORKFLOWS)
+add_workflows(TemporalTaskQueues.MAX_AI_TASK_QUEUE, AI_WORKFLOWS)
+add_workflows(TemporalTaskQueues.TEST_TASK_QUEUE, TEST_WORKFLOWS)
+add_workflows(TemporalTaskQueues.BILLING_TASK_QUEUE, BILLING_WORKFLOWS)
+add_workflows(TemporalTaskQueues.VIDEO_EXPORT_TASK_QUEUE, VIDEO_EXPORT_WORKFLOWS)
+
+add_activities(TemporalTaskQueues.SYNC_BATCH_EXPORTS_TASK_QUEUE, BATCH_EXPORTS_ACTIVITIES)
+add_activities(TemporalTaskQueues.BATCH_EXPORTS_TASK_QUEUE, BATCH_EXPORTS_ACTIVITIES)
+add_activities(TemporalTaskQueues.DATA_WAREHOUSE_TASK_QUEUE, DATA_SYNC_ACTIVITIES + DATA_MODELING_ACTIVITIES)
+add_activities(TemporalTaskQueues.DATA_WAREHOUSE_COMPACTION_TASK_QUEUE, DATA_SYNC_ACTIVITIES + DATA_MODELING_ACTIVITIES)
+add_activities(TemporalTaskQueues.DATA_MODELING_TASK_QUEUE, DATA_MODELING_ACTIVITIES)
+add_activities(
+    TemporalTaskQueues.GENERAL_PURPOSE_TASK_QUEUE,
+    PROXY_SERVICE_ACTIVITIES
     + DELETE_PERSONS_ACTIVITIES
     + USAGE_REPORTS_ACTIVITIES
     + SESSION_RECORDINGS_ACTIVITIES
@@ -129,15 +147,15 @@ ACTIVITIES_DICT = {
     + SALESFORCE_ENRICHMENT_ACTIVITIES
     + PRODUCT_ANALYTICS_ACTIVITIES
     + SUBSCRIPTION_ACTIVITIES,
-    TASKS_TASK_QUEUE: TASKS_ACTIVITIES,
-    MAX_AI_TASK_QUEUE: AI_ACTIVITIES,
-    TEST_TASK_QUEUE: TEST_ACTIVITIES,
-    BILLING_TASK_QUEUE: BILLING_ACTIVITIES,
-    VIDEO_EXPORT_TASK_QUEUE: VIDEO_EXPORT_ACTIVITIES,
-}
+)
+add_activities(TemporalTaskQueues.TASKS_TASK_QUEUE, TASKS_ACTIVITIES)
+add_activities(TemporalTaskQueues.MAX_AI_TASK_QUEUE, AI_ACTIVITIES)
+add_activities(TemporalTaskQueues.TEST_TASK_QUEUE, TEST_ACTIVITIES)
+add_activities(TemporalTaskQueues.BILLING_TASK_QUEUE, BILLING_ACTIVITIES)
+add_activities(TemporalTaskQueues.VIDEO_EXPORT_TASK_QUEUE, VIDEO_EXPORT_ACTIVITIES)
 
 TASK_QUEUE_METRIC_PREFIXES = {
-    BATCH_EXPORTS_TASK_QUEUE: "batch_exports_",
+    TemporalTaskQueues.BATCH_EXPORTS_TASK_QUEUE: "batch_exports_",
 }
 
 LOGGER = get_logger(__name__)
@@ -261,7 +279,7 @@ class Command(BaseCommand):
                 max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                 max_concurrent_activities=max_concurrent_activities,
             )
-            logger.info("Starting Temporal Worker")
+            logger.info("Starting Temporal Worker for queue", task_queue=task_queue)
 
             worker = runner.run(
                 create_worker(
@@ -286,12 +304,15 @@ class Command(BaseCommand):
                 )
             )
 
+            logger.info("Adding signal handlers")
+
             for sig in (signal.SIGTERM, signal.SIGINT):
                 loop.add_signal_handler(
                     sig,
                     functools.partial(shutdown_worker_on_signal, worker=worker, sig=sig, loop=loop),
                 )
 
+            logger.info("Worker running!")
             runner.run(worker.run())
 
             if shutdown_task:

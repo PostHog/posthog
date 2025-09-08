@@ -17,13 +17,13 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
-from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE, MAX_AI_TASK_QUEUE
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
 from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
+from posthog.temporal.queues import TemporalTaskQueues
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
 from posthog.temporal.subscriptions.subscription_scheduling_workflow import ScheduleAllSubscriptionsWorkflowInputs
@@ -39,7 +39,7 @@ async def create_sync_vectors_schedule(client: Client):
             "ai-sync-vectors",
             asdict(SyncVectorsInputs(embedding_versions=EmbeddingVersion(actions=LATEST_ACTIONS_EMBEDDING_VERSION))),
             id="ai-sync-vectors-schedule",
-            task_queue=MAX_AI_TASK_QUEUE,
+            task_queue=TemporalTaskQueues.MAX_AI_TASK_QUEUE,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=30))]),
     )
@@ -59,7 +59,7 @@ async def create_run_quota_limiting_schedule(client: Client):
             "run-quota-limiting",
             asdict(RunQuotaLimitingInputs()),
             id="run-quota-limiting-schedule",
-            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=TemporalTaskQueues.GENERAL_PURPOSE_TASK_QUEUE,
         ),
         spec=ScheduleSpec(cron_expressions=["10,25,40,55 * * * *"]),  # Run at minutes 10, 25, 40, and 55 of every hour
     )
@@ -82,7 +82,7 @@ async def create_schedule_all_subscriptions_schedule(client: Client):
             "schedule-all-subscriptions",
             asdict(ScheduleAllSubscriptionsWorkflowInputs()),
             id="schedule-all-subscriptions-schedule",
-            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=TemporalTaskQueues.GENERAL_PURPOSE_TASK_QUEUE,
         ),
         spec=ScheduleSpec(cron_expressions=["55 * * * *"]),  # Run at minute 55 of every hour
     )
@@ -108,7 +108,7 @@ async def create_upgrade_queries_schedule(client: Client):
             "upgrade-queries",
             asdict(UpgradeQueriesWorkflowInputs()),
             id="upgrade-queries-schedule",
-            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=TemporalTaskQueues.GENERAL_PURPOSE_TASK_QUEUE,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=6))]),
     )
@@ -129,7 +129,7 @@ async def create_salesforce_enrichment_schedule(client: Client):
             "salesforce-enrichment-async",
             SalesforceEnrichmentInputs(chunk_size=DEFAULT_CHUNK_SIZE),
             id="salesforce-enrichment-schedule",
-            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=TemporalTaskQueues.GENERAL_PURPOSE_TASK_QUEUE,
         ),
         spec=ScheduleSpec(
             calendars=[

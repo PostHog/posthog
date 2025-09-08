@@ -51,6 +51,7 @@ from posthog.temporal.ai.session_summary.types.group import (
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.queues import TemporalTaskQueues
 
 from ee.hogai.session_summaries.constants import (
     FAILED_PATTERNS_EXTRACTION_MIN_RATIO,
@@ -582,7 +583,7 @@ async def _start_session_group_summary_workflow(
         inputs,
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-        task_queue=constants.MAX_AI_TASK_QUEUE,
+        task_queue=TemporalTaskQueues.MAX_AI_TASK_QUEUE,
         retry_policy=retry_policy,
     )
 

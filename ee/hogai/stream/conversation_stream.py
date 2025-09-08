@@ -9,7 +9,6 @@ from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.schema import AssistantEventType, FailureMessage
 
-from posthog.constants import MAX_AI_TASK_QUEUE
 from posthog.temporal.ai.conversation import (
     AssistantConversationRunnerWorkflow,
     AssistantConversationRunnerWorkflowInputs,
@@ -26,6 +25,7 @@ from ee.hogai.stream.redis_stream import (
 )
 from ee.hogai.utils.types import AssistantOutput
 from ee.models.assistant import Conversation
+from posthog.temporal.queues import TemporalTaskQueues
 
 logger = structlog.get_logger(__name__)
 
@@ -74,7 +74,7 @@ class ConversationStreamManager:
                 AssistantConversationRunnerWorkflow.run,
                 workflow_inputs,
                 id=self._workflow_id,
-                task_queue=MAX_AI_TASK_QUEUE,
+                task_queue=TemporalTaskQueues.MAX_AI_TASK_QUEUE,
                 id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             )
