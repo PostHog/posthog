@@ -1,9 +1,9 @@
-import { kea, path } from 'kea'
+import { connect, kea, path, props } from 'kea'
 import { loaders } from 'kea-loaders/lib'
 
-import api from 'lib/api'
+import { ErrorPropertiesLogicProps, errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import 'lib/components/Errors/stackFrameLogic'
-import { ErrorTrackingStackFrame, EventExceptionRelease } from 'lib/components/Errors/types'
+import { EventExceptionRelease } from 'lib/components/Errors/types'
 
 import type { releasePreviewLogicType } from './releasePreviewLogicType'
 
@@ -18,17 +18,22 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
         'releasePreviewLogic',
     ]),
 
-    loaders(() => ({
+    props({} as ErrorPropertiesLogicProps),
+
+    connect((props: ErrorPropertiesLogicProps) => ({
+        values: [errorPropertiesLogic(props), ['frames']],
+    })),
+
+    loaders(({ values }) => ({
         release: [
             undefined as EventExceptionRelease | undefined,
             {
                 loadRelease: async (dto: {
                     // we have exceptionReleases from the already loaded event. Cymbal enriches event with that data
                     exceptionReleases?: EventExceptionRelease[]
-                    frames?: ErrorTrackingStackFrame[]
                 }) => {
                     // we can't do anything if there are neither frames nor existing releases
-                    if (!dto.frames && !dto.exceptionReleases) {
+                    if (!values.frames && !dto.exceptionReleases) {
                         return undefined
                     }
 
@@ -45,16 +50,15 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
                     // we need to find the most probable release by checking the frames
 
                     // if there are no frames, we can't load any releases
-                    if (!dto.frames || dto.frames.length === 0) {
+                    if (!values.frames || values.frames.length === 0) {
                         return undefined
                     }
 
-                    const rawIds = dto.frames.map((f) => f.raw_id)
-                    const response = await api.errorTracking.stackFrameReleaseMetadata(rawIds)
+                    const response: any = { results: {} }
                     const resultMap = response.results || {}
 
                     // we reverse the list in order to pick the stack frame which is "the closest" to the error
-                    const kaboomFrame = [...(dto.frames || [])].reverse().find((f) => resultMap[f.raw_id])
+                    const kaboomFrame = values.frames.reverse().find((f) => resultMap[f.raw_id])
 
                     if (kaboomFrame) {
                         const relatedRelease = resultMap[kaboomFrame.raw_id]

@@ -4,7 +4,6 @@ import {
     ErrorEventProperties,
     ErrorTrackingException,
     ErrorTrackingRuntime,
-    EventExceptionRelease,
     ExceptionAttributes,
     FingerprintRecordPart,
 } from './types'
@@ -115,8 +114,6 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
     const handled = exceptionList?.[0]?.mechanism?.handled ?? false
     const runtime: ErrorTrackingRuntime = getRuntimeFromLib(lib)
 
-    const exceptionReleases: EventExceptionRelease[] = Object.values(releases ?? {})
-
     return {
         type,
         value,
@@ -133,7 +130,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         handled,
         level,
         ingestionErrors,
-        exceptionReleases: exceptionReleases.length > 0 ? exceptionReleases : undefined,
+        exceptionReleases: releases ? Object.values(releases) : undefined,
     }
 }
 
