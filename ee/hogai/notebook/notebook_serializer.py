@@ -10,35 +10,14 @@ from posthog.schema import (
     AssistantHogQLQuery,
     AssistantRetentionQuery,
     AssistantTrendsQuery,
-    FunnelsQuery,
-    HogQLQuery,
     Mark,
     ProsemirrorJSONContent,
-    RetentionQuery,
-    TrendsQuery,
 )
 
+from ee.hogai.utils.helpers import cast_assistant_query
 from ee.hogai.utils.types import InsightArtifact
 
 logger = logging.getLogger(__name__)
-
-
-def cast_assistant_query(
-    query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery,
-) -> TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery:
-    """
-    Convert AssistantQuery types to regular Query types that the frontend expects.
-    """
-    if query.kind == "TrendsQuery":
-        return TrendsQuery(**query.model_dump())
-    elif query.kind == "FunnelsQuery":
-        return FunnelsQuery(**query.model_dump())
-    elif query.kind == "RetentionQuery":
-        return RetentionQuery(**query.model_dump())
-    elif query.kind == "HogQLQuery":
-        return HogQLQuery(**query.model_dump())
-    else:
-        raise ValueError(f"Unsupported query type: {query.kind}")
 
 
 class NotebookContext(BaseModel):

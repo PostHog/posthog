@@ -119,7 +119,7 @@ class create_dashboard(BaseModel):
 
     search_insights_queries: list[str] = Field(
         description="The user's queries to search for insights. "
-        "Include all relevant context from earlier messages too, as the tool won't see that conversation history. If the user asks to search for multiple insights, pass a list of queries."
+        "Include all relevant context from earlier messages too, as the tool won't see that conversation history. If the user asks to search for multiple insights, pass a list of queries. Phrase them as a task that needs to be executed by an AI assistant."
     )
     create_dashboard_query: str = Field(
         description=(

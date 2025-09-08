@@ -6,6 +6,7 @@ Given the user's request and the list of insights to be included in the dashboar
 2. Is concise (2-6 words typically)
 3. Uses title case formatting
 4. Avoids generic terms like "Dashboard" or "Analytics" in the name
+5. If an insight was not able to be created do not use the insight name in the dashboard name.
 
 Examples:
 - User wants to track user engagement → "User Engagement Overview"
@@ -14,7 +15,7 @@ Examples:
 - User wants revenue and conversion data → "Revenue & Conversions"
 
 User Query: {user_query}
-Insights to include: {insights_summary}
+Insight descriptions: {insights_summary}
 
 Generate only the dashboard name, nothing else.
 """

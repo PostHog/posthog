@@ -1,3 +1,4 @@
+import uuid
 from typing import Literal
 from uuid import uuid4
 
@@ -8,13 +9,22 @@ from langchain_openai import ChatOpenAI
 from langgraph.config import get_stream_writer
 from langgraph.types import StreamWriter
 
-from posthog.schema import AssistantToolCallMessage
+from posthog.schema import AssistantHogQLQuery, AssistantToolCallMessage
 
 from posthog.models import Dashboard, DashboardTile, Insight
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.base import AssistantNode
+from ee.hogai.graph.deep_research.task_executor.nodes import TaskExecutorNode
+from ee.hogai.graph.deep_research.types import (
+    DeepResearchSingleTaskResult,
+    DeepResearchState,
+    PartialDeepResearchState,
+    TaskExecutionItem,
+    TaskExecutionStatus,
+)
 from ee.hogai.graph.insights.nodes import InsightSearchNode
+from ee.hogai.utils.helpers import cast_assistant_query
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 
 from .prompts import (
@@ -83,8 +93,8 @@ class DashboardCreatorNode(AssistantNode):
                 writer=self._get_stream_writer(),
             )
 
-            query_to_insight_ids, last_messages = await self._search_insights(state)
-
+            # query_to_insight_ids, last_messages = await self._search_insights(state)
+            query_to_insight_ids, found_insight_messages = {}, []
             self._stream_reasoning(
                 progress_message=f"Found {len(query_to_insight_ids)} insights", writer=self._get_stream_writer()
             )
@@ -95,20 +105,20 @@ class DashboardCreatorNode(AssistantNode):
                 if search_query not in query_to_insight_ids
             ]
 
-            query_to_insight_ids, last_messages_created = await self._create_insights_with_subgraph(
+            query_to_insight_ids, created_insight_messages = await self._create_insights_in_parallel(
                 left_to_create, query_to_insight_ids, state, config
             )
 
             all_insight_ids = list(
                 {insight_id for insight_set in query_to_insight_ids.values() for insight_id in insight_set}
             )
-            last_messages = last_messages + last_messages_created
+            final_last_messages = found_insight_messages + created_insight_messages
 
             if not all_insight_ids:
-                return self._create_no_insights_response(state.root_tool_call_id or "unknown", last_messages)
+                return self._create_no_insights_response(state.root_tool_call_id or "unknown", final_last_messages)
 
             dashboard_name = await self._generate_dashboard_name(
-                state.create_dashboard_query, last_messages, all_insight_ids
+                state.create_dashboard_query, final_last_messages, all_insight_ids
             )
 
             dashboard, all_insights = await self._create_dashboard_with_insights(dashboard_name, all_insight_ids)
@@ -178,13 +188,99 @@ class DashboardCreatorNode(AssistantNode):
         """Build the URL for a dashboard."""
         return f"/project/{self._team.id}/dashboard/{id}"
 
-    async def _create_insights_with_subgraph(
+    async def _create_insights_in_parallel(
         self,
         left_to_create: list[str],
         query_to_insight_ids: dict[str, set[int]],
         state: AssistantState,
         config: RunnableConfig,
     ) -> tuple[dict[str, set[int]], list[str]]:
+        """Create insights in parallel."""
+        from ee.hogai.graph.graph import InsightsAssistantGraph
+
+        compiled_insights_subgraph = InsightsAssistantGraph(self._team, self._user).compile_full_graph()
+        executor_node = TaskExecutorNode(self._team, self._user, compiled_insights_subgraph)
+
+        task_executor_state = DeepResearchState(
+            messages=state.messages,
+            root_tool_call_id=state.root_tool_call_id,
+            root_tool_insight_plan=state.root_tool_insight_plan,
+            search_insights_queries=left_to_create,
+            create_dashboard_query=state.create_dashboard_query,
+            tasks=[
+                TaskExecutionItem(
+                    id=str(uuid.uuid4()), prompt=query, status=TaskExecutionStatus.PENDING, description=query
+                )
+                for query in left_to_create
+            ],
+        )
+
+        result = await executor_node.arun(task_executor_state, config)
+        task_executor_state = PartialDeepResearchState.model_validate(result)
+
+        created_insights = await self._save_insights(task_executor_state.task_results)
+        query_to_insight_ids.update(created_insights)
+        task_descriptions = []
+        for task in task_executor_state.task_results:
+            if task.status == TaskExecutionStatus.COMPLETED:
+                task_descriptions.append(task.description)
+            else:
+                task_descriptions.append(f"Could not create insights for the query {task.prompt}")
+        return query_to_insight_ids, task_descriptions
+
+    @database_sync_to_async
+    def _save_insights(self, task_results: list[DeepResearchSingleTaskResult]) -> dict[str, set[int]]:
+        """Create insights in parallel."""
+        from posthog.models import Insight
+
+        created_insights = {
+            task.description: set() for task in task_results if task.status == TaskExecutionStatus.COMPLETED
+        }
+
+        # Collect all insights to create
+        insights_to_create = []
+        insight_metadata = []  # Store metadata to map back to task descriptions
+
+        for task_result in task_results:
+            if task_result.status != TaskExecutionStatus.COMPLETED:
+                continue
+            for artifact in task_result.artifacts:
+                insight_name = artifact.description[:400]  # Max 400 chars
+                insight_description = artifact.description[:400]  # Max 400 chars
+
+                if isinstance(artifact.query, AssistantHogQLQuery):
+                    converted = {"kind": "DataTableNode", "source": cast_assistant_query(artifact.query).model_dump()}
+                else:
+                    converted = {"kind": "InsightVizNode", "source": cast_assistant_query(artifact.query).model_dump()}
+
+                insight = Insight(
+                    name=insight_name,
+                    team=self._team,
+                    created_by=self._user,
+                    query=converted,
+                    # filters=filters,
+                    description=insight_description,
+                    saved=True,
+                )
+                insights_to_create.append(insight)
+                insight_metadata.append(task_result.description)
+
+        # Bulk create all insights
+        created_insight_objects = Insight.objects.bulk_create(insights_to_create)
+
+        # Map created insights back to task descriptions
+        for insight, task_description in zip(created_insight_objects, insight_metadata):
+            created_insights[task_description].add(insight.id)
+
+        return created_insights
+
+    async def _create_insights_with_subgraph(
+        self,
+        left_to_create: list[str],
+        query_to_insight_ids: dict[str, set[int]],
+        state: AssistantState,
+        config: RunnableConfig,
+    ) -> dict[str, set[int]]:
         """Create insights using the insights subgraph if no existing insights are found."""
         try:
             last_messages = []
@@ -196,7 +292,6 @@ class DashboardCreatorNode(AssistantNode):
                 # Create state for insights creation
                 insights_state = AssistantState(
                     root_tool_insight_plan=query,
-                    # search_insights_queries=None,
                     root_tool_call_id=state.root_tool_call_id,
                     messages=state.messages,
                     create_dashboard_query=state.create_dashboard_query,

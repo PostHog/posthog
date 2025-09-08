@@ -10,18 +10,9 @@ from posthog.schema import (
     AssistantTrendsQuery,
     FailureMessage,
     FunnelVizType,
-    InsightVizNode,
     VisualizationMessage,
 )
 
-from posthog.constants import (
-    INSIGHT_FUNNELS,
-    INSIGHT_LIFECYCLE,
-    INSIGHT_PATHS,
-    INSIGHT_RETENTION,
-    INSIGHT_STICKINESS,
-    INSIGHT_TRENDS,
-)
 from posthog.exceptions_capture import capture_exception
 
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
@@ -88,52 +79,6 @@ class QueryExecutorNode(AssistantNode):
             root_tool_insight_type=None,
             rag_context=None,
         )
-
-        # If create_dashboard_query is set, save the insight directly and store the ID
-        if state.create_dashboard_query:
-            from posthog.models import Insight
-
-            insight_name = viz_message.query[:400]  # Max 400 chars
-            insight_description = viz_message.plan[:400]  # Max 400 chars
-            filters = {}
-            query = None
-
-            # Map the query kind to insight type
-            kind_to_insight_type = {
-                "TrendsQuery": INSIGHT_TRENDS,
-                "FunnelsQuery": INSIGHT_FUNNELS,
-                "RetentionQuery": INSIGHT_RETENTION,
-                "PathsQuery": INSIGHT_PATHS,
-                "StickinessQuery": INSIGHT_STICKINESS,
-                "LifecycleQuery": INSIGHT_LIFECYCLE,
-                "HogQLQuery": "SQL",
-            }
-
-            if hasattr(viz_message.answer, "kind") and (
-                insight_type := kind_to_insight_type.get(viz_message.answer.kind)
-            ):
-                if insight_type != "SQL":
-                    filters["insight"] = insight_type
-                    # For standard insight types, wrap in InsightVizNode
-                    query = InsightVizNode(source=viz_message.answer).model_dump()
-                else:
-                    # For SQL queries, store directly without InsightVizNode wrapper
-                    query = viz_message.answer.model_dump(mode="json", exclude_none=True)
-            else:
-                # Fallback to storing as custom insight
-                query = viz_message.answer.model_dump(mode="json", exclude_none=True)
-
-            insight = Insight.objects.create(
-                name=insight_name,
-                team=self._team,
-                created_by=self._user,
-                query=query,
-                filters=filters,
-                description=insight_description,
-                saved=True,
-            )
-
-            partial_state.insight_ids = [insight.id]
 
         return partial_state
 

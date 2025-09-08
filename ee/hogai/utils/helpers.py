@@ -10,13 +10,21 @@ from langchain_core.messages import (
 )
 
 from posthog.schema import (
+    AssistantFunnelsQuery,
+    AssistantHogQLQuery,
     AssistantMessage,
+    AssistantRetentionQuery,
     AssistantToolCallMessage,
+    AssistantTrendsQuery,
     CachedTeamTaxonomyQueryResponse,
+    FunnelsQuery,
+    HogQLQuery,
     HumanMessage,
     MaxEventContext,
     MaxUIContext,
+    RetentionQuery,
     TeamTaxonomyQuery,
+    TrendsQuery,
     VisualizationMessage,
 )
 
@@ -218,3 +226,21 @@ def extract_content_from_ai_message(response: BaseMessage) -> str:
                 text_parts.append(content_item)
         return "".join(text_parts)
     return str(response.content)
+
+
+def cast_assistant_query(
+    query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery,
+) -> TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery:
+    """
+    Convert AssistantQuery types to regular Query types that the frontend expects.
+    """
+    if query.kind == "TrendsQuery":
+        return TrendsQuery(**query.model_dump())
+    elif query.kind == "FunnelsQuery":
+        return FunnelsQuery(**query.model_dump())
+    elif query.kind == "RetentionQuery":
+        return RetentionQuery(**query.model_dump())
+    elif query.kind == "HogQLQuery":
+        return HogQLQuery(**query.model_dump())
+    else:
+        raise ValueError(f"Unsupported query type: {query.kind}")
