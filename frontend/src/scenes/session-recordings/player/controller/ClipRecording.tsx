@@ -103,7 +103,6 @@ export function ClipOverlay(): JSX.Element | null {
                         { value: 5, label: '5', 'data-attr': 'replay-clip-duration-5' },
                         { value: 10, label: '10', 'data-attr': 'replay-clip-duration-10' },
                         { value: 15, label: '15', 'data-attr': 'replay-clip-duration-15' },
-                        { value: 30, label: '30', 'data-attr': 'replay-clip-duration-30' },
                     ]}
                     value={duration}
                     onChange={(value) => setDuration(value)}
@@ -118,7 +117,7 @@ export function ClipOverlay(): JSX.Element | null {
                 type="primary"
                 className="mt-3 mx-auto"
                 disabledReason={
-                    !duration || duration < 5 || duration > 30 ? 'Duration must be between 5 and 30 seconds' : undefined
+                    !duration || duration < 5 || duration > 15 ? 'Duration must be between 5 and 15 seconds' : undefined
                 }
             >
                 Create clip
