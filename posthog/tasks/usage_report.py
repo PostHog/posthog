@@ -942,7 +942,7 @@ def teams_with_free_historical_rows_synced_in_period(begin: datetime, end: datet
             finished_at__lte=end,
             billable=True,
             status=ExternalDataJob.Status.COMPLETED,
-            pipeline__created_at__gte=datetime.now() - timedelta(days=7),
+            pipeline__created_at__gte=end - timedelta(days=7),
         )
         .values("team_id")
         .annotate(total=Sum("rows_synced"))
