@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -124,12 +124,13 @@ impl KafkaDeduplicatorService {
         let (pool_handles, pool_health) = processor_pool.start();
         self.processor_pool_handles = Some(pool_handles);
         self.processor_pool_health = Some(pool_health.clone());
-        
+
         // Register processor pool as a separate health component
-        let pool_health_handle = self.liveness
+        let pool_health_handle = self
+            .liveness
             .register("processor_pool".to_string(), Duration::from_secs(30))
             .await;
-        
+
         // Spawn task to report processor pool health
         let pool_health_reporter = pool_health.clone();
         let cancellation = self.health_task_cancellation.child_token();
