@@ -11,20 +11,20 @@ import { ErrorTrackingCorrelatedIssue } from '~/queries/schema/schema-general'
 
 import { EventName } from 'products/actions/frontend/components/EventName'
 
-import { ErrorTrackingSetupPrompt } from '../components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
-import { BulkActions } from '../components/IssueActions/BulkActions'
-import { ErrorTrackingIssueImpactTool } from '../components/IssueImpactTool'
-import { IssueListTitleColumn, IssueListTitleHeader } from '../components/TableColumns'
-import { errorTrackingBulkSelectLogic } from '../errorTrackingBulkSelectLogic'
-import { errorTrackingImpactSceneLogic } from './errorTrackingImpactSceneLogic'
+import { ErrorTrackingSetupPrompt } from '../../../../components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
+import { BulkActions } from '../../../../components/IssueActions/BulkActions'
+import { ErrorTrackingIssueImpactTool } from '../../../../components/IssueImpactTool'
+import { IssueListTitleColumn, IssueListTitleHeader } from '../../../../components/TableColumns'
+import { errorTrackingBulkSelectLogic } from '../../../../errorTrackingBulkSelectLogic'
+import { errorTrackingImpactListLogic } from './errorTrackingImpactListLogic'
 
 export const scene: SceneExport = {
-    component: ErrorTrackingImpactScene,
-    logic: errorTrackingImpactSceneLogic,
+    component: ErrorTrackingImpactList,
+    logic: errorTrackingImpactListLogic,
 }
 
-export function ErrorTrackingImpactScene(): JSX.Element | null {
-    const { completedInitialLoad, issuesLoading } = useValues(errorTrackingImpactSceneLogic)
+export function ErrorTrackingImpactList(): JSX.Element | null {
+    const { completedInitialLoad, issuesLoading } = useValues(errorTrackingImpactListLogic)
     const hasIssueCorrelation = useFeatureFlag('ERROR_TRACKING_ISSUE_CORRELATION')
 
     return hasIssueCorrelation ? (
@@ -44,7 +44,7 @@ export function ErrorTrackingImpactScene(): JSX.Element | null {
 }
 
 const Table = (): JSX.Element => {
-    const { issues, issuesLoading } = useValues(errorTrackingImpactSceneLogic)
+    const { issues, issuesLoading } = useValues(errorTrackingImpactListLogic)
 
     const columns: LemonTableColumns<ErrorTrackingCorrelatedIssue> = [
         {
@@ -136,7 +136,7 @@ const InitialState = (): JSX.Element => {
 
 export const Options = (): JSX.Element => {
     const { selectedIssueIds } = useValues(errorTrackingBulkSelectLogic)
-    const { issues } = useValues(errorTrackingImpactSceneLogic)
+    const { issues } = useValues(errorTrackingImpactListLogic)
 
     return (
         <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-primary">
@@ -150,8 +150,8 @@ export const Options = (): JSX.Element => {
 }
 
 const EventSelector = (): JSX.Element => {
-    const { events } = useValues(errorTrackingImpactSceneLogic)
-    const { setEvents } = useActions(errorTrackingImpactSceneLogic)
+    const { events } = useValues(errorTrackingImpactListLogic)
+    const { setEvents } = useActions(errorTrackingImpactListLogic)
 
     return (
         <EventName

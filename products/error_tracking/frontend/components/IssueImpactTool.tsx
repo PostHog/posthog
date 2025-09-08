@@ -6,10 +6,10 @@ import { urls } from 'scenes/urls'
 
 import { ErrorTrackingIssueImpactToolOutput } from '~/queries/schema/schema-general'
 
-import { errorTrackingImpactSceneLogic } from '../impact/errorTrackingImpactSceneLogic'
+import { errorTrackingImpactListLogic } from '../scenes/ErrorTrackingScene/tabs/impact/errorTrackingImpactListLogic'
 
 export function ErrorTrackingIssueImpactTool(): JSX.Element {
-    const { setEvents } = useActions(errorTrackingImpactSceneLogic)
+    const { setEvents } = useActions(errorTrackingImpactListLogic)
 
     const callback = (toolOutput: ErrorTrackingIssueImpactToolOutput): void => {
         setEvents(toolOutput.events)

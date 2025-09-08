@@ -1,16 +1,14 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
-import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { ErrorTrackingCorrelatedIssue } from '~/queries/schema/schema-general'
-import { Breadcrumb } from '~/types'
 
-import { errorTrackingBulkSelectLogic } from '../errorTrackingBulkSelectLogic'
-import { errorTrackingIssueCorrelationQuery } from '../queries'
+import { errorTrackingBulkSelectLogic } from 'products/error_tracking/frontend/errorTrackingBulkSelectLogic'
+import { errorTrackingIssueCorrelationQuery } from 'products/error_tracking/frontend/queries'
+
 import type { errorTrackingImpactSceneLogicType } from './errorTrackingImpactSceneLogicType'
 
 export const errorTrackingImpactSceneLogic = kea<errorTrackingImpactSceneLogicType>([
@@ -100,24 +98,6 @@ export const errorTrackingImpactSceneLogic = kea<errorTrackingImpactSceneLogicTy
     listeners(({ actions }) => ({
         setEvents: () => actions.loadIssues(),
     })),
-
-    selectors({
-        breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => [
-                {
-                    key: Scene.ErrorTracking,
-                    path: urls.errorTracking(),
-                    name: 'Error tracking',
-                },
-                {
-                    key: Scene.ErrorTrackingImpact,
-                    path: urls.errorTrackingImpact(),
-                    name: 'Impact',
-                },
-            ],
-        ],
-    }),
 
     subscriptions(({ actions }) => ({
         events: () => actions.setSelectedIssueIds([]),

@@ -39,7 +39,6 @@ export enum Scene {
     ErrorProjectUnavailable = 'ProjectUnavailable',
     ErrorTracking = 'ErrorTracking',
     ErrorTrackingConfiguration = 'ErrorTrackingConfiguration',
-    ErrorTrackingImpact = 'ErrorTrackingImpact',
     ErrorTrackingIssue = 'ErrorTrackingIssue',
     ErrorTrackingIssueFingerprints = 'ErrorTrackingIssueFingerprints',
     EventDefinition = 'EventDefinition',
