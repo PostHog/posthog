@@ -313,6 +313,16 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 const rateLimit = rateLimits[index][1]
                 if (rateLimit.isRateLimited) {
                     counterRateLimited.labels({ kind: 'hog_flow' }).inc()
+                    this.hogFunctionMonitoringService.queueAppMetric(
+                        {
+                            team_id: item.teamId,
+                            app_source_id: item.functionId,
+                            metric_kind: 'failure',
+                            metric_name: 'rate_limited',
+                            count: 1,
+                        },
+                        'hog_flow'
+                    )
                     return
                 }
             } catch (e) {
