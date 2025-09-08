@@ -14,7 +14,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { lazyLoaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import type { DragEvent } from 'react'
+import type { DragEvent, RefObject } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -60,7 +60,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ],
         actions: [
             campaignLogic(props),
-            ['setCampaignInfo', 'setCampaignActionConfig', 'setCampaignAction', 'setCampaignActionEdges'],
+            [
+                'setCampaignInfo',
+                'setCampaignActionConfig',
+                'setCampaignAction',
+                'setCampaignActionEdges',
+                'loadCampaignSuccess',
+            ],
             optOutCategoriesLogic(),
             ['loadCategories'],
         ],
@@ -78,6 +84,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setReactFlowInstance: (reactFlowInstance: ReactFlowInstance<Node, Edge>) => ({
             reactFlowInstance,
         }),
+        setReactFlowWrapper: (reactFlowWrapper: RefObject<HTMLDivElement>) => ({ reactFlowWrapper }),
         onDragStart: true,
         onDragOver: (event: DragEvent) => ({ event }),
         onDrop: (event: DragEvent) => ({ event }),
@@ -85,6 +92,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
         loadActionMetricsById: (params: AppMetricsTotalsRequest, timezone: string) => ({ params, timezone }),
+        fitView: (options: { duration?: number; noZoom?: boolean } = {}) => options,
     }),
     reducers(() => ({
         mode: [
@@ -135,6 +143,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             null as ReactFlowInstance<Node, Edge> | null,
             {
                 setReactFlowInstance: (_, { reactFlowInstance }) => reactFlowInstance,
+            },
+        ],
+        reactFlowWrapper: [
+            null as RefObject<HTMLDivElement> | null,
+            {
+                setReactFlowWrapper: (_, { reactFlowWrapper }) => reactFlowWrapper,
             },
         ],
     })),
@@ -468,6 +482,45 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             // We can clear the dropzones now
             actions.setDropzoneNodes([])
         },
+        setReactFlowInstance: () => {
+            // TRICKY: Slight race condition here where the react flow instance is not set yet
+            setTimeout(() => {
+                actions.fitView({ duration: 0 })
+            }, 100)
+        },
+        setSelectedNodeId: ({ selectedNodeId }) => {
+            if (selectedNodeId) {
+                actions.fitView({ noZoom: true })
+            }
+        },
+        fitView: ({ duration, noZoom }) => {
+            const { reactFlowWrapper, reactFlowInstance } = values
+            if (!reactFlowWrapper?.current || !reactFlowInstance) {
+                return
+            }
+            // This is a rough estimate which we could improve by getting from the actual panel
+            const PANEL_WIDTH = 580
+            // Get the width of the wrapper
+            const wrapperWidth = reactFlowWrapper.current.getBoundingClientRect()?.width ?? 0
+            // Get the width of the thing we are going to fit to the view
+            const nodesWidth =
+                reactFlowInstance.getNodesBounds(values.selectedNode ? [values.selectedNode] : values.nodes)?.width ?? 0
+            // Adjust the width for the zoom factor to be relative to the wrapper width
+            const nodesWidthAdjusted = nodesWidth * reactFlowInstance.getZoom()
+            // Calculate the padding right to fit the panel width to the wrapper width
+            // Looks complicated but its basically the difference between the wrapper width and the nodes width adjusted for the zoom factor
+            const paddingRight = wrapperWidth - nodesWidthAdjusted / 2 - (wrapperWidth - PANEL_WIDTH) / 2
+
+            reactFlowInstance.fitView({
+                padding: {
+                    right: `${paddingRight}px`,
+                },
+                maxZoom: noZoom ? reactFlowInstance.getZoom() : undefined,
+                minZoom: noZoom ? reactFlowInstance.getZoom() : undefined,
+                nodes: values.selectedNode ? [values.selectedNode] : values.nodes,
+                duration: duration ?? 100,
+            })
+        },
     })),
 
     subscriptions(({ actions }) => ({
@@ -498,11 +551,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             setMode: () => syncProperty('mode', values.mode),
         }
     }),
-    urlToAction(({ actions }) => {
+    urlToAction(({ actions, values }) => {
         const reactToTabChange = (_: any, search: Record<string, string>): void => {
-            const { node, mode } = search
-            actions.setSelectedNodeId(node ?? null)
-            if (mode && HOG_FLOW_EDITOR_MODES.includes(mode as HogFlowEditorMode)) {
+            const { node = null, mode } = search
+            if (node !== values.selectedNodeId) {
+                actions.setSelectedNodeId(node ?? null)
+            }
+            if (mode && HOG_FLOW_EDITOR_MODES.includes(mode as HogFlowEditorMode) && mode !== values.mode) {
                 actions.setMode(mode as HogFlowEditorMode)
             }
         }

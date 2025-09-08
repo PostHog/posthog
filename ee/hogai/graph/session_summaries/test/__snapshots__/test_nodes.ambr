@@ -16,10 +16,10 @@
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
-         greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
+         greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2025-09-03 11:55:00.000000', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-13 12:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-24 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
+  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-13 12:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-24 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-09-03 23:59:59.000000', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greater(active_seconds, 8.0), 0)
   ORDER BY start_time DESC
@@ -53,7 +53,7 @@
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
-         greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
+         greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2025-09-03 11:55:00.000000', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-13 12:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-27 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-31 23:59:59.000000', 6, 'UTC')))
@@ -90,7 +90,7 @@
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
-         greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
+         greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2025-09-03 11:55:00.000000', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-13 12:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-27 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-31 23:59:59.000000', 6, 'UTC')))
@@ -127,7 +127,7 @@
          sum(s.console_log_count) AS console_log_count,
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
-         greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
+         greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), and(globalIn(s.session_id,
