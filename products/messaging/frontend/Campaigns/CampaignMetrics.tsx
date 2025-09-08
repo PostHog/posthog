@@ -29,7 +29,7 @@ export const CAMPAIGN_METRICS_INFO: Record<string, { name: string; description: 
         color: getColorVar('muted'),
     },
     disabled_permanently: {
-        name: 'Disabled Permanently',
+        name: 'Disabled',
         description:
             'Total number of events that were skipped due to the destination being permanently disabled (due to prolonged issues with the destination)',
         color: getColorVar('danger'),

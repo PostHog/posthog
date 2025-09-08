@@ -6,8 +6,6 @@ import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 
-import { HogFunctionMetricsLogicProps } from './hogFunctionMetricsLogic'
-
 export const HOGFUNCTION_METRICS_INFO: Record<string, { name: string; description: string; color: string }> = {
     succeeded: {
         name: 'Success',
@@ -25,14 +23,14 @@ export const HOGFUNCTION_METRICS_INFO: Record<string, { name: string; descriptio
         color: getColorVar('muted'),
     },
     disabled_permanently: {
-        name: 'Disabled Permanently',
+        name: 'Disabled',
         description:
             'Total number of events that were skipped due to the destination being permanently disabled (due to prolonged issues with the destination)',
         color: getColorVar('danger'),
     },
 }
 
-export function HogFunctionMetrics({ id }: HogFunctionMetricsLogicProps): JSX.Element {
+export function HogFunctionMetrics({ id }: { id: string }): JSX.Element {
     const logic = appMetricsLogic({
         logicKey: `hog-function-metrics-${id}`,
         loadOnChanges: true,
