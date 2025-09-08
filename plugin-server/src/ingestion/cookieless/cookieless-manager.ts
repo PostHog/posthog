@@ -83,6 +83,7 @@ interface CookielessConfig {
     identifiesTtlSeconds: number
     sessionTtlSeconds: number
     saltTtlSeconds: number
+    timestampLoggingSampleRate: number
     sessionInactivityMs: number
 }
 
@@ -107,6 +108,7 @@ export class CookielessManager {
             saltTtlSeconds: config.COOKIELESS_SALT_TTL_SECONDS,
             sessionInactivityMs: config.COOKIELESS_SESSION_INACTIVITY_MS,
             identifiesTtlSeconds: config.COOKIELESS_IDENTIFIES_TTL_SECONDS,
+            timestampLoggingSampleRate: config.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE,
         }
 
         this.redisHelpers = new RedisHelpers(redis)
@@ -351,7 +353,14 @@ export class CookielessManager {
             }
 
             // Compare timestamp from headers with current parsing logic
-            compareTimestamps(timestamp, headers, team.id, event.uuid, 'cookieless_processing')
+            compareTimestamps(
+                timestamp,
+                headers,
+                team.id,
+                event.uuid,
+                'cookieless_processing',
+                this.config.timestampLoggingSampleRate
+            )
 
             const {
                 userAgent,

@@ -422,6 +422,9 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     COOKIELESS_REDIS_HOST: string
     COOKIELESS_REDIS_PORT: number
 
+    // Timestamp comparison logging (0.0 = disabled, 1.0 = 100% sampling)
+    TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: number
+
     SESSION_RECORDING_MAX_BATCH_SIZE_KB: number
     SESSION_RECORDING_MAX_BATCH_AGE_MS: number
     SESSION_RECORDING_V2_S3_BUCKET: string

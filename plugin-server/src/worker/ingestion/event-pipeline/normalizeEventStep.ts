@@ -11,7 +11,8 @@ import { parseEventTimestamp } from '../timestamps'
 export function normalizeEventStep(
     event: PluginEvent,
     processPerson: boolean,
-    headers?: EventHeaders
+    headers?: EventHeaders,
+    timestampLoggingSampleRate?: number
 ): Promise<[PluginEvent, DateTime]> {
     let timestamp: DateTime
     try {
@@ -21,7 +22,14 @@ export function normalizeEventStep(
 
         // Compare timestamp from headers with event.timestamp - they should be equal if implemented correctly
         if (event.timestamp) {
-            compareTimestamps(event.timestamp, headers, event.team_id, event.uuid, 'normalize_event_step')
+            compareTimestamps(
+                event.timestamp,
+                headers,
+                event.team_id,
+                event.uuid,
+                'normalize_event_step',
+                timestampLoggingSampleRate
+            )
         }
     } catch (error) {
         logger.warn('⚠️', 'Failed normalizing event', {

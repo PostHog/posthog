@@ -12,6 +12,19 @@ const timestampComparisonCounter = new Counter({
 })
 
 /**
+ * Determine if we should log based on sample rate
+ */
+function shouldSampleLog(sampleRate: number): boolean {
+    if (sampleRate <= 0) {
+        return false
+    }
+    if (sampleRate >= 1) {
+        return true
+    }
+    return Math.random() < sampleRate
+}
+
+/**
  * Compare timestamp from headers with current parsing logic and log differences
  */
 export function compareTimestamps(
@@ -19,7 +32,8 @@ export function compareTimestamps(
     headers: EventHeaders | undefined,
     teamId: number,
     eventUuid?: string,
-    context?: string
+    context?: string,
+    loggingSampleRate: number = 0.0
 ): void {
     const contextLabel = context || 'timestamp_comparison'
     const teamIdLabel = teamId.toString()
@@ -71,16 +85,18 @@ export function compareTimestamps(
                 })
                 .inc()
 
-            logger.info('Timestamp difference detected', {
-                context: contextLabel,
-                team_id: teamId,
-                event_uuid: eventUuid,
-                current_timestamp: currentTimestamp,
-                header_timestamp_ms: headerTimestampMs,
-                current_parsed: currentDate.toISOString(),
-                header_parsed: headerDate.toISOString(),
-                difference_ms: Math.abs(headerTime - currentTime),
-            })
+            if (shouldSampleLog(loggingSampleRate)) {
+                logger.info('Timestamp difference detected', {
+                    context: contextLabel,
+                    team_id: teamId,
+                    event_uuid: eventUuid,
+                    current_timestamp: currentTimestamp,
+                    header_timestamp_ms: headerTimestampMs,
+                    current_parsed: currentDate.toISOString(),
+                    header_parsed: headerDate.toISOString(),
+                    difference_ms: Math.abs(headerTime - currentTime),
+                })
+            }
         }
     } catch (error) {
         timestampComparisonCounter
@@ -91,13 +107,15 @@ export function compareTimestamps(
             })
             .inc()
 
-        logger.warn('Failed to compare timestamps', {
-            context: contextLabel,
-            error: error.message,
-            team_id: teamId,
-            event_uuid: eventUuid,
-            header_timestamp: headers.timestamp,
-            current_timestamp: currentTimestamp,
-        })
+        if (shouldSampleLog(loggingSampleRate)) {
+            logger.warn('Failed to compare timestamps', {
+                context: contextLabel,
+                error: error.message,
+                team_id: teamId,
+                event_uuid: eventUuid,
+                header_timestamp: headers.timestamp,
+                current_timestamp: currentTimestamp,
+            })
+        }
     }
 }

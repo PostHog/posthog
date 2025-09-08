@@ -306,7 +306,7 @@ export class EventPipelineRunner {
 
         const [normalizedEvent, timestamp] = await this.runStep(
             normalizeEventStep,
-            [transformedEvent, processPerson, this.headers],
+            [transformedEvent, processPerson, this.headers, this.hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE],
             event.team_id
         )
 

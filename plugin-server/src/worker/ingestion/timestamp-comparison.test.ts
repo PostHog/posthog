@@ -172,4 +172,97 @@ describe('compareTimestamps', () => {
         expect(mockLabels).toHaveBeenCalled()
         expect(mockInc).toHaveBeenCalled()
     })
+
+    it('should always log when sample rate is 1.0', () => {
+        const timestamp = '2023-01-01T12:00:00Z'
+        const timestampMs = DateTime.fromISO(timestamp).toMillis() + 1000 // 1 second difference
+        const headers: EventHeaders = {
+            timestamp: timestampMs.toString(),
+        }
+
+        compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context', 1.0)
+
+        expect(mockLoggerInfo).toHaveBeenCalledWith('Timestamp difference detected', expect.any(Object))
+        expect(mockLabels).toHaveBeenCalledWith({
+            result: 'difference_detected',
+            context: 'test-context',
+            team_id: '123',
+        })
+    })
+
+    it('should never log when sample rate is 0.0', () => {
+        const timestamp = '2023-01-01T12:00:00Z'
+        const timestampMs = DateTime.fromISO(timestamp).toMillis() + 1000 // 1 second difference
+        const headers: EventHeaders = {
+            timestamp: timestampMs.toString(),
+        }
+
+        compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context', 0.0)
+
+        expect(mockLoggerInfo).not.toHaveBeenCalled()
+        expect(mockLabels).toHaveBeenCalledWith({
+            result: 'difference_detected',
+            context: 'test-context',
+            team_id: '123',
+        })
+    })
+
+    it('should always log parse error when sample rate is 1.0', () => {
+        const headers: EventHeaders = {
+            timestamp: 'invalid-timestamp',
+        }
+
+        compareTimestamps('invalid-date-format', headers, 123, 'test-uuid', 'test-context', 1.0)
+
+        expect(mockLoggerWarn).toHaveBeenCalledWith('Failed to compare timestamps', expect.any(Object))
+        expect(mockLabels).toHaveBeenCalledWith({
+            result: 'parse_error',
+            context: 'test-context',
+            team_id: '123',
+        })
+    })
+
+    it('should never log parse error when sample rate is 0.0', () => {
+        const headers: EventHeaders = {
+            timestamp: 'invalid-timestamp',
+        }
+
+        compareTimestamps('invalid-date-format', headers, 123, 'test-uuid', 'test-context', 0.0)
+
+        expect(mockLoggerWarn).not.toHaveBeenCalled()
+        expect(mockLabels).toHaveBeenCalledWith({
+            result: 'parse_error',
+            context: 'test-context',
+            team_id: '123',
+        })
+    })
+
+    it('should respect sampling for intermediate rates', () => {
+        // Mock Math.random to return predictable values
+        const originalRandom = Math.random
+        const mockRandom = jest.fn()
+        Math.random = mockRandom
+
+        const timestamp = '2023-01-01T12:00:00Z'
+        const timestampMs = DateTime.fromISO(timestamp).toMillis() + 1000
+        const headers: EventHeaders = {
+            timestamp: timestampMs.toString(),
+        }
+
+        try {
+            // Test with 50% sampling - should log when random < 0.5
+            mockRandom.mockReturnValue(0.3) // < 0.5, should log
+            compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context', 0.5)
+            expect(mockLoggerInfo).toHaveBeenCalled()
+
+            jest.clearAllMocks()
+
+            // Test with 50% sampling - should not log when random >= 0.5
+            mockRandom.mockReturnValue(0.7) // >= 0.5, should not log
+            compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context', 0.5)
+            expect(mockLoggerInfo).not.toHaveBeenCalled()
+        } finally {
+            Math.random = originalRandom
+        }
+    })
 })
