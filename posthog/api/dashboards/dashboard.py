@@ -885,7 +885,7 @@ def handle_dashboard_change(
     log_activity(
         organization_id=after_update.team.organization_id,
         team_id=after_update.team_id,
-        user=user if user else (after_update.created_by if activity == "created" else after_update.last_modified_by),
+        user=user if user else (after_update.created_by if activity == "created" else None),
         was_impersonated=was_impersonated,
         item_id=after_update.id,
         scope=scope,
