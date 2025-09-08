@@ -758,4 +758,62 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             mock_chain.assert_called_once_with(mock_task, mock_task, mock_task)
             mock_chain_instance.apply_async.assert_called_once()
 
+        def test_safe_save_cohort_state_handles_errors(self) -> None:
+            """Test that _safe_save_cohort_state handles database errors gracefully"""
+            from unittest.mock import patch
+
+            # Create a static cohort
+            cohort = Cohort.objects.create(
+                team_id=self.team.pk,
+                name="test_cohort",
+                is_static=True,
+                count=0,
+            )
+
+            # Mock save to throw an exception
+            with patch.object(cohort, "save", side_effect=Exception("Database error")):
+                # This should not raise an exception - it should handle the error gracefully
+                cohort._safe_save_cohort_state(team_id=self.team.pk, processing_error=None)
+
+            # Verify cohort state is still set correctly in memory even though save failed
+            self.assertFalse(cohort.is_calculating)
+            self.assertEqual(cohort.errors_calculating, 0)  # Should be reset for successful processing
+
+        def test_insert_cohort_from_query_count_updated_on_exception(self) -> None:
+            """Test that insert_cohort_from_query updates count even when processing fails"""
+            from unittest.mock import patch
+
+            from posthog.tasks.calculate_cohort import insert_cohort_from_query
+
+            # Create a static cohort
+            cohort = Cohort.objects.create(
+                team_id=self.team.pk,
+                name="test_query_cohort",
+                is_static=True,
+                count=0,
+                query={"kind": "HogQLQuery", "query": "SELECT person_id FROM persons LIMIT 10"},
+            )
+
+            # Mock the query processing to fail but let count calculation succeed
+            with (
+                patch("posthog.api.cohort.insert_cohort_query_actors_into_ch") as mock_insert_ch,
+                patch("posthog.api.cohort.insert_cohort_people_into_pg") as mock_insert_pg,
+                patch("posthog.tasks.calculate_cohort.get_static_cohort_size") as mock_get_size,
+            ):
+                # Make the processing functions throw an exception
+                mock_insert_ch.side_effect = Exception("Simulated query processing error")
+                mock_insert_pg.side_effect = Exception("Simulated pg insert error")
+
+                # But make the count calculation return a value
+                mock_get_size.return_value = 5
+
+                # This should not raise an exception and should update the count
+                insert_cohort_from_query(cohort.id, self.team.pk)
+
+                # Verify count was updated despite processing errors
+                cohort.refresh_from_db()
+                self.assertEqual(cohort.count, 5, "Count should be updated even when query processing fails")
+                self.assertFalse(cohort.is_calculating, "Cohort should not be in calculating state")
+                self.assertGreater(cohort.errors_calculating, 0, "Should have recorded the processing error")
+
     return TestCalculateCohort
