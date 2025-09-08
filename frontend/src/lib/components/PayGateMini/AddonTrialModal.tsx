@@ -30,8 +30,8 @@ export function AddonTrialModal({ product, isOpen, onClose }: AddonTrialModalPro
         <LemonModal isOpen={isOpen} onClose={onClose} title={product.name} description={product.description}>
             <div className="flex flex-col">
                 <div className="bg-surface-secondary rounded p-6 flex flex-col">
-                    <div className="flex justify-center mt-4 mb-4">
-                        <BigLeaguesHog width={300} height={300} />
+                    <div className="hidden sm:flex [@media(max-height:800px)]:hidden justify-center my-2">
+                        <BigLeaguesHog className="h-auto w-auto max-w-full max-h-[25vh] [@media(min-height:1200px)]:max-h-[300px]" />
                     </div>
                     <BillingAddonFeaturesList
                         addonFeatures={addonFeatures?.filter((f: any) => !f.entitlement_only) || []}
