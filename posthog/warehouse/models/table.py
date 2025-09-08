@@ -1,4 +1,5 @@
 import csv
+import time
 from datetime import datetime
 from io import StringIO
 from typing import TYPE_CHECKING, Any, Optional, TypeAlias
@@ -210,6 +211,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                             self._safe_expose_ch_error(err)
                         else:
                             raise
+
+                    # Pause execution slightly to not overload clickhouse
+                    time.sleep(2**i)
 
         if result is None or isinstance(result, int):
             raise Exception("No columns types provided by clickhouse in get_columns")

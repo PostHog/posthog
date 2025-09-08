@@ -1,3 +1,4 @@
+from .deep_research.graph import DeepResearchAssistantGraph
 from .funnels.nodes import FunnelGeneratorNode
 from .graph import AssistantGraph, InsightsAssistantGraph
 from .inkeep_docs.nodes import InkeepDocsNode
@@ -28,4 +29,5 @@ __all__ = [
     "AssistantGraph",
     "InsightsAssistantGraph",
     "InsightSearchNode",
+    "DeepResearchAssistantGraph",
 ]

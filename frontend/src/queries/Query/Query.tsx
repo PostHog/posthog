@@ -24,7 +24,6 @@ import { QueryContext } from '~/queries/types'
 
 import {
     RevenueAnalyticsGrossRevenueNode,
-    RevenueAnalyticsGrowthRateNode,
     RevenueAnalyticsMRRNode,
     RevenueAnalyticsMetricsNode,
     RevenueAnalyticsOverviewNode,
@@ -40,7 +39,6 @@ import {
     isHogQuery,
     isInsightVizNode,
     isRevenueAnalyticsGrossRevenueQuery,
-    isRevenueAnalyticsGrowthRateQuery,
     isRevenueAnalyticsMRRQuery,
     isRevenueAnalyticsMetricsQuery,
     isRevenueAnalyticsOverviewQuery,
@@ -185,10 +183,6 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 cachedResults={props.cachedResults}
                 context={queryContext}
             />
-        )
-    } else if (isRevenueAnalyticsGrowthRateQuery(query)) {
-        component = (
-            <RevenueAnalyticsGrowthRateNode query={query} cachedResults={props.cachedResults} context={queryContext} />
         )
     } else if (isRevenueAnalyticsMetricsQuery(query)) {
         component = (

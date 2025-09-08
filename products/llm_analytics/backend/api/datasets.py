@@ -28,6 +28,7 @@ class DatasetSerializer(serializers.ModelSerializer):
             "updated_at",
             "deleted",
             "created_by",
+            "team",
         ]
         read_only_fields = [
             "id",
@@ -61,7 +62,9 @@ class DatasetFilter(django_filters.FilterSet):
 
     class Meta:
         model = Dataset
-        fields = ["search", "order_by"]
+        fields = {
+            "id": ["in"],
+        }
 
     def filter_search(self, queryset, name, value):
         if value:

@@ -13,3 +13,31 @@
   FROM stripe_test_subscription
   '''
 # ---
+# name: TestSubscriptionStripeBuilder.test_build_with_no_subscription_schema
+  '''
+  SELECT NULL AS id,
+         NULL AS source_label,
+         NULL AS plan_id,
+         NULL AS product_id,
+         NULL AS customer_id,
+         NULL AS status,
+         NULL AS started_at,
+         NULL AS ended_at,
+         NULL AS metadata
+  WHERE false
+  '''
+# ---
+# name: TestSubscriptionStripeBuilder.test_build_with_subscription_schema_but_no_table
+  '''
+  SELECT NULL AS id,
+         NULL AS source_label,
+         NULL AS plan_id,
+         NULL AS product_id,
+         NULL AS customer_id,
+         NULL AS status,
+         NULL AS started_at,
+         NULL AS ended_at,
+         NULL AS metadata
+  WHERE false
+  '''
+# ---
