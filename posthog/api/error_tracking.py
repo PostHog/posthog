@@ -438,7 +438,7 @@ class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel,
         return Response({"results": serializer.data})
 
     @action(methods=["POST"], detail=False)
-    def raw_id_release_metadata(self, request, **kwargs):
+    def release_metadata(self, request, **kwargs):
         raw_ids = request.data.get("raw_ids", [])
 
         if not isinstance(raw_ids, list):

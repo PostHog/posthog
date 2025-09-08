@@ -994,7 +994,7 @@ export class ApiRequest {
     }
 
     public errorTrackingStackFramesReleaseMetadata(): ApiRequest {
-        return this.errorTracking().addPathComponent('stack_frames/raw_id_release_metadata')
+        return this.errorTracking().addPathComponent('stack_frames/release_metadata')
     }
 
     public errorTrackingRules(ruleType: ErrorTrackingRuleType, teamId?: TeamType['id']): ApiRequest {
