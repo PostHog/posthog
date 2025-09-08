@@ -21,14 +21,12 @@ function GroupDetailDashboard({
     const { groupTypeName } = useValues(groupLogic)
     const dashboardLogicProps = {
         id: groupTypeDetailDashboard,
-        variables: {
-            group_key: {
-                variableId: 'group_key',
+        variables: [
+            {
                 code_name: 'group_key',
                 value: groupData.group_key,
-                isNull: false,
             },
-        },
+        ],
     }
     const { setProperties, setLoadLayoutFromServerOnPreview } = useActions(dashboardLogic(dashboardLogicProps))
 
