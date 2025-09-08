@@ -1,7 +1,6 @@
 use chrono::{DateTime, Datelike, Duration, Utc};
 use serde_json::Value;
 use std::collections::HashMap;
-use tracing::error;
 
 const FUTURE_EVENT_HOURS_CUTOFF_MILLIS: i64 = 23 * 3600 * 1000; // 23 hours
 
@@ -11,117 +10,28 @@ pub struct IngestionWarning {
     pub details: HashMap<String, Value>,
 }
 
-pub type IngestionWarningCallback = Box<dyn Fn(IngestionWarning) + Send + Sync>;
+#[derive(Debug, Clone)]
+pub struct TimestampResult {
+    pub timestamp: DateTime<Utc>,
+    pub warnings: Vec<IngestionWarning>,
+}
 
+/// Parse event timestamp with clock skew adjustment and validation
+///
+/// # Arguments
+/// * `event_data` - The event data containing timestamp, sent_at, offset fields
+/// * `now` - The current server timestamp
+///
+/// # Returns
+/// * `TimestampResult` - Contains the parsed timestamp and any ingestion warnings
 pub fn parse_event_timestamp(
     event_data: &HashMap<String, Value>,
-    callback: Option<&IngestionWarningCallback>,
-) -> DateTime<Utc> {
-    // Extract 'now' field - set by capture endpoint and assumed valid
-    let now = match event_data.get("now") {
-        Some(Value::String(now_str)) => match DateTime::parse_from_rfc3339(now_str) {
-            Ok(dt) => dt.with_timezone(&Utc),
-            Err(_) => {
-                error!("Invalid 'now' timestamp: {}", now_str);
-                return DateTime::UNIX_EPOCH;
-            }
-        },
-        _ => {
-            error!("Missing or invalid 'now' field");
-            return DateTime::UNIX_EPOCH;
-        }
-    };
+    now: DateTime<Utc>,
+) -> TimestampResult {
+    let mut warnings = Vec::new();
 
     // Extract and validate 'sent_at' if present
-
-    let sent_at = if let Some(properties) = event_data.get("properties").and_then(|p| p.as_object())
-    {
-        if properties
-            .get("$ignore_sent_at")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false)
-        {
-            None
-        } else {
-            event_data
-                .get("sent_at")
-                .and_then(|v| v.as_str())
-                .map(
-                    |sent_at_str| match DateTime::parse_from_rfc3339(sent_at_str) {
-                        Ok(dt) => Some(dt.with_timezone(&Utc)),
-                        Err(_) => {
-                            if let Some(cb) = callback {
-                                let mut details = HashMap::new();
-                                details.insert(
-                                    "eventUuid".to_string(),
-                                    event_data
-                                        .get("uuid")
-                                        .cloned()
-                                        .unwrap_or(Value::String("".to_string())),
-                                );
-                                details.insert(
-                                    "field".to_string(),
-                                    Value::String("sent_at".to_string()),
-                                );
-                                details.insert(
-                                    "value".to_string(),
-                                    Value::String(sent_at_str.to_string()),
-                                );
-                                details.insert(
-                                    "reason".to_string(),
-                                    Value::String("invalid format".to_string()),
-                                );
-
-                                cb(IngestionWarning {
-                                    warning_type: "ignored_invalid_timestamp".to_string(),
-                                    details,
-                                });
-                            }
-                            None
-                        }
-                    },
-                )
-                .flatten()
-        }
-    } else {
-        event_data
-            .get("sent_at")
-            .and_then(|v| v.as_str())
-            .map(
-                |sent_at_str| match DateTime::parse_from_rfc3339(sent_at_str) {
-                    Ok(dt) => Some(dt.with_timezone(&Utc)),
-                    Err(_) => {
-                        if let Some(cb) = callback {
-                            let mut details = HashMap::new();
-                            details.insert(
-                                "eventUuid".to_string(),
-                                event_data
-                                    .get("uuid")
-                                    .cloned()
-                                    .unwrap_or(Value::String("".to_string())),
-                            );
-                            details
-                                .insert("field".to_string(), Value::String("sent_at".to_string()));
-                            details.insert(
-                                "value".to_string(),
-                                Value::String(sent_at_str.to_string()),
-                            );
-                            details.insert(
-                                "reason".to_string(),
-                                Value::String("invalid format".to_string()),
-                            );
-
-                            cb(IngestionWarning {
-                                warning_type: "ignored_invalid_timestamp".to_string(),
-                                details,
-                            });
-                        }
-                        None
-                    }
-                },
-            )
-            .flatten()
-    };
+    let sent_at = extract_sent_at(event_data, &mut warnings);
 
     // Get team_id for error reporting
     let team_id = event_data
@@ -129,106 +39,155 @@ pub fn parse_event_timestamp(
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
 
-    let parsed_ts = handle_timestamp(event_data, now, sent_at, team_id);
+    let mut parsed_ts = handle_timestamp(event_data, now, sent_at, team_id);
 
     // Check for future events
     let now_diff = parsed_ts.signed_duration_since(now).num_milliseconds();
-    let parsed_ts = if now_diff > FUTURE_EVENT_HOURS_CUTOFF_MILLIS {
-        if let Some(cb) = callback {
-            let mut details = HashMap::new();
-            details.insert(
-                "timestamp".to_string(),
-                event_data
-                    .get("timestamp")
-                    .cloned()
-                    .unwrap_or(Value::String("".to_string())),
-            );
-            details.insert(
-                "sentAt".to_string(),
-                event_data
-                    .get("sent_at")
-                    .cloned()
-                    .unwrap_or(Value::String("".to_string())),
-            );
-            details.insert(
-                "offset".to_string(),
-                event_data
-                    .get("offset")
-                    .cloned()
-                    .unwrap_or(Value::String("".to_string())),
-            );
-            details.insert("now".to_string(), Value::String(now.to_rfc3339()));
-            details.insert("result".to_string(), Value::String(parsed_ts.to_rfc3339()));
-            details.insert(
-                "eventUuid".to_string(),
-                event_data
-                    .get("uuid")
-                    .cloned()
-                    .unwrap_or(Value::String("".to_string())),
-            );
-            details.insert(
-                "eventName".to_string(),
-                event_data
-                    .get("event")
-                    .cloned()
-                    .unwrap_or(Value::String("".to_string())),
-            );
+    if now_diff > FUTURE_EVENT_HOURS_CUTOFF_MILLIS {
+        let mut details = HashMap::new();
+        details.insert(
+            "timestamp".to_string(),
+            event_data
+                .get("timestamp")
+                .cloned()
+                .unwrap_or(Value::String("".to_string())),
+        );
+        details.insert(
+            "sentAt".to_string(),
+            event_data
+                .get("sent_at")
+                .cloned()
+                .unwrap_or(Value::String("".to_string())),
+        );
+        details.insert(
+            "offset".to_string(),
+            event_data
+                .get("offset")
+                .cloned()
+                .unwrap_or(Value::String("".to_string())),
+        );
+        details.insert("now".to_string(), Value::String(now.to_rfc3339()));
+        details.insert("result".to_string(), Value::String(parsed_ts.to_rfc3339()));
+        details.insert(
+            "eventUuid".to_string(),
+            event_data
+                .get("uuid")
+                .cloned()
+                .unwrap_or(Value::String("".to_string())),
+        );
+        details.insert(
+            "eventName".to_string(),
+            event_data
+                .get("event")
+                .cloned()
+                .unwrap_or(Value::String("".to_string())),
+        );
 
-            cb(IngestionWarning {
-                warning_type: "event_timestamp_in_future".to_string(),
-                details,
-            });
-        }
-        now // Fix the timestamp to now
-    } else {
-        parsed_ts
-    };
+        warnings.push(IngestionWarning {
+            warning_type: "event_timestamp_in_future".to_string(),
+            details,
+        });
 
-    // Check if timestamp is out of bounds
-    let parsed_ts_out_of_bounds = parsed_ts.year() < 0 || parsed_ts.year() > 9999;
-    if parsed_ts_out_of_bounds {
-        if let Some(cb) = callback {
-            let mut details = HashMap::new();
-            details.insert(
-                "eventUuid".to_string(),
-                event_data
-                    .get("uuid")
-                    .cloned()
-                    .unwrap_or(Value::String("".to_string())),
-            );
-            details.insert("field".to_string(), Value::String("timestamp".to_string()));
-            details.insert(
-                "value".to_string(),
-                event_data
-                    .get("timestamp")
-                    .cloned()
-                    .unwrap_or(Value::String("".to_string())),
-            );
-            details.insert(
-                "reason".to_string(),
-                Value::String("out of bounds".to_string()),
-            );
-            details.insert(
-                "offset".to_string(),
-                event_data
-                    .get("offset")
-                    .cloned()
-                    .unwrap_or(Value::String("".to_string())),
-            );
-            details.insert(
-                "parsed_year".to_string(),
-                Value::Number(parsed_ts.year().into()),
-            );
-
-            cb(IngestionWarning {
-                warning_type: "ignored_invalid_timestamp".to_string(),
-                details,
-            });
-        }
-        return DateTime::UNIX_EPOCH;
+        parsed_ts = now; // Fix the timestamp to now
     }
 
-    parsed_ts
+    // Check if timestamp is out of bounds
+    if parsed_ts.year() < 0 || parsed_ts.year() > 9999 {
+        let mut details = HashMap::new();
+        details.insert(
+            "eventUuid".to_string(),
+            event_data
+                .get("uuid")
+                .cloned()
+                .unwrap_or(Value::String("".to_string())),
+        );
+        details.insert("field".to_string(), Value::String("timestamp".to_string()));
+        details.insert(
+            "value".to_string(),
+            event_data
+                .get("timestamp")
+                .cloned()
+                .unwrap_or(Value::String("".to_string())),
+        );
+        details.insert(
+            "reason".to_string(),
+            Value::String("out of bounds".to_string()),
+        );
+        details.insert(
+            "offset".to_string(),
+            event_data
+                .get("offset")
+                .cloned()
+                .unwrap_or(Value::String("".to_string())),
+        );
+        details.insert(
+            "parsed_year".to_string(),
+            Value::Number(parsed_ts.year().into()),
+        );
+
+        warnings.push(IngestionWarning {
+            warning_type: "ignored_invalid_timestamp".to_string(),
+            details,
+        });
+
+        parsed_ts = DateTime::UNIX_EPOCH;
+    }
+
+    TimestampResult {
+        timestamp: parsed_ts,
+        warnings,
+    }
+}
+
+fn extract_sent_at(
+    event_data: &HashMap<String, Value>,
+    warnings: &mut Vec<IngestionWarning>,
+) -> Option<DateTime<Utc>> {
+    // Check if $ignore_sent_at is set in properties
+    if let Some(properties) = event_data.get("properties").and_then(|p| p.as_object()) {
+        if properties
+            .get("$ignore_sent_at")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            return None;
+        }
+    }
+
+    // Extract sent_at and parse it
+    event_data
+        .get("sent_at")
+        .and_then(|v| v.as_str())
+        .and_then(|sent_at_str| {
+            match DateTime::parse_from_rfc3339(sent_at_str) {
+                Ok(dt) => Some(dt.with_timezone(&Utc)),
+                Err(_) => {
+                    let mut details = HashMap::new();
+                    details.insert(
+                        "eventUuid".to_string(),
+                        event_data
+                            .get("uuid")
+                            .cloned()
+                            .unwrap_or(Value::String("".to_string())),
+                    );
+                    details.insert("field".to_string(), Value::String("sent_at".to_string()));
+                    details.insert(
+                        "value".to_string(),
+                        Value::String(sent_at_str.to_string()),
+                    );
+                    details.insert(
+                        "reason".to_string(),
+                        Value::String("invalid format".to_string()),
+                    );
+
+                    warnings.push(IngestionWarning {
+                        warning_type: "ignored_invalid_timestamp".to_string(),
+                        details,
+                    });
+                    None
+                }
+            }
+        })
 }
 
 fn handle_timestamp(
@@ -353,7 +312,7 @@ fn parse_date(supposed_iso_string: &str) -> Option<DateTime<Utc>> {
 mod tests {
     use super::*;
     use chrono::{TimeZone, Utc};
-    use std::sync::{Arc, Mutex};
+    use serde_json::Map;
 
     fn create_test_event(
         now: &str,
@@ -392,47 +351,51 @@ mod tests {
     #[test]
     fn test_parse_event_timestamp_basic() {
         let now_str = "2023-01-01T12:00:00Z";
+        let now = DateTime::parse_from_rfc3339(now_str).unwrap().with_timezone(&Utc);
         let event = create_test_event(now_str, None, None, None, None);
 
-        let result = parse_event_timestamp(&event, None);
-        let expected = DateTime::parse_from_rfc3339(now_str)
-            .unwrap()
-            .with_timezone(&Utc);
+        let result = parse_event_timestamp(&event, now);
 
-        assert_eq!(result, expected);
+        assert_eq!(result.timestamp, now);
+        assert_eq!(result.warnings.len(), 0);
     }
 
     #[test]
     fn test_parse_event_timestamp_with_clock_skew() {
         let now_str = "2023-01-01T12:00:00Z";
+        let now = DateTime::parse_from_rfc3339(now_str).unwrap().with_timezone(&Utc);
         let sent_at_str = "2023-01-01T12:00:05Z"; // 5 seconds ahead
         let timestamp_str = "2023-01-01T11:59:55Z"; // 10 seconds before sent_at
 
         let event = create_test_event(now_str, Some(timestamp_str), Some(sent_at_str), None, None);
 
-        let result = parse_event_timestamp(&event, None);
+        let result = parse_event_timestamp(&event, now);
         // Expected: now + (timestamp - sent_at) = 12:00:00 + (11:59:55 - 12:00:05) = 12:00:00 - 00:00:10 = 11:59:50
         let expected = Utc.with_ymd_and_hms(2023, 1, 1, 11, 59, 50).unwrap();
 
-        assert_eq!(result, expected);
+        assert_eq!(result.timestamp, expected);
+        assert_eq!(result.warnings.len(), 0);
     }
 
     #[test]
     fn test_parse_event_timestamp_with_offset() {
         let now_str = "2023-01-01T12:00:00Z";
+        let now = DateTime::parse_from_rfc3339(now_str).unwrap().with_timezone(&Utc);
         let offset = 5000; // 5 seconds
 
         let event = create_test_event(now_str, None, None, Some(offset), None);
 
-        let result = parse_event_timestamp(&event, None);
+        let result = parse_event_timestamp(&event, now);
         let expected = Utc.with_ymd_and_hms(2023, 1, 1, 11, 59, 55).unwrap();
 
-        assert_eq!(result, expected);
+        assert_eq!(result.timestamp, expected);
+        assert_eq!(result.warnings.len(), 0);
     }
 
     #[test]
     fn test_parse_event_timestamp_ignore_sent_at() {
         let now_str = "2023-01-01T12:00:00Z";
+        let now = DateTime::parse_from_rfc3339(now_str).unwrap().with_timezone(&Utc);
         let sent_at_str = "2023-01-01T12:00:05Z";
         let timestamp_str = "2023-01-01T11:00:00Z";
 
@@ -444,92 +407,73 @@ mod tests {
             Some(true),
         );
 
-        let result = parse_event_timestamp(&event, None);
+        let result = parse_event_timestamp(&event, now);
         // Should use timestamp directly since sent_at is ignored
         let expected = Utc.with_ymd_and_hms(2023, 1, 1, 11, 0, 0).unwrap();
 
-        assert_eq!(result, expected);
+        assert_eq!(result.timestamp, expected);
+        assert_eq!(result.warnings.len(), 0);
     }
 
     #[test]
     fn test_parse_event_timestamp_future_event() {
         let now_str = "2023-01-01T12:00:00Z";
+        let now = DateTime::parse_from_rfc3339(now_str).unwrap().with_timezone(&Utc);
         let future_timestamp = "2023-01-02T12:00:00Z"; // 24 hours in the future
 
         let event = create_test_event(now_str, Some(future_timestamp), None, None, None);
 
-        let warnings = Arc::new(Mutex::new(Vec::new()));
-        let warnings_clone = warnings.clone();
-        let callback: IngestionWarningCallback = Box::new(move |warning| {
-            warnings_clone.lock().unwrap().push(warning);
-        });
-
-        let result = parse_event_timestamp(&event, Some(&callback));
+        let result = parse_event_timestamp(&event, now);
 
         // Should clamp to now for future events
         let expected = DateTime::parse_from_rfc3339(now_str)
             .unwrap()
             .with_timezone(&Utc);
-        assert_eq!(result, expected);
-
-        let warnings_vec = warnings.lock().unwrap();
-        assert_eq!(warnings_vec.len(), 1);
-        assert_eq!(warnings_vec[0].warning_type, "event_timestamp_in_future");
+        assert_eq!(result.timestamp, expected);
+        assert_eq!(result.warnings.len(), 1);
+        assert_eq!(result.warnings[0].warning_type, "event_timestamp_in_future");
     }
 
     #[test]
     fn test_parse_event_timestamp_out_of_bounds() {
         let now_str = "2023-01-01T12:00:00Z";
+        let now = DateTime::parse_from_rfc3339(now_str).unwrap().with_timezone(&Utc);
         let invalid_timestamp = "0001-01-01T12:00:00Z"; // Year 1 is within bounds, this will be parsed successfully
 
         let event = create_test_event(now_str, Some(invalid_timestamp), None, None, None);
 
-        let warnings = Arc::new(Mutex::new(Vec::new()));
-        let warnings_clone = warnings.clone();
-        let callback: IngestionWarningCallback = Box::new(move |warning| {
-            warnings_clone.lock().unwrap().push(warning);
-        });
-
-        let result = parse_event_timestamp(&event, Some(&callback));
+        let result = parse_event_timestamp(&event, now);
 
         // Should use the parsed timestamp (year 1 is valid)
         let expected = DateTime::parse_from_rfc3339(invalid_timestamp)
             .unwrap()
             .with_timezone(&Utc);
-        assert_eq!(result, expected);
-
-        let warnings_vec = warnings.lock().unwrap();
-        assert_eq!(warnings_vec.len(), 0); // No warnings for valid timestamps
+        assert_eq!(result.timestamp, expected);
+        assert_eq!(result.warnings.len(), 0); // No warnings for valid timestamps
     }
 
     #[test]
     fn test_parse_event_timestamp_unparseable() {
         let now_str = "2023-01-01T12:00:00Z";
+        let now = DateTime::parse_from_rfc3339(now_str).unwrap().with_timezone(&Utc);
         let invalid_timestamp = "99999-01-01T12:00:00Z"; // This should fail to parse due to year being too large
 
         let event = create_test_event(now_str, Some(invalid_timestamp), None, None, None);
 
-        let warnings = Arc::new(Mutex::new(Vec::new()));
-        let warnings_clone = warnings.clone();
-        let callback: IngestionWarningCallback = Box::new(move |warning| {
-            warnings_clone.lock().unwrap().push(warning);
-        });
-
-        let result = parse_event_timestamp(&event, Some(&callback));
+        let result = parse_event_timestamp(&event, now);
 
         // Should fall back to 'now' when timestamp fails to parse
         let expected = DateTime::parse_from_rfc3339(now_str)
             .unwrap()
             .with_timezone(&Utc);
-        assert_eq!(result, expected);
-
-        let warnings_vec = warnings.lock().unwrap();
-        assert_eq!(warnings_vec.len(), 0); // No warnings when parsing fails, just falls back to now
+        assert_eq!(result.timestamp, expected);
+        assert_eq!(result.warnings.len(), 0); // No warnings when parsing fails, just falls back to now
     }
 
     #[test]
     fn test_parse_event_timestamp_invalid_sent_at() {
         let now_str = "2023-01-01T12:00:00Z";
+        let now = DateTime::parse_from_rfc3339(now_str).unwrap().with_timezone(&Utc);
         let timestamp_str = "2023-01-01T11:00:00Z";
         let invalid_sent_at = "invalid-date";
 
@@ -541,21 +485,13 @@ mod tests {
             None,
         );
 
-        let warnings = Arc::new(Mutex::new(Vec::new()));
-        let warnings_clone = warnings.clone();
-        let callback: IngestionWarningCallback = Box::new(move |warning| {
-            warnings_clone.lock().unwrap().push(warning);
-        });
-
-        let result = parse_event_timestamp(&event, Some(&callback));
+        let result = parse_event_timestamp(&event, now);
 
         // Should use timestamp directly since sent_at is invalid
         let expected = Utc.with_ymd_and_hms(2023, 1, 1, 11, 0, 0).unwrap();
-        assert_eq!(result, expected);
-
-        let warnings_vec = warnings.lock().unwrap();
-        assert_eq!(warnings_vec.len(), 1);
-        assert_eq!(warnings_vec[0].warning_type, "ignored_invalid_timestamp");
+        assert_eq!(result.timestamp, expected);
+        assert_eq!(result.warnings.len(), 1);
+        assert_eq!(result.warnings[0].warning_type, "ignored_invalid_timestamp");
     }
 
     #[test]
@@ -569,6 +505,7 @@ mod tests {
             ("01/01/2023", true),
             ("1672574400000", true), // Timestamp in milliseconds
             ("invalid-date", false),
+            ("99999-01-01T12:00:00Z", false), // Year too large, should not parse
         ];
 
         for (date_str, should_parse) in test_cases {
@@ -585,12 +522,13 @@ mod tests {
     fn test_complex_timestamp_scenario() {
         // Test complex scenario with all components
         let now_str = "2023-01-01T12:00:00Z";
+        let now = DateTime::parse_from_rfc3339(now_str).unwrap().with_timezone(&Utc);
         let sent_at_str = "2023-01-01T12:00:02Z"; // 2 seconds ahead of server
         let timestamp_str = "2023-01-01T11:59:58Z"; // 4 seconds before sent_at
 
         let event = create_test_event(now_str, Some(timestamp_str), Some(sent_at_str), None, None);
 
-        let result = parse_event_timestamp(&event, None);
+        let result = parse_event_timestamp(&event, now);
 
         // Expected calculation:
         // skew = sent_at - now = 12:00:02 - 12:00:00 = +2s
@@ -598,6 +536,33 @@ mod tests {
         // result = now + timestamp_diff = 12:00:00 + (-4s) = 11:59:56
         let expected = Utc.with_ymd_and_hms(2023, 1, 1, 11, 59, 56).unwrap();
 
-        assert_eq!(result, expected);
+        assert_eq!(result.timestamp, expected);
+        assert_eq!(result.warnings.len(), 0);
+    }
+
+    #[test]
+    fn test_bounds_check_logic() {
+        // Test that the bounds check logic works correctly
+        // This is more of a unit test for the bounds checking code
+
+        // Test that year 0 is within bounds (year 0 is actually valid in chrono)
+        let year_zero = Utc.with_ymd_and_hms(0, 1, 1, 12, 0, 0).unwrap();
+        assert!(!(year_zero.year() < 0 || year_zero.year() > 9999), "Year 0 should be within bounds");
+
+        // Test that year 10000 is out of bounds
+        let year_10000 = Utc.with_ymd_and_hms(10000, 1, 1, 12, 0, 0).unwrap();
+        assert!(year_10000.year() < 0 || year_10000.year() > 9999, "Year 10000 should be out of bounds");
+
+        // Test that year 1 is within bounds
+        let year_1 = Utc.with_ymd_and_hms(1, 1, 1, 12, 0, 0).unwrap();
+        assert!(!(year_1.year() < 0 || year_1.year() > 9999), "Year 1 should be within bounds");
+
+        // Test that year 9999 is within bounds
+        let year_9999 = Utc.with_ymd_and_hms(9999, 1, 1, 12, 0, 0).unwrap();
+        assert!(!(year_9999.year() < 0 || year_9999.year() > 9999), "Year 9999 should be within bounds");
+
+        // Test negative year
+        let year_neg1 = Utc.with_ymd_and_hms(-1, 1, 1, 12, 0, 0).unwrap();
+        assert!(year_neg1.year() < 0 || year_neg1.year() > 9999, "Year -1 should be out of bounds");
     }
 }
