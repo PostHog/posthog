@@ -63,18 +63,35 @@ fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer
 async fn main() {
     let config = Config::init_from_env().expect("Invalid configuration:");
 
-    // Instantiate tracing outputs:
+    // Instantiate tracing outputs following Django's DEBUG-based approach:
     //   - stdout with a level configured by the RUST_LOG envvar
     //   - OpenTelemetry if enabled, for levels INFO and higher
-    let log_layer = fmt::layer()
-        .with_span_events(
-            FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
-        )
-        .with_target(true)
-        .with_thread_ids(true)
-        .with_level(true)
-        .with_ansi(false)
-        .with_filter(EnvFilter::from_default_env());
+    // Read DEBUG environment variable (same as Django)
+    let debug: bool = *config.debug;
+
+    let log_layer = {
+        let base_layer = fmt::layer()
+            .with_span_events(
+                FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
+            )
+            .with_target(true)
+            .with_thread_ids(true)
+            .with_level(true);
+
+        if debug {
+            // Development: Pretty colored output (like Django's ConsoleRenderer(colors=DEBUG))
+            base_layer
+                .with_ansi(true)
+                .with_filter(EnvFilter::from_default_env())
+                .boxed()
+        } else {
+            // Production: JSON format (like Django's JSONRenderer())
+            base_layer
+                .json()
+                .with_filter(EnvFilter::from_default_env())
+                .boxed()
+        }
+    };
 
     let otel_layer = if let Some(ref otel_url) = config.otel_url {
         Some(

@@ -60,6 +60,12 @@ const localProperties: PropertyDefinitionStorage = {
         description: 'User or role assigned to a resource',
         property_type: PropertyType.Assignee,
     },
+    'resource/first_seen': {
+        id: 'first_seen',
+        name: 'first_seen',
+        description: 'The first time the resource was seen',
+        property_type: PropertyType.DateTime,
+    },
 }
 
 const localOptions: Record<string, PropValue[]> = {

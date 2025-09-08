@@ -12917,6 +12917,10 @@
                     "description": "Customizations for the appearance of result datasets.",
                     "type": "object"
                 },
+                "showValuesOnSeries": {
+                    "default": false,
+                    "type": "boolean"
+                },
                 "useUdf": {
                     "type": "boolean"
                 }
@@ -13783,6 +13787,10 @@
                     "type": "boolean"
                 },
                 "useMaterializedViews": {
+                    "type": "boolean"
+                },
+                "usePreaggregatedTableTransforms": {
+                    "description": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
                     "type": "boolean"
                 },
                 "usePresortedEventsTable": {
@@ -21701,11 +21709,16 @@
                 "goal": {
                     "type": "number"
                 },
+                "mrr_or_gross": {
+                    "default": "gross",
+                    "enum": ["mrr", "gross"],
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 }
             },
-            "required": ["name", "due_date", "goal"],
+            "required": ["name", "due_date", "goal", "mrr_or_gross"],
             "type": "object"
         },
         "RevenueAnalyticsGrossRevenueQuery": {
