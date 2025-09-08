@@ -120,7 +120,10 @@ function LLMAnalyticsGenerations(): JSX.Element {
 
     return (
         <DataTable
-            query={generationsQuery}
+            query={{
+                ...generationsQuery,
+                showSavedFilters: true,
+            }}
             setQuery={(query) => {
                 if (!isEventsQuery(query.source)) {
                     throw new Error('Invalid query')
