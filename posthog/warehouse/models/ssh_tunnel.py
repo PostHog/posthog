@@ -1,5 +1,5 @@
-import dataclasses
 import typing
+import dataclasses
 from io import StringIO
 from typing import IO, Literal
 

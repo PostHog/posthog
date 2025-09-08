@@ -1,19 +1,13 @@
 from typing import Optional, Union
+
+import pytest
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.case import skip
 
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
-import pytest
 from django.test import override_settings
 from django.utils import timezone
-from freezegun import freeze_time
 
-from posthog.api.test.test_team import create_team
-from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
-from posthog.models import Cohort, Team
-from posthog.models.action.action import Action
-from posthog.models.group.util import create_group
-from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.schema import (
     ActionsNode,
     ActorsQuery,
@@ -25,11 +19,11 @@ from posthog.schema import (
     Compare,
     CompareFilter,
     CountPerActorMathType,
+    DateRange,
     EventPropertyFilter,
     EventsNode,
     HogQLQueryModifiers,
     InsightActorsQuery,
-    DateRange,
     IntervalType,
     MathGroupTypeIndex,
     MultipleBreakdownType,
@@ -39,12 +33,15 @@ from posthog.schema import (
     TrendsFilter,
     TrendsQuery,
 )
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-)
+
+from posthog.api.test.test_team import create_team
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
+from posthog.models import Cohort, Team
+from posthog.models.action.action import Action
+from posthog.models.group.util import create_group
+from posthog.models.property_definition import PropertyDefinition, PropertyType
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 def get_actors(

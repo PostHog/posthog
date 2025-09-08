@@ -1,4 +1,7 @@
 import datetime
+from typing import cast
+
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.messages import (
@@ -12,14 +15,6 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langgraph.errors import NodeInterrupt
 from parameterized import parameterized
 
-from ee.hogai.graph.root.nodes import RootNode, RootNodeTools
-from ee.hogai.graph.root.prompts import (
-    ROOT_BILLING_CONTEXT_ERROR_PROMPT,
-    ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
-    ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
-)
-from ee.hogai.utils.tests import FakeChatOpenAI
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import (
     AssistantMessage,
     AssistantToolCall,
@@ -32,21 +27,30 @@ from posthog.schema import (
     HumanMessage,
     LifecycleQuery,
     MaxActionContext,
+    MaxBillingContext,
+    MaxBillingContextSettings,
+    MaxBillingContextSubscriptionLevel,
     MaxBillingContextTrial,
     MaxDashboardContext,
     MaxEventContext,
     MaxInsightContext,
     MaxUIContext,
-    MaxBillingContext,
     RetentionEntity,
     RetentionFilter,
     RetentionQuery,
-    MaxBillingContextSettings,
-    MaxBillingContextSubscriptionLevel,
     TrendsQuery,
 )
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+
 from posthog.models.organization import OrganizationMembership
+
+from ee.hogai.graph.root.nodes import RootNode, RootNodeTools
+from ee.hogai.graph.root.prompts import (
+    ROOT_BILLING_CONTEXT_ERROR_PROMPT,
+    ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
+    ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
+)
+from ee.hogai.utils.tests import FakeChatOpenAI
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 
 class TestRootNode(ClickhouseTestMixin, BaseTest):
@@ -693,7 +697,9 @@ class TestRootNodeTools(BaseTest):
         self.assertEqual(result.root_tool_call_id, None)  # Tool was fully handled by the node
         self.assertIsNone(result.root_tool_insight_plan)  # No insight plan for contextual tools
         self.assertIsNone(result.root_tool_insight_type)  # No insight type for contextual tools
-        self.assertFalse(result.messages[-1].visible)  # This tool must not be visible by default
+        self.assertFalse(
+            cast(AssistantToolCallMessage, result.messages[-1]).visible
+        )  # This tool must not be visible by default
 
     async def test_run_multiple_tool_calls_raises(self):
         node = RootNodeTools(self.team, self.user)
@@ -1152,7 +1158,7 @@ Query results: 42 events
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_insights_from_ui_context_empty(self, mock_query_runner_class):
-        result = self.mixin._format_ui_context({}, None)
+        result = self.mixin._format_ui_context(None, {})
         self.assertEqual(result, "")
 
         # Test with ui_context but no insights

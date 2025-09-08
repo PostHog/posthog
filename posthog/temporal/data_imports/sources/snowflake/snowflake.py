@@ -1,6 +1,6 @@
-import collections
 import os
 import tempfile
+import collections
 from collections.abc import Iterator
 from typing import Any, Optional
 

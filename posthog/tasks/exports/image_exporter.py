@@ -1,37 +1,31 @@
 import os
-import tempfile
 import time
 import uuid
+import tempfile
 from datetime import timedelta
 from typing import Literal, Optional
 
-from posthog.schema_migrations.upgrade_manager import upgrade_query
+from django.conf import settings
+
 import structlog
 import posthoganalytics
-from django.conf import settings
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException
-from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
 from selenium.webdriver.support.wait import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 
+from posthog.hogql.constants import LimitContext
+
 from posthog.api.services.query import process_query_dict
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models.exported_asset import (
-    ExportedAsset,
-    get_public_access_token,
-    save_content,
-)
-from posthog.tasks.exporter import (
-    EXPORT_SUCCEEDED_COUNTER,
-    EXPORT_FAILED_COUNTER,
-    EXPORT_TIMER,
-)
+from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
+from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.tasks.exporter import EXPORT_FAILED_COUNTER, EXPORT_SUCCEEDED_COUNTER, EXPORT_TIMER
 from posthog.tasks.exports.exporter_utils import log_error_if_site_url_not_reachable
 from posthog.utils import absolute_uri
 

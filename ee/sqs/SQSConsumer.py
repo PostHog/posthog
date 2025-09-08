@@ -1,5 +1,5 @@
-import logging
 import time
+import logging
 from abc import ABC, abstractmethod
 from typing import Any, cast
 

@@ -1,24 +1,18 @@
-from posthog.hogql import ast
-from posthog.hogql.parser import (
-    parse_select,
-    parse_expr,
-)
-
-from posthog.hogql.query import execute_hogql_query
-
-from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
 from posthog.schema import (
     CachedWebStatsTableQueryResponse,
+    WebVitalsMetricBand,
     WebVitalsPathBreakdownQuery,
     WebVitalsPathBreakdownQueryResponse,
     WebVitalsPathBreakdownResult,
     WebVitalsPathBreakdownResultItem,
-    WebVitalsMetricBand,
 )
-from posthog.hogql.property import (
-    property_to_expr,
-    get_property_type,
-)
+
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property import get_property_type, property_to_expr
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
 from posthog.queries.trends.util import PROPERTY_MATH_FUNCTIONS
 
 

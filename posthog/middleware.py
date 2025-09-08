@@ -1,30 +1,28 @@
+import time
 import uuid
+from collections.abc import Callable
 from contextlib import suppress
 from datetime import datetime, timedelta
-from posthog.geoip import get_geoip_properties
-import time
 from ipaddress import ip_address, ip_network
 from typing import Optional, cast
-from collections.abc import Callable
-from loginas.utils import is_impersonated_session, restore_original_login
-from posthog.rbac.user_access_control import UserAccessControl
-from django.shortcuts import redirect
-import structlog
+
 from django.conf import settings
 from django.contrib.sessions.middleware import SessionMiddleware
+from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
 from django.db import connection
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
+from django.shortcuts import redirect
 from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
-from django_prometheus.middleware import (
-    Metrics,
-)
+
+import structlog
+from django_prometheus.middleware import Metrics
+from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import status
 from statshog.defaults.django import statsd
-from django.core.cache import cache
 
 from posthog.api.decide import get_decide
 from posthog.api.shared import UserBasicSerializer
@@ -32,12 +30,15 @@ from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import generate_exception_response
-from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, User, Team
+from posthog.geoip import get_geoip_properties
+from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, Team, User
 from posthog.models.activity_logging.utils import activity_storage
-from posthog.rate_limit import DecideRateThrottle
-from posthog.settings import SITE_URL, PROJECT_SWITCHING_TOKEN_ALLOWLIST
-from posthog.user_permissions import UserPermissions
 from posthog.models.utils import generate_random_token
+from posthog.rate_limit import DecideRateThrottle
+from posthog.rbac.user_access_control import UserAccessControl
+from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
+from posthog.user_permissions import UserPermissions
+
 from .auth import PersonalAPIKeyAuthentication
 from .utils_cors import cors_response
 

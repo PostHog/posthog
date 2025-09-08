@@ -1,6 +1,5 @@
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { runInstrumentedFunction } from '../../main/utils'
-import { Hub, PluginServerService, TeamId } from '../../types'
+import { HealthCheckResult, Hub, PluginServerService, TeamId } from '../../types'
 import { logger } from '../../utils/logger'
 import { CdpRedis, createCdpRedisPool } from '../redis'
 import { HogExecutorService } from '../services/hog-executor.service'
@@ -69,7 +68,7 @@ export abstract class CdpConsumerBase {
             this.recipientPreferencesService
         )
 
-        this.personsManager = new PersonsManagerService(this.hub)
+        this.personsManager = new PersonsManagerService(this.hub.personRepository)
         this.groupsManager = new GroupsManagerService(this.hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(this.hub)
         this.pluginDestinationExecutorService = new LegacyPluginExecutorService(this.hub)
@@ -81,12 +80,8 @@ export abstract class CdpConsumerBase {
         return {
             id: this.name,
             onShutdown: async () => await this.stop(),
-            healthcheck: () => this.isHealthy() ?? false,
+            healthcheck: () => this.isHealthy(),
         }
-    }
-
-    protected runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {
-        return runInstrumentedFunction<T>({ statsKey: `cdpConsumer.${name}`, func })
     }
 
     protected async runWithHeartbeat<T>(func: () => Promise<T> | T): Promise<T> {
@@ -117,5 +112,5 @@ export abstract class CdpConsumerBase {
         logger.info('👍', `${this.name} - stopped!`)
     }
 
-    public abstract isHealthy(): boolean
+    public abstract isHealthy(): HealthCheckResult
 }

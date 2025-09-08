@@ -1,7 +1,5 @@
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.session_recordings.sql.session_replay_event_v2_test_sql import (
-    SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE,
-)
+from posthog.session_recordings.sql.session_replay_event_v2_test_sql import SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE
 
 # This migration adds columns that exist in the main session_replay_events table
 # but are missing from the v2 test table. All columns are added with default values

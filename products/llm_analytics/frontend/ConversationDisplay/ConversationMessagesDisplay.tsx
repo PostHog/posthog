@@ -483,7 +483,18 @@ export const LLMMessageDisplay = React.memo(
                 )}
             >
                 {!minimal && (
-                    <div className="flex items-center gap-1 w-full px-2 h-6 text-xs font-medium">
+                    <div
+                        className={clsx(
+                            'flex items-center gap-1 w-full px-2 h-6 text-xs font-medium select-none',
+                            onToggle && 'cursor-pointer'
+                        )}
+                        onClick={(e) => {
+                            const clickedButton = (e.target as Element).closest('button')
+                            if (!clickedButton) {
+                                onToggle?.()
+                            }
+                        }}
+                    >
                         <span className="grow">{role}</span>
                         {(content || Object.keys(additionalKwargsEntries).length > 0) && (
                             <>

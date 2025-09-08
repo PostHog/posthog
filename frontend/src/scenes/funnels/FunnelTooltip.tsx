@@ -106,7 +106,7 @@ export function FunnelTooltip({
     )
 }
 
-export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTMLDivElement> {
+export function useFunnelTooltip(showPersonsModal: boolean, chartId: string): React.RefObject<HTMLDivElement> {
     const { insightProps } = useValues(insightLogic)
     const { breakdownFilter, querySource } = useValues(funnelDataLogic(insightProps))
     const { isTooltipShown, currentTooltip, tooltipOrigin } = useValues(funnelTooltipLogic(insightProps))
@@ -116,7 +116,7 @@ export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTM
 
     useEffect(() => {
         const svgRect = vizRef.current?.getBoundingClientRect()
-        const [tooltipRoot, tooltipEl] = ensureTooltip()
+        const [tooltipRoot, tooltipEl] = ensureTooltip(chartId)
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
         const tooltipRect = tooltipEl.getBoundingClientRect()
         if (tooltipOrigin) {

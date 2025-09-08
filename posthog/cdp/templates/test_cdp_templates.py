@@ -1,10 +1,12 @@
 import dataclasses
+
+from posthog.test.base import BaseTest
+
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.cdp.validation import compile_hog, InputsSchemaItemSerializer
+from posthog.cdp.validation import InputsSchemaItemSerializer, compile_hog
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.hog_functions.hog_function import TYPES_WITH_TRANSPILED_FILTERS
-from posthog.test.base import BaseTest
 
 
 class TestTemplatesGeneral(BaseTest):

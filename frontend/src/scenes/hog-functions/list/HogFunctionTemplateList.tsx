@@ -30,8 +30,8 @@ export function HogFunctionTemplateList({
     useEffect(() => loadHogFunctionTemplates(), [props.type]) // oxlint-disable-line exhaustive-deps
 
     return (
-        <>
-            <div className="flex gap-2 items-center mb-2">
+        <div className="flex flex-col gap-4">
+            <div className="flex gap-2 items-center">
                 <LemonInput
                     type="search"
                     placeholder="Search..."
@@ -125,6 +125,6 @@ export function HogFunctionTemplateList({
                     )
                 }
             />
-        </>
+        </div>
     )
 }

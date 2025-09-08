@@ -1,8 +1,9 @@
 import asyncio
 
+from django.test.client import Client as TestClient
+
 import temporalio.client
 from asgiref.sync import async_to_sync
-from django.test.client import Client as TestClient
 from rest_framework import status
 
 from posthog.models.utils import UUIDT

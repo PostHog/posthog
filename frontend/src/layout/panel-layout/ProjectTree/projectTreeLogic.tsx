@@ -12,6 +12,7 @@ import { LemonTreeSelectMode, TreeDataItem, TreeMode, TreeTableViewKeys } from '
 import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { PAGINATION_LIMIT, projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { ProjectTreeRef } from '~/types'
@@ -1235,5 +1236,5 @@ export function deleteFromTree(type: string, ref: string): void {
 }
 
 export function getLastNewFolder(): string | undefined {
-    return projectTreeLogic.findMounted()?.values.lastNewFolder ?? undefined
+    return projectTreeLogic.findMounted({ key: PROJECT_TREE_KEY })?.values.lastNewFolder ?? undefined
 }

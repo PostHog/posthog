@@ -1,10 +1,13 @@
 from copy import deepcopy
 from typing import Optional
+
+from posthog.schema import ActionsNode, BaseMathType, DataWarehouseNode, EventsNode, IntervalType, TrendsQuery
+
 from posthog.hogql import ast
+
 from posthog.hogql_queries.utils.query_date_range import compare_interval_length
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.queries.util import get_trunc_func_ch
-from posthog.schema import IntervalType, BaseMathType, DataWarehouseNode, EventsNode, ActionsNode, TrendsQuery
 
 
 def get_start_of_interval_hogql(interval: str, *, team: Team, source: Optional[ast.Expr] = None) -> ast.Expr:

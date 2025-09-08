@@ -1,13 +1,13 @@
+from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from mistralai_azure import AssistantMessage
 
-from ee.hogai.assistant import Assistant
-from posthog.test.base import APIBaseTest
+from ee.hogai.assistant.insights_assistant import InsightsAssistant
 
 
 class TestMaxToolsAPI(APIBaseTest):
-    @patch.object(Assistant, "invoke")
+    @patch.object(InsightsAssistant, "invoke")
     def test_create_and_query_insight_returns_json(self, mock_generate):
         mock_generate.return_value = [("message", AssistantMessage(content="Creating your insight", role="assistant"))]
 

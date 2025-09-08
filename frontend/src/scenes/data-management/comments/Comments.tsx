@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconApps, IconTrash } from '@posthog/icons'
+import { IconNotification, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -133,7 +133,7 @@ export function Comments(): JSX.Element {
                 resourceType={{
                     type: 'comment',
                     typePlural: 'comments',
-                    forceIcon: <IconApps />,
+                    forceIcon: <IconNotification />,
                 }}
             />
             <SceneDivider />

@@ -1,12 +1,12 @@
-from rest_framework import viewsets, exceptions, status
-from rest_framework.response import Response
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
+from rest_framework import exceptions, status, viewsets
 from rest_framework.request import Request
+from rest_framework.response import Response
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import TemporaryTokenAuthentication
-from drf_spectacular.utils import extend_schema, OpenApiParameter
-from drf_spectacular.types import OpenApiTypes
-
-from posthog.hogql_queries.query_runner import get_query_runner, ExecutionMode
+from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 
 
 # This is a simple wrapper around a basic query, so that's why `scope_object = "query"`

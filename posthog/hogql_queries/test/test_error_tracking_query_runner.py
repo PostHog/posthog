@@ -1,38 +1,43 @@
-from datetime import timedelta, datetime
-from unittest import TestCase
-from freezegun import freeze_time
-from dateutil.relativedelta import relativedelta
-from django.utils.timezone import now
-from posthog.models.utils import uuid7
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from posthog.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner, search_tokenizer
-from posthog.schema import (
-    ErrorTrackingQuery,
-    DateRange,
-    FilterLogicalOperator,
-    PropertyGroupFilter,
-    PropertyGroupFilterValue,
-    PersonPropertyFilter,
-    ErrorTrackingIssueFilter,
-    PropertyOperator,
-)
-from ee.models.rbac.role import Role
-from posthog.models.error_tracking import (
-    ErrorTrackingIssue,
-    ErrorTrackingIssueFingerprintV2,
-    ErrorTrackingIssueAssignment,
-    update_error_tracking_issue_fingerprints,
-    override_error_tracking_issue_fingerprint,
-)
+from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
-    _create_person,
     _create_event,
+    _create_person,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
 )
-from posthog.test.base import snapshot_clickhouse_queries
+from unittest import TestCase
+
+from django.utils.timezone import now
+
+from dateutil.relativedelta import relativedelta
+
+from posthog.schema import (
+    DateRange,
+    ErrorTrackingIssueFilter,
+    ErrorTrackingQuery,
+    FilterLogicalOperator,
+    PersonPropertyFilter,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+    PropertyOperator,
+)
+
+from posthog.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner, search_tokenizer
+from posthog.models.error_tracking import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueAssignment,
+    ErrorTrackingIssueFingerprintV2,
+    override_error_tracking_issue_fingerprint,
+    update_error_tracking_issue_fingerprints,
+)
+from posthog.models.utils import uuid7
+
+from ee.models.rbac.role import Role
 
 
 class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -54,6 +59,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def create_issue(self, issue_id, fingerprint, name=None, status=ErrorTrackingIssue.Status.ACTIVE):
         issue = ErrorTrackingIssue.objects.create(id=issue_id, team=self.team, status=status, name=name)
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
+
         return issue
 
     def create_events_and_issue(
@@ -66,7 +72,11 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         additional_properties=None,
         issue_name=None,
     ):
-        self.create_issue(issue_id, fingerprint, name=issue_name)
+        if timestamp:
+            with freeze_time(timestamp):
+                self.create_issue(issue_id, fingerprint, name=issue_name)
+        else:
+            self.create_issue(issue_id, fingerprint, name=issue_name)
 
         event_properties = {"$exception_issue_id": issue_id, "$exception_fingerprint": fingerprint}
         if exception_list:
@@ -500,6 +510,47 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )["results"]
         self.assertEqual(len(results), 1)
+
+    @freeze_time("2020-01-10T12:11:00")
+    @snapshot_clickhouse_queries
+    def test_first_seen_filters(self):
+        cutoff_time = now() - relativedelta(hours=2)
+
+        results = self._calculate(
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            ErrorTrackingIssueFilter(
+                                key="first_seen", value=cutoff_time.isoformat(), operator=PropertyOperator.GTE
+                            ),
+                        ],
+                    )
+                ],
+            )
+        )["results"]
+        self.assertEqual(len(results), 2)
+        self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two])
+
+        results = self._calculate(
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            ErrorTrackingIssueFilter(
+                                key="first_seen", value=cutoff_time.isoformat(), operator=PropertyOperator.LT
+                            ),
+                        ],
+                    )
+                ],
+            )
+        )["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual([r["id"] for r in results], [self.issue_id_one])
 
     @freeze_time("2020-01-12")
     @snapshot_clickhouse_queries

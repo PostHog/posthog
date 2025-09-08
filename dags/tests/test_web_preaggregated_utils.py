@@ -1,32 +1,23 @@
 import inspect
+
 from unittest.mock import Mock
 
-from dagster import (
-    DagsterInstance,
-    job,
-    op,
-    schedule,
-    SkipReason,
-    DagsterRunStatus,
-    RunsFilter,
-)
-from dags.web_preaggregated_utils import check_for_concurrent_runs
-from dags.web_preaggregated import (
-    web_pre_aggregate_historical_schedule,
-    web_pre_aggregate_current_day_schedule,
-    web_pre_aggregate_job,
-)
-from dags.web_preaggregated_daily import (
-    web_pre_aggregate_daily_schedule,
-    web_pre_aggregate_daily_job,
-)
-from dags.web_preaggregated_hourly import (
-    web_pre_aggregate_current_day_hourly_schedule,
-    web_pre_aggregate_current_day_hourly_job,
-)
+from dagster import DagsterInstance, DagsterRunStatus, RunsFilter, SkipReason, job, op, schedule
+
 import dags.web_preaggregated as wp
 import dags.web_preaggregated_daily as wpd
 import dags.web_preaggregated_hourly as wph
+from dags.web_preaggregated import (
+    web_pre_aggregate_current_day_schedule,
+    web_pre_aggregate_historical_schedule,
+    web_pre_aggregate_job,
+)
+from dags.web_preaggregated_daily import web_pre_aggregate_daily_job, web_pre_aggregate_daily_schedule
+from dags.web_preaggregated_hourly import (
+    web_pre_aggregate_current_day_hourly_job,
+    web_pre_aggregate_current_day_hourly_schedule,
+)
+from dags.web_preaggregated_utils import check_for_concurrent_runs
 
 
 class TestWebPreaggregatedUtils:

@@ -1,11 +1,13 @@
 import base64
 from datetime import datetime
-from dateutil import parser
 from typing import Any, Optional
+
 import dlt
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
-from dlt.sources.helpers.requests import Response, Request
 import requests
+from dateutil import parser
+from dlt.sources.helpers.requests import Request, Response
+from dlt.sources.helpers.rest_client.paginators import BasePaginator
+
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 

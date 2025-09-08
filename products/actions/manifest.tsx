@@ -42,6 +42,7 @@ export const manifest: ProductManifest = {
         '/data-management/actions': ['Actions', 'actions'],
         '/data-management/actions/new': ['ActionNew', 'actionNew'],
         '/data-management/actions/:id': ['Action', 'action'],
+        '/data-management/actions/new/': ['ActionNew', 'actionNew'],
     },
     fileSystemTypes: {
         action: {

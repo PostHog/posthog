@@ -1,9 +1,8 @@
 from typing import Any
+
 from unittest import TestCase
 
-from posthog.helpers.multi_property_breakdown import (
-    protect_old_clients_from_multi_property_default,
-)
+from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 
 
 class TestMultiPropertyBreakdown(TestCase):

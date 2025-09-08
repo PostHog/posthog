@@ -2,9 +2,9 @@ from typing import TYPE_CHECKING
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
-from posthog.hogql_queries.web_analytics.pre_aggregated.query_builder import WebAnalyticsPreAggregatedQueryBuilder
-from posthog.hogql_queries.web_analytics.pre_aggregated.properties import WEB_OVERVIEW_SUPPORTED_PROPERTIES
 
+from posthog.hogql_queries.web_analytics.pre_aggregated.properties import WEB_OVERVIEW_SUPPORTED_PROPERTIES
+from posthog.hogql_queries.web_analytics.pre_aggregated.query_builder import WebAnalyticsPreAggregatedQueryBuilder
 
 if TYPE_CHECKING:
     from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner

@@ -1,11 +1,13 @@
-from django.db import models
-from posthog.models.team import Team
-from django.db.models.signals import post_save
-from django.dispatch import receiver
-from django.core.exceptions import ValidationError
 import logging
 
+from django.core.exceptions import ValidationError
+from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
 from posthog.schema import NodeKind, SourceMap
+
+from posthog.models.team import Team
 
 # Based on team_revenue_analytics_config.py
 

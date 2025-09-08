@@ -43,7 +43,13 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
                     [webVitalMetric]: value,
                 }),
                 resetLocalWebVitals: () => ({}) as WebVitalsMetrics,
-                nullifyLocalWebVitals: () => ({ LCP: null, FCP: null, CLS: null, INP: null }) as WebVitalsMetrics,
+                nullifyLocalWebVitals: () =>
+                    ({
+                        LCP: null,
+                        FCP: null,
+                        CLS: null,
+                        INP: null,
+                    }) as WebVitalsMetrics,
             },
         ],
     }),

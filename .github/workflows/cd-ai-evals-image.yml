@@ -1,0 +1,66 @@
+#
+# Build and push PostHog container images for AI evaluations to AWS ECR
+#
+# - posthog_ai_evals_build: build and push the PostHog container image to AWS ECR
+#
+name: AI Evals Container Images CD
+
+on:
+    push:
+        branches:
+            - master
+        paths-ignore:
+            - 'rust/**'
+            - 'livestream/**'
+            - 'plugin-server/**'
+    pull_request:
+    workflow_dispatch:
+
+jobs:
+    posthog_ai_evals_build:
+        name: Build and push container image
+        if: |
+            github.repository == 'PostHog/posthog' && (
+                github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'build-ai-evals-image')
+            )
+        runs-on: depot-ubuntu-latest
+        permissions:
+            id-token: write # allow issuing OIDC tokens for this workflow run
+            contents: read # allow at least reading the repo contents, add other permissions if necessary
+
+        steps:
+            - name: Check out
+              uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+              with:
+                  fetch-depth: 2
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3
+
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1
+
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4
+              with:
+                  aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+                  aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+                  aws-region: us-east-1
+
+            - name: Login to Amazon ECR
+              id: aws-ecr
+              uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2
+
+            - name: Build and push container image
+              id: build
+              uses: depot/build-push-action@2583627a84956d07561420dcc1d0eb1f2af3fac0 # v1
+              with:
+                  file: ./Dockerfile.ai-evals
+                  buildx-fallback: false # the fallback is so slow it's better to just fail
+                  push: true
+                  tags: ${{ github.ref == 'refs/heads/master' && format('{0}/posthog-ai-evals:master,{0}/posthog-ai-evals:{1}', steps.aws-ecr.outputs.registry, github.sha) || format('{0}/posthog-ai-evals:{1}', steps.aws-ecr.outputs.registry, github.sha) }}
+                  platforms: linux/arm64,linux/amd64
+                  build-args: COMMIT_HASH=${{ github.sha }}

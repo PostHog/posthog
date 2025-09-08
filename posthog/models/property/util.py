@@ -1,26 +1,26 @@
 import re
-from collections import Counter
-from typing import Any
-from collections.abc import Callable
-from collections import Counter as TCounter
-from typing import (
-    Literal,
-    Optional,
-    Union,
-    cast,
+from collections import (
+    Counter,
+    Counter as TCounter,
 )
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+from typing import Any, Literal, Optional, Union, cast
+
+from django.db.models import QuerySet
 
 from rest_framework import exceptions
+
+from posthog.schema import PropertyOperator
+
+from posthog.hogql import ast
+from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.hogql import HogQLContext
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_column_for_property
 from posthog.constants import PropertyOperatorType
-from posthog.hogql import ast
-from posthog.hogql.hogql import HogQLContext
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.visitor import TraversingVisitor
-from posthog.hogql.database.s3_table import S3Table
 from posthog.models.action.action import Action
 from posthog.models.action.util import get_action_tables_and_properties
 from posthog.models.cohort import Cohort
@@ -33,10 +33,7 @@ from posthog.models.cohort.util import (
 )
 from posthog.models.event import Selector
 from posthog.models.group.sql import GET_GROUP_IDS_BY_PROPERTY_SQL
-from posthog.models.person.sql import (
-    GET_DISTINCT_IDS_BY_PERSON_ID_FILTER,
-    GET_DISTINCT_IDS_BY_PROPERTY_SQL,
-)
+from posthog.models.person.sql import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.property import (
     NEGATED_OPERATORS,
     OperatorType,
@@ -47,14 +44,10 @@ from posthog.models.property import (
 )
 from posthog.models.property.property import ValueT
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
-from posthog.session_recordings.queries.session_query import SessionQuery
-
-
 from posthog.queries.util import PersonPropertiesMode
-from posthog.utils import is_json, is_valid_regex
-from posthog.schema import PropertyOperator
+from posthog.session_recordings.queries.session_query import SessionQuery
 from posthog.types import ErrorTrackingIssueFilter
-from django.db.models import QuerySet
+from posthog.utils import is_json, is_valid_regex
 
 StringMatching = Literal["selector", "tag_name", "href", "text"]
 
