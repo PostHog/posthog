@@ -187,7 +187,7 @@ export function DashboardHeader(): JSX.Element | null {
                     {canEditDashboard && <DeleteDashboardModal />}
                     {canEditDashboard && <DuplicateDashboardModal />}
                     {canEditDashboard && <DashboardInsightColorsModal />}
-                    <DashboardTemplateEditor />
+                    {user?.is_staff && <DashboardTemplateEditor />}
                 </>
             )}
 
