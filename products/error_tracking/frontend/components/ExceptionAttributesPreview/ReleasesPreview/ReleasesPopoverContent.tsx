@@ -13,16 +13,7 @@ export interface ReleasesPopoverContentProps {
 }
 
 export function ReleasePopoverContent({ release }: ReleasesPopoverContentProps): JSX.Element {
-    const viewCommitLink = useMemo(
-        () => GitMetadataParser.getViewCommitLink(release),
-        [
-            release.metadata?.git?.commitId,
-            release.metadata?.git?.remoteUrl,
-            release.metadata?.git?.repoName,
-            release.metadata?.git?.branch,
-            release,
-        ]
-    )
+    const viewCommitLink = useMemo(() => GitMetadataParser.getViewCommitLink(release), [release])
 
     return (
         <div className="overflow-hidden">
