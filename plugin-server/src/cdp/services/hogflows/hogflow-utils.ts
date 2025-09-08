@@ -98,3 +98,8 @@ export async function shouldSkipAction(
 
     return !filterResults.match
 }
+
+// Special format which the frontend understands and can render as a link
+export const actionIdForLogging = (action: HogFlowAction): string => {
+    return `[Action:${action.id}]`
+}
