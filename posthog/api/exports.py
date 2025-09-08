@@ -172,7 +172,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                         logger.exception("video_export_workflow_dispatch_failed", asset_id=instance.id, error=str(e))
                         raise
             else:
-                exporter.export_asset(instance.id)
+                exporter.export_asset_direct(instance)
         else:
             task = exporter.export_asset.delay(instance.id)
             posthoganalytics.capture(

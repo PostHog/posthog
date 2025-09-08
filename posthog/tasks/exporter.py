@@ -109,22 +109,19 @@ def export_asset_direct(exported_asset: ExportedAsset, limit: Optional[int] = No
             groups=groups(team.organization, team),
         )
     except Exception as e:
-        is_retriable = isinstance(e, EXCEPTIONS_TO_RETRY)
-
         posthoganalytics.capture(
             distinct_id=distinct_id,
             event="export failed",
             properties={
                 **analytics_props,
                 "error": str(e),
-                "might_retry": is_retriable,
+                "might_retry": isinstance(e, EXCEPTIONS_TO_RETRY),
                 "duration_ms": round((perf_counter() - start_time) * 1000, 2),
             },
             groups=groups(team.organization, team),
         )
 
-        if is_retriable:
-            raise
-
         exported_asset.exception = str(e)
         exported_asset.save()
+
+        raise
