@@ -1,25 +1,24 @@
-from typing import Literal, cast, Optional
+from typing import Literal, Optional, cast
 
+from django.db import models
 from django.db.models.functions.comparison import Coalesce
+
+from posthog.schema import PersonsOnEventsMode
+
+from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField
+from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.escape_sql import escape_hogql_identifier
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.clickhouse.materialized_columns import (
     MaterializedColumn,
     TablesWithMaterializedColumns,
     get_materialized_column_for_property,
 )
-from posthog.hogql import ast
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import (
-    DateTimeDatabaseField,
-    BooleanDatabaseField,
-)
-from posthog.hogql.escape_sql import escape_hogql_identifier
-from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 from posthog.models import Team
 from posthog.models.property import PropertyName, TableColumn
-from posthog.schema import PersonsOnEventsMode
-from posthog.hogql.database.s3_table import S3Table
-from django.db import models
 
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:

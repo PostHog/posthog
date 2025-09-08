@@ -9,10 +9,10 @@ import { DashboardMode } from '~/types'
 import { dashboardLogic } from './dashboardLogic'
 
 export const DashboardOverridesBanner = (): JSX.Element | null => {
-    const { dashboardMode, temporaryFilters, cancellingPreview } = useValues(dashboardLogic)
+    const { dashboardMode, urlFilters, cancellingPreview } = useValues(dashboardLogic)
     const { setDashboardMode } = useActions(dashboardLogic)
 
-    if (dashboardMode === DashboardMode.Edit || Object.keys(temporaryFilters).length === 0) {
+    if (dashboardMode === DashboardMode.Edit || Object.keys(urlFilters).length === 0) {
         return null
     }
 

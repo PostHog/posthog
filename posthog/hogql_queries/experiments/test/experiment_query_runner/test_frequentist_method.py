@@ -1,14 +1,10 @@
 from typing import cast
 
-from django.test import override_settings
 from freezegun import freeze_time
+from posthog.test.base import flush_persons_and_events, snapshot_clickhouse_queries
 
-from posthog.hogql_queries.experiments.experiment_query_runner import (
-    ExperimentQueryRunner,
-)
-from posthog.hogql_queries.experiments.test.experiment_query_runner.base import (
-    ExperimentQueryRunnerBaseTest,
-)
+from django.test import override_settings
+
 from posthog.schema import (
     EventsNode,
     ExperimentMeanMetric,
@@ -18,10 +14,9 @@ from posthog.schema import (
     ExperimentVariantResultFrequentist,
     NewExperimentQueryResponse,
 )
-from posthog.test.base import (
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-)
+
+from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
+from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 
 
 @override_settings(IN_UNIT_TESTING=True)

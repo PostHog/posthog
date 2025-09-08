@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import abc
-import collections.abc
-import functools
 import typing
+import functools
+import collections.abc
 
 import pyarrow as pa
 

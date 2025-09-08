@@ -1,18 +1,19 @@
-from typing import Any, Literal, Union, cast
 import re
+from typing import Any, Literal, Union, cast
 
-import jwt
-from jwt.algorithms import RSAAlgorithm
-
-import posthoganalytics
-import structlog
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http.response import HttpResponse
 from django.urls.base import reverse
-from rest_framework.decorators import api_view
-from rest_framework.exceptions import PermissionDenied, AuthenticationFailed
+
+import jwt
+import structlog
+import posthoganalytics
+from jwt.algorithms import RSAAlgorithm
 from rest_framework import authentication
+from rest_framework.decorators import api_view
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.request import Request
+from social_core.backends.google import GoogleOAuth2
 from social_core.backends.saml import (
     OID_COMMON_NAME,
     OID_GIVEN_NAME,
@@ -22,17 +23,17 @@ from social_core.backends.saml import (
     SAMLAuth,
     SAMLIdentityProvider,
 )
-from social_core.backends.google import GoogleOAuth2
 from social_core.exceptions import AuthFailed, AuthMissingParameter
+from social_django.models import UserSocialAuth
 from social_django.utils import load_backend, load_strategy
 
-from ee import settings
-from ee.api.vercel.utils import get_vercel_jwks
-from ee.api.vercel.types import VercelClaims, VercelUser, VercelUserClaims, VercelSystemClaims
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
-from social_django.models import UserSocialAuth
+
+from ee import settings
+from ee.api.vercel.types import VercelClaims, VercelSystemClaims, VercelUser, VercelUserClaims
+from ee.api.vercel.utils import get_vercel_jwks
 
 
 @api_view(["GET"])
@@ -278,19 +279,24 @@ class VercelAuthentication(authentication.BaseAuthentication):
     def authenticate(self, request: Request) -> tuple[VercelUser, None] | None:
         token = self._get_bearer_token(request)
         if not token:
-            return None
+            raise AuthenticationFailed("Missing Token for Vercel request")
 
         auth_type = self._get_vercel_auth_type(request)
 
         try:
             payload = self._validate_jwt_token(token, auth_type)
-            logger.info("Vercel auth successful", auth_type=auth_type, account_id=payload.get("account_id"))
+            logger.info(
+                "Vercel auth successful",
+                auth_type=auth_type,
+                account_id=payload.get("account_id"),
+                integration="vercel",
+            )
             return VercelUser(claims=payload), None
         except jwt.InvalidTokenError as e:
-            logger.warning("Vercel auth failed", auth_type=auth_type, error=str(e))
+            logger.warning("Vercel auth failed", auth_type=auth_type, error=str(e), integration="vercel")
             raise AuthenticationFailed(f"Invalid {auth_type} authentication token")
         except Exception as e:
-            logger.exception("Vercel auth error", auth_type=auth_type, error=str(e))
+            logger.exception("Vercel auth error", auth_type=auth_type, error=str(e), integration="vercel")
             raise AuthenticationFailed(f"{auth_type.title()} authentication failed")
 
     def _get_bearer_token(self, request: Request) -> str | None:

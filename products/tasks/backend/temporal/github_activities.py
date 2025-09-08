@@ -2,9 +2,9 @@
 GitHub integration activities for issue tracker workflows.
 """
 
-import asyncio
 import os
 import shutil
+import asyncio
 import tempfile
 from pathlib import Path
 from typing import Any

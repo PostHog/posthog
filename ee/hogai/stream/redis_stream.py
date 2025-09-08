@@ -1,22 +1,21 @@
-import asyncio
-import structlog
-from typing import Literal, Optional, cast
-from collections.abc import AsyncGenerator, Callable
-
-import redis.exceptions as redis_exceptions
-from django.conf import settings
-
-from ee.hogai.utils.types import AssistantMessageOrStatusUnion, AssistantOutput
-from posthog.redis import get_async_client
 import pickle
+import asyncio
+from collections.abc import AsyncGenerator, Callable
+from typing import Literal, Optional, cast
 from uuid import UUID
 
-from pydantic import BaseModel
+from django.conf import settings
 
-from ee.models.assistant import Conversation
+import structlog
+import redis.exceptions as redis_exceptions
+from pydantic import BaseModel, Field
+
 from posthog.schema import AssistantEventType, AssistantGenerationStatusEvent, AssistantGenerationStatusType
-from pydantic import Field
 
+from posthog.redis import get_async_client
+
+from ee.hogai.utils.types import AssistantMessageOrStatusUnion, AssistantOutput
+from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
 

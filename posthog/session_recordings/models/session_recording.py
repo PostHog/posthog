@@ -8,13 +8,8 @@ from posthog.models.person.person import READ_DB_FOR_PERSONS, Person
 from posthog.models.signals import mutable_receiver
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
-from posthog.session_recordings.models.metadata import (
-    RecordingMatchingEvents,
-    RecordingMetadata,
-)
-from posthog.session_recordings.models.session_recording_event import (
-    SessionRecordingViewed,
-)
+from posthog.session_recordings.models.metadata import RecordingMatchingEvents, RecordingMetadata
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents, ttl_days
 from posthog.tasks.tasks import ee_persist_single_recording
 
@@ -55,6 +50,8 @@ class SessionRecording(UUIDTModel):
     # we can't store storage version in the stored content
     # as we might need to know the version before knowing how to load the data
     storage_version = models.CharField(blank=True, null=True, max_length=20)
+
+    retention_period_days = models.IntegerField(blank=True, null=True)
 
     # DYNAMIC FIELDS
 

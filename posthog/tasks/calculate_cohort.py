@@ -1,26 +1,25 @@
-import posthoganalytics
-import structlog
 import time
-
-from django.conf import settings
-
-from posthog.clickhouse import query_tagging
-from posthog.models.team.team import Team
-from celery import shared_task, chain, current_task
 from datetime import timedelta
-from dateutil.relativedelta import relativedelta
 from typing import Any, Optional
 
-from django.db.models import Case, F, ExpressionWrapper, DurationField, Q, QuerySet, When
+from django.conf import settings
+from django.db.models import Case, DurationField, ExpressionWrapper, F, Q, QuerySet, When
 from django.utils import timezone
-from prometheus_client import Gauge, Counter
 
+import structlog
+import posthoganalytics
+from celery import chain, current_task, shared_task
+from dateutil.relativedelta import relativedelta
+from prometheus_client import Counter, Gauge
+
+from posthog.api.monitoring import Feature
+from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags, update_tags
 from posthog.exceptions_capture import capture_exception
-from posthog.api.monitoring import Feature
 from posthog.models import Cohort
 from posthog.models.cohort import CohortOrEmpty
-from posthog.models.cohort.util import get_static_cohort_size, get_dependent_cohorts, sort_cohorts_topologically
+from posthog.models.cohort.util import get_dependent_cohorts, get_static_cohort_size, sort_cohorts_topologically
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.tasks.utils import CeleryQueue
 

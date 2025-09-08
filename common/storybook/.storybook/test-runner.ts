@@ -174,7 +174,10 @@ async function takeSnapshotWithTheme(
     if (!allowImagesWithoutWidth) {
         await page.waitForFunction(() => {
             const allImages = Array.from(document.images)
-            const areAllImagesLoaded = allImages.every((i: HTMLImageElement) => !!i.naturalWidth)
+            const areAllImagesLoaded = allImages.every(
+                // ProseMirror-separator isn't an actual image of any sort, so we ignore those
+                (i: HTMLImageElement) => !!i.naturalWidth || i.classList.contains('ProseMirror-separator')
+            )
             if (areAllImagesLoaded) {
                 // Hide gifs to prevent their animations causing flakiness
                 for (const image of allImages) {

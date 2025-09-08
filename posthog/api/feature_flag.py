@@ -1,68 +1,53 @@
 from __future__ import annotations
 
-import json
 import re
+import json
 import time
 import logging
-from typing import Any, Optional, cast
-from posthog.date_util import thirty_days_ago
 from datetime import datetime
-from django.db import transaction
-from django.db.models import QuerySet, Q, deletion, Prefetch
+from typing import Any, Optional, cast
+
 from django.conf import settings
-from drf_spectacular.utils import OpenApiParameter
+from django.db import transaction
+from django.db.models import Prefetch, Q, QuerySet, deletion
+from django.dispatch import receiver
+
 from drf_spectacular.types import OpenApiTypes
-from rest_framework import (
-    exceptions,
-    request,
-    serializers,
-    status,
-    viewsets,
-)
-from posthog.api.utils import action
+from drf_spectacular.utils import OpenApiParameter
+from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
-from posthog.exceptions_capture import capture_exception
-from posthog.api.cohort import CohortSerializer
-from posthog.models.experiment import Experiment
-from posthog.models.feature_flag.local_evaluation import (
-    DATABASE_FOR_LOCAL_EVALUATION,
-    get_flags_response_for_local_evaluation,
-)
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from posthog.schema import PropertyOperator
+
+from posthog.api.cohort import CohortSerializer
+from posthog.api.dashboards.dashboard import Dashboard
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
-from posthog.api.dashboards.dashboard import Dashboard
-from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer
-from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication, ProjectSecretAPIKeyAuthentication
-from posthog.constants import FlagRequestType, SURVEY_TARGETING_FLAG_PREFIX
+from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
+from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TemporaryTokenAuthentication
+from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, FlagRequestType
+from posthog.date_util import thirty_days_ago
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
-from posthog.helpers.dashboard_templates import (
-    add_enriched_insights_to_feature_flag_dashboard,
-)
+from posthog.exceptions_capture import capture_exception
+from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
 from posthog.helpers.encrypted_flag_payloads import (
+    REDACTED_PAYLOAD_VALUE,
     encrypt_flag_payloads,
     get_decrypted_flag_payloads,
-    REDACTED_PAYLOAD_VALUE,
 )
 from posthog.models import FeatureFlag
-from posthog.models.activity_logging.activity_log import (
-    Detail,
-    changes_between,
-    load_activity,
-    log_activity,
-)
+from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import get_dependent_cohorts
+from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import (
     FeatureFlagDashboards,
     can_user_edit_feature_flag,
@@ -71,22 +56,24 @@ from posthog.models.feature_flag import (
 )
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feature_flag.flag_matching import check_flag_evaluation_query_is_ok
-from posthog.models.feature_flag.local_evaluation import _get_flag_properties_from_filters
-from posthog.models.feature_flag.types import PropertyFilterType
-from posthog.models.surveys.survey import Survey
-from posthog.models.property import Property
-from posthog.schema import PropertyOperator
-from posthog.models.feature_flag.flag_status import FeatureFlagStatusChecker, FeatureFlagStatus
-from posthog.permissions import ProjectSecretAPITokenPermission
-from posthog.queries.base import (
-    determine_parsed_date_for_property_matching,
+from posthog.models.feature_flag.flag_status import FeatureFlagStatus, FeatureFlagStatusChecker
+from posthog.models.feature_flag.local_evaluation import (
+    DATABASE_FOR_LOCAL_EVALUATION,
+    _get_flag_properties_from_filters,
+    get_flags_response_for_local_evaluation,
 )
-from posthog.rate_limit import BurstRateThrottle
-from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
-from django.dispatch import receiver
+from posthog.models.feature_flag.types import PropertyFilterType
+from posthog.models.property import Property
 from posthog.models.signals import model_activity_signal
+from posthog.models.surveys.survey import Survey
+from posthog.permissions import ProjectSecretAPITokenPermission
+from posthog.queries.base import determine_parsed_date_for_property_matching
+from posthog.rate_limit import BurstRateThrottle
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG_RATE_LIMITS
 
+from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 

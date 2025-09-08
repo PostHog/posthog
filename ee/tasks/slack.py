@@ -2,13 +2,15 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
-import structlog
 from django.conf import settings
 
-from ee.tasks.subscriptions.subscription_utils import generate_assets
+import structlog
+
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.sharing_configuration import SharingConfiguration
+
+from ee.tasks.subscriptions.subscription_utils import generate_assets
 
 logger = structlog.get_logger(__name__)
 

@@ -1,11 +1,6 @@
 from datetime import timedelta
 
-from django.test import override_settings
-from django.utils import timezone
 from freezegun import freeze_time
-
-from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
-from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyQuery
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -14,6 +9,13 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+
+from django.test import override_settings
+from django.utils import timezone
+
+from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyQuery
+
+from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 
 
 @override_settings(IN_UNIT_TESTING=True)

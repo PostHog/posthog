@@ -1,8 +1,9 @@
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import AssistantFunnelsQuery
+
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 from ..schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
 from ..schema_generator.utils import SchemaGeneratorOutput
@@ -13,6 +14,7 @@ FunnelsSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantFunnelsQuery]
 
 
 class FunnelGeneratorNode(SchemaGeneratorNode[AssistantFunnelsQuery]):
+    REASONING_MESSAGE = "Creating funnel query"
     INSIGHT_NAME = "Funnels"
     OUTPUT_MODEL = FunnelsSchemaGeneratorOutput
     OUTPUT_SCHEMA = FUNNEL_SCHEMA

@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import datetime
-from typing import Optional, TypedDict, Union, Literal
+from typing import Literal, Optional, TypedDict, Union
 
 SnapshotData = dict
 WindowId = Optional[str]

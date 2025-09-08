@@ -1,5 +1,6 @@
-from posthog.models.insight_variable import InsightVariable
 from posthog.test.base import APIBaseTest
+
+from posthog.models.insight_variable import InsightVariable
 
 
 class TestInsightVariable(APIBaseTest):

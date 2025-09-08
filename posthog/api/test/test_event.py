@@ -1,18 +1,9 @@
 import json
 from datetime import datetime
-from unittest.mock import patch
 from urllib.parse import unquote, urlencode
-
 from zoneinfo import ZoneInfo
-from dateutil import parser
-from dateutil.relativedelta import relativedelta
-from django.utils import timezone
-from freezegun import freeze_time
-from rest_framework import status
 
-from posthog.models import Action, Element, Organization, Person, User
-from posthog.models.cohort import Cohort
-from posthog.models.event.query_event_list import insight_query_with_columns
+from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -20,9 +11,20 @@ from posthog.test.base import (
     _create_person,
     also_test_with_materialized_columns,
     flush_persons_and_events,
-    snapshot_clickhouse_queries,
     override_settings,
+    snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
+
+from django.utils import timezone
+
+from dateutil import parser
+from dateutil.relativedelta import relativedelta
+from rest_framework import status
+
+from posthog.models import Action, Element, Organization, Person, User
+from posthog.models.cohort import Cohort
+from posthog.models.event.query_event_list import insight_query_with_columns
 from posthog.test.test_journeys import journeys_for
 
 

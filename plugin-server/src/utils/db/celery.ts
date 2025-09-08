@@ -1,7 +1,8 @@
 import { CacheOptions } from '@posthog/plugin-scaffold'
 
+import { withSpan } from '~/common/tracing/tracing-utils'
+
 import { PluginsServerConfig, RedisPool } from '../../types'
-import { instrumentQuery } from '../metrics'
 import { UUIDT } from '../utils'
 import { createRedisPool } from './redis'
 import { timeoutGuard } from './utils'
@@ -23,7 +24,7 @@ export class Celery {
     private redisLPush(key: string, value: unknown, options: CacheOptions = {}): Promise<number> {
         const { jsonSerialize = true } = options
 
-        return instrumentQuery('query.redisLPush', undefined, async () => {
+        return withSpan('redis', 'LPush', { tag: 'celery' }, async () => {
             const client = await this.redisPool.acquire()
             const timeout = timeoutGuard('LPushing redis key delayed. Waiting over 30 sec to lpush key', { key })
             try {

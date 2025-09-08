@@ -1,20 +1,21 @@
-from functools import cached_property
-import json
 import re
+import json
+from functools import cached_property
 from uuid import uuid4
+
+from django.core.files import File
+
+import posthoganalytics
 import posthoganalytics.ai.openai
-from rest_framework import viewsets
-from rest_framework.parsers import MultiPartParser, JSONParser
+from elevenlabs import ElevenLabs
+from posthoganalytics.ai.openai import OpenAI
+from rest_framework import serializers, viewsets
+from rest_framework.parsers import JSONParser, MultiPartParser
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from .models import UserInterview
-from elevenlabs import ElevenLabs
-import posthoganalytics
-from rest_framework import serializers
-from django.core.files import File
 from posthog.api.shared import UserBasicSerializer
-from posthoganalytics.ai.openai import OpenAI
 
+from .models import UserInterview
 
 elevenlabs_client = ElevenLabs()
 

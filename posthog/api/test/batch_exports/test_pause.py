@@ -1,8 +1,10 @@
 import datetime as dt
-from unittest.mock import ANY, patch
 
 import pytest
+from unittest.mock import ANY, patch
+
 from django.test.client import Client as HttpClient
+
 from rest_framework import status
 
 from posthog.api.test.batch_exports.conftest import start_test_worker

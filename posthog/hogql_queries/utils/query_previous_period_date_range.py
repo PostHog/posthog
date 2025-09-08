@@ -1,13 +1,11 @@
 from datetime import datetime
 from typing import Optional
 
+from posthog.schema import DateRange, IntervalType
+
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team import Team
-from posthog.schema import DateRange, IntervalType
-from posthog.utils import (
-    get_compare_period_dates,
-    relative_date_parse_with_delta_mapping,
-)
+from posthog.utils import get_compare_period_dates, relative_date_parse_with_delta_mapping
 
 
 # Originally similar to posthog/queries/query_date_range.py but rewritten to be used in HogQL queries

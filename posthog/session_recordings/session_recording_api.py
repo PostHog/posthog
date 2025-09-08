@@ -1,7 +1,7 @@
-import asyncio
-import json
 import os
 import re
+import json
+import asyncio
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -9,78 +9,71 @@ from json import JSONDecodeError
 from typing import Any, Literal, Optional, cast
 from urllib.parse import urlparse
 
-import posthoganalytics
-import requests
-import structlog
-from clickhouse_driver.errors import ServerException
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
+
+import requests
+import structlog
+import posthoganalytics
+from clickhouse_driver.errors import ServerException
 from drf_spectacular.utils import extend_schema
+from loginas.utils import is_impersonated_session
 from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
     ChatCompletionMessageParam,
     ChatCompletionSystemMessageParam,
     ChatCompletionUserMessageParam,
 )
+from opentelemetry import trace
 from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ValidationError
-from rest_framework import exceptions, request, serializers, viewsets, status
+from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, Throttled
 from rest_framework.mixins import UpdateModelMixin
 from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
-from ee.hogai.session_summaries.llm.call import get_openai_client
-from ee.hogai.session_summaries.session.stream import stream_recording_summary
-from posthog.cloud_utils import is_cloud
+from posthog.schema import PropertyFilterType, PropertyOperator, QueryTiming, RecordingPropertyFilter, RecordingsQuery
+
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
 from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
-from posthog.clickhouse.query_tagging import tag_queries, Product
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries, CHQueryErrorCannotScheduleTask
+from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.cloud_utils import is_cloud
+from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
-from posthog.rate_limit import (
-    ClickHouseBurstRateThrottle,
-    ClickHouseSustainedRateThrottle,
-    PersonalApiKeyRateThrottle,
-)
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, PersonalApiKeyRateThrottle
 from posthog.renderers import ServerSentEventRenderer
-from posthog.schema import PropertyFilterType, QueryTiming, RecordingsQuery, RecordingPropertyFilter, PropertyOperator
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.session_recordings.models.session_recording_event import (
-    SessionRecordingViewed,
-)
-from posthog.session_recordings.queries.session_recording_list_from_query import (
-    SessionRecordingListFromQuery,
-)
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.session_recordings.realtime_snapshots import (
-    get_realtime_snapshots,
-    publish_subscription,
-)
-from tenacity import retry, wait_random_exponential, retry_if_exception_type, stop_after_attempt
+from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots, publish_subscription
 from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
+
+from ee.hogai.session_summaries.llm.call import get_openai_client
+from ee.hogai.session_summaries.session.stream import stream_recording_summary
+
+from ..models.product_intent.product_intent import ProductIntent
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters
 from .queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
-from ..models.product_intent.product_intent import ProductIntent
-from posthog.models.activity_logging.activity_log import log_activity, Detail
-from loginas.utils import is_impersonated_session
-from opentelemetry import trace
 
 MAX_RECORDINGS_PER_BULK_ACTION = 20
 
@@ -457,44 +450,12 @@ def stream_from(url: str, headers: dict | None = None) -> Generator[requests.Res
         session.close()
 
 
-class SourceVaryingSnapshotThrottle(PersonalApiKeyRateThrottle):
-    source: str | None = None
-    # these are defined in init in the SimpleRateThrottle
-    # but we define them here to avoid mypy errors
-    num_requests: int | None = None
-    duration: int | None = None
-
-    def _get_rate(self):
-        num_requests, duration = self.parse_rate(self.rate)
-
-        divisors = {
-            "realtime": 64,
-            "blob": 4,
-            "blob_v2": 1,
-        }
-
-        divisor: int = divisors.get(self.source if self.source else "", 1)
-        return None if num_requests is None else num_requests / divisor, duration
-
-    def allow_request(self, request, view):
-        """
-        num_requests is set on __init__ of the parent and not checked again
-        so we need to override it on every request
-        """
-        self.source = request.GET.get("source", None)
-        rates = self._get_rate()
-        self.num_requests = rates[0] if rates else self.num_requests
-        self.duration = rates[1] if rates else self.duration
-
-        return super().allow_request(request, view)
-
-
-class SnapshotsBurstRateThrottle(SourceVaryingSnapshotThrottle):
+class SnapshotsBurstRateThrottle(PersonalApiKeyRateThrottle):
     scope = "snapshots_burst"
     rate = "120/minute"
 
 
-class SnapshotsSustainedRateThrottle(SourceVaryingSnapshotThrottle):
+class SnapshotsSustainedRateThrottle(PersonalApiKeyRateThrottle):
     scope = "snapshots_sustained"
     rate = "600/hour"
 
@@ -736,21 +697,17 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             "snapshots_load_time": durations.get("snapshots"),
             "metadata_load_time": durations.get("metadata"),
             "events_load_time": durations.get("events"),
-            "first_paint_load_time": durations.get("firstPaint"),
             "duration": player_metadata.get("duration"),
             "recording_id": player_metadata.get("sessionRecordingId"),
             "start_time": player_metadata.get("start"),
             "end_time": player_metadata.get("end"),
             "page_change_events_length": player_metadata.get("pageChangeEventsLength"),
             "recording_width": player_metadata.get("recordingWidth"),
-            "load_time": durations.get(
-                "firstPaint", 0
-            ),  # TODO: DEPRECATED field. Keep around so dashboards don't break
             # older recordings did not store this and so "null" is equivalent to web
             # but for reporting we want to distinguish between not loaded and no value to load
             "snapshot_source": player_metadata.get("snapshotSource", "unknown"),
         }
-        user: User | None | AnonymousUser = request.user
+        user: User | AnonymousUser = cast(User | AnonymousUser, request.user)
 
         if isinstance(user, User) and not user.is_anonymous:
             if "viewed" in serializer.validated_data:
@@ -1008,9 +965,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label).inc()
 
         # blob v1 API has been deprecated for a while now,
-        # we'll cut off access for new teams to give older teams time to migrate
-        # this defaults to True, and then is only maybe set to False for usage of personal api keys
-        blob_v1_sources_are_allowed = True
+        # we now only allow blob v1 on self-hosted installs
+        # before we can have a release that officially deprecates it for self-hosted
+        blob_v1_sources_are_allowed = False if is_cloud() or settings.DEBUG else True
         if is_personal_api_key:
             personal_api_authenticator = cast(PersonalAPIKeyAuthentication, request.successful_authenticator)
             used_key = personal_api_authenticator.personal_api_key
@@ -1030,10 +987,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 },
             )
 
-            blob_v1_sources_are_allowed = self.team.created_at <= datetime.fromisoformat(
-                settings.API_V1_DEPRECATION_DATE
-            )
-
         try:
             response: Response | HttpResponse
             if not source:
@@ -1046,10 +999,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 with timer("send_realtime_snapshots_to_client"):
                     response = self._send_realtime_snapshots_to_client(recording)
             elif source == "blob":
-                if not blob_v1_sources_are_allowed:
-                    raise exceptions.ValidationError(
-                        "blob snapshots are not available for teams created after v1 of the API was deprecated. See https://posthog.com/docs/session-replay/snapshot-api"
-                    )
+                is_likely_v1_lts = recording.object_storage_path and not recording.full_recording_v2_path
+                if not blob_v1_sources_are_allowed and not is_likely_v1_lts:
+                    raise exceptions.ValidationError("blob snapshots are no longer supported")
                 with timer("stream_blob_to_client"):
                     response = self._stream_blob_to_client(
                         recording, validated_data.get("blob_key", ""), validated_data.get("if_none_match")
@@ -1215,7 +1167,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                             }
                         )
                 if sources:
-                    sources = sorted(sources, key=lambda x: x.get("start_timestamp", None))
+                    sources = sorted(sources, key=lambda x: x.get("start_timestamp", -1))
 
                     if might_have_realtime and not is_v2_enabled:
                         oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
@@ -1266,9 +1218,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             elif isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
                 return cast(
                     PersonalAPIKeyAuthentication, request.successful_authenticator
-                ).personal_api_key.secure_value
+                ).personal_api_key.user.distinct_id
             elif isinstance(request.user, AnonymousUser):
-                return request.GET.get("sharing_access_token") or "anonymous"
+                return "shared" if request.GET.get("sharing_access_token", None) else "anonymous"
             else:
                 return "anonymous"
         except:

@@ -1,7 +1,10 @@
 use anyhow::Result;
 use rdkafka::message::OwnedMessage;
-use tracing::{debug, warn};
+use rdkafka::Message;
+use tokio::sync::OwnedSemaphorePermit;
+use tracing::{error, info, warn};
 
+use crate::kafka::metrics_consts::MESSAGES_AUTO_NACKED;
 use crate::kafka::tracker::{MessageCompletion, MessageHandle};
 
 /// Result of message processing - simple success/failure
@@ -21,14 +24,22 @@ pub struct AckableMessage {
 
     /// Whether this message has been acked
     acked: bool,
+
+    /// Semaphore permit that will be released when message is ack'd/nack'd
+    _permit: OwnedSemaphorePermit,
 }
 
 impl AckableMessage {
-    pub(crate) fn new(message: OwnedMessage, handle: MessageHandle) -> Self {
+    pub(crate) fn new(
+        message: OwnedMessage,
+        handle: MessageHandle,
+        permit: OwnedSemaphorePermit,
+    ) -> Self {
         Self {
             message,
             handle,
             acked: false,
+            _permit: permit,
         }
     }
 
@@ -39,10 +50,14 @@ impl AckableMessage {
             return;
         }
 
+        let offset = self.handle.offset;
         self.handle.complete(MessageResult::Success).await;
         self.acked = true;
 
-        debug!("Acked message: id={}", self.handle.message_id);
+        info!(
+            "Acked message: id={}, offset={}",
+            self.handle.message_id, offset
+        );
     }
 
     /// Acknowledge failed processing of this message
@@ -52,14 +67,15 @@ impl AckableMessage {
             return;
         }
 
+        let offset = self.handle.offset;
         self.handle
             .complete(MessageResult::Failed(error.clone()))
             .await;
         self.acked = true;
 
-        debug!(
-            "Nacked message: id={}, error={}",
-            self.handle.message_id, error
+        info!(
+            "Nacked message: id={}, offset={}, error={}",
+            self.handle.message_id, offset, error
         );
     }
 
@@ -82,9 +98,12 @@ impl AckableMessage {
 impl Drop for AckableMessage {
     fn drop(&mut self) {
         if !self.acked {
-            warn!(
-                "Message dropped without acking: id={}",
-                self.handle.message_id
+            error!(
+                "MESSAGE DROPPED WITHOUT ACK: id={}, offset={}, topic={}, partition={}",
+                self.handle.message_id,
+                self.handle.offset,
+                self.message.topic(),
+                self.message.partition()
             );
 
             // Auto-nack on drop to prevent hanging
@@ -95,10 +114,17 @@ impl Drop for AckableMessage {
             };
 
             if self.handle.completion_tx.send(completion).is_err() {
-                warn!(
-                    "Failed to send auto-nack for dropped message: id={}",
-                    self.handle.message_id
+                error!(
+                    "CRITICAL: Failed to send auto-nack for dropped message: id={}, offset={}",
+                    self.handle.message_id, self.handle.offset
                 );
+            } else {
+                warn!(
+                    "Auto-nacked dropped message: id={}, offset={}",
+                    self.handle.message_id, self.handle.offset
+                );
+                // Increment auto-nack counter
+                metrics::counter!(MESSAGES_AUTO_NACKED).increment(1);
             }
         }
     }
@@ -130,7 +156,8 @@ mod tests {
     use super::*;
     use crate::kafka::InFlightTracker;
     use rdkafka::message::{OwnedHeaders, OwnedMessage, Timestamp};
-    use std::sync::Arc;
+    use std::{sync::Arc, time::Duration};
+    use tokio::time::sleep;
 
     fn create_test_message(
         topic: &str,
@@ -153,9 +180,13 @@ mod tests {
     async fn test_message_ack() {
         let tracker = Arc::new(InFlightTracker::new());
         let message = create_test_message("test-topic", 0, 0, "test-payload");
-        let (_message_id, handle) = tracker.track_message(&message, 100).await;
+        let permit = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
 
-        let ackable = AckableMessage::new(message, handle);
+        let ackable = tracker.track_message(message, 100, permit).await;
 
         // Verify message is tracked
         assert_eq!(tracker.in_flight_count().await, 1);
@@ -164,8 +195,8 @@ mod tests {
         // Ack the message
         ackable.ack().await;
 
-        // Process completions
-        tracker.process_completions().await;
+        // Give PartitionTracker time to process the completion
+        sleep(Duration::from_millis(10)).await;
 
         // Verify message is completed
         assert_eq!(tracker.in_flight_count().await, 0);
@@ -180,15 +211,19 @@ mod tests {
     async fn test_message_nack() {
         let tracker = Arc::new(InFlightTracker::new());
         let message = create_test_message("test-topic", 0, 0, "test-payload");
-        let (_, handle) = tracker.track_message(&message, 50).await;
+        let permit = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
 
-        let ackable = AckableMessage::new(message, handle);
+        let ackable = tracker.track_message(message, 50, permit).await;
 
         // Nack the message
         ackable.nack("test error".to_string()).await;
 
-        // Process completions
-        tracker.process_completions().await;
+        // Give PartitionTracker time to process the completion
+        sleep(Duration::from_millis(10)).await;
 
         // Verify message is completed with failure
         assert_eq!(tracker.in_flight_count().await, 0);

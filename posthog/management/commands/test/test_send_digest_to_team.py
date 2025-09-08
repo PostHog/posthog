@@ -1,8 +1,8 @@
+from posthog.test.base import BaseTest
 from unittest.mock import patch
+
 from django.core.management import call_command
 from django.core.management.base import CommandError
-
-from posthog.test.base import BaseTest
 
 
 class TestSendDigestToTeamCommand(BaseTest):

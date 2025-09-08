@@ -1,6 +1,5 @@
 from datetime import datetime
 from typing import Any
-
 from zoneinfo import ZoneInfo
 
 from posthog.models.subscription import Subscription

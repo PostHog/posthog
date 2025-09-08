@@ -1,21 +1,19 @@
 from datetime import datetime, timedelta
 from typing import LiteralString, Optional
 
-import pytz
 from django.conf import settings
 from django.core.cache import cache
+
+import pytz
+
+from posthog.schema import HogQLQuery
 
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
-
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import Team
-from posthog.schema import HogQLQuery
-from posthog.session_recordings.models.metadata import (
-    RecordingMetadata,
-    RecordingBlockListing,
-)
+from posthog.session_recordings.models.metadata import RecordingBlockListing, RecordingMetadata
 
 DEFAULT_EVENT_FIELDS = [
     "event",
@@ -419,6 +417,7 @@ class SessionReplayEvents:
         page: int = 0,
     ) -> tuple[list | None, list | None]:
         from posthog.schema import HogQLQueryResponse
+
         from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
         hq = self.get_events_query(session_id, metadata, events_to_ignore, extra_fields, limit, page)

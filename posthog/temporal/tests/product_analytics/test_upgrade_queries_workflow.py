@@ -1,26 +1,29 @@
 import uuid
-import pytest
-from asgiref.sync import sync_to_async
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
+from posthog.test.base import QueryMatchingTest, snapshot_postgres_queries_context
+
 from django.conf import settings
+
+from asgiref.sync import sync_to_async
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.models.insight import Insight
 from posthog.schema import NodeKind
+
+from posthog.models.insight import Insight
 from posthog.schema_migrations import LATEST_VERSIONS, MIGRATIONS, SchemaMigration
-from posthog.temporal.product_analytics.upgrade_queries_workflow import (
-    UpgradeQueriesWorkflow,
-    UpgradeQueriesWorkflowInputs,
-)
 from posthog.temporal.product_analytics.upgrade_queries_activities import (
     GetInsightsToMigrateActivityInputs,
     MigrateInsightsBatchActivityInputs,
     get_insights_to_migrate,
     migrate_insights_batch,
 )
-from posthog.test.base import QueryMatchingTest, snapshot_postgres_queries_context
+from posthog.temporal.product_analytics.upgrade_queries_workflow import (
+    UpgradeQueriesWorkflow,
+    UpgradeQueriesWorkflowInputs,
+)
 
 
 class InsightVizMigration1(SchemaMigration):

@@ -286,11 +286,11 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     })),
     subscriptions(({ props, actions }) => ({
         currentTeam: (currentTeam) => {
-            actions.setAuthorizedUrls(
+            const urls =
                 (props.type === AuthorizedUrlListType.RECORDING_DOMAINS
                     ? currentTeam.recording_domains
                     : currentTeam.app_urls) || []
-            )
+            actions.setAuthorizedUrls(urls.filter(Boolean))
         },
     })),
     afterMount(({ actions }) => {
@@ -330,8 +330,8 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             [] as string[],
             {
                 setAuthorizedUrls: (_, { authorizedUrls }) => authorizedUrls,
-                addUrl: (state, { url }) => (!state.includes(url) ? state.concat([url]) : state),
-                updateUrl: (state, { index, url }) => Object.assign([...state], { [index]: url }),
+                addUrl: (state, { url }) => (url && !state.includes(url) ? state.concat([url]) : state),
+                updateUrl: (state, { index, url }) => (url ? Object.assign([...state], { [index]: url }) : state),
                 removeUrl: (state, { index }) => {
                     const newUrls = [...state]
                     newUrls.splice(index, 1)

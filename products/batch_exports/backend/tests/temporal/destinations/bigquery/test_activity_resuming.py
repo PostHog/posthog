@@ -6,34 +6,30 @@ test module can be removed once all BigQuery batch exports have been moved to us
 `insert_into_bigquery_from_stage`.
 """
 
-import dataclasses
+import uuid
 import datetime as dt
 import operator
-import unittest.mock
-import uuid
+import dataclasses
 
 import pytest
+import unittest.mock
+
 from temporalio import activity
 from temporalio.common import Priority
 
-from posthog.batch_exports.service import (
-    BatchExportModel,
-)
+from posthog.batch_exports.service import BatchExportModel
+
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryHeartbeatDetails,
     BigQueryInsertInputs,
     insert_into_bigquery_activity,
 )
-from products.batch_exports.backend.temporal.spmc import (
-    RecordBatchTaskError,
-)
+from products.batch_exports.backend.temporal.spmc import RecordBatchTaskError
 from products.batch_exports.backend.tests.temporal.destinations.bigquery.utils import (
     SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS,
     assert_clickhouse_records_in_bigquery,
 )
-from products.batch_exports.backend.tests.temporal.utils import (
-    FlakyClickHouseClient,
-)
+from products.batch_exports.backend.tests.temporal.utils import FlakyClickHouseClient
 
 pytestmark = [
     SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS,

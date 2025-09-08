@@ -1,59 +1,12 @@
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
-import dataclasses
 import json
 import uuid
+import dataclasses
 from datetime import datetime
 from typing import Any, Optional, Union, cast
-from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import pytest
-from django.test import override_settings
-from django.utils import timezone
 from freezegun import freeze_time
-from rest_framework.exceptions import ValidationError
-
-from posthog.constants import (
-    TREND_FILTER_TYPE_EVENTS,
-    TRENDS_BAR_VALUE,
-    TRENDS_LINEAR,
-    TRENDS_TABLE,
-)
-from posthog.hogql_queries.insights.trends.test.test_trends_persons import get_actors
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
-    clean_entity_properties,
-    clean_global_properties,
-    filter_to_query,
-)
-from posthog.models import (
-    Action,
-    Cohort,
-    Entity,
-    Filter,
-    Organization,
-    Person,
-)
-from posthog.models.group.util import create_group
-from posthog.models.instance_setting import (
-    get_instance_setting,
-    override_instance_config,
-)
-from posthog.models.person.util import create_person_distinct_id
-from posthog.models.property_definition import PropertyDefinition
-from posthog.models.team.team import Team
-from posthog.models.utils import uuid7
-from posthog.schema import (
-    ActionsNode,
-    BreakdownFilter,
-    DataWarehouseNode,
-    EventsNode,
-    DateRange,
-    PropertyGroupFilter,
-    TrendsFilter,
-    TrendsQuery,
-    CompareFilter,
-)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -66,7 +19,42 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
+
+from django.test import override_settings
+from django.utils import timezone
+
+from rest_framework.exceptions import ValidationError
+
+from posthog.schema import (
+    ActionsNode,
+    BreakdownFilter,
+    CompareFilter,
+    DataWarehouseNode,
+    DateRange,
+    EventsNode,
+    PropertyGroupFilter,
+    TrendsFilter,
+    TrendsQuery,
+)
+
+from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_BAR_VALUE, TRENDS_LINEAR, TRENDS_TABLE
+from posthog.hogql_queries.insights.trends.test.test_trends_persons import get_actors
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
+    clean_entity_properties,
+    clean_global_properties,
+    filter_to_query,
+)
+from posthog.models import Action, Cohort, Entity, Filter, Organization, Person
+from posthog.models.group.util import create_group
+from posthog.models.instance_setting import get_instance_setting, override_instance_config
+from posthog.models.person.util import create_person_distinct_id
+from posthog.models.property_definition import PropertyDefinition
+from posthog.models.team.team import Team
+from posthog.models.utils import uuid7
 from posthog.test.test_journeys import journeys_for
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 def breakdown_label(entity: Entity, value: Union[str, int]) -> dict[str, Optional[Union[str, int]]]:

@@ -1,9 +1,11 @@
-import json
 import os
+import json
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+
 from rest_framework import status
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models import HogFunction
 from posthog.models.hog_function_template import HogFunctionTemplate

@@ -1,15 +1,17 @@
 from typing import cast
 
 from django.db import IntegrityError
+
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 
-from ee.models.rbac.role import Role, RoleMembership
 from posthog.api.organization_member import OrganizationMemberSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
+
+from ee.models.rbac.role import Role, RoleMembership
 
 
 class RolePermissions(BasePermission):
@@ -98,9 +100,18 @@ class RoleMembershipSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         user_uuid = validated_data.pop("user_uuid")
+
+        try:
+            role = Role.objects.get(id=self.context["role_id"])
+        except Role.DoesNotExist:
+            raise serializers.ValidationError("Role does not exist.")
+
+        if role.organization_id != self.context["organization_id"]:
+            raise serializers.ValidationError("Role does not belong to the specified organization.")
+
         try:
             validated_data["organization_member"] = OrganizationMembership.objects.select_related("user").get(
-                organization_id=self.context["organization_id"], user__uuid=user_uuid, user__is_active=True
+                organization_id=role.organization_id, user__uuid=user_uuid, user__is_active=True
             )
 
             validated_data["user"] = validated_data["organization_member"].user

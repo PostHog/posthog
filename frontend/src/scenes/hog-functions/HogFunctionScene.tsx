@@ -12,7 +12,6 @@ import {
     hogFunctionConfigurationLogic,
 } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { HogFunctionLogs } from 'scenes/hog-functions/logs/HogFunctionLogs'
-import { HogFunctionMetrics } from 'scenes/hog-functions/metrics/HogFunctionMetrics'
 import { HogFunctionTesting } from 'scenes/hog-functions/testing/HogFunctionTesting'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -27,6 +26,7 @@ import {
 } from '~/types'
 
 import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
+import { HogFunctionMetrics } from './metrics/HogFunctionMetrics'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
 
 const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'logs', 'testing', 'history'] as const

@@ -78,6 +78,8 @@ import {
     DataWarehouseSourceRowCount,
     DataWarehouseTable,
     DataWarehouseViewLink,
+    Dataset,
+    DatasetItem,
     EarlyAccessFeatureType,
     EmailSenderDomainStatus,
     EventDefinition,
@@ -90,6 +92,7 @@ import {
     ExternalDataJob,
     ExternalDataSource,
     ExternalDataSourceCreatePayload,
+    ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
     FeatureFlagAssociatedRoleType,
@@ -160,6 +163,7 @@ import {
     UserType,
 } from '~/types'
 
+import { HogflowTestResult } from 'products/messaging/frontend/Campaigns/hogflows/steps/types'
 import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
 import { OptOutEntry } from 'products/messaging/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
@@ -175,6 +179,7 @@ import {
 } from './components/Errors/types'
 import {
     ACTIVITY_PAGE_SIZE,
+    COHORT_PERSONS_QUERY_LIMIT,
     DashboardPrivilegeLevel,
     EVENT_DEFINITIONS_PER_PAGE,
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
@@ -653,6 +658,14 @@ export class ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId)
     }
 
+    public cohortsDetailPersons(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.cohorts(teamId).addPathComponent(cohortId).addPathComponent('persons')
+    }
+
+    public cohortsAddPersonsToStatic(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.cohorts(teamId).addPathComponent(cohortId).addPathComponent('add_persons_to_static_cohort')
+    }
+
     public cohortsDuplicate(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.cohortsDetail(cohortId, teamId).addPathComponent('duplicate_as_static_cohort')
     }
@@ -897,6 +910,14 @@ export class ApiRequest {
         return this.userInterviews(teamId).addPathComponent(id)
     }
 
+    // # Users
+    public users(email?: string): ApiRequest {
+        if (email) {
+            return this.addPathComponent('users').withQueryString({ email })
+        }
+        return this.addPathComponent('users')
+    }
+
     // # Tasks
     public tasks(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('tasks')
@@ -941,6 +962,10 @@ export class ApiRequest {
 
     public errorTrackingIssueMerge(into: ErrorTrackingIssue['id']): ApiRequest {
         return this.errorTrackingIssue(into).addPathComponent('merge')
+    }
+
+    public errorTrackingIssueSplit(into: ErrorTrackingIssue['id']): ApiRequest {
+        return this.errorTrackingIssue(into).addPathComponent('split')
     }
 
     public errorTrackingIssueBulk(teamId?: TeamType['id']): ApiRequest {
@@ -1284,6 +1309,13 @@ export class ApiRequest {
         return this.externalDataSchemas(teamId).addPathComponent(schemaId)
     }
 
+    public externalDataSourceRevenueAnalyticsConfig(
+        sourceId: ExternalDataSource['id'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.externalDataSources(teamId).addPathComponent(sourceId).addPathComponent('revenue_analytics_config')
+    }
+
     // Fix HogQL errors
     public fixHogQLErrors(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('fix_hogql')
@@ -1414,6 +1446,22 @@ export class ApiRequest {
 
     public wizard(): ApiRequest {
         return this.addPathComponent('wizard')
+    }
+
+    public datasets(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('datasets')
+    }
+
+    public dataset(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('datasets').addPathComponent(id)
+    }
+
+    public datasetItems(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('dataset_items')
+    }
+
+    public datasetItem(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('dataset_items').addPathComponent(id)
     }
 }
 
@@ -2126,11 +2174,80 @@ const api = {
         ): Promise<CountedPaginatedResponse<CohortType>> {
             return await new ApiRequest().cohorts().withQueryString(toParams(params)).get()
         },
+        async getCohortPersons(cohortId: CohortType['id']): Promise<PaginatedResponse<PersonType>> {
+            return await new ApiRequest()
+                .cohortsDetailPersons(cohortId)
+                .withQueryString(toParams({ limit: COHORT_PERSONS_QUERY_LIMIT }))
+                .get()
+        },
+        async addPersonsToStaticCohort(cohortId: CohortType['id'], ids: string[]): Promise<{ success: boolean }> {
+            return await new ApiRequest().cohortsAddPersonsToStatic(cohortId).update({ data: { person_ids: ids } })
+        },
     },
 
     dashboards: {
         async get(id: number): Promise<DashboardType> {
             return new ApiRequest().dashboardsDetail(id).get()
+        },
+
+        async streamTiles(
+            id: number,
+            params: { layoutSize?: 'sm' | 'xs' } = {},
+            onMessage: (data: any) => void,
+            onComplete: () => void,
+            onError: (error: any) => void
+        ): Promise<() => void> {
+            const url = new ApiRequest()
+                .dashboardsDetail(id)
+                .withAction('stream_tiles')
+                .withQueryString(toParams(params))
+                .assembleFullUrl(true)
+
+            const abortController = new AbortController()
+
+            fetchEventSource(url, {
+                signal: abortController.signal,
+                credentials: 'include',
+                openWhenHidden: true,
+                onopen: async (response) => {
+                    if (!response.ok) {
+                        // Get server error message if available
+                        let errorMessage = `HTTP ${response.status}`
+                        try {
+                            const errorText = await response.text()
+                            if (errorText) {
+                                errorMessage = `HTTP ${response.status}: ${errorText}`
+                            }
+                        } catch {
+                            // If we can't read the response, just use the status
+                        }
+
+                        // For any error, call onError and abort to prevent retries
+                        onError(new Error(errorMessage))
+                        abortController.abort()
+                        return
+                    }
+                },
+                onmessage: (event: EventSourceMessage) => {
+                    try {
+                        const data = JSON.parse(event.data)
+                        if (data.type === 'complete') {
+                            onComplete()
+                        } else if (data.type === 'error') {
+                            onError(new Error(data.error || 'Streaming error'))
+                        } else {
+                            onMessage(data)
+                        }
+                    } catch (error) {
+                        onError(error)
+                    }
+                },
+                onerror: (error) => {
+                    onError(error)
+                },
+            }).catch(onError)
+
+            return () => abortController.abort()
         },
 
         collaborators: {
@@ -2651,6 +2768,16 @@ const api = {
                 .create({ data: { ids: mergingIssueIds } })
         },
 
+        async split(
+            issueId: ErrorTrackingIssue['id'],
+            fingerprints: string[],
+            exclusive: boolean
+        ): Promise<{ content: string }> {
+            return await new ApiRequest()
+                .errorTrackingIssueSplit(issueId)
+                .create({ data: { fingerprints: fingerprints, exclusive } })
+        },
+
         symbolSets: {
             async list({
                 status,
@@ -3112,6 +3239,12 @@ const api = {
         },
     },
 
+    users: {
+        async list(email?: string): Promise<PaginatedResponse<UserType>> {
+            return await new ApiRequest().users(email).get()
+        },
+    },
+
     tasks: {
         async list(): Promise<PaginatedResponse<Task>> {
             return await new ApiRequest().tasks().get()
@@ -3376,6 +3509,12 @@ const api = {
                 .withAction('jobs')
                 .withQueryString({ before, after })
                 .get()
+        },
+        async updateRevenueAnalyticsConfig(
+            sourceId: ExternalDataSource['id'],
+            data: Partial<ExternalDataSourceRevenueAnalyticsConfig>
+        ): Promise<ExternalDataSource> {
+            return await new ApiRequest().externalDataSourceRevenueAnalyticsConfig(sourceId).update({ data })
         },
     },
 
@@ -3798,8 +3937,9 @@ const api = {
                 globals?: any
                 clickhouse_event?: any
                 invocation_id?: string
+                current_action_id?: string
             }
-        ): Promise<any> {
+        ): Promise<HogflowTestResult> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('invocations').create({ data })
         },
     },
@@ -3896,6 +4036,57 @@ const api = {
 
         get(conversationId: string): Promise<ConversationDetail> {
             return new ApiRequest().conversation(conversationId).get()
+        },
+    },
+
+    datasets: {
+        list({
+            ids,
+            ...params
+        }: {
+            search?: string
+            order_by?: string
+            offset?: number
+            limit?: number
+            ids?: string[]
+        }): Promise<CountedPaginatedResponse<Dataset>> {
+            return new ApiRequest()
+                .datasets()
+                .withQueryString({
+                    ...params,
+                    id__in: ids?.join(','),
+                })
+                .get()
+        },
+
+        get(datasetId: string): Promise<Dataset> {
+            return new ApiRequest().dataset(datasetId).get()
+        },
+
+        async create(data: Omit<Partial<Dataset>, 'created_by' | 'team'>): Promise<Dataset> {
+            return await new ApiRequest().datasets().create({ data })
+        },
+
+        async update(datasetId: string, data: Omit<Partial<Dataset>, 'created_by' | 'team'>): Promise<Dataset> {
+            return await new ApiRequest().dataset(datasetId).update({ data })
+        },
+    },
+
+    datasetItems: {
+        list(data: {
+            dataset: string
+            limit?: number
+            offset?: number
+        }): Promise<CountedPaginatedResponse<DatasetItem>> {
+            return new ApiRequest().datasetItems().withQueryString(data).get()
+        },
+
+        async create(data: Partial<DatasetItem>): Promise<DatasetItem> {
+            return await new ApiRequest().datasetItems().create({ data })
+        },
+
+        async update(datasetItemId: string, data: Partial<DatasetItem>): Promise<DatasetItem> {
+            return await new ApiRequest().datasetItem(datasetItemId).update({ data })
         },
     },
 

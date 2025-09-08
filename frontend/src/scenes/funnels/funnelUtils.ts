@@ -93,13 +93,20 @@ export function getSeriesPositionName(
     return
 }
 
+const calculateAverageConversionTime = (breakdown_results: FunnelStepWithNestedBreakdown[]): number | null => {
+    const resultsWithAverage = breakdown_results.filter((r) => r.average_conversion_time != null)
+    const totalCount = resultsWithAverage.reduce((sum, r) => sum + r.count, 0)
+    const weightedSum = resultsWithAverage.reduce((sum, r) => sum + r.average_conversion_time! * r.count, 0)
+    return totalCount > 0 ? weightedSum / totalCount : null
+}
+
 export function aggregateBreakdownResult(
-    breakdownList: FunnelStep[][],
+    results: FunnelStep[][],
     breakdownProperty?: BreakdownKeyType
 ): FunnelStepWithNestedBreakdown[] {
-    if (breakdownList.length) {
+    if (results.length) {
         // Create mapping to determine breakdown ordering by first step counts
-        const breakdownToOrderMap: Record<string | number, FunnelStep> = breakdownList
+        const breakdownToOrderMap: Record<string | number, FunnelStep> = results
             .reduce<{ breakdown_value: (string | number)[]; count: number }[]>((allEntries, breakdownSteps) => {
                 allEntries.push({
                     breakdown_value: getBreakdownStepValues(breakdownSteps?.[0], -1).breakdown_value,
@@ -116,11 +123,8 @@ export function aggregateBreakdownResult(
                 {}
             )
 
-        return breakdownList[0].map((step, i) => ({
-            ...step,
-            count: breakdownList.reduce((total, breakdownSteps) => total + breakdownSteps[i].count, 0),
-            breakdown: breakdownProperty,
-            nested_breakdown: breakdownList
+        return results[0].map((step, i) => {
+            const breakdownResults = results
                 .reduce((allEntries, breakdownSteps) => {
                     allEntries.push({
                         ...breakdownSteps[i],
@@ -130,10 +134,19 @@ export function aggregateBreakdownResult(
                     })
                     return allEntries
                 }, [])
-                .sort((a, b) => a.order - b.order),
-            average_conversion_time: null,
-            people: [],
-        }))
+                .sort((a, b) => a.order - b.order)
+
+            return {
+                ...step,
+                count: results.reduce((total, breakdownSteps) => total + breakdownSteps[i].count, 0),
+                breakdown: breakdownProperty,
+                nested_breakdown: breakdownResults,
+                average_conversion_time: calculateAverageConversionTime(breakdownResults),
+                // we can't compute the median, as we don't have the distribution of conversion times
+                median_conversion_time: null,
+                people: [],
+            }
+        })
     }
     return []
 }

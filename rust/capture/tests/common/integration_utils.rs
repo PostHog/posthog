@@ -8,11 +8,16 @@ use std::time::Duration;
 use capture::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     config::CaptureMode,
+    limiters::CaptureQuotaLimiter,
     router::router,
     sinks::Event,
     time::TimeSource,
     v0_request::{DataType, ProcessedEvent},
 };
+
+#[path = "./utils.rs"]
+mod test_utils;
+pub use test_utils::DEFAULT_CONFIG;
 
 use async_trait::async_trait;
 use axum::http::StatusCode;
@@ -23,7 +28,6 @@ use common_redis::MockRedisClient;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use health::HealthRegistry;
-use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
 use serde_json::{from_str, Number, Value};
 use time::format_description::well_known::{Iso8601, Rfc3339};
@@ -957,31 +961,11 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
     };
     let redis = Arc::new(MockRedisClient::new());
 
-    let err_msg = format!("failed create billing limiter in case: {}", unit.title);
-    let quota_resource_mode = match unit.mode {
-        CaptureMode::Events => QuotaResource::Events,
-        CaptureMode::Recordings => QuotaResource::Recordings,
-    };
-    let billing_limiter = RedisLimiter::new(
-        Duration::from_secs(60 * 60 * 24 * 7),
-        redis.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        None,
-        quota_resource_mode,
-        ServiceName::Capture,
-    )
-    .expect(&err_msg);
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = unit.mode.clone();
 
-    // Create survey limiter (required by router now)
-    let survey_limiter = RedisLimiter::new(
-        Duration::from_secs(60 * 60 * 24 * 7),
-        redis.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        None,
-        QuotaResource::Surveys,
-        ServiceName::Capture,
-    )
-    .expect("failed to create survey limiter");
+    let quota_limiter =
+        CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 
     // simple defaults - payload validation isn't the focus of these tests
     let enable_historical_rerouting = false;
@@ -996,8 +980,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             liveness.clone(),
             sink.clone(),
             redis,
-            billing_limiter,
-            survey_limiter,
+            quota_limiter,
             TokenDropper::default(),
             false,
             unit.mode.clone(),

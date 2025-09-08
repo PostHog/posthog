@@ -451,6 +451,8 @@ mod tests {
                     content: crate::parse::content::ContentType::Captured,
                 },
                 sink: crate::job::config::SinkConfig::NoOp,
+                import_events: true,
+                generate_identify_events: false,
             },
             secrets: crate::job::config::JobSecrets {
                 secrets: std::collections::HashMap::new(),

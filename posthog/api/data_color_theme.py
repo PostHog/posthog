@@ -1,7 +1,8 @@
+from django.db.models import Q
+
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.response import Response
-from django.db.models import Q
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer

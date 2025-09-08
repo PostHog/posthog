@@ -1,11 +1,14 @@
-import contextlib
 import uuid
+import contextlib
 from datetime import datetime
 from typing import Optional
-from unittest import mock
 from zoneinfo import ZoneInfo
 
+from posthog.test.base import BaseTest
+from unittest import mock
+
 from django.test import override_settings
+
 from structlog.types import FilteringBoundLogger
 
 from posthog.models import Team
@@ -16,7 +19,6 @@ from posthog.temporal.data_imports.row_tracking import (
     setup_row_tracking,
     will_hit_billing_limit,
 )
-from posthog.test.base import BaseTest
 from posthog.warehouse.models import ExternalDataSource
 
 

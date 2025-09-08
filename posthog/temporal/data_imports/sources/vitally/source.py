@@ -1,27 +1,29 @@
 import re
 from typing import cast
+
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    Option,
     SourceConfig,
     SourceFieldInputConfig,
-    SourceFieldSelectConfig,
     SourceFieldInputConfigType,
-    Option,
+    SourceFieldSelectConfig,
 )
+
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.vitally.vitally import (
-    validate_credentials as validate_vitally_credentials,
-    vitally_source,
-)
+from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
+from posthog.temporal.data_imports.sources.generated_configs import VitallySourceConfig
 from posthog.temporal.data_imports.sources.vitally.settings import (
     ENDPOINTS as VITALLY_ENDPOINTS,
     INCREMENTAL_FIELDS as VITALLY_INCREMENTAL_FIELDS,
 )
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
-from posthog.temporal.data_imports.sources.generated_configs import VitallySourceConfig
+from posthog.temporal.data_imports.sources.vitally.vitally import (
+    validate_credentials as validate_vitally_credentials,
+    vitally_source,
+)
 from posthog.warehouse.types import ExternalDataSourceType
 
 
@@ -31,7 +33,7 @@ class VitallySource(BaseSource[VitallySourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.VITALLY
 
-    def get_schemas(self, config: VitallySourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: VitallySourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,

@@ -1,24 +1,25 @@
-from typing import Any, cast, Optional, Union, Literal
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
+from typing import Any, Literal, Optional, Union, cast
+
+import structlog
+from opentelemetry import trace
+
+from posthog.schema import (
+    FilterLogicalOperator,
+    HogQLQueryModifiers,
+    PropertyGroupFilterValue,
+    RecordingOrder,
+    RecordingsQuery,
+)
 
 from posthog.hogql import ast
-
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.models import Team
-from posthog.schema import (
-    HogQLQueryModifiers,
-    RecordingsQuery,
-    PropertyGroupFilterValue,
-    FilterLogicalOperator,
-    RecordingOrder,
-)
-
-import structlog
 
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.models import Team
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
 from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
@@ -30,7 +31,6 @@ from posthog.session_recordings.queries.utils import (
     _strip_person_and_event_and_cohort_properties,
     expand_test_account_filters,
 )
-from opentelemetry import trace
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)

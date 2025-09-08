@@ -1,32 +1,31 @@
-from typing import cast, Literal, Union, Optional
+from typing import Literal, Optional, Union, cast
+
+from posthog.schema import (
+    CachedWebStatsTableQueryResponse,
+    EventPropertyFilter,
+    HogQLQueryModifiers,
+    PersonPropertyFilter,
+    WebAnalyticsOrderByDirection,
+    WebAnalyticsOrderByFields,
+    WebStatsBreakdown,
+    WebStatsTableQuery,
+    WebStatsTableQueryResponse,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_select, parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import (
-    property_to_expr,
-    get_property_operator,
-    get_property_value,
-    get_property_type,
     get_property_key,
+    get_property_operator,
+    get_property_type,
+    get_property_value,
+    property_to_expr,
 )
+
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.web_analytics.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
-from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
-    WebAnalyticsQueryRunner,
-    map_columns,
-)
-from posthog.schema import (
-    CachedWebStatsTableQueryResponse,
-    WebStatsTableQuery,
-    WebStatsBreakdown,
-    WebStatsTableQueryResponse,
-    EventPropertyFilter,
-    PersonPropertyFilter,
-    WebAnalyticsOrderByFields,
-    WebAnalyticsOrderByDirection,
-    HogQLQueryModifiers,
-)
+from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner, map_columns
 
 BREAKDOWN_NULL_DISPLAY = "(none)"
 
@@ -38,7 +37,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
     preaggregated_query_builder: StatsTablePreAggregatedQueryBuilder
     used_preaggregated_tables: bool
 
-    def __init__(self, *args, use_v2_tables: bool = False, **kwargs):
+    def __init__(self, *args, use_v2_tables: bool = True, **kwargs):
         super().__init__(*args, **kwargs)
         self.use_v2_tables = use_v2_tables
         self.used_preaggregated_tables = False
@@ -471,9 +470,11 @@ GROUP BY session_id, breakdown_value
             expr
             for expr in [
                 # use order from query
-                ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction)
-                if column is not None and column in columns
-                else None,
+                (
+                    ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction)
+                    if column is not None and column in columns
+                    else None
+                ),
                 f("context.columns.unique_conversions"),
                 f("context.columns.total_conversions"),
                 f("context.columns.visitors"),
