@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -25,6 +26,7 @@ pub struct KafkaDeduplicatorService {
     store_manager: Arc<StoreManager>,
     checkpoint_manager: Option<CheckpointManager>,
     processor_pool_handles: Option<Vec<tokio::task::JoinHandle<()>>>,
+    processor_pool_health: Option<Arc<AtomicBool>>,
     shutdown_tx: Option<oneshot::Sender<()>>,
     liveness: HealthRegistry,
     service_health: Option<HealthHandle>,
@@ -62,6 +64,7 @@ impl KafkaDeduplicatorService {
             store_manager,
             checkpoint_manager: Some(checkpoint_manager),
             processor_pool_handles: None,
+            processor_pool_health: None,
             shutdown_tx: None,
             liveness,
             service_health: None,
@@ -112,9 +115,10 @@ impl KafkaDeduplicatorService {
         let num_workers = num_cpus::get();
         let (message_sender, processor_pool) = ProcessorPool::new(processor, num_workers);
 
-        // Start the processor pool workers
-        let pool_handles = processor_pool.start();
+        // Start the processor pool workers and get health status
+        let (pool_handles, pool_health) = processor_pool.start();
         self.processor_pool_handles = Some(pool_handles);
+        self.processor_pool_health = Some(pool_health);
 
         // Create stateful Kafka consumer that sends to the processor pool
         let kafka_consumer = StatefulKafkaConsumer::from_config(
@@ -175,11 +179,24 @@ impl KafkaDeduplicatorService {
 
         // Start health reporting task
         if let Some(health_handle) = self.service_health.clone() {
+            let pool_health = self.processor_pool_health.clone();
             tokio::spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_secs(10));
                 loop {
                     interval.tick().await;
-                    health_handle.report_healthy().await;
+
+                    // Only report healthy if processor pool is healthy
+                    if let Some(ref health_flag) = pool_health {
+                        if health_flag.load(Ordering::SeqCst) {
+                            health_handle.report_healthy().await;
+                        } else {
+                            // Don't report healthy - let health check timeout
+                            error!("Processor pool is unhealthy, not reporting health");
+                        }
+                    } else {
+                        // No pool health tracking, report healthy as before
+                        health_handle.report_healthy().await;
+                    }
                 }
             });
         }
@@ -248,11 +265,24 @@ impl KafkaDeduplicatorService {
 
         // Start health reporting task
         if let Some(health_handle) = self.service_health.clone() {
+            let pool_health = self.processor_pool_health.clone();
             tokio::spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_secs(10));
                 loop {
                     interval.tick().await;
-                    health_handle.report_healthy().await;
+
+                    // Only report healthy if processor pool is healthy
+                    if let Some(ref health_flag) = pool_health {
+                        if health_flag.load(Ordering::SeqCst) {
+                            health_handle.report_healthy().await;
+                        } else {
+                            // Don't report healthy - let health check timeout
+                            error!("Processor pool is unhealthy, not reporting health");
+                        }
+                    } else {
+                        // No pool health tracking, report healthy as before
+                        health_handle.report_healthy().await;
+                    }
                 }
             });
         }
