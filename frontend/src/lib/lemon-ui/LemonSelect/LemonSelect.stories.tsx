@@ -2,7 +2,7 @@ import { Meta, StoryFn, StoryObj } from '@storybook/react'
 
 import { capitalizeFirstLetter } from 'lib/utils'
 
-import { AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from './LemonSelect'
 
@@ -152,8 +152,8 @@ export const WithAccessControl = (): JSX.Element => {
                 options={options}
                 placeholder="Enabled (editor ≥ viewer)"
                 accessControl={{
-                    userLevel: 'editor',
-                    minLevel: 'viewer',
+                    userLevel: AccessControlLevel.Editor,
+                    minLevel: AccessControlLevel.Viewer,
                     resource: AccessControlResourceType.Dashboard,
                 }}
             />
@@ -161,8 +161,8 @@ export const WithAccessControl = (): JSX.Element => {
                 options={options}
                 placeholder="Disabled (viewer < editor)"
                 accessControl={{
-                    userLevel: 'viewer',
-                    minLevel: 'editor',
+                    userLevel: AccessControlLevel.Viewer,
+                    minLevel: AccessControlLevel.Editor,
                     resource: AccessControlResourceType.Dashboard,
                 }}
             />

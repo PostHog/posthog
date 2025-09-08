@@ -1,7 +1,7 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
-import { AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LemonSwitchProps, LemonSwitch as RawLemonSwitch } from './LemonSwitch'
 
@@ -78,7 +78,7 @@ const SwitchCell = (props: Partial<LemonSwitchProps>): JSX.Element => {
 
 export const Sizes = (): JSX.Element => {
     return (
-        <table className="table-auto border-collapse border border-bg-3000 border-4">
+        <table className="table-auto border-collapse border-bg-3000 border-4">
             <tbody>
                 <tr>
                     <SwitchCell size="xxsmall" bordered={false} />
@@ -99,7 +99,7 @@ export const Sizes = (): JSX.Element => {
 
 export const SizesLoading = (): JSX.Element => {
     return (
-        <table className="table-auto border-collapse border border-bg-3000 border-4">
+        <table className="table-auto border-collapse border-bg-3000 border-4">
             <tbody>
                 <tr>
                     <SwitchCell size="xxsmall" checked={false} loading={true} />
@@ -127,8 +127,8 @@ export const WithAccessControl = (): JSX.Element => {
                 checked={true}
                 onChange={() => {}}
                 accessControl={{
-                    userLevel: 'admin',
-                    minLevel: 'admin',
+                    userLevel: AccessControlLevel.Admin,
+                    minLevel: AccessControlLevel.Admin,
                     resource: AccessControlResourceType.Project,
                 }}
             />
@@ -137,8 +137,8 @@ export const WithAccessControl = (): JSX.Element => {
                 checked={false}
                 onChange={() => {}}
                 accessControl={{
-                    userLevel: 'viewer',
-                    minLevel: 'admin',
+                    userLevel: AccessControlLevel.Viewer,
+                    minLevel: AccessControlLevel.Admin,
                     resource: AccessControlResourceType.Project,
                 }}
             />

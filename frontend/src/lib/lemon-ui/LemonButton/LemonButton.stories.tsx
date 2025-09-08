@@ -11,7 +11,7 @@ import { IconCalculate, IconLink } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, delay, range } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LemonButton, LemonButtonProps, LemonButtonWithDropdown, LemonButtonWithDropdownProps } from './LemonButton'
 import { More } from './More'
@@ -449,8 +449,8 @@ export const WithAccessControl = (): JSX.Element => {
             <LemonButton
                 type="primary"
                 accessControl={{
-                    userLevel: 'admin',
-                    minLevel: 'admin',
+                    userLevel: AccessControlLevel.Admin,
+                    minLevel: AccessControlLevel.Admin,
                     resource: AccessControlResourceType.Project,
                 }}
             >
@@ -459,8 +459,8 @@ export const WithAccessControl = (): JSX.Element => {
             <LemonButton
                 type="primary"
                 accessControl={{
-                    userLevel: 'viewer',
-                    minLevel: 'admin',
+                    userLevel: AccessControlLevel.Viewer,
+                    minLevel: AccessControlLevel.Admin,
                     resource: AccessControlResourceType.Project,
                 }}
             >
