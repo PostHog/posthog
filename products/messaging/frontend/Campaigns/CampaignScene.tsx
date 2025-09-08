@@ -29,7 +29,7 @@ export function CampaignScene(props: CampaignSceneLogicProps): JSX.Element {
     const logic = campaignLogic(props)
     const { campaignLoading, campaign, originalCampaign } = useValues(logic)
 
-    if (campaignLoading) {
+    if (!originalCampaign && campaignLoading) {
         return <SpinnerOverlay sceneLevel />
     }
 

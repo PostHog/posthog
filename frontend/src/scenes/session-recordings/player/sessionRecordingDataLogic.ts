@@ -34,7 +34,6 @@ import {
     SessionRecordingSnapshotSource,
     SessionRecordingSnapshotSourceResponse,
     SessionRecordingType,
-    SessionRecordingUsageType,
     SnapshotSourceType,
 } from '~/types'
 
@@ -64,7 +63,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     props({} as SessionRecordingDataLogicProps),
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect(() => ({
-        actions: [sessionRecordingEventUsageLogic, ['reportRecording']],
+        actions: [sessionRecordingEventUsageLogic, ['reportRecordingLoaded']],
         values: [
             featureFlagLogic,
             ['featureFlags'],
@@ -599,12 +598,7 @@ AND properties.$lib != 'web'`
         reportUsageIfFullyLoaded: (_, breakpoint) => {
             breakpoint()
             if (values.fullyLoaded) {
-                actions.reportRecording(
-                    values.sessionPlayerData,
-                    SessionRecordingUsageType.LOADED,
-                    values.sessionPlayerMetaData,
-                    0
-                )
+                actions.reportRecordingLoaded(values.sessionPlayerData, values.sessionPlayerMetaData)
             }
         },
 

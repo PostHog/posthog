@@ -208,8 +208,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     name={playlist.name || ''}
                     description={playlist.description || ''}
                     resourceType={{
-                        type: 'session_recording_playlist',
-                        typePlural: 'Session Recordings',
+                        type: 'session_replay',
                     }}
                     onNameChange={(name) => {
                         updatePlaylist({ name })

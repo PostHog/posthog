@@ -105,7 +105,6 @@ export function LiveEventsTable(): JSX.Element {
                 description="Real-time events from your app or website."
                 resourceType={{
                     type: 'live events',
-                    typePlural: 'live events',
                     forceIcon: <IconLive />,
                 }}
             />

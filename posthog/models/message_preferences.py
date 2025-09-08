@@ -75,6 +75,7 @@ class MessageRecipientPreference(UUIDTModel):
 
     def get_all_preferences(self) -> dict[str, PreferenceStatus]:
         """Get all preferences as a dictionary of UUID to PreferenceStatus"""
+        """Get all preferences as a dictionary of category ID to PreferenceStatus"""
         return {str(category_id): PreferenceStatus(status) for category_id, status in self.preferences.items()}
 
     @classmethod

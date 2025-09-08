@@ -8,14 +8,14 @@ from ee.hogai.graph.deep_research.types import DeepResearchState
 from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.helpers import should_output_assistant_message
 from ee.hogai.utils.types import AssistantState
-from ee.hogai.utils.types.composed import MaxGraphState
+from ee.hogai.utils.types.composed import AssistantMaxGraphState
 from ee.models.assistant import Conversation
 
 _conversation_fields = ["id", "status", "title", "created_at", "updated_at", "type"]
 
 MaxGraphType = DeepResearchAssistantGraph | AssistantGraph
 
-CONVERSATION_TYPE_MAP: dict[Conversation.Type, tuple[type[MaxGraphType], type[MaxGraphState]]] = {
+CONVERSATION_TYPE_MAP: dict[Conversation.Type, tuple[type[MaxGraphType], type[AssistantMaxGraphState]]] = {
     Conversation.Type.DEEP_RESEARCH: (DeepResearchAssistantGraph, DeepResearchState),
     Conversation.Type.ASSISTANT: (AssistantGraph, AssistantState),
     Conversation.Type.TOOL_CALL: (AssistantGraph, AssistantState),

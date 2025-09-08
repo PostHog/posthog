@@ -4,7 +4,7 @@ import api from '~/lib/api'
 import { initKeaTests } from '~/test/init'
 import { DatasetItem } from '~/types'
 
-import { datasetItemModalLogic, getDatasetItemFormDefaults } from './datasetItemModalLogic'
+import { datasetItemModalLogic } from './datasetItemModalLogic'
 import { EMPTY_JSON } from './utils'
 
 jest.mock('~/lib/api')
@@ -48,7 +48,7 @@ describe('datasetItemModalLogic', () => {
     it('save resets shouldCloseModal to true after creating item', async () => {
         const logic = datasetItemModalLogic({
             datasetId: 'test-dataset-1',
-            datasetItem: null,
+            partialDatasetItem: null,
             closeModal: mockCloseModal,
             isModalOpen: true,
         })
@@ -69,7 +69,7 @@ describe('datasetItemModalLogic', () => {
     it('save closes modal when shouldCloseModal is true', async () => {
         const logic = datasetItemModalLogic({
             datasetId: 'test-dataset-1',
-            datasetItem: null,
+            partialDatasetItem: null,
             closeModal: mockCloseModal,
             isModalOpen: true,
         })
@@ -89,7 +89,7 @@ describe('datasetItemModalLogic', () => {
     it('save does not close modal when shouldCloseModal is false', async () => {
         const logic = datasetItemModalLogic({
             datasetId: 'test-dataset-1',
-            datasetItem: null,
+            partialDatasetItem: null,
             closeModal: mockCloseModal,
             isModalOpen: true,
         })
@@ -110,7 +110,7 @@ describe('datasetItemModalLogic', () => {
     it('edit closes the modal', async () => {
         const logic = datasetItemModalLogic({
             datasetId: 'test-dataset-1',
-            datasetItem: mockDatasetItem,
+            partialDatasetItem: mockDatasetItem,
             closeModal: mockCloseModal,
             isModalOpen: true,
         })
@@ -131,7 +131,7 @@ describe('datasetItemModalLogic', () => {
     it('sets correct default form values for new dataset item', () => {
         const logic = datasetItemModalLogic({
             datasetId: 'test-dataset-1',
-            datasetItem: null,
+            partialDatasetItem: null,
             closeModal: mockCloseModal,
             isModalOpen: true,
         })
@@ -144,19 +144,56 @@ describe('datasetItemModalLogic', () => {
         })
     })
 
-    it('sets correct default form values for existing dataset item', () => {
+    it('sets correct default form values for existing dataset item', async () => {
         const logic = datasetItemModalLogic({
             datasetId: 'test-dataset-1',
-            datasetItem: mockDatasetItem,
+            partialDatasetItem: mockDatasetItem,
+            closeModal: mockCloseModal,
+            isModalOpen: true,
+        })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.datasetItemForm.input).toContain('"message": "Hello"')
+        expect(logic.values.datasetItemForm.output).toContain('"response": "Hi there"')
+        expect(logic.values.datasetItemForm.metadata).toContain('"source": "test"')
+    })
+
+    it('resets form values to default when saving without closing modal', async () => {
+        const logic = datasetItemModalLogic({
+            datasetId: 'test-dataset-1',
+            partialDatasetItem: null,
             closeModal: mockCloseModal,
             isModalOpen: true,
         })
         logic.mount()
 
-        const expectedDefaults = getDatasetItemFormDefaults(mockDatasetItem)
-        expect(logic.values.datasetItemForm).toEqual(expectedDefaults)
-        expect(logic.values.datasetItemForm.input).toContain('"message": "Hello"')
-        expect(logic.values.datasetItemForm.output).toContain('"response": "Hi there"')
-        expect(logic.values.datasetItemForm.metadata).toContain('"source": "test"')
+        // Set shouldCloseModal to false to trigger "save and add another" behavior
+        logic.actions.setShouldCloseModal(false)
+
+        // Set some custom form values
+        logic.actions.setDatasetItemFormValues({
+            input: '{"custom": "input"}',
+            output: '{"custom": "output"}',
+            metadata: '{"custom": "metadata"}',
+        })
+
+        // Verify form has custom values
+        expect(logic.values.datasetItemForm).toEqual({
+            input: '{"custom": "input"}',
+            output: '{"custom": "output"}',
+            metadata: '{"custom": "metadata"}',
+        })
+
+        // Submit form
+        await expectLogic(logic, () => {
+            logic.actions.submitDatasetItemForm()
+        }).toFinishAllListeners()
+
+        expect(logic.values.datasetItemForm).toEqual({
+            input: EMPTY_JSON,
+            output: EMPTY_JSON,
+            metadata: EMPTY_JSON,
+        })
     })
 })

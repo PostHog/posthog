@@ -41,7 +41,7 @@ procs:
         shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue billing-task-queue --metrics-port 8008'
 
     temporal-worker-video-export:
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue video-export-task-queue --metrics-port 8009'
+        shell: 'bin/check_video_deps && bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue video-export-task-queue --metrics-port 8009'
 
     dagster:
         shell: |-
