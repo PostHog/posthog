@@ -160,39 +160,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     group: {
         icon: <IconPeople />,
     },
-    // folder: {
-    //     icon: <IconChevronRight />,
-    // },
-    // handMoney: {
-    //     icon: <IconHandMoney />,
-    // },
-    // live: {
-    //     icon: <IconLive />,
-    //     iconColor: ['var(--color-product-logs-light)'],
-    // },
-    // notification: {
-    //     icon: <IconNotification />,
-    //     iconColor: ['var(--product-notification-light)'],
-    // },
-    // pieChart: {
-    //     icon: <IconPieChart />,
-    //     iconColor: ['var(--color-product-web-analytics-light)', 'var(--color-product-web-analytics-dark)'],
-    // },
-    // piggyBank: {
-    //     icon: <IconPiggyBank />,
-    //     iconColor: ['var(--color-product-revenue-analytics-light)', 'var(--color-product-revenue-analytics-dark)'],
-    // },
-    // plug: {
-    //     icon: <IconPlug />,
-    //     iconColor: ['var(--color-product-data-pipeline-light)'],
-    // },
-    // sql: {
-    //     icon: <IconServer />,
-    //     iconColor: ['var(--color-product-data-warehouse-light)'],
-    // },
-    // warning: {
-    //     icon: <IconWarning />,
-    // },
     insight_funnel: {
         icon: <IconFunnels />,
         iconColor: ['var(--color-insight-funnel-light)'],
@@ -221,13 +188,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconHogQL />,
         iconColor: ['var(--color-insight-sql-light)'],
     },
-    // cohort: {
-    //     icon: <IconPeople />,
-    // },
-    // insight: {
-    //     icon: <IconGraph />,
-    //     iconColor: ['var(--color-product-product-analytics-light)'],
-    // },
 }
 
 const getIconColor = (type?: string, colorOverride?: FileSystemIconColor): FileSystemIconColor => {
