@@ -148,7 +148,7 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
                 return
             }
             const state = hedgehogMode.stateManager?.getState()
-            const player = state?.hedgehogsById?.['player']
+            const player = state?.options
 
             if (!player) {
                 return
