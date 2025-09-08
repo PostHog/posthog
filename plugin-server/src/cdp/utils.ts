@@ -2,6 +2,8 @@
 import { DateTime } from 'luxon'
 import { gunzip, gzip } from 'zlib'
 
+import { sanitizeForUTF8 } from '~/utils/strings'
+
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { parseJSON } from '../utils/json-parse'
 import { castTimestampOrNow, clickHouseTimestampToISO } from '../utils/utils'
@@ -218,8 +220,7 @@ export const sanitizeLogMessage = (args: any[], sensitiveValues?: string[], maxL
     })
 
     if (message.length > maxLength) {
-        message = message.slice(0, maxLength) + '... (truncated)'
-        message = message.toWellFormed()
+        message = sanitizeForUTF8(message.slice(0, maxLength) + '... (truncated)')
     }
 
     return message
