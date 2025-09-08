@@ -71,7 +71,7 @@ export const loadAppMetricsTotals = async (
     if (request.appSourceId) {
         query = (query + hogql`\nAND app_source_id = ${request.appSourceId}`) as HogQLQueryString
     }
-    if (request.instanceId) {
+    if (typeof request.instanceId === 'string') {
         query = (query + hogql`\nAND instance_id = ${request.instanceId}`) as HogQLQueryString
     }
     if (request.metricName) {
@@ -172,7 +172,7 @@ const loadAppMetricsTimeSeries = async (
     if (request.appSourceId) {
         query = (query + hogql`\nAND app_source_id = ${request.appSourceId}`) as HogQLQueryString
     }
-    if (request.instanceId) {
+    if (typeof request.instanceId === 'string') {
         query = (query + hogql`\nAND instance_id = ${request.instanceId}`) as HogQLQueryString
     }
     if (request.metricName) {

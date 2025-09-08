@@ -12,12 +12,13 @@ import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/L
 import { ChartDisplayType } from '~/types'
 
 import { CAMPAIGN_METRICS_INFO } from '../../CampaignMetrics'
+import { TRIGGER_NODE_ID } from '../../campaignLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 
 export function HogFlowEditorPanelMetrics(): JSX.Element | null {
     const { selectedNode, campaign } = useValues(hogFlowEditorLogic)
     const { loadActionMetricsById } = useActions(hogFlowEditorLogic)
-    const id = selectedNode?.data.id
+    const id = selectedNode?.data.id === TRIGGER_NODE_ID ? '' : selectedNode?.data.id
 
     const logicKey = `hog-flow-metrics-${campaign.id}`
 
