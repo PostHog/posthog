@@ -31,11 +31,11 @@ struct LogContext<'a> {
     response_format: &'a str,
 }
 
-/// Extracts request ID from x-request-id header, falling back to generating a new UUID if not present or invalid
+/// Extracts request ID from X-REQUEST-ID header, falling back to generating a new UUID if not present or invalid
 /// Good for tracing logs from the Contour layer all the way to the property evaluation
 fn extract_request_id(headers: &HeaderMap) -> Uuid {
     headers
-        .get("x-request-id")
+        .get("X-REQUEST-ID")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse::<Uuid>().ok())
         .unwrap_or_else(Uuid::new_v4)
