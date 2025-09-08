@@ -2,7 +2,9 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
+
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Error tracking',
@@ -62,7 +64,12 @@ export const manifest: ProductManifest = {
         {
             path: 'Error tracking',
             category: 'Behavior',
-            iconType: 'errorTracking',
+            type: 'error_tracking',
+            iconType: 'error_tracking' as FileSystemIconType,
+            iconColor: [
+                'var(--color-product-error-tracking-light)',
+                'var(--color-product-error-tracking-dark)',
+            ] as FileSystemIconColor,
             href: urls.errorTracking(),
         },
     ],

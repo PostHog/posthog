@@ -35,7 +35,6 @@ export function UserInterviews(): JSX.Element {
                 description="Make full use of user interviews by recording them with PostHog."
                 resourceType={{
                     type: 'user_interview',
-                    typePlural: 'User interviews',
                 }}
             />
             <SceneDivider />

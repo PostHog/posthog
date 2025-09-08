@@ -288,7 +288,6 @@ export default function SurveyEdit(): JSX.Element {
                         description={survey.description}
                         resourceType={{
                             type: 'survey',
-                            typePlural: 'surveys',
                         }}
                         canEdit
                         onNameChange={(name) => setSurveyValue('name', name)}

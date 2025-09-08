@@ -236,8 +236,9 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
             <DatasetItemModal
                 isOpen={isDatasetItemModalOpen}
                 onClose={closeModalAndRefetchDatasetItems}
-                datasetItem={selectedDatasetItem}
+                partialDatasetItem={selectedDatasetItem}
                 datasetId={dataset.id}
+                displayBulkCreationButton
             />
         </>
     )
