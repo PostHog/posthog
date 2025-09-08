@@ -357,10 +357,10 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
             ),
         )
 
-    # Also include charges that don't have an invoice
-    no_invoice_charges_query: ast.SelectQuery | None = None
-    if charge_table is not None:
-        no_invoice_charges_query = ast.SelectQuery(
+    # Include charges that don't have an invoice unless explictly disabled
+    invoiceless_charges_query: ast.SelectQuery | None = None
+    if charge_table is not None and source.revenue_analytics_config_safe.include_invoiceless_charges:
+        invoiceless_charges_query = ast.SelectQuery(
             select=[
                 ast.Alias(alias="id", expr=ast.Field(chain=["id"])),
                 ast.Alias(alias="invoice_item_id", expr=ast.Field(chain=["id"])),
@@ -457,7 +457,7 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
 
     # Combine the queries into a single query
     queries: list[ast.SelectQuery] = [
-        query for query in [invoice_item_query, no_invoice_charges_query] if query is not None
+        query for query in [invoice_item_query, invoiceless_charges_query] if query is not None
     ]
     if len(queries) == 0:
         yield BuiltQuery(

@@ -39,7 +39,7 @@ from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.user_permissions import UserPermissions
-from posthog.utils import render_template
+from posthog.utils import get_ip_address, render_template
 from posthog.views import preflight_check
 
 
@@ -59,7 +59,7 @@ def _log_share_password_attempt(
     resource: SharingConfiguration, request: Request, success: bool, validated_password: Optional[SharePassword] = None
 ) -> None:
     """Log password validation attempts for sharing configurations"""
-    client_ip = request.META.get("REMOTE_ADDR", "unknown")
+    client_ip = get_ip_address(request) or "unknown"
 
     if resource.dashboard:
         scope = "Dashboard"

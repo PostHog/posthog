@@ -17,11 +17,11 @@ from posthog.schema import FailureMessage, VisualizationMessage
 
 from posthog.models.group_type_mapping import GroupTypeMapping
 
+from ee.hogai.graph.base import AssistantNode
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import find_start_message
 from ee.hogai.utils.types import AssistantState, IntermediateStep, PartialAssistantState
 
-from ..base import AssistantNode
 from .parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from .prompts import (
     FAILOVER_OUTPUT_PROMPT,

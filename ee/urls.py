@@ -13,8 +13,10 @@ from django_otp.plugins.otp_totp.models import TOTPDevice
 from posthog.utils import opt_slash_path
 from posthog.views import api_key_search_view, redis_values_view
 
+from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
 from ee.api.mcp.http import mcp_view
+from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
 
 from .api import (
@@ -125,6 +127,9 @@ if settings.ADMIN_PORTAL_ENABLED:
             pass
 
     admin_urlpatterns = [
+        re_path(r"^admin/oauth2/callback$", admin_oauth2_callback, name="admin_oauth2_callback"),
+        re_path(r"^admin/oauth2/success$", admin_oauth_success, name="admin_oauth_success"),
+        re_path(r"^admin/auth_check$", admin_auth_check, name="admin_auth_check"),
         re_path(r"^admin/redisvalues$", redis_values_view, name="redis_values"),
         re_path(r"^admin/apikeysearch$", api_key_search_view, name="api_key_search"),
         path("admin/", include("loginas.urls")),

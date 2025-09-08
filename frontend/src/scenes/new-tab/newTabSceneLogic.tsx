@@ -1,20 +1,24 @@
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
 import { IconDatabase, IconHogQL } from '@posthog/icons'
 
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import {
+    ProductIconWrapper,
     getDefaultTreeData,
     getDefaultTreeNew,
     getDefaultTreeProducts,
     iconForType,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 
 import type { newTabSceneLogicType } from './newTabSceneLogicType'
 
 export interface ItemsGridItem {
     category: string
-    types: { name: string; icon?: JSX.Element; href?: string }[]
+    types: { name: string; icon?: JSX.Element; href?: string; flag?: string }[]
 }
 
 export interface ItemsGridItemSingle {
@@ -22,9 +26,26 @@ export interface ItemsGridItemSingle {
     type: { name: string; icon?: JSX.Element; href?: string }
 }
 
+function getIconForFileSystemItem(fs: FileSystemImport): JSX.Element {
+    // If the item has a direct icon property, use it with color wrapper
+    if ('icon' in fs && fs.icon) {
+        return (
+            <ProductIconWrapper type={fs.type} colorOverride={fs.iconColor}>
+                {fs.icon}
+            </ProductIconWrapper>
+        )
+    }
+
+    // Fall back to iconForType for iconType or type
+    return iconForType('iconType' in fs ? fs.iconType : (fs.type as FileSystemIconType), fs.iconColor)
+}
+
 export const newTabSceneLogic = kea<newTabSceneLogicType>([
     path(['scenes', 'new-tab', 'newTabSceneLogic']),
     props({} as { tabId?: string }),
+    connect(() => ({
+        values: [featureFlagLogic, ['featureFlags']],
+    })),
     key((props) => props.tabId || 'default'),
     actions({
         setSearch: (search: string) => ({ search }),
@@ -59,41 +80,53 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
     }),
     selectors({
         itemsGrid: [
-            () => [],
-            (): ItemsGridItem[] => {
+            (s) => [s.featureFlags],
+            (featureFlags): ItemsGridItem[] => {
                 const newInsightItems = getDefaultTreeNew()
                     .filter(({ path }) => path.startsWith('Insight/'))
                     .map((fs) => ({
                         href: fs.href,
-                        name: fs.path.substring(8),
-                        icon: iconForType(fs.iconType),
+                        name: 'new ' + fs.path.substring(8),
+                        icon: getIconForFileSystemItem(fs),
+                        flag: fs.flag,
                     }))
+                    .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
                 const newDataItems = getDefaultTreeNew()
                     .filter(({ path }) => path.startsWith('Data/'))
                     .map((fs) => ({
                         href: fs.href,
                         name: 'Data ' + fs.path.substring(5).toLowerCase(),
-                        icon: iconForType(fs.iconType),
+                        icon: getIconForFileSystemItem(fs),
+                        flag: fs.flag,
                     }))
+                    .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
                 const newOtherItems = getDefaultTreeNew()
                     .filter(({ path }) => !path.startsWith('Insight/') && !path.startsWith('Data/'))
                     .map((fs) => ({
                         href: fs.href,
-                        name: fs.path,
-                        icon: iconForType(fs.iconType),
+                        name: 'new ' + fs.path,
+                        icon: getIconForFileSystemItem(fs),
+                        flag: fs.flag,
                     }))
+                    .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
-                const products = getDefaultTreeProducts().map((fs) => ({
-                    href: fs.href,
-                    name: fs.path,
-                    icon: iconForType(fs.iconType),
-                }))
+                const products = getDefaultTreeProducts()
+                    .map((fs) => ({
+                        href: fs.href,
+                        name: fs.path,
+                        icon: getIconForFileSystemItem(fs),
+                        flag: fs.flag,
+                    }))
+                    .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
-                const data = getDefaultTreeData().map((fs) => ({
-                    href: fs.href,
-                    name: fs.path,
-                    icon: iconForType(fs.iconType),
-                }))
+                const data = getDefaultTreeData()
+                    .map((fs) => ({
+                        href: fs.href,
+                        name: fs.path,
+                        icon: getIconForFileSystemItem(fs),
+                        flag: fs.flag,
+                    }))
+                    .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
                 const queryTree: ItemsGridItem[] = [
                     {

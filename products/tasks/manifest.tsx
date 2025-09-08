@@ -1,9 +1,7 @@
-import { IconBug } from '@posthog/icons'
-
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Tasks',
@@ -26,7 +24,7 @@ export const manifest: ProductManifest = {
     fileSystemTypes: {
         task: {
             name: 'Task',
-            icon: <IconBug />,
+            iconType: 'task',
             href: () => urls.taskTracker(),
             iconColor: ['var(--product-tasks-light)', 'var(--product-tasks-dark)'],
             filterKey: 'task',
@@ -41,6 +39,8 @@ export const manifest: ProductManifest = {
             type: 'task',
             href: urls.taskTracker(),
             flag: FEATURE_FLAGS.TASKS,
+            iconType: 'task',
+            iconColor: ['var(--product-tasks-light)', 'var(--product-tasks-dark)'] as FileSystemIconColor,
         },
     ],
 }

@@ -79,6 +79,7 @@ import {
     DataWarehouseTable,
     DataWarehouseViewLink,
     Dataset,
+    DatasetItem,
     EarlyAccessFeatureType,
     EmailSenderDomainStatus,
     EventDefinition,
@@ -91,6 +92,7 @@ import {
     ExternalDataJob,
     ExternalDataSource,
     ExternalDataSourceCreatePayload,
+    ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
     FeatureFlagAssociatedRoleType,
@@ -161,6 +163,7 @@ import {
     UserType,
 } from '~/types'
 
+import { HogflowTestResult } from 'products/messaging/frontend/Campaigns/hogflows/steps/types'
 import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
 import { OptOutEntry } from 'products/messaging/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
@@ -176,6 +179,7 @@ import {
 } from './components/Errors/types'
 import {
     ACTIVITY_PAGE_SIZE,
+    COHORT_PERSONS_QUERY_LIMIT,
     DashboardPrivilegeLevel,
     EVENT_DEFINITIONS_PER_PAGE,
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
@@ -664,6 +668,14 @@ export class ApiRequest {
 
     public cohortsDetail(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId)
+    }
+
+    public cohortsDetailPersons(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.cohorts(teamId).addPathComponent(cohortId).addPathComponent('persons')
+    }
+
+    public cohortsAddPersonsToStatic(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.cohorts(teamId).addPathComponent(cohortId).addPathComponent('add_persons_to_static_cohort')
     }
 
     public cohortsDuplicate(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1331,6 +1343,13 @@ export class ApiRequest {
 
     public externalDataSourceSchema(schemaId: ExternalDataSourceSchema['id'], teamId?: TeamType['id']): ApiRequest {
         return this.externalDataSchemas(teamId).addPathComponent(schemaId)
+    }
+
+    public externalDataSourceRevenueAnalyticsConfig(
+        sourceId: ExternalDataSource['id'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.externalDataSources(teamId).addPathComponent(sourceId).addPathComponent('revenue_analytics_config')
     }
 
     // Fix HogQL errors
@@ -2190,6 +2209,15 @@ const api = {
             } = {}
         ): Promise<CountedPaginatedResponse<CohortType>> {
             return await new ApiRequest().cohorts().withQueryString(toParams(params)).get()
+        },
+        async getCohortPersons(cohortId: CohortType['id']): Promise<PaginatedResponse<PersonType>> {
+            return await new ApiRequest()
+                .cohortsDetailPersons(cohortId)
+                .withQueryString(toParams({ limit: COHORT_PERSONS_QUERY_LIMIT }))
+                .get()
+        },
+        async addPersonsToStaticCohort(cohortId: CohortType['id'], ids: string[]): Promise<{ success: boolean }> {
+            return await new ApiRequest().cohortsAddPersonsToStatic(cohortId).update({ data: { person_ids: ids } })
         },
     },
 
@@ -3560,6 +3588,12 @@ const api = {
                 .withQueryString({ before, after })
                 .get()
         },
+        async updateRevenueAnalyticsConfig(
+            sourceId: ExternalDataSource['id'],
+            data: Partial<ExternalDataSourceRevenueAnalyticsConfig>
+        ): Promise<ExternalDataSource> {
+            return await new ApiRequest().externalDataSourceRevenueAnalyticsConfig(sourceId).update({ data })
+        },
     },
 
     dataWarehouse: {
@@ -3981,8 +4015,9 @@ const api = {
                 globals?: any
                 clickhouse_event?: any
                 invocation_id?: string
+                current_action_id?: string
             }
-        ): Promise<any> {
+        ): Promise<HogflowTestResult> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('invocations').create({ data })
         },
     },
@@ -4083,13 +4118,23 @@ const api = {
     },
 
     datasets: {
-        list(params: {
+        list({
+            ids,
+            ...params
+        }: {
             search?: string
             order_by?: string
             offset?: number
             limit?: number
+            ids?: string[]
         }): Promise<CountedPaginatedResponse<Dataset>> {
-            return new ApiRequest().datasets().withQueryString(params).get()
+            return new ApiRequest()
+                .datasets()
+                .withQueryString({
+                    ...params,
+                    id__in: ids?.join(','),
+                })
+                .get()
         },
 
         get(datasetId: string): Promise<Dataset> {
@@ -4102,6 +4147,24 @@ const api = {
 
         async update(datasetId: string, data: Omit<Partial<Dataset>, 'created_by' | 'team'>): Promise<Dataset> {
             return await new ApiRequest().dataset(datasetId).update({ data })
+        },
+    },
+
+    datasetItems: {
+        list(data: {
+            dataset: string
+            limit?: number
+            offset?: number
+        }): Promise<CountedPaginatedResponse<DatasetItem>> {
+            return new ApiRequest().datasetItems().withQueryString(data).get()
+        },
+
+        async create(data: Partial<DatasetItem>): Promise<DatasetItem> {
+            return await new ApiRequest().datasetItems().create({ data })
+        },
+
+        async update(datasetItemId: string, data: Partial<DatasetItem>): Promise<DatasetItem> {
+            return await new ApiRequest().datasetItem(datasetItemId).update({ data })
         },
     },
 

@@ -142,7 +142,7 @@ impl MetadataV1 {
             .timestamp
             .as_ref()
             .and_then(|t| t.parse::<u64>().ok())
-            .unwrap_or_else(|| chrono::Utc::now().timestamp() as u64);
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() as u64);
 
         let mut seen_uuids = HashSet::new();
         if let Some(uuid) = original_event.uuid {
