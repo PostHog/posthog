@@ -124,6 +124,7 @@ export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
             <div className="flex flex-row gap-2 flex-wrap justify-center">
                 {['succeeded', 'failed', 'filtered', 'disabled_permanently'].map((key) => (
                     <AppMetricSummary
+                        key={key}
                         name={CAMPAIGN_METRICS_INFO[key].name}
                         description={CAMPAIGN_METRICS_INFO[key].description}
                         loading={appMetricsTrendsLoading}
