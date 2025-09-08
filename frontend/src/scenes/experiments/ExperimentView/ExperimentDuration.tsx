@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { IconArrowRight, IconCalculator, IconPencil } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -75,10 +75,26 @@ export const ExperimentDuration = (): JSX.Element => {
 
     const { start_date, end_date } = experiment
     const [progressPopoverVisible, setProgressPopoverVisible] = useState(false)
+    const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
     const recommendedSampleSize = experiment.parameters.recommended_sample_size
     const minimumDetectableEffect = experiment.parameters.minimum_detectable_effect
     const recommendedRunningTime = experiment.parameters.recommended_running_time
+
+    const showPopover = (): void => {
+        if (hideTimeoutRef.current) {
+            clearTimeout(hideTimeoutRef.current)
+            hideTimeoutRef.current = null
+        }
+        setProgressPopoverVisible(true)
+    }
+
+    const hidePopover = (): void => {
+        hideTimeoutRef.current = setTimeout(() => {
+            setProgressPopoverVisible(false)
+            hideTimeoutRef.current = null
+        }, 100) // 100ms delay - enough time to move to popover
+    }
 
     return (
         <div>
@@ -91,8 +107,8 @@ export const ExperimentDuration = (): JSX.Element => {
                 </div>
                 <Popover
                     visible={progressPopoverVisible}
-                    onMouseEnterInside={() => setProgressPopoverVisible(true)}
-                    onMouseLeaveInside={() => setProgressPopoverVisible(false)}
+                    onMouseEnterInside={showPopover}
+                    onMouseLeaveInside={hidePopover}
                     overlay={
                         <div className="p-2">
                             {!recommendedSampleSize || !recommendedRunningTime ? (
@@ -159,11 +175,7 @@ export const ExperimentDuration = (): JSX.Element => {
                         </div>
                     }
                 >
-                    <div
-                        onMouseEnter={() => setProgressPopoverVisible(true)}
-                        onMouseLeave={() => setProgressPopoverVisible(false)}
-                        style={{ color: 'var(--brand-blue)' }}
-                    >
+                    <div onMouseEnter={showPopover} onMouseLeave={hidePopover} style={{ color: 'var(--brand-blue)' }}>
                         <LemonProgressCircle
                             progress={
                                 recommendedRunningTime ? Math.min(actualRunningTime / recommendedRunningTime, 1) : 0
