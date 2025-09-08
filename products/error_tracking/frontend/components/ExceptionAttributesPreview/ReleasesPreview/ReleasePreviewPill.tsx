@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { IconCommit } from '@posthog/icons'
 import { LemonTag, Popover } from '@posthog/lemon-ui'
 
-import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { EventExceptionRelease } from 'lib/components/Errors/types'
 
 import { ReleasePopoverContent } from './ReleasesPopoverContent'
@@ -17,11 +16,10 @@ export interface ReleasePreviewPillProps {
 export function ReleasePreviewPill({ exceptionReleases }: ReleasePreviewPillProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
     const { release } = useValues(releasePreviewLogic)
-    const { frames } = useValues(errorPropertiesLogic)
     const { loadRelease } = useActions(releasePreviewLogic)
 
     useEffect(() => {
-        loadRelease({ exceptionReleases, frames })
+        loadRelease(exceptionReleases)
     }, [frames, loadRelease, exceptionReleases])
 
     if (!release) {

@@ -1,6 +1,7 @@
 import { connect, kea, path, props } from 'kea'
 import { loaders } from 'kea-loaders/lib'
 
+import api from 'lib/api'
 import { ErrorPropertiesLogicProps, errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import 'lib/components/Errors/stackFrameLogic'
 import { EventExceptionRelease } from 'lib/components/Errors/types'
@@ -28,33 +29,22 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
         release: [
             undefined as EventExceptionRelease | undefined,
             {
-                loadRelease: async (dto: {
-                    // we have exceptionReleases from the already loaded event. Cymbal enriches event with that data
-                    exceptionReleases?: EventExceptionRelease[]
-                }) => {
-                    // we can't do anything if there are neither frames nor existing releases
-                    if (!values.frames && !dto.exceptionReleases) {
+                loadRelease: async (exceptionReleases?: EventExceptionRelease[]) => {
+                    if (!values.frames && !exceptionReleases) {
                         return undefined
                     }
 
-                    // if there is only one associated release, there is no need to look for the kaboom frame
-                    // because we would find the same release anyways. This is a big performance win. I calculated
-                    // how many events are related to how many releases and 95% events in the last 30 days are related to
-                    // at most 1 release
-                    if (dto.exceptionReleases?.length === 1) {
-                        return dto.exceptionReleases[0]
+                    if (exceptionReleases?.length === 1) {
+                        return exceptionReleases[0]
                     }
 
-                    // otherwise - this is a case where there are multiple releases associated with an error
-                    // it means that individual stack frames are not all associated with the same release
-                    // we need to find the most probable release by checking the frames
-
-                    // if there are no frames, we can't load any releases
                     if (!values.frames || values.frames.length === 0) {
                         return undefined
                     }
 
-                    const response: any = { results: {} }
+                    const rawIds = values.frames.map((f) => f.raw_id)
+                    const response = await api.errorTracking.stackFrameReleaseMetadata(rawIds)
+
                     const resultMap = response.results || {}
 
                     // we reverse the list in order to pick the stack frame which is "the closest" to the error
