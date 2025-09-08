@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
+import { HedgeHogMode, HedgehogCustomization, HedgehogModeRendererContent } from '@posthog/hedgehog-mode'
 import { LemonSwitch } from '@posthog/lemon-ui'
 
-import { HedgehogModeProfile } from 'lib/components/HedgehogMode/HedgehogModeStatic'
+import { getHedgehogModeAssetsUrl } from 'lib/components/HedgehogMode/HedgehogMode'
 import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
 
 export function HedgehogModeSettings(): JSX.Element {
@@ -11,7 +12,6 @@ export function HedgehogModeSettings(): JSX.Element {
     return (
         <>
             <div className="flex gap-2">
-                <HedgehogModeProfile config={hedgehogConfig} size={36} />
                 <LemonSwitch
                     label="Enable hedgehog mode"
                     data-attr="hedgehog-mode-switch"
@@ -26,6 +26,20 @@ export function HedgehogModeSettings(): JSX.Element {
                     checked={hedgehogConfig.use_as_profile}
                     bordered
                 />
+            </div>
+
+            <div className="border rounded mt-2 bg-surface-primary p-3">
+                <HedgehogModeRendererContent id="hedgehog-customization">
+                    <HedgehogCustomization
+                        config={hedgehogConfig.actor_options}
+                        setConfig={(config) => updateRemoteConfig({ actor_options: config })}
+                        game={
+                            new HedgeHogMode({
+                                assetsUrl: getHedgehogModeAssetsUrl(),
+                            })
+                        }
+                    />
+                </HedgehogModeRendererContent>
             </div>
         </>
     )

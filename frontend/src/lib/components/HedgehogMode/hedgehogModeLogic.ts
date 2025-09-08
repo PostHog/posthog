@@ -23,7 +23,6 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
     actions({
         setHedgehogMode: (hedgeHogMode: HedgehogModeInterface) => ({ hedgeHogMode }),
         setHedgehogModeEnabled: (enabled: boolean) => ({ enabled }),
-        clearLocalConfig: true,
         loadRemoteConfig: true,
         updateRemoteConfig: (config: Partial<HedgehogConfig>) => ({ config }),
         syncGame: true,
@@ -114,7 +113,7 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values }) => ({
         setHedgehogModeEnabled: ({ enabled }) => {
             actions.updateRemoteConfig({
                 enabled,
@@ -139,10 +138,8 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
                 return
             }
 
-            if (!hedgehogConfig.enabled) {
-                cache.hedgehogs = {}
-                return
-            }
+            // Sync the actor options to the game
+            hedgehogMode.stateManager?.setHedgehog(hedgehogConfig.actor_options)
         },
 
         syncFromState: () => {
