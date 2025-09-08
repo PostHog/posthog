@@ -15,6 +15,7 @@ import {
     IconGraph,
     IconHogQL,
     IconLifecycle,
+    IconLive,
     IconMessage,
     IconNotebook,
     IconNotification,
@@ -53,7 +54,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     llm_analytics: {
         icon: <IconAI />,
-        iconColor: ['var(--color-product-max-ai-light)'],
+        iconColor: ['var(--color-product-llm-analytics-light)'],
     },
     product_analytics: {
         icon: <IconGraph />,
@@ -93,6 +94,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     task: {
         icon: <IconBug />,
+    },
+    logs: {
+        icon: <IconLive />,
+        iconColor: ['var(--color-product-logs-light)'],
     },
     early_access_feature: {
         icon: <IconRocket />,
@@ -226,17 +231,17 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
 }
 
 const getIconColor = (type?: string, colorOverride?: FileSystemIconColor): FileSystemIconColor => {
-    // Get the official icon color
-    const iconTypeColor = type && iconTypes[type as keyof typeof iconTypes]?.iconColor
-
-    // fallback: Get the file system color
+    // Manifest color takes precedence
     const fileSystemColor = (fileSystemTypes as unknown as Record<string, { iconColor?: FileSystemIconColor }>)[
         type as keyof typeof fileSystemTypes
     ]?.iconColor
 
+    // Fallback to iconTypes if no manifest color is provided
+    const iconTypeColor = type && iconTypes[type as keyof typeof iconTypes]?.iconColor
+
     // If we have a color override, use it
-    // Otherwise, use the official icon color, then the file system color and finally if all else is undefined use the inherited default color
-    const color = colorOverride ?? iconTypeColor ?? fileSystemColor ?? ['currentColor', 'currentColor']
+    // Otherwise, use the above colors in order of precedence
+    const color = colorOverride ?? fileSystemColor ?? iconTypeColor ?? ['currentColor', 'currentColor']
     return color.length === 1 ? [color[0], color[0]] : (color as FileSystemIconColor)
 }
 
@@ -269,7 +274,7 @@ export const ProductIconWrapper = ({ type, children, colorOverride }: ProductIco
     )
 }
 
-export function iconForType(type?: string, colorOverride?: FileSystemIconColor): JSX.Element {
+export function iconForType(type?: FileSystemIconType, colorOverride?: FileSystemIconColor): JSX.Element {
     if (!type) {
         return (
             <ProductIconWrapper type={type} colorOverride={colorOverride}>

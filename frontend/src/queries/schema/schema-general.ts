@@ -2367,6 +2367,7 @@ export type FileSystemIconType =
     | 'data_warehouse'
     | 'task'
     | 'link'
+    | 'logs'
     | 'messaging'
     | 'notebook'
     | 'action'

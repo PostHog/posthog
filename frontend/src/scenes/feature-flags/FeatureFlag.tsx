@@ -748,7 +748,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 description={featureFlag.name}
                                 resourceType={{
                                     type: 'feature_flag',
-                                    typePlural: 'Feature flags',
                                 }}
                             />
                             <SceneDivider />

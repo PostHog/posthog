@@ -12,7 +12,7 @@ import {
     getDefaultTreeProducts,
     iconForType,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 
 import type { newTabSceneLogicType } from './newTabSceneLogicType'
 
@@ -37,7 +37,7 @@ function getIconForFileSystemItem(fs: FileSystemImport): JSX.Element {
     }
 
     // Fall back to iconForType for iconType or type
-    return iconForType('iconType' in fs ? fs.iconType : fs.type, fs.iconColor)
+    return iconForType('iconType' in fs ? fs.iconType : (fs.type as FileSystemIconType), fs.iconColor)
 }
 
 export const newTabSceneLogic = kea<newTabSceneLogicType>([

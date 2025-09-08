@@ -1,8 +1,7 @@
-import { IconExternal } from '@posthog/icons'
-
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { FileSystemIconColor, ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
@@ -36,7 +35,7 @@ export const manifest: ProductManifest = {
     fileSystemTypes: {
         link: {
             name: 'Link',
-            icon: <IconExternal />,
+            iconType: 'link' as FileSystemIconType,
             href: (ref: string) => urls.link(ref),
             iconColor: ['var(--color-product-links-light)'],
             filterKey: 'link',
@@ -48,7 +47,7 @@ export const manifest: ProductManifest = {
             path: `Link`,
             type: 'link',
             href: urls.link('new'),
-            icon: <IconExternal />,
+            iconType: 'link' as FileSystemIconType,
             iconColor: ['var(--color-product-links-light)'] as FileSystemIconColor,
             flag: FEATURE_FLAGS.LINKS,
         },

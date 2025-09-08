@@ -24,7 +24,6 @@ export function MarketingAnalyticsSettings(): JSX.Element {
                     description={null}
                     resourceType={{
                         type: 'marketing',
-                        typePlural: 'marketing',
                         forceIcon: <IconApps />,
                     }}
                 />
