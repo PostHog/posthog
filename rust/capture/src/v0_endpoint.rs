@@ -204,10 +204,7 @@ async fn handle_event_payload(
 
     counter!("capture_events_received_total", &[("legacy", "true")]).increment(events.len() as u64);
 
-    let now_str = state.timesource.current_time();
-    let now = DateTime::parse_from_rfc3339(&now_str)
-        .map_err(|_| CaptureError::InvalidTimestamp)?
-        .with_timezone(&Utc);
+    let now = state.timesource.current_time();
 
     let context = ProcessingContext {
         lib_version,
