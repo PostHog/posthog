@@ -207,8 +207,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </LemonBanner>
                     )}
 
-                    {/* Combined monetary gauge for product variants */}
-                    {isProductWithVariants && (
+                    {/* Combined monetary gauge for product variants - only show for subscribed users */}
+                    {isProductWithVariants && product.subscribed && (
                         <div className="mt-6 mb-4 ml-2">
                             <div className="grid grid-cols-[1fr_130px_100px] gap-4 items-center">
                                 <div>
@@ -352,6 +352,57 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     <BillingProductPricingTable product={variant.product} />
                                                 </div>
                                             )}
+                                        </div>
+                                    )
+                                }
+                            )}
+                        </div>
+                    ) : productVariants && !product.subscribed ? (
+                        /* Free user product variants display - simplified like non-variants */
+                        <div className="mt-4">
+                            {productVariants.map(
+                                (variant: {
+                                    key: string
+                                    product: BillingProductV2Type | BillingProductV2AddonType
+                                    displayName: string
+                                }) => {
+                                    const isMainProductVariant =
+                                        variant.key === 'session_replay' || variant.key === 'realtime_destinations'
+
+                                    // For main product variants, use existing billingGaugeItems
+                                    // For addon variants, create gauge items from their data
+                                    const variantGaugeItems = isMainProductVariant
+                                        ? billingGaugeItems.filter(
+                                              (item) => item.type !== BillingGaugeItemKind.BillingLimit
+                                          )
+                                        : ([
+                                              {
+                                                  type: BillingGaugeItemKind.CurrentUsage,
+                                                  text: 'Current',
+                                                  value: variant.product.current_usage || 0,
+                                              },
+                                              variant.product.projected_usage &&
+                                                  variant.product.projected_usage >
+                                                      (variant.product.current_usage || 0) && {
+                                                      type: BillingGaugeItemKind.ProjectedUsage,
+                                                      text: 'Projected',
+                                                      value: variant.product.projected_usage || 0,
+                                                  },
+                                              variant.product.free_allocation && {
+                                                  type: BillingGaugeItemKind.FreeTier,
+                                                  text: 'Free tier limit',
+                                                  value: variant.product.free_allocation,
+                                              },
+                                          ].filter(Boolean) as BillingGaugeItemType[])
+
+                                    return (
+                                        <div key={variant.key} className="mt-6">
+                                            <h4 className="font-bold">{variant.displayName}</h4>
+                                            <div className="sm:flex w-full items-center gap-x-8">
+                                                <div className="grow">
+                                                    <BillingGauge items={variantGaugeItems} product={variant.product} />
+                                                </div>
+                                            </div>
                                         </div>
                                     )
                                 }
