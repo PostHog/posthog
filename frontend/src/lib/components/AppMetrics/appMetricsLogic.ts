@@ -259,7 +259,8 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
         appMetricsTrends: [
             null as AppMetricsTimeSeriesResponse | null,
             {
-                loadAppMetricsTrends: async () => {
+                loadAppMetricsTrends: async (_, breakpoint) => {
+                    await breakpoint(10)
                     const dateRange = values.getDateRangeAbsolute()
                     const params: AppMetricsTimeSeriesRequest = {
                         ...values.params,
@@ -267,7 +268,10 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
                         dateTo: dateRange.dateTo.toISOString(),
                     }
 
-                    return await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC')
+                    const result = await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC')
+                    await breakpoint(10)
+
+                    return result
                 },
             },
         ],

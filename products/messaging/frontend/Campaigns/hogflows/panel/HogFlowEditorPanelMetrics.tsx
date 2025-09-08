@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
 
@@ -12,15 +12,26 @@ import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/L
 import { ChartDisplayType } from '~/types'
 
 import { CAMPAIGN_METRICS_INFO } from '../../CampaignMetrics'
-import { TRIGGER_NODE_ID } from '../../campaignLogic'
+import { EXIT_NODE_ID, TRIGGER_NODE_ID } from '../../campaignLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 
 export function HogFlowEditorPanelMetrics(): JSX.Element | null {
     const { selectedNode, campaign } = useValues(hogFlowEditorLogic)
     const { loadActionMetricsById } = useActions(hogFlowEditorLogic)
-    const id = selectedNode?.data.id === TRIGGER_NODE_ID ? '' : selectedNode?.data.id
+    const actionId = selectedNode?.data.id
+    const id = useMemo(() => {
+        return actionId ? ([TRIGGER_NODE_ID, EXIT_NODE_ID].includes(actionId) ? '' : actionId) : undefined
+    }, [actionId])
 
     const logicKey = `hog-flow-metrics-${campaign.id}`
+
+    const metricName = useMemo(() => {
+        return actionId === TRIGGER_NODE_ID
+            ? ['triggered', 'rate_limited', 'disabled_permanently', 'filtered']
+            : actionId === EXIT_NODE_ID
+              ? ['succeeded', 'failed']
+              : undefined
+    }, [actionId])
 
     const logic = appMetricsLogic({
         logicKey,
@@ -30,6 +41,7 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
             appSourceId: campaign.id,
             instanceId: id,
             breakdownBy: 'metric_name',
+            metricName,
         },
     })
 
