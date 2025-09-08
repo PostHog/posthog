@@ -7,7 +7,6 @@ export enum OutputTab {
     Visualization = 'visualization',
     Variables = 'variables',
     Materialization = 'materialization',
-    Metadata = 'metadata',
 }
 
 export const outputPaneLogic = kea<outputPaneLogicType>([

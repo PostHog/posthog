@@ -235,6 +235,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         setPollResponse: (status: QueryStatus | null) => ({ status }),
         setLoadingTime: (seconds: number) => ({ seconds }),
         resetLoadingTimer: true,
+        setQueryLogQueryId: (queryId: string) => ({ queryId }),
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -458,7 +459,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     try {
-                        return await api.queryLog.get(queryId)
+                        const result = await api.queryLog.get(queryId)
+                        actions.setQueryLogQueryId(queryId)
+                        return result
                     } catch (e: any) {
                         console.warn('Failed to get query execution details', e)
                         e.queryId = queryId
@@ -615,6 +618,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadDataFailure: () => 0,
                 setLoadingTime: (_, { seconds }) => seconds,
                 cancelQuery: () => 0,
+            },
+        ],
+        queryLogId: [
+            null as string | null,
+            {
+                setQueryLogQueryId: (_, { queryId }) => queryId,
+                loadData: () => null,
             },
         ],
     })),
@@ -866,6 +876,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 return null
             },
         ],
+        shouldLoadQueryLog: [
+            (s) => [s.queryId, s.queryLogId, s.queryLog],
+            (queryId: string | null, queryLogId: string | null, queryLog): boolean => {
+                // Load if we have a queryId and either:
+                // 1. We don't have a queryLog yet, or
+                // 2. The current queryLog is for a different queryId
+                return !!queryId && (!queryLog || queryLogId !== queryId)
+            },
+        ],
     })),
     listeners(({ actions, values, cache, props }) => ({
         abortAnyRunningQuery: () => {
@@ -897,9 +916,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 cache.localResults[JSON.stringify(props.query.query)] = response
             }
 
-            if (values.queryId) {
-                actions.loadQueryLog(values.queryId)
-            }
+            // if (values.queryId) {
+            //     actions.loadQueryLog(values.queryId)
+            // }
         },
         loadDataFailure: () => {
             actions.collectionNodeLoadDataFailure(props.key)

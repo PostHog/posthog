@@ -35,7 +35,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
-import { QueryExecutionDetail } from '~/queries/nodes/DataNode/QueryExecutionDetail'
+import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
@@ -621,7 +621,7 @@ export function OutputPane(): JSX.Element {
                     {response && !responseError ? <LoadPreviewText localResponse={localStorageResponse} /> : <></>}
                 </div>
                 <div className="flex items-center gap-4">
-                    <QueryExecutionDetail />
+                    <QueryExecutionDetails />
                     <ElapsedTime />
                 </div>
             </div>
