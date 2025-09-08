@@ -363,7 +363,7 @@ def bigquery_config() -> dict[str, str]:
 
 
 def test_can_run_bigquery_test_step_with_castable_type(client: HttpClient, bigquery_config, temporal):
-    """Test a destination test with invalid types that can be casted to required teypes."""
+    """Test a destination test with invalid types that can be casted to required types."""
     config = {"use_json_type": "True", **bigquery_config}  # "True" (string) can be casted to True (bool)
 
     destination_data = {
