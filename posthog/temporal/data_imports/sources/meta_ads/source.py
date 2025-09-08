@@ -24,7 +24,7 @@ class MetaAdsSource(BaseSource[MetaAdsSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.METAADS
 
-    def get_schemas(self, config: MetaAdsSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: MetaAdsSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,

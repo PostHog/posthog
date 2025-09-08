@@ -45,7 +45,7 @@ import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
-import { ProductIntentContext } from 'lib/utils/product-intents'
+import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
 import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
@@ -57,6 +57,8 @@ import { useMaxTool } from 'scenes/max/useMaxTool'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { SceneExport } from 'scenes/sceneTypes'
+import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
+import { captureMaxAISurveyCreationException } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -152,13 +154,20 @@ export function createMaxToolSurveyConfig(
             variant_count: variants?.length || 0,
         },
         callback: (toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => {
+            addProductIntent({
+                product_type: ProductKey.SURVEYS,
+                intent_context: ProductIntentContext.SURVEY_CREATED,
+                metadata: {
+                    survey_id: toolOutput.survey_id,
+                    source: SURVEY_CREATED_SOURCE.FEATURE_FLAGS,
+                    created_successfully: !toolOutput?.error,
+                },
+            })
+
             if (toolOutput?.error || !toolOutput?.survey_id) {
-                posthog.captureException(toolOutput?.error, {
-                    source: 'survey-creation-failed',
-                    feature: 'surveys',
-                })
-                return
+                return captureMaxAISurveyCreationException(toolOutput.error, SURVEY_CREATED_SOURCE.FEATURE_FLAGS)
             }
+
             // Redirect to the new survey
             router.actions.push(urls.survey(toolOutput.survey_id))
         },

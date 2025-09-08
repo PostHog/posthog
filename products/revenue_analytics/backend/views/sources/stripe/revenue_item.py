@@ -359,7 +359,7 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
 
     # Include charges that don't have an invoice unless explictly disabled
     invoiceless_charges_query: ast.SelectQuery | None = None
-    if charge_table is not None and source.revenue_analytics_config.include_invoiceless_charges:
+    if charge_table is not None and source.revenue_analytics_config_safe.include_invoiceless_charges:
         invoiceless_charges_query = ast.SelectQuery(
             select=[
                 ast.Alias(alias="id", expr=ast.Field(chain=["id"])),

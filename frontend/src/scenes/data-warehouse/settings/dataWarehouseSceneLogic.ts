@@ -181,7 +181,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             (s) => [s.views, s.dataWarehouseSavedQueryMapById],
             (views, dataWarehouseSavedQueryMapById): DatabaseSchemaTable[] => {
                 return views
-                    .filter((view) => !dataWarehouseSavedQueryMapById[view.id]?.status)
+                    .filter((view) => !dataWarehouseSavedQueryMapById[view.id]?.is_materialized)
                     .map((view) => ({
                         ...view,
                         type: 'view',
@@ -192,7 +192,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             (s) => [s.views, s.dataWarehouseSavedQueryMapById],
             (views, dataWarehouseSavedQueryMapById): DatabaseSchemaMaterializedViewTable[] => {
                 return views
-                    .filter((view) => dataWarehouseSavedQueryMapById[view.id]?.status)
+                    .filter((view) => dataWarehouseSavedQueryMapById[view.id]?.is_materialized)
                     .map((view) => ({
                         ...view,
                         type: 'materialized_view',
