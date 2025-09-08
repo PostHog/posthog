@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { ChartDisplayType } from '~/types'
 
+import { CAMPAIGN_METRICS_INFO } from '../../CampaignMetrics'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 
 export function HogFlowEditorPanelMetrics(): JSX.Element | null {
@@ -103,6 +104,11 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
                                     type: { name: 'INTEGER', isNumerical: true },
                                     label: x.name,
                                     dataIndex: 0,
+                                },
+                                settings: {
+                                    display: {
+                                        color: CAMPAIGN_METRICS_INFO[x.name]?.color,
+                                    },
                                 },
                                 data: x.values,
                             }))}

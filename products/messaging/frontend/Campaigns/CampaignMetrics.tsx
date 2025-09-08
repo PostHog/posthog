@@ -1,21 +1,36 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
+import { getColorVar } from 'lib/colors'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 import { campaignLogic } from './campaignLogic'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 
-const METRICS_INFO = {
-    succeeded: 'Total number of events processed successfully',
-    failed: 'Total number of events that had errors during processing',
-    filtered: 'Total number of events that were filtered out',
-    disabled:
-        'Total number of events that were skipped due to the destination being permanently disabled (due to prolonged issues with the destination)',
+export const CAMPAIGN_METRICS_INFO: Record<string, { description: string; color: string }> = {
+    succeeded: {
+        description: 'Total number of events processed successfully',
+        color: getColorVar('success'),
+    },
+    failed: {
+        description: 'Total number of events that had errors during processing',
+        color: getColorVar('danger'),
+    },
+    filtered: {
+        description: 'Total number of events that were filtered out',
+        color: getColorVar('muted'),
+    },
+    disabled: {
+        description:
+            'Total number of events that were skipped due to the destination being permanently disabled (due to prolonged issues with the destination)',
+        color: getColorVar('danger'),
+    },
 }
 
 export type CampaignMetricsProps = {
@@ -40,6 +55,20 @@ export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
 
     const { appMetricsTrendsLoading, getSingleTrendSeries, appMetricsTrends, params } = useValues(logic)
     const { setParams } = useActions(logic)
+
+    const modifiedAppMetricsTrends = useMemo(
+        () =>
+            appMetricsTrends
+                ? {
+                      ...appMetricsTrends,
+                      series: appMetricsTrends.series.map((series) => ({
+                          ...series,
+                          color: CAMPAIGN_METRICS_INFO[series.name as keyof typeof CAMPAIGN_METRICS_INFO]?.color,
+                      })),
+                  }
+                : null,
+        [appMetricsTrends]
+    )
 
     return (
         <div className="flex flex-col gap-2">
@@ -80,40 +109,20 @@ export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
             </div>
 
             <div className="flex flex-row gap-2 flex-wrap justify-center">
-                <AppMetricSummary
-                    name="Success"
-                    description={METRICS_INFO.succeeded}
-                    loading={appMetricsTrendsLoading}
-                    timeSeries={getSingleTrendSeries('succeeded')}
-                    previousPeriodTimeSeries={getSingleTrendSeries('succeeded', true)}
-                />
-
-                <AppMetricSummary
-                    name="Failure"
-                    description={METRICS_INFO.failed}
-                    loading={appMetricsTrendsLoading}
-                    timeSeries={getSingleTrendSeries('failed')}
-                    previousPeriodTimeSeries={getSingleTrendSeries('failed', true)}
-                />
-
-                <AppMetricSummary
-                    name="Filtered"
-                    description={METRICS_INFO.filtered}
-                    loading={appMetricsTrendsLoading}
-                    timeSeries={getSingleTrendSeries('filtered')}
-                    previousPeriodTimeSeries={getSingleTrendSeries('filtered', true)}
-                />
-
-                <AppMetricSummary
-                    name="Disabled"
-                    description={METRICS_INFO.disabled}
-                    loading={appMetricsTrendsLoading}
-                    timeSeries={getSingleTrendSeries('disabled_permanently')}
-                    previousPeriodTimeSeries={getSingleTrendSeries('disabled_permanently', true)}
-                />
+                {Object.entries(CAMPAIGN_METRICS_INFO).map(([key, metric]) => (
+                    <AppMetricSummary
+                        name={capitalizeFirstLetter(key)}
+                        description={metric.description}
+                        loading={appMetricsTrendsLoading}
+                        timeSeries={getSingleTrendSeries(key)}
+                        previousPeriodTimeSeries={getSingleTrendSeries(key, true)}
+                        color={metric.color}
+                        colorIfZero={getColorVar('muted')}
+                    />
+                ))}
             </div>
 
-            <AppMetricsTrends appMetricsTrends={appMetricsTrends} loading={appMetricsTrendsLoading} />
+            <AppMetricsTrends appMetricsTrends={modifiedAppMetricsTrends} loading={appMetricsTrendsLoading} />
         </div>
     )
 }

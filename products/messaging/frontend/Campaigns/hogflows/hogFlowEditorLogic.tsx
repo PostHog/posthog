@@ -11,7 +11,7 @@ import {
     getOutgoers,
 } from '@xyflow/react'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { lazyLoaders } from 'kea-loaders'
+import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import type { DragEvent, RefObject } from 'react'
@@ -188,7 +188,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
     }),
-    lazyLoaders(() => ({
+    loaders(() => ({
         actionMetricsById: [
             null as Record<string, HogFlowEditorActionMetrics> | null,
             {
