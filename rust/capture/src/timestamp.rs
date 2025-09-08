@@ -1,4 +1,5 @@
 use chrono::{DateTime, Datelike, Duration, Utc};
+use jiff::{civil::DateTime as JiffDateTime, Timestamp as JiffTimestamp};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -228,83 +229,130 @@ fn handle_timestamp(
 }
 
 fn parse_date(supposed_iso_string: &str) -> Option<DateTime<Utc>> {
-    // First try parsing as a JavaScript Date would (more lenient)
+    // First try parsing as a numeric timestamp (milliseconds since epoch)
     if let Ok(js_timestamp) = supposed_iso_string.parse::<f64>() {
-        // Handle numeric timestamps (milliseconds since epoch)
         if let Some(dt) = DateTime::from_timestamp_millis(js_timestamp as i64) {
             return Some(dt);
         }
     }
 
-    // Try parsing date-only format first (common case)
-    use chrono::NaiveDate;
-    if let Ok(naive_date) = NaiveDate::parse_from_str(supposed_iso_string, "%Y-%m-%d") {
-        if let Some(naive_dt) = naive_date.and_hms_opt(0, 0, 0) {
-            return Some(DateTime::from_naive_utc_and_offset(naive_dt, Utc));
-        }
-    }
-
-    // Try parsing datetime formats with timezone info
-    let tz_formats = [
-        // ISO 8601 variants
-        "%Y-%m-%dT%H:%M:%S%.fZ",
-        "%Y-%m-%dT%H:%M:%SZ",
-        "%Y-%m-%dT%H:%M:%S%.f%:z",
-        "%Y-%m-%dT%H:%M:%S%:z",
-    ];
-
-    for format in &tz_formats {
-        if let Ok(dt) = DateTime::parse_from_str(supposed_iso_string, format) {
-            return Some(dt.with_timezone(&Utc));
-        }
-    }
-
-    // Try parsing naive datetime formats (assume UTC)
-    let naive_formats = [
-        "%Y-%m-%d %H:%M:%S%.f",
-        "%Y-%m-%d %H:%M:%S",
-        "%m/%d/%Y %H:%M:%S",
-        "%m/%d/%Y",
-        "%d/%m/%Y %H:%M:%S",
-        "%d/%m/%Y",
-        "%Y/%m/%d %H:%M:%S",
-        "%Y/%m/%d",
-    ];
-
-    for format in &naive_formats {
-        if let Ok(naive_dt) = chrono::NaiveDateTime::parse_from_str(supposed_iso_string, format) {
-            return Some(DateTime::from_naive_utc_and_offset(naive_dt, Utc));
-        }
-    }
-
-    // Try parsing just date formats and add midnight time
-    let date_formats = ["%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"];
-
-    for format in &date_formats {
-        if let Ok(naive_date) = NaiveDate::parse_from_str(supposed_iso_string, format) {
-            if let Some(naive_dt) = naive_date.and_hms_opt(0, 0, 0) {
-                return Some(DateTime::from_naive_utc_and_offset(naive_dt, Utc));
+    // Use jiff for flexible date/time parsing - it handles many formats automatically
+    // Try parsing as a timestamp first (with timezone)
+    if let Ok(jiff_timestamp) = supposed_iso_string.parse::<JiffTimestamp>() {
+        // Convert jiff timestamp to chrono
+        let seconds = jiff_timestamp.as_second();
+        let nanos = jiff_timestamp.subsec_nanosecond();
+        // Convert i32 to u32 safely (nanoseconds should always be positive)
+        if let Ok(nanos_u32) = nanos.try_into() {
+            if let Some(chrono_dt) = DateTime::from_timestamp(seconds, nanos_u32) {
+                return Some(chrono_dt);
             }
         }
     }
 
-    // Try RFC3339 parsing
+    // Try parsing as a civil datetime (no timezone) and assume UTC
+    if let Ok(jiff_civil) = supposed_iso_string.parse::<JiffDateTime>() {
+        // Convert to timestamp assuming UTC
+        if let Ok(jiff_timestamp) = jiff_civil.to_zoned(jiff::tz::TimeZone::UTC) {
+            let seconds = jiff_timestamp.timestamp().as_second();
+            let nanos = jiff_timestamp.timestamp().subsec_nanosecond();
+            // Convert i32 to u32 safely
+            if let Ok(nanos_u32) = nanos.try_into() {
+                if let Some(chrono_dt) = DateTime::from_timestamp(seconds, nanos_u32) {
+                    return Some(chrono_dt);
+                }
+            }
+        }
+    }
+
+    // Try parsing as just a date (assume midnight UTC)
+    if let Ok(jiff_date) = supposed_iso_string.parse::<jiff::civil::Date>() {
+        // Convert to datetime at midnight UTC
+        let jiff_datetime = jiff_date.at(0, 0, 0, 0);
+        if let Ok(jiff_timestamp) = jiff_datetime.to_zoned(jiff::tz::TimeZone::UTC) {
+            let seconds = jiff_timestamp.timestamp().as_second();
+            let nanos = jiff_timestamp.timestamp().subsec_nanosecond();
+            // Convert i32 to u32 safely
+            if let Ok(nanos_u32) = nanos.try_into() {
+                if let Some(chrono_dt) = DateTime::from_timestamp(seconds, nanos_u32) {
+                    return Some(chrono_dt);
+                }
+            }
+        }
+    }
+
+    // Handle common date formats that jiff might not parse automatically
+    // Try MM/DD/YYYY and DD/MM/YYYY formats
+    if let Some(parsed) = try_parse_slash_date(supposed_iso_string) {
+        return Some(parsed);
+    }
+
+    // Fallback to chrono for RFC3339/RFC2822 formats that jiff might not handle
     if let Ok(dt) = DateTime::parse_from_rfc3339(supposed_iso_string) {
         return Some(dt.with_timezone(&Utc));
     }
 
-    // Try RFC2822 parsing
     if let Ok(dt) = DateTime::parse_from_rfc2822(supposed_iso_string) {
         return Some(dt.with_timezone(&Utc));
     }
 
-    // If all else fails, try chrono's lenient parsing
-    if let Ok(naive_dt) =
-        chrono::NaiveDateTime::parse_from_str(supposed_iso_string, "%Y-%m-%d %H:%M:%S")
-    {
-        return Some(DateTime::from_naive_utc_and_offset(naive_dt, Utc));
+    None
+}
+
+/// Helper function to parse common slash-separated date formats
+fn try_parse_slash_date(date_str: &str) -> Option<DateTime<Utc>> {
+    let parts: Vec<&str> = date_str.split('/').collect();
+    if parts.len() != 3 {
+        return None;
     }
 
+    // Try to parse as numbers
+    let nums: Result<Vec<u32>, _> = parts.iter().map(|s| s.parse::<u32>()).collect();
+    if let Ok(nums) = nums {
+        if nums.len() == 3 {
+            // Try MM/DD/YYYY format first (US format) - validate ranges
+            if nums[0] >= 1 && nums[0] <= 12 && nums[1] >= 1 && nums[1] <= 31 && nums[2] >= 1900 && nums[2] <= 9999 {
+                if let Some(dt) = try_create_date(nums[2] as i32, nums[0], nums[1]) {
+                    return Some(dt);
+                }
+            }
+            // Try DD/MM/YYYY format (European format) - validate ranges
+            if nums[0] >= 1 && nums[0] <= 31 && nums[1] >= 1 && nums[1] <= 12 && nums[2] >= 1900 && nums[2] <= 9999 {
+                if let Some(dt) = try_create_date(nums[2] as i32, nums[1], nums[0]) {
+                    return Some(dt);
+                }
+            }
+            // Try YYYY/MM/DD format - validate ranges
+            if nums[0] >= 1900 && nums[0] <= 9999 && nums[1] >= 1 && nums[1] <= 12 && nums[2] >= 1 && nums[2] <= 31 {
+                if let Some(dt) = try_create_date(nums[0] as i32, nums[1], nums[2]) {
+                    return Some(dt);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Helper to safely create a DateTime from year/month/day
+fn try_create_date(year: i32, month: u32, day: u32) -> Option<DateTime<Utc>> {
+    // Use jiff to create a date and convert to chrono
+    // Convert types safely for jiff's API
+    let year_i16: i16 = year.try_into().ok()?;
+    let month_i8: i8 = month.try_into().ok()?;
+    let day_i8: i8 = day.try_into().ok()?;
+
+    if let Ok(jiff_date) = jiff::civil::Date::new(year_i16, month_i8, day_i8) {
+        let jiff_datetime = jiff_date.at(0, 0, 0, 0);
+        if let Ok(jiff_timestamp) = jiff_datetime.to_zoned(jiff::tz::TimeZone::UTC) {
+            let seconds = jiff_timestamp.timestamp().as_second();
+            let nanos = jiff_timestamp.timestamp().subsec_nanosecond();
+            if let Ok(nanos_u32) = nanos.try_into() {
+                if let Some(chrono_dt) = DateTime::from_timestamp(seconds, nanos_u32) {
+                    return Some(chrono_dt);
+                }
+            }
+        }
+    }
     None
 }
 
@@ -497,15 +545,36 @@ mod tests {
     #[test]
     fn test_parse_date_various_formats() {
         let test_cases = vec![
+            // ISO 8601 formats (handled by jiff)
             ("2023-01-01T12:00:00Z", true),
             ("2023-01-01T12:00:00.123Z", true),
             ("2023-01-01T12:00:00+02:00", true),
-            ("2023-01-01 12:00:00", true),
+            ("2023-01-01T12:00:00-05:00", true),
+
+            // Date-only formats (handled by jiff)
             ("2023-01-01", true),
+            ("2023-12-31", true),
+
+            // Civil datetime (no timezone, handled by jiff)
+            ("2023-01-01 12:00:00", true),
+            ("2023-01-01T12:00:00", true),
+
+            // Slash-separated formats (handled by our custom logic)
             ("01/01/2023", true),
+            ("12/31/2023", true),
+            ("2023/01/01", true),
+
+            // Numeric timestamps (handled by our logic)
             ("1672574400000", true), // Timestamp in milliseconds
+            ("1672574400", true),    // Timestamp in seconds
+
+            // Invalid formats
             ("invalid-date", false),
             ("99999-01-01T12:00:00Z", false), // Year too large, should not parse
+            ("13/32/2023", false), // Invalid month and day
+            ("01/32/2023", false), // Invalid day
+            ("", false),
+            ("not-a-date-at-all", false),
         ];
 
         for (date_str, should_parse) in test_cases {
@@ -515,6 +584,35 @@ mod tests {
             } else {
                 assert!(result.is_none(), "Unexpectedly parsed: {}", date_str);
             }
+        }
+    }
+
+    #[test]
+    fn test_jiff_parsing_capabilities() {
+        // Test that jiff provides better parsing than the old hardcoded approach
+        let test_cases = vec![
+            // Various ISO 8601 variants
+            "2023-01-01T12:00:00.123456Z",
+            "2023-01-01T12:00:00.123Z",
+            "2023-01-01T12:00:00Z",
+            "2023-01-01T12:00Z",
+
+            // With different timezones
+            "2023-01-01T12:00:00+05:30", // India timezone
+            "2023-01-01T12:00:00-08:00", // PST
+
+            // Date-only formats
+            "2023-01-01",
+            "2023-12-31",
+        ];
+
+        for date_str in test_cases {
+            let result = parse_date(date_str);
+            assert!(result.is_some(), "Failed to parse with jiff: {}", date_str);
+
+            // Verify the result is a valid UTC datetime
+            let dt = result.unwrap();
+            assert!(dt.year() >= 1 && dt.year() <= 9999, "Year out of expected range for: {}", date_str);
         }
     }
 
