@@ -6,7 +6,7 @@ import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { convertToHogFunctionInvocationGlobals } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
-import { Hub, RawClickHouseEvent } from '../../types'
+import { HealthCheckResult, Hub, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
@@ -313,6 +313,16 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 const rateLimit = rateLimits[index][1]
                 if (rateLimit.isRateLimited) {
                     counterRateLimited.labels({ kind: 'hog_flow' }).inc()
+                    this.hogFunctionMonitoringService.queueAppMetric(
+                        {
+                            team_id: item.teamId,
+                            app_source_id: item.functionId,
+                            metric_kind: 'failure',
+                            metric_name: 'rate_limited',
+                            count: 1,
+                        },
+                        'hog_flow'
+                    )
                     return
                 }
             } catch (e) {
@@ -407,7 +417,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
         logger.info('💤', 'Consumer stopped!')
     }
 
-    public isHealthy() {
+    public isHealthy(): HealthCheckResult {
         return this.kafkaConsumer.isHealthy()
     }
 

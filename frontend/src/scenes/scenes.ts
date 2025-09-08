@@ -267,12 +267,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Session replay',
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
+        hideProjectNotice: true,
     },
     [Scene.RevenueAnalytics]: {
         projectBased: true,
         name: 'Revenue analytics',
         layout: 'app-container',
-        defaultDocsPath: '/docs/web-analytics/revenue-analytics',
+        defaultDocsPath: '/docs/revenue-analytics',
     },
     [Scene.SQLEditor]: {
         projectBased: true,

@@ -13,8 +13,7 @@ import {
 import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/utils/request'
 import { tryCatch } from '~/utils/try-catch'
 
-import { buildIntegerMatcher } from '../../config/config'
-import { Hub, PluginsServerConfig, ValueMatcher } from '../../types'
+import { Hub, PluginsServerConfig } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
@@ -35,6 +34,7 @@ import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '..
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { HogInputsService } from './hog-inputs.service'
 import { EmailService } from './messaging/email.service'
+import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
 const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
@@ -114,14 +114,14 @@ export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
 }
 
 export class HogExecutorService {
-    private telemetryMatcher: ValueMatcher<number>
     private hogInputsService: HogInputsService
     private emailService: EmailService
+    private recipientTokensService: RecipientTokensService
 
     constructor(private hub: Hub) {
+        this.recipientTokensService = new RecipientTokensService(hub)
         this.hogInputsService = new HogInputsService(hub)
         this.emailService = new EmailService(hub)
-        this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
     }
 
     async buildInputsWithGlobals(
@@ -156,8 +156,6 @@ export class HogExecutorService {
                 fn: hogFunction,
                 filters,
                 filterGlobals,
-                eventUuid: triggerGlobals.event.uuid,
-                enabledTelemetry: this.telemetryMatcher(hogFunction.team_id),
             })
 
             // Add any generated metrics and logs to our collections
@@ -381,6 +379,14 @@ export class HogExecutorService {
                                 timestamp: DateTime.now(),
                                 message: sanitizeLogMessage(args, sensitiveValues),
                             })
+                        },
+                        generateMessagingPreferencesUrl: (identifier): string | null => {
+                            return identifier && typeof identifier === 'string'
+                                ? this.recipientTokensService.generatePreferencesUrl({
+                                      team_id: invocation.teamId,
+                                      identifier,
+                                  })
+                                : null
                         },
                         postHogCapture: (event) => {
                             const distinctId = event.distinct_id || globals.event?.distinct_id
