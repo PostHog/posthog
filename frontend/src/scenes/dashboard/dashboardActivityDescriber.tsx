@@ -228,8 +228,9 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
     }
 
     if (logItem.activity === 'share_login_success') {
-        const clientIp = logItem.detail.changes?.[0]?.after?.client_ip || 'unknown IP'
-        const passwordNote = logItem.detail.changes?.[0]?.after?.password_note || 'unknown password'
+        const afterData = logItem.detail.changes?.[0]?.after as any
+        const clientIp = afterData?.client_ip || 'unknown IP'
+        const passwordNote = afterData?.password_note || 'unknown password'
 
         return {
             description: (
@@ -242,7 +243,8 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
     }
 
     if (logItem.activity === 'share_login_failed') {
-        const clientIp = logItem.detail.changes?.[0]?.after?.client_ip || 'unknown IP'
+        const afterData = logItem.detail.changes?.[0]?.after as any
+        const clientIp = afterData?.client_ip || 'unknown IP'
 
         return {
             description: (

@@ -1043,6 +1043,7 @@ class TestSharePasswordLogging(APIBaseTest):
         assert activity_logs.count() == 1
 
         log = activity_logs.first()
+        assert log is not None
         assert log.activity == "share_login_success"
         assert log.team_id == self.team.id
         assert log.organization_id == self.team.organization.id
@@ -1084,6 +1085,7 @@ class TestSharePasswordLogging(APIBaseTest):
         assert activity_logs.count() == 1
 
         log = activity_logs.first()
+        assert log is not None
         assert log.activity == "share_login_failed"
         assert log.team_id == self.team.id
         assert log.organization_id == self.team.organization.id

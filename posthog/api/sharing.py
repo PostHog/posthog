@@ -91,7 +91,7 @@ def _log_share_password_attempt(
     }
 
     if success and validated_password:
-        change_data["password_id"] = validated_password.id
+        change_data["password_id"] = str(validated_password.id)
         change_data["password_note"] = validated_password.note or "Untitled password"
         activity_name = "share_login_success"
         detail_name = resource_name
