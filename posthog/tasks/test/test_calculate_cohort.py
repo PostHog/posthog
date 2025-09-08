@@ -45,7 +45,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             cohort_id = response["id"]
             _calculate_cohort_from_list.assert_called_once_with(cohort_id, ["blabla"])
-            calculate_cohort_from_list(cohort_id, ["blabla"])
+            calculate_cohort_from_list(cohort_id, ["blabla"], team_id=self.team.id, id_type="distinct_id")
             cohort = Cohort.objects.get(pk=cohort_id)
             people = Person.objects.filter(cohort__id=cohort.pk)
             self.assertEqual(people.count(), 1)
@@ -77,10 +77,52 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             ).json()
             cohort_id = response["id"]
             _calculate_cohort_from_list.assert_called_once_with(cohort_id, ["blabla"])
-            calculate_cohort_from_list(cohort_id, ["blabla"])
+            calculate_cohort_from_list(cohort_id, ["blabla"], team_id=self.team.id, id_type="distinct_id")
             cohort = Cohort.objects.get(pk=cohort_id)
             people = Person.objects.filter(cohort__id=cohort.pk)
             self.assertEqual(people.count(), 1)
+
+        def test_calculate_cohort_from_list_with_person_id_type(self) -> None:
+            """Test that calculate_cohort_from_list works correctly with person UUIDs"""
+            person1 = person_factory(team_id=self.team.pk, distinct_ids=["user123"])
+            person2 = person_factory(team_id=self.team.pk, distinct_ids=["user456"])
+
+            cohort = Cohort.objects.create(team=self.team, is_static=True, name="test_person_id_cohort")
+
+            # Test with person UUIDs
+            calculate_cohort_from_list(
+                cohort.id, [str(person1.uuid), str(person2.uuid)], team_id=self.team.id, id_type="person_id"
+            )
+
+            # Verify persons were added to cohort
+            cohort.refresh_from_db()
+            people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+            self.assertEqual(people_in_cohort.count(), 2)
+
+            # Verify specific persons are in the cohort
+            person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+            self.assertIn(str(person1.uuid), person_uuids_in_cohort)
+            self.assertIn(str(person2.uuid), person_uuids_in_cohort)
+
+        def test_calculate_cohort_from_list_with_distinct_id_type(self) -> None:
+            """Test that calculate_cohort_from_list works correctly with distinct IDs"""
+            person1 = person_factory(team_id=self.team.pk, distinct_ids=["user123"])
+            person2 = person_factory(team_id=self.team.pk, distinct_ids=["user456"])
+
+            cohort = Cohort.objects.create(team=self.team, is_static=True, name="test_distinct_id_cohort")
+
+            # Test with distinct IDs
+            calculate_cohort_from_list(cohort.id, ["user123", "user456"], team_id=self.team.id, id_type="distinct_id")
+
+            # Verify persons were added to cohort
+            cohort.refresh_from_db()
+            people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+            self.assertEqual(people_in_cohort.count(), 2)
+
+            # Verify specific persons are in the cohort
+            person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+            self.assertIn(str(person1.uuid), person_uuids_in_cohort)
+            self.assertIn(str(person2.uuid), person_uuids_in_cohort)
 
         @patch("posthog.tasks.calculate_cohort.increment_version_and_enqueue_calculate_cohort")
         def test_exponential_backoff(self, patch_increment_version_and_enqueue_calculate_cohort: MagicMock) -> None:
