@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { getDefaultTreeProducts, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { groupsModel } from '~/models/groupsModel'
-import { FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { Group, InsightShortId, PersonType, SearchResponse, SearchableEntity } from '~/types'
 
 import { commandBarLogic } from './commandBarLogic'
@@ -57,7 +57,9 @@ function rankProductTreeItems(treeItems: FileSystemImport[], query: string): Tre
                 result_id: item.href || item.path,
                 extra_fields: {
                     ...item,
-                    icon: item.iconType ? iconForType(item.iconType) : iconForType(item.type),
+                    icon: item.iconType
+                        ? iconForType(item.iconType as FileSystemIconType)
+                        : iconForType(item.type as FileSystemIconType),
                     description: `Category: ${item.category}`,
                 },
                 rank,
