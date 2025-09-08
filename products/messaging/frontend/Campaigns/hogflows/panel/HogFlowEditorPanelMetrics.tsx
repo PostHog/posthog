@@ -40,9 +40,6 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
             {
                 appSource: params.appSource,
                 appSourceId: params.appSourceId,
-                instanceId: undefined,
-                breakdownBy: ['instance_id', 'metric_name'],
-                metricName: ['succeeded', 'failed', 'filtered'],
                 dateFrom: getDateRangeAbsolute().dateFrom.toISOString(),
                 dateTo: getDateRangeAbsolute().dateTo.toISOString(),
             },

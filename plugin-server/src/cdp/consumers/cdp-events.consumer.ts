@@ -249,19 +249,29 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             'hog_function'
         )
 
-        const billingMetrics = Object.values(notMaskedInvocations)
-            .filter((inv) => inv.hogFunction.type === 'destination')
-            .map((inv): MinimalAppMetric => {
-                return {
-                    metric_kind: 'billing',
-                    metric_name: 'billable_invocation',
-                    team_id: inv.teamId,
-                    app_source_id: inv.hogFunction.id,
-                    count: 1,
-                }
+        const triggeredInvocationsMetrics: MinimalAppMetric[] = []
+
+        notMaskedInvocations.forEach((item) => {
+            triggeredInvocationsMetrics.push({
+                team_id: item.teamId,
+                app_source_id: item.functionId,
+                metric_kind: 'other',
+                metric_name: 'triggered',
+                count: 1,
             })
 
-        this.hogFunctionMonitoringService.queueAppMetrics(billingMetrics, 'hog_function')
+            if (item.hogFunction.type === 'destination') {
+                triggeredInvocationsMetrics.push({
+                    team_id: item.teamId,
+                    app_source_id: item.functionId,
+                    metric_kind: 'billing',
+                    metric_name: 'billable_invocation',
+                    count: 1,
+                })
+            }
+        })
+
+        this.hogFunctionMonitoringService.queueAppMetrics(triggeredInvocationsMetrics, 'hog_function')
 
         return notMaskedInvocations
     }
@@ -351,6 +361,28 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
             validInvocations.push(item)
         })
+
+        const triggeredInvocationsMetrics: MinimalAppMetric[] = []
+
+        validInvocations.forEach((item) => {
+            triggeredInvocationsMetrics.push({
+                team_id: item.teamId,
+                app_source_id: item.functionId,
+                metric_kind: 'other',
+                metric_name: 'triggered',
+                count: 1,
+            })
+
+            triggeredInvocationsMetrics.push({
+                team_id: item.teamId,
+                app_source_id: item.functionId,
+                metric_kind: 'billing',
+                metric_name: 'billable_invocation',
+                count: 1,
+            })
+        })
+
+        this.hogFunctionMonitoringService.queueAppMetrics(triggeredInvocationsMetrics, 'hog_flow')
 
         // TODO: Add back in Masking options
 

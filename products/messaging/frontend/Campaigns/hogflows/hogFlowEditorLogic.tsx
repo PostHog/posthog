@@ -23,7 +23,7 @@ import { uuid } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
-import { CampaignLogicProps, campaignLogic } from '../campaignLogic'
+import { CampaignLogicProps, EXIT_NODE_ID, TRIGGER_NODE_ID, campaignLogic } from '../campaignLogic'
 import { getFormattedNodes } from './autolayout'
 import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './constants'
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
@@ -91,7 +91,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setNewDraggingNode: (newDraggingNode: CreateActionType | null) => ({ newDraggingNode }),
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
-        loadActionMetricsById: (params: AppMetricsTotalsRequest, timezone: string) => ({ params, timezone }),
+        loadActionMetricsById: (
+            params: Pick<AppMetricsTotalsRequest, 'appSource' | 'appSourceId' | 'dateFrom' | 'dateTo'>,
+            timezone: string
+        ) => ({ params, timezone }),
         fitView: (options: { duration?: number; noZoom?: boolean } = {}) => options,
     }),
     reducers(() => ({
@@ -194,15 +197,44 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             {
                 loadActionMetricsById: async ({ params, timezone }, breakpoint) => {
                     await breakpoint(10)
-                    const response = await loadAppMetricsTotals(params, timezone)
+                    const _params: AppMetricsTotalsRequest = {
+                        ...params,
+                        breakdownBy: ['instance_id', 'metric_name'],
+                        metricName: [
+                            'succeeded',
+                            'failed',
+                            'filtered',
+                            'disabled_permanently',
+                            'rate_limited',
+                            'triggered',
+                        ],
+                    }
+                    const response = await loadAppMetricsTotals(_params, timezone)
                     await breakpoint(10)
 
                     const res: Record<string, HogFlowEditorActionMetrics> = {}
                     Object.values(response).forEach((value) => {
-                        const [instanceId, metricName] = value.breakdowns
-                        if (!instanceId || !metricName) {
+                        let [instanceId, metricName] = value.breakdowns
+
+                        if (!metricName) {
                             return
                         }
+
+                        if (!instanceId) {
+                            // TRICKY: Trigger and exit dont get their own metrics so we pull from the overall metrics
+                            if (['succeeded', 'failed'].includes(metricName)) {
+                                instanceId = EXIT_NODE_ID
+                            } else if (['filtered', 'disabled_permanently', 'rate_limited'].includes(metricName)) {
+                                instanceId = TRIGGER_NODE_ID
+                                if (['disabled_permanently', 'rate_limited'].includes(metricName)) {
+                                    metricName = 'failed'
+                                }
+                                if (['triggered'].includes(metricName)) {
+                                    metricName = 'succeeded'
+                                }
+                            }
+                        }
+
                         res[instanceId] = res[instanceId] || {
                             actionId: instanceId,
                             succeeded: 0,
