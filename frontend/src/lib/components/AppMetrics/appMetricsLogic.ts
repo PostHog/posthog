@@ -241,6 +241,8 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
     })),
     actions({
         setParams: (params: Partial<AppMetricsCommonParams>) => ({ params }),
+        loadAppMetricsTrends: true,
+        loadAppMetricsTrendsPreviousPeriod: true,
     }),
     reducers(({ props }) => ({
         params: [
