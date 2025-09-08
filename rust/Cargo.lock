@@ -1383,6 +1383,7 @@ dependencies = [
  "common-alloc",
  "common-redis",
  "common-types",
+ "dateparser",
  "envconfig",
  "flate2",
  "futures",

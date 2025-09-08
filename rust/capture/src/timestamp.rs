@@ -228,6 +228,12 @@ fn handle_timestamp(
     parsed_ts
 }
 
+/// Parse a date string using multiple parsing strategies
+/// 
+/// This function tries parsing in order of preference:
+/// 1. Numeric timestamps (milliseconds/seconds since epoch)
+/// 2. jiff for ISO 8601, RFC3339, civil datetime, and date-only formats
+/// 3. dateparser for slash-separated dates, RFC2822, and other common formats
 fn parse_date(supposed_iso_string: &str) -> Option<DateTime<Utc>> {
     // First try parsing as a numeric timestamp (milliseconds since epoch)
     if let Ok(js_timestamp) = supposed_iso_string.parse::<f64>() {
@@ -236,7 +242,7 @@ fn parse_date(supposed_iso_string: &str) -> Option<DateTime<Utc>> {
         }
     }
 
-    // Use jiff for flexible date/time parsing - it handles many formats automatically
+    // Use jiff for flexible date/time parsing - handles ISO 8601/RFC3339 formats automatically
     // Try parsing as a timestamp first (with timezone)
     if let Ok(jiff_timestamp) = supposed_iso_string.parse::<JiffTimestamp>() {
         // Convert jiff timestamp to chrono
@@ -281,80 +287,15 @@ fn parse_date(supposed_iso_string: &str) -> Option<DateTime<Utc>> {
         }
     }
 
-    // Handle common date formats that jiff might not parse automatically
-    // Try MM/DD/YYYY and DD/MM/YYYY formats
-    if let Some(parsed) = try_parse_slash_date(supposed_iso_string) {
-        return Some(parsed);
-    }
-
-    // Fallback to chrono for RFC3339/RFC2822 formats that jiff might not handle
-    if let Ok(dt) = DateTime::parse_from_rfc3339(supposed_iso_string) {
-        return Some(dt.with_timezone(&Utc));
-    }
-
-    if let Ok(dt) = DateTime::parse_from_rfc2822(supposed_iso_string) {
-        return Some(dt.with_timezone(&Utc));
+    // Fallback to dateparser for formats that jiff doesn't handle
+    // This handles: slash-separated dates (01/01/2023), RFC2822, and many other formats
+    if let Ok(dt) = dateparser::parse(supposed_iso_string) {
+        return Some(dt);
     }
 
     None
 }
 
-/// Helper function to parse common slash-separated date formats
-fn try_parse_slash_date(date_str: &str) -> Option<DateTime<Utc>> {
-    let parts: Vec<&str> = date_str.split('/').collect();
-    if parts.len() != 3 {
-        return None;
-    }
-
-    // Try to parse as numbers
-    let nums: Result<Vec<u32>, _> = parts.iter().map(|s| s.parse::<u32>()).collect();
-    if let Ok(nums) = nums {
-        if nums.len() == 3 {
-            // Try MM/DD/YYYY format first (US format) - validate ranges
-            if nums[0] >= 1 && nums[0] <= 12 && nums[1] >= 1 && nums[1] <= 31 && nums[2] >= 1900 && nums[2] <= 9999 {
-                if let Some(dt) = try_create_date(nums[2] as i32, nums[0], nums[1]) {
-                    return Some(dt);
-                }
-            }
-            // Try DD/MM/YYYY format (European format) - validate ranges
-            if nums[0] >= 1 && nums[0] <= 31 && nums[1] >= 1 && nums[1] <= 12 && nums[2] >= 1900 && nums[2] <= 9999 {
-                if let Some(dt) = try_create_date(nums[2] as i32, nums[1], nums[0]) {
-                    return Some(dt);
-                }
-            }
-            // Try YYYY/MM/DD format - validate ranges
-            if nums[0] >= 1900 && nums[0] <= 9999 && nums[1] >= 1 && nums[1] <= 12 && nums[2] >= 1 && nums[2] <= 31 {
-                if let Some(dt) = try_create_date(nums[0] as i32, nums[1], nums[2]) {
-                    return Some(dt);
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Helper to safely create a DateTime from year/month/day
-fn try_create_date(year: i32, month: u32, day: u32) -> Option<DateTime<Utc>> {
-    // Use jiff to create a date and convert to chrono
-    // Convert types safely for jiff's API
-    let year_i16: i16 = year.try_into().ok()?;
-    let month_i8: i8 = month.try_into().ok()?;
-    let day_i8: i8 = day.try_into().ok()?;
-
-    if let Ok(jiff_date) = jiff::civil::Date::new(year_i16, month_i8, day_i8) {
-        let jiff_datetime = jiff_date.at(0, 0, 0, 0);
-        if let Ok(jiff_timestamp) = jiff_datetime.to_zoned(jiff::tz::TimeZone::UTC) {
-            let seconds = jiff_timestamp.timestamp().as_second();
-            let nanos = jiff_timestamp.timestamp().subsec_nanosecond();
-            if let Ok(nanos_u32) = nanos.try_into() {
-                if let Some(chrono_dt) = DateTime::from_timestamp(seconds, nanos_u32) {
-                    return Some(chrono_dt);
-                }
-            }
-        }
-    }
-    None
-}
 
 #[cfg(test)]
 mod tests {
@@ -591,15 +532,16 @@ mod tests {
     fn test_jiff_parsing_capabilities() {
         // Test that jiff provides better parsing than the old hardcoded approach
         let test_cases = vec![
-            // Various ISO 8601 variants
+            // Various ISO 8601 variants (previously handled by chrono RFC3339)
             "2023-01-01T12:00:00.123456Z",
             "2023-01-01T12:00:00.123Z",
             "2023-01-01T12:00:00Z",
             "2023-01-01T12:00Z",
 
-            // With different timezones
+            // With different timezones (previously handled by chrono RFC3339)
             "2023-01-01T12:00:00+05:30", // India timezone
             "2023-01-01T12:00:00-08:00", // PST
+            "2023-01-01T12:00:00+00:00", // Explicit UTC
 
             // Date-only formats
             "2023-01-01",
@@ -613,6 +555,70 @@ mod tests {
             // Verify the result is a valid UTC datetime
             let dt = result.unwrap();
             assert!(dt.year() >= 1 && dt.year() <= 9999, "Year out of expected range for: {}", date_str);
+        }
+    }
+
+    #[test]
+    fn test_rfc3339_handled_by_jiff() {
+        // Verify that jiff handles RFC3339 formats that we removed from chrono fallback
+        let rfc3339_cases = vec![
+            "2023-01-01T12:00:00Z",
+            "2023-01-01T12:00:00.123Z",
+            "2023-01-01T12:00:00+02:00",
+            "2023-01-01T12:00:00-05:00",
+        ];
+
+        for date_str in rfc3339_cases {
+            let result = parse_date(date_str);
+            assert!(result.is_some(), "jiff should handle RFC3339 format: {}", date_str);
+        }
+    }
+
+    #[test]
+    fn test_dateparser_fallback_formats() {
+        // Verify that dateparser handles formats that jiff doesn't support
+        let test_cases = vec![
+            // Slash-separated dates
+            "01/01/2023",
+            "12/31/2023",
+            "2023/01/01",
+
+            // RFC2822 formats
+            "Tue, 1 Jul 2003 10:52:37 +0200",
+            "Thu, 13 Feb 1969 23:32:54 -0330",
+            "Mon, 24 Nov 1997 14:22:01 +0000",
+            "Wed, 30 Dec 2020 23:59:59 -0800",
+        ];
+
+        for date_str in test_cases {
+            let result = parse_date(date_str);
+            assert!(result.is_some(), "Should handle format via dateparser fallback: {}", date_str);
+        }
+    }
+
+    #[test]
+    fn test_dateparser_capabilities() {
+        // Test if dateparser can handle formats that we currently need custom logic for
+        let test_cases = vec![
+            // Slash-separated formats
+            "01/01/2023",
+            "12/31/2023",
+            "2023/01/01",
+
+            // RFC2822 formats
+            "Tue, 1 Jul 2003 10:52:37 +0200",
+            "Thu, 13 Feb 1969 23:32:54 -0330",
+            "Mon, 24 Nov 1997 14:22:01 +0000",
+        ];
+
+        for date_str in test_cases {
+            // Test with dateparser
+            let dateparser_result = dateparser::parse(date_str);
+            println!("dateparser '{}': {:?}", date_str, dateparser_result.is_ok());
+
+            // Compare with our current implementation
+            let current_result = parse_date(date_str);
+            println!("current    '{}': {:?}", date_str, current_result.is_some());
         }
     }
 
