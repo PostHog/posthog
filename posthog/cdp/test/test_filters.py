@@ -86,7 +86,7 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                 ]
             }
         )
-        assert bytecode == snapshot(["_H", HOGQL_BYTECODE_VERSION, 33, 1])
+        assert bytecode == snapshot(["_H", HOGQL_BYTECODE_VERSION, 29])
 
         assert execute_bytecode(bytecode, {}).result is True
 
