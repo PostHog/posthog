@@ -733,6 +733,36 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertDictContainsSubset({"id": cohort3.id, "count": 1, "name": cohort3.name}, response["results"][1])
         self.assertDictContainsSubset({"id": cohort4.id, "count": 1, "name": cohort4.name}, response["results"][2])
 
+    def test_person_cohorts_with_cohort_version(self) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team, name="number", property_type="Numeric", type=PropertyDefinition.Type.PERSON
+        )
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["1"],
+            properties={"$some_prop": "something", "number": 1},
+        )
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="cohort1",
+        )
+
+        cohort.calculate_people_ch(pending_version=0)
+
+        response = self.client.get(f"/api/person/cohorts/?person_id={person.uuid}").json()
+        self.assertEqual(len(response["results"]), 1)
+        self.assertDictContainsSubset({"id": cohort.id, "count": 1, "name": cohort.name}, response["results"][0])
+
+        # Update the group to no longer include person
+        cohort.groups = [{"properties": [{"key": "no", "value": "no", "type": "person"}]}]
+        cohort.save()
+        cohort.calculate_people_ch(pending_version=1)
+
+        response = self.client.get(f"/api/person/cohorts/?person_id={person.uuid}").json()
+        self.assertEqual(len(response["results"]), 0)
+
     def test_split_person_clickhouse(self):
         person = _create_person(
             team=self.team,
