@@ -1,7 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import { IconFlask } from '@posthog/icons'
@@ -28,7 +27,10 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
+import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
+import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
+import { captureMaxAISurveyCreationException } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -50,6 +52,7 @@ import {
     ExperimentConclusion,
     ExperimentIdType,
     InsightShortId,
+    ProductKey,
     ProgressStatus,
     UserType,
 } from '~/types'
@@ -121,12 +124,18 @@ export function createMaxToolExperimentSurveyConfig(
             variant_count: variants?.length || 0,
         },
         callback: (toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => {
+            addProductIntent({
+                product_type: ProductKey.SURVEYS,
+                intent_context: ProductIntentContext.SURVEY_CREATED,
+                metadata: {
+                    survey_id: toolOutput.survey_id,
+                    source: SURVEY_CREATED_SOURCE.EXPERIMENTS,
+                    created_successfully: !toolOutput?.error,
+                },
+            })
+
             if (toolOutput?.error || !toolOutput?.survey_id) {
-                posthog.captureException(toolOutput?.error, {
-                    source: 'survey-creation-failed',
-                    feature: 'surveys',
-                })
-                return
+                return captureMaxAISurveyCreationException(toolOutput.error, SURVEY_CREATED_SOURCE.EXPERIMENTS)
             }
             // Redirect to the new survey
             router.actions.push(urls.survey(toolOutput.survey_id))

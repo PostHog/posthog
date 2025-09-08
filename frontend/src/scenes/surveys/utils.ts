@@ -3,7 +3,7 @@ import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
-import { NewSurvey } from 'scenes/surveys/constants'
+import { NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
@@ -555,9 +555,10 @@ export function calculateSurveyRates(stats: SurveyStats | null): SurveyRates {
     return defaultRates
 }
 
-export function captureMaxAISurveyCreationException(error?: string): void {
+export function captureMaxAISurveyCreationException(error?: string, source?: SURVEY_CREATED_SOURCE): void {
     posthog.captureException(error || 'Undefined error when creating MaxAI survey', {
         action: 'max-ai-survey-creation-failed',
+        source: source,
     })
 }
 
