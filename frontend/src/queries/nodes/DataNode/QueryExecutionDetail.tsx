@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconChip } from '@posthog/icons'
@@ -17,20 +18,17 @@ export function QueryExecutionDetail(): JSX.Element | null {
         return null
     }
 
-    const firstRow = queryLog.results[0]
+    const executionDetails = queryLog.results[0]
     const columns = queryLog.columns || []
 
-    // Find the indices for our cost metrics
     const memoryUsageIndex = columns.indexOf('memory_usage')
     const cpuMicrosecondsIndex = columns.indexOf('cpu_microseconds')
     const readBytesIndex = columns.indexOf('read_bytes')
 
-    // Extract the values
-    const memoryUsage = memoryUsageIndex >= 0 ? firstRow[memoryUsageIndex] : null
-    const cpuMicroseconds = cpuMicrosecondsIndex >= 0 ? firstRow[cpuMicrosecondsIndex] : null
-    const readBytes = readBytesIndex >= 0 ? firstRow[readBytesIndex] : null
+    const memoryUsage = memoryUsageIndex >= 0 ? executionDetails[memoryUsageIndex] : null
+    const cpuMicroseconds = cpuMicrosecondsIndex >= 0 ? executionDetails[cpuMicrosecondsIndex] : null
+    const readBytes = readBytesIndex >= 0 ? executionDetails[readBytesIndex] : null
 
-    // If none of the metrics are available, don't render
     if (memoryUsage === null && cpuMicroseconds === null && readBytes === null) {
         return null
     }
@@ -73,8 +71,19 @@ export function QueryExecutionDetail(): JSX.Element | null {
             }
         >
             <div
-                onClick={() => setPopoverVisible((visible) => !visible)}
-                onMouseEnter={() => setPopoverVisible(true)}
+                onClick={() => {
+                    const newVisible = !popoverVisible
+                    setPopoverVisible(newVisible)
+                    if (newVisible) {
+                        posthog.capture('query execution details viewed')
+                    }
+                }}
+                onMouseEnter={() => {
+                    if (!popoverVisible) {
+                        setPopoverVisible(true)
+                        posthog.capture('query execution details viewed')
+                    }
+                }}
                 onMouseLeave={() => setPopoverVisible(false)}
                 className="cursor-help text-xs flex items-center gap-1"
             >

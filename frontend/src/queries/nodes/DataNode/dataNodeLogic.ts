@@ -452,15 +452,17 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     if (!queryId) {
                         throw new Error('No query ID provided')
                     }
-                    try {
-                        const queryLog = await api.queryLog.get(queryId)
+                    if (!values.featureFlags[FEATURE_FLAGS.QUERY_EXECUTION_DETAILS]) {
+                        return
+                    }
 
-                        return queryLog
-                    } catch (error: any) {
-                        console.error('Query log error:', error)
-                        error.queryId = queryId
+                    try {
+                        return await api.queryLog.get(queryId)
+                    } catch (e: any) {
+                        console.warn('Failed to get query execution details:', e)
+                        e.queryId = queryId
                         breakpoint()
-                        throw error
+                        throw e
                     }
                 },
             },
