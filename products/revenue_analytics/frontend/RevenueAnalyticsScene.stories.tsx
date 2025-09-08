@@ -1,4 +1,4 @@
-import { Meta, StoryObj } from '@storybook/react'
+import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
 
@@ -27,7 +27,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS, FEATURE_FLAGS.MRR_BREAKDOWN_REVENUE_ANALYTICS],
+        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS],
         pageUrl: urls.revenueAnalytics(),
         testOptions: {
             waitForLoadersToDisappear: true,
@@ -119,8 +119,4 @@ export function RevenueAnalyticsDashboardSyncInProgress(): JSX.Element {
     }, [setTopCustomersDisplayMode, setRevenueAnalyticsFilters, addBreakdown])
 
     return <App />
-}
-
-export const RevenueAnalyticsDashboardWithoutFeatureFlag: StoryObj<typeof meta> = {
-    parameters: { featureFlags: [] },
 }

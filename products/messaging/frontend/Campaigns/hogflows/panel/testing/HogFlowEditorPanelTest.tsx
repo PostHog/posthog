@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useEffect } from 'react'
 
-import { IconInfo, IconPlay, IconPlayFilled, IconRedo } from '@posthog/icons'
+import { IconInfo, IconPlay, IconPlayFilled, IconRedo, IconTestTube } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -22,7 +22,7 @@ import { LogsViewerTable } from 'scenes/hog-functions/logs/LogsViewer'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { urls } from 'scenes/urls'
 
-import { campaignLogic } from '../../../campaignLogic'
+import { TRIGGER_NODE_ID, campaignLogic } from '../../../campaignLogic'
 import { renderWorkflowLogMessage } from '../../../logs/log-utils'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { hogFlowEditorTestLogic } from './hogFlowEditorTestLogic'
@@ -58,6 +58,23 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
     useEffect(() => {
         setTestResult(null)
     }, [selectedNode?.id, setTestResult])
+
+    if (!selectedNode) {
+        return (
+            <div className="m-8 text-center flex flex-col gap-2 items-center">
+                <h1>
+                    <IconTestTube className="mr-2" />
+                    Test your workflow
+                </h1>
+
+                <p>Step through each action in your workflow and see how it behaves.</p>
+
+                <LemonButton type="primary" onClick={() => setSelectedNodeId(TRIGGER_NODE_ID)} icon={<IconPlay />}>
+                    Start testing
+                </LemonButton>
+            </div>
+        )
+    }
 
     return (
         <Form

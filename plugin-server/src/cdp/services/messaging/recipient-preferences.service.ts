@@ -1,3 +1,5 @@
+import { logger } from '~/utils/logger'
+
 import { HogFlowAction } from '../../../schema/hogflow'
 import { CyclotronJobInvocationHogFunction } from '../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
@@ -29,9 +31,9 @@ export class RecipientPreferencesService {
         let identifier
 
         if (action.type === 'function_sms') {
-            identifier = invocation.state.globals.inputs?.to_number?.value
+            identifier = invocation.state.globals.inputs?.to_number
         } else if (action.type === 'function_email') {
-            identifier = invocation.state.globals.inputs?.email?.value?.to?.email
+            identifier = invocation.state.globals.inputs?.email?.to?.email
         }
 
         if (!identifier) {
@@ -67,8 +69,7 @@ export class RecipientPreferencesService {
              */
             return messageCategoryPreference === 'OPTED_OUT' || allMarketingPreferences === 'OPTED_OUT'
         } catch (error) {
-            // Log error but don't fail the execution
-            console.error(`Failed to fetch recipient preferences for ${identifier}:`, error)
+            logger.error(`Failed to fetch recipient preferences for ${identifier}:`, error)
             return false
         }
     }

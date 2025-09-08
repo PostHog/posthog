@@ -27,14 +27,9 @@ import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
 import { TriggerHandler } from './actions/trigger.handler'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
-import { ensureCurrentAction, findContinueAction, shouldSkipAction } from './hogflow-utils'
+import { actionIdForLogging, ensureCurrentAction, findContinueAction, shouldSkipAction } from './hogflow-utils'
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
-
-// Special format which the frontend understands and can render as a link
-const actionIdForLogging = (action: HogFlowAction) => {
-    return `[Action:${action.id}]`
-}
 
 export class HogFlowExecutorService {
     private readonly actionHandlers: Record<HogFlowAction['type'], ActionHandler>

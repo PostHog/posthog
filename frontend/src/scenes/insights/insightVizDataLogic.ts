@@ -170,11 +170,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
         supportsPercentStackView: [(s) => [s.querySource], (q) => supportsPercentStackView(q)],
         supportsValueOnSeries: [
-            (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.display],
-            (isTrends, isStickiness, isLifecycle, display) => {
+            (s) => [s.isTrends, s.isFunnels, s.isStickiness, s.isLifecycle, s.display],
+            (isTrends, isFunnels, isStickiness, isLifecycle, display) => {
                 if (isTrends || isStickiness) {
                     return !NON_VALUES_ON_SERIES_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)
-                } else if (isLifecycle) {
+                } else if (isLifecycle || isFunnels) {
                     return true
                 }
                 return false
