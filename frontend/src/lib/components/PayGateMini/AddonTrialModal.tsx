@@ -17,7 +17,7 @@ type AddonTrialModalProps = {
 }
 
 export function AddonTrialModal({ product, isOpen, onClose }: AddonTrialModalProps): JSX.Element {
-    const { currentAndUpgradePlans } = useValues(billingProductLogic({ product })) as any
+    const { currentAndUpgradePlans } = useValues(billingProductLogic({ product }))
 
     const comparePlansUrl = `${urls.organizationBilling()}?products=${product.type}`
 
