@@ -1052,6 +1052,7 @@ class TestSharePasswordLogging(APIBaseTest):
         assert log.item_id == str(self.dashboard.id)  # Uses dashboard ID as item_id
 
         # Check detail contains expected data
+        assert log.detail is not None
         assert log.detail["name"] == "test dashboard"  # Should now contain the actual dashboard name
         assert len(log.detail["changes"]) == 1
 
@@ -1094,6 +1095,7 @@ class TestSharePasswordLogging(APIBaseTest):
         assert log.item_id == str(self.dashboard.id)  # Uses dashboard ID as item_id
 
         # Check detail contains expected data
+        assert log.detail is not None
         assert log.detail["name"] == "test dashboard"  # Should now contain the actual dashboard name
         assert len(log.detail["changes"]) == 1
 
