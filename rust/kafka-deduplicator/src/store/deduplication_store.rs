@@ -45,7 +45,6 @@ pub struct DeduplicationStoreConfig {
 #[derive(Debug, Clone)]
 pub struct DeduplicationStore {
     store: Arc<RocksDbStore>,
-    config: DeduplicationStoreConfig,
     topic: String,
     partition: i32,
     metrics: MetricsHelper,
@@ -76,7 +75,6 @@ impl DeduplicationStore {
             store: Arc::new(store),
             topic,
             partition,
-            config,
             metrics,
         })
     }
@@ -296,29 +294,8 @@ impl DeduplicationStore {
     pub fn cleanup_old_entries(&self) -> Result<u64> {
         let start_time = Instant::now();
 
-        self.metrics
-            .counter(CLEANUP_OPERATIONS_COUNTER)
-            .increment(1);
-
-        if self.config.max_capacity == 0 {
-            return Ok(0); // No cleanup needed if max_capacity is 0 (unlimited)
-        }
-
-        // Calculate total size across both column families
-        let timestamp_size = self.store.get_db_size(Self::TIMESTAMP_CF)?;
-        let uuid_size = self.store.get_db_size(Self::UUID_CF)?;
-        let current_size = timestamp_size + uuid_size;
-
-        if current_size <= self.config.max_capacity {
-            return Ok(0); // Under capacity, no cleanup needed
-        }
-
-        let target_size = (self.config.max_capacity as f64 * 0.8) as u64;
-        let bytes_to_free = current_size.saturating_sub(target_size);
-
-        if bytes_to_free == 0 {
-            return Ok(0);
-        }
+        // Get initial size for metrics
+        let initial_size = self.get_total_size()?;
 
         // Clean up old entries from timestamp CF (they're timestamp-prefixed so easy to clean)
         let cf = self.store.get_cf_handle(Self::TIMESTAMP_CF)?;
@@ -377,19 +354,20 @@ impl DeduplicationStore {
             index_end.as_ref(),
         )?;
 
-        let new_timestamp_size = self.store.get_db_size(Self::TIMESTAMP_CF)?;
-        let new_uuid_size = self.store.get_db_size(Self::UUID_CF)?;
-        let new_size = new_timestamp_size + new_uuid_size;
-        let bytes_freed = current_size.saturating_sub(new_size);
+        // Calculate bytes freed
+        let final_size = self.get_total_size()?;
+        let bytes_freed = initial_size.saturating_sub(final_size);
 
-        // Emit cleanup metrics
-        let duration = start_time.elapsed();
-        self.metrics
-            .histogram(CLEANUP_DURATION_HISTOGRAM)
-            .record(duration.as_secs_f64());
-        self.metrics
-            .histogram(CLEANUP_BYTES_FREED_HISTOGRAM)
-            .record(bytes_freed as f64);
+        // Log cleanup results for this store
+        if bytes_freed > 0 {
+            info!(
+                "Store {}:{} cleanup freed {} bytes in {:?}",
+                self.topic,
+                self.partition,
+                bytes_freed,
+                start_time.elapsed()
+            );
+        }
 
         Ok(bytes_freed)
     }
@@ -427,6 +405,14 @@ impl DeduplicationStore {
     /// Get the partition this store is responsible for
     pub fn get_partition(&self) -> i32 {
         self.partition
+    }
+
+    /// Get the total size of all column families in this store
+    pub fn get_total_size(&self) -> Result<u64> {
+        let timestamp_size = self.store.get_db_size(Self::TIMESTAMP_CF)?;
+        let uuid_size = self.store.get_db_size(Self::UUID_CF)?;
+        let index_size = self.store.get_db_size(Self::UUID_TIMESTAMP_INDEX_CF)?;
+        Ok(timestamp_size + uuid_size + index_size)
     }
 
     /// Flush the store to disk
