@@ -11,21 +11,18 @@ import { humanizeBytes } from '~/lib/utils'
 import { dataNodeLogic } from './dataNodeLogic'
 
 export function QueryExecutionDetails(): JSX.Element | null {
-    const { queryLog, queryId, shouldLoadQueryLog } = useValues(dataNodeLogic)
+    const { queryLog, queryId, queryLogLoading, queryLogQueryId } = useValues(dataNodeLogic)
     const { loadQueryLog } = useActions(dataNodeLogic)
 
     const [popoverVisible, setPopoverVisible] = useState(false)
 
-    // Early return only if there's no queryId to load
     if (!queryId) {
         return null
     }
 
-    // Safe access to execution details
     const executionDetails = queryLog?.results?.[0]
     const columns = queryLog?.columns || []
 
-    // Extract data safely
     let memoryUsage = null
     let cpuMicroseconds = null
     let readBytes = null
@@ -50,7 +47,6 @@ export function QueryExecutionDetails(): JSX.Element | null {
     }
 
     const hasData = memoryUsage !== null || cpuMicroseconds !== null || readBytes !== null
-    const isLoading = !queryLog && queryId
 
     return (
         <Popover
@@ -59,7 +55,7 @@ export function QueryExecutionDetails(): JSX.Element | null {
             placement="bottom"
             overlay={
                 <div className="deprecated-space-y-1 p-2">
-                    {isLoading ? (
+                    {queryLogLoading ? (
                         <div className="py-1">Loading execution details...</div>
                     ) : hasData ? (
                         <>
@@ -83,7 +79,7 @@ export function QueryExecutionDetails(): JSX.Element | null {
                             )}
                         </>
                     ) : (
-                        <div className="py-1">No execution details available</div>
+                        <div className="py-1">No execution details available.</div>
                     )}
                 </div>
             }
@@ -97,7 +93,7 @@ export function QueryExecutionDetails(): JSX.Element | null {
                     }
                 }}
                 onMouseEnter={() => {
-                    if (shouldLoadQueryLog && queryId) {
+                    if (!queryLogLoading && queryId && queryId !== queryLogQueryId) {
                         loadQueryLog(queryId)
                     }
                     if (!popoverVisible) {

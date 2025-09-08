@@ -620,7 +620,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 cancelQuery: () => 0,
             },
         ],
-        queryLogId: [
+        queryLogQueryId: [
             null as string | null,
             {
                 setQueryLogQueryId: (_, { queryId }) => queryId,
@@ -876,15 +876,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 return null
             },
         ],
-        shouldLoadQueryLog: [
-            (s) => [s.queryId, s.queryLogId, s.queryLog],
-            (queryId: string | null, queryLogId: string | null, queryLog): boolean => {
-                // Load if we have a queryId and either:
-                // 1. We don't have a queryLog yet, or
-                // 2. The current queryLog is for a different queryId
-                return !!queryId && (!queryLog || queryLogId !== queryId)
-            },
-        ],
     })),
     listeners(({ actions, values, cache, props }) => ({
         abortAnyRunningQuery: () => {
@@ -915,10 +906,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             if ('query' in props.query) {
                 cache.localResults[JSON.stringify(props.query.query)] = response
             }
-
-            // if (values.queryId) {
-            //     actions.loadQueryLog(values.queryId)
-            // }
         },
         loadDataFailure: () => {
             actions.collectionNodeLoadDataFailure(props.key)
