@@ -136,6 +136,7 @@ class InsightsAssistant(BaseAssistant):
                 "output": last_ai_message,
                 "response": visualization_response,
                 "tool_name": "create_and_query_insight",
+                "is_new_conversation": False,
             },
         )
 
