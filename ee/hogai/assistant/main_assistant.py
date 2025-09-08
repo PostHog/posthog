@@ -93,6 +93,7 @@ class MainAssistant(BaseAssistant):
             TaxonomyNodeName.LOOP_NODE,
             AssistantNodeName.SESSION_SUMMARIZATION,
             AssistantNodeName.INSIGHTS_SEARCH,
+            AssistantNodeName.DASHBOARD_CREATOR,
         }
 
     @property
@@ -110,6 +111,7 @@ class MainAssistant(BaseAssistant):
             AssistantNodeName.MEMORY_INITIALIZER,
             TaxonomyNodeName.LOOP_NODE,
             AssistantNodeName.SESSION_SUMMARIZATION,
+            AssistantNodeName.DASHBOARD_CREATOR,
         }
 
     def get_initial_state(self) -> AssistantState:
