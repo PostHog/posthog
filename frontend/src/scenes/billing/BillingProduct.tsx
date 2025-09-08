@@ -399,7 +399,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         <div key={variant.key} className="mt-6">
                                             <h4 className="font-bold">{variant.displayName}</h4>
                                             <div className="sm:flex w-full items-center gap-x-8">
-                                                <div className="grow">
+                                                <div className="grow -my-4">
                                                     <BillingGauge items={variantGaugeItems} product={variant.product} />
                                                 </div>
                                             </div>
