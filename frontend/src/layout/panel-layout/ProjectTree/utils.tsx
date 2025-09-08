@@ -5,10 +5,10 @@ import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
-import { ProductIconWrapper, iconForType } from './defaultTree'
+import { iconForType } from './defaultTree'
 import { FolderState } from './types'
 
 export interface ConvertProps {
@@ -101,17 +101,7 @@ export function convertFileSystemEntryToTreeDataItem({
         const displayName = <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />
         const user: UserBasicType | undefined = item.meta?.created_by ? users?.[item.meta.created_by] : undefined
 
-        const icon =
-            'icon' in item && item.icon ? (
-                <ProductIconWrapper type={item.type} colorOverride={item.iconColor}>
-                    {item.icon}
-                </ProductIconWrapper>
-            ) : (
-                iconForType(
-                    'iconType' in item ? item.iconType : item.type,
-                    'iconColor' in item ? item.iconColor : undefined
-                )
-            )
+        const icon = iconForType(item.type as FileSystemIconType)
         const node: TreeDataItem = {
             id: nodeId,
             name: itemName,

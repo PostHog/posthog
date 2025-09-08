@@ -243,6 +243,16 @@ export function iconForType(type?: FileSystemIconType, colorOverride?: FileSyste
         )
     }
 
+    // Check if the type exists in fileSystemTypes manifest and resolve iconType from there
+    const fileSystemType = fileSystemTypes[type as keyof typeof fileSystemTypes]
+    if (fileSystemType?.iconType && fileSystemType.iconType in iconTypes) {
+        return (
+            <ProductIconWrapper type={fileSystemType.iconType} colorOverride={colorOverride}>
+                {iconTypes[fileSystemType.iconType as keyof typeof iconTypes].icon}
+            </ProductIconWrapper>
+        )
+    }
+
     if (type in iconTypes) {
         return (
             <ProductIconWrapper type={type} colorOverride={colorOverride}>
