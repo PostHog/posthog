@@ -86,6 +86,10 @@ export function ExternalDataSourceConfiguration({
                         title: '',
                         width: 0,
                         render: (_, source: ExternalDataSource) => {
+                            if (dataWarehouseSourcesLoading) {
+                                return <Spinner />
+                            }
+
                             return <DataWarehouseSourceIcon type={source.source_type} />
                         },
                     },
@@ -272,16 +276,6 @@ export function ExternalDataSourceConfiguration({
                                     }
                                 />
                             )
-                        },
-                    },
-                    {
-                        key: 'loading',
-                        render: () => {
-                            if (!dataWarehouseSourcesLoading) {
-                                return null
-                            }
-
-                            return <Spinner />
                         },
                     },
                 ]}
