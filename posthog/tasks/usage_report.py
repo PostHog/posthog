@@ -935,7 +935,7 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def teams_with_free_historical_rows_synced_in_period(begin: datetime, end: datetime) -> list:
+def get_teams_with_free_historical_rows_synced_in_period(begin: datetime, end: datetime) -> list:
     return list(
         ExternalDataJob.objects.filter(
             finished_at__gte=begin,
@@ -1417,7 +1417,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_rows_synced_in_period": get_teams_with_rows_synced_in_period(period_start, period_end),
-        "teams_with_free_historical_rows_synced_in_period": teams_with_free_historical_rows_synced_in_period(
+        "teams_with_free_historical_rows_synced_in_period": get_teams_with_free_historical_rows_synced_in_period(
             period_start, period_end
         ),
         "teams_with_rows_exported_in_period": get_teams_with_rows_exported_in_period(period_start, period_end),
