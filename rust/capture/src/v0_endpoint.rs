@@ -445,8 +445,8 @@ pub fn process_single_event(
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    // Parse the event timestamp (ignore warnings for now as requested)
-    let timestamp_result = timestamp::parse_event_timestamp(
+    // Parse the event timestamp
+    let computed_timestamp = timestamp::parse_event_timestamp(
         event.timestamp.as_deref(),
         event.offset,
         sent_at_utc,
@@ -457,7 +457,7 @@ pub fn process_single_event(
     let mut metadata = ProcessedEventMetadata {
         data_type,
         session_id: None,
-        computed_timestamp: Some(timestamp_result.timestamp),
+        computed_timestamp: Some(computed_timestamp),
     };
 
     let event = CapturedEvent {
@@ -567,7 +567,7 @@ pub async fn process_replay_events<'a>(
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    let timestamp_result = timestamp::parse_event_timestamp(
+    let computed_timestamp = timestamp::parse_event_timestamp(
         events[0].timestamp.as_deref(),
         events[0].offset,
         sent_at_utc,
@@ -645,7 +645,7 @@ pub async fn process_replay_events<'a>(
     let metadata = ProcessedEventMetadata {
         data_type: DataType::SnapshotMain,
         session_id: Some(session_id_str.to_string()),
-        computed_timestamp: Some(timestamp_result.timestamp), // Use computed event timestamp
+        computed_timestamp: Some(computed_timestamp), // Use computed event timestamp
     };
 
     let event = CapturedEvent {

@@ -1,21 +1,7 @@
 use chrono::{DateTime, Datelike, Duration, Utc};
 use jiff::civil::DateTime as JiffDateTime;
-use serde_json::Value;
-use std::collections::HashMap;
 
 const FUTURE_EVENT_HOURS_CUTOFF_MILLIS: i64 = 23 * 3600 * 1000; // 23 hours
-
-#[derive(Debug, Clone)]
-pub struct IngestionWarning {
-    pub warning_type: String,
-    pub details: HashMap<String, Value>,
-}
-
-#[derive(Debug, Clone)]
-pub struct TimestampResult {
-    pub timestamp: DateTime<Utc>,
-    pub warnings: Vec<IngestionWarning>,
-}
 
 /// Parse event timestamp with clock skew adjustment and validation
 ///
@@ -27,81 +13,32 @@ pub struct TimestampResult {
 /// * `now` - The current server timestamp
 ///
 /// # Returns
-/// * `TimestampResult` - Contains the parsed timestamp and any ingestion warnings
+/// * `DateTime<Utc>` - The parsed and validated timestamp
 pub fn parse_event_timestamp(
     timestamp: Option<&str>,
     offset: Option<i64>,
     sent_at: Option<DateTime<Utc>>,
     ignore_sent_at: bool,
     now: DateTime<Utc>,
-) -> TimestampResult {
-    let mut warnings = Vec::new();
-
+) -> DateTime<Utc> {
     // Use sent_at only if not ignored
     let effective_sent_at = if ignore_sent_at { None } else { sent_at };
 
     // Handle timestamp parsing and clock skew adjustment
     let mut parsed_ts = handle_timestamp(timestamp, offset, effective_sent_at, now);
 
-    // Check for future events
+    // Check for future events - clamp to now
     let now_diff = parsed_ts.signed_duration_since(now).num_milliseconds();
     if now_diff > FUTURE_EVENT_HOURS_CUTOFF_MILLIS {
-        let mut details = HashMap::new();
-        details.insert(
-            "timestamp".to_string(),
-            Value::String(timestamp.unwrap_or("").to_string()),
-        );
-        details.insert(
-            "sentAt".to_string(),
-            Value::String(sent_at.map_or("".to_string(), |sa| sa.to_rfc3339())),
-        );
-        details.insert(
-            "offset".to_string(),
-            offset.map_or(Value::String("".to_string()), |o| Value::Number(o.into())),
-        );
-        details.insert("now".to_string(), Value::String(now.to_rfc3339()));
-        details.insert("result".to_string(), Value::String(parsed_ts.to_rfc3339()));
-
-        warnings.push(IngestionWarning {
-            warning_type: "event_timestamp_in_future".to_string(),
-            details,
-        });
-
         parsed_ts = now;
     }
 
-    // Check if timestamp is out of bounds
+    // Check if timestamp is out of bounds - fallback to epoch
     if parsed_ts.year() < 0 || parsed_ts.year() > 9999 {
-        let mut details = HashMap::new();
-        details.insert("field".to_string(), Value::String("timestamp".to_string()));
-        details.insert(
-            "value".to_string(),
-            Value::String(timestamp.unwrap_or("").to_string()),
-        );
-        details.insert(
-            "reason".to_string(),
-            Value::String("out of bounds".to_string()),
-        );
-        if let Some(offset_val) = offset {
-            details.insert("offset".to_string(), Value::Number(offset_val.into()));
-        }
-        details.insert(
-            "parsed_year".to_string(),
-            Value::Number(parsed_ts.year().into()),
-        );
-
-        warnings.push(IngestionWarning {
-            warning_type: "ignored_invalid_timestamp".to_string(),
-            details,
-        });
-
         parsed_ts = DateTime::UNIX_EPOCH;
     }
 
-    TimestampResult {
-        timestamp: parsed_ts,
-        warnings,
-    }
+    parsed_ts
 }
 
 fn handle_timestamp(
@@ -183,8 +120,7 @@ mod tests {
 
         let result = parse_event_timestamp(None, None, None, false, now);
 
-        assert_eq!(result.timestamp, now);
-        assert_eq!(result.warnings.len(), 0);
+        assert_eq!(result, now);
     }
 
     #[test]
@@ -203,8 +139,7 @@ mod tests {
         // Expected: now + (timestamp - sent_at) = 12:00:00 + (11:59:55 - 12:00:05) = 12:00:00 - 00:00:10 = 11:59:50
         let expected = Utc.with_ymd_and_hms(2023, 1, 1, 11, 59, 50).unwrap();
 
-        assert_eq!(result.timestamp, expected);
-        assert_eq!(result.warnings.len(), 0);
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -218,8 +153,7 @@ mod tests {
         let result = parse_event_timestamp(None, Some(offset), None, false, now);
         let expected = Utc.with_ymd_and_hms(2023, 1, 1, 11, 59, 55).unwrap();
 
-        assert_eq!(result.timestamp, expected);
-        assert_eq!(result.warnings.len(), 0);
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -238,8 +172,7 @@ mod tests {
         // Should use timestamp directly since sent_at is ignored
         let expected = Utc.with_ymd_and_hms(2023, 1, 1, 11, 0, 0).unwrap();
 
-        assert_eq!(result.timestamp, expected);
-        assert_eq!(result.warnings.len(), 0);
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -256,9 +189,7 @@ mod tests {
         let expected = DateTime::parse_from_rfc3339(now_str)
             .unwrap()
             .with_timezone(&Utc);
-        assert_eq!(result.timestamp, expected);
-        assert_eq!(result.warnings.len(), 1);
-        assert_eq!(result.warnings[0].warning_type, "event_timestamp_in_future");
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -275,8 +206,7 @@ mod tests {
         let expected = DateTime::parse_from_rfc3339(invalid_timestamp)
             .unwrap()
             .with_timezone(&Utc);
-        assert_eq!(result.timestamp, expected);
-        assert_eq!(result.warnings.len(), 0); // No warnings for valid timestamps
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -293,8 +223,7 @@ mod tests {
         let expected = DateTime::parse_from_rfc3339(now_str)
             .unwrap()
             .with_timezone(&Utc);
-        assert_eq!(result.timestamp, expected);
-        assert_eq!(result.warnings.len(), 0); // No warnings when parsing fails, just falls back to now
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -362,8 +291,7 @@ mod tests {
         // result = now + timestamp_diff = 12:00:00 + (-4s) = 11:59:56
         let expected = Utc.with_ymd_and_hms(2023, 1, 1, 11, 59, 56).unwrap();
 
-        assert_eq!(result.timestamp, expected);
-        assert_eq!(result.warnings.len(), 0);
+        assert_eq!(result, expected);
     }
 
     // === Node.js Parity Tests ===
@@ -386,8 +314,7 @@ mod tests {
 
         // Expected: now + (timestamp - sent_at) = 01:44:00 + (03:02:00 - 03:12:00) = 01:44:00 - 00:10:00 = 01:34:00
         let expected = Utc.with_ymd_and_hms(2021, 10, 29, 1, 34, 0).unwrap();
-        assert_eq!(result.timestamp, expected);
-        assert_eq!(result.warnings.len(), 0);
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -409,8 +336,7 @@ mod tests {
         let expected = DateTime::parse_from_rfc3339(timestamp_str)
             .unwrap()
             .with_timezone(&Utc);
-        assert_eq!(result.timestamp, expected);
-        assert_eq!(result.warnings.len(), 0);
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -432,8 +358,7 @@ mod tests {
         // timestamp in UTC: 2021-10-29T23:02:00Z, sent_at in UTC: 2021-10-29T23:12:00Z
         // Expected: now + (timestamp - sent_at) = 01:44:00 + (23:02:00 - 23:12:00) = 01:44:00 - 00:10:00 = 01:34:00
         let expected = Utc.with_ymd_and_hms(2021, 10, 29, 1, 34, 0).unwrap();
-        assert_eq!(result.timestamp, expected);
-        assert_eq!(result.warnings.len(), 0);
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -451,8 +376,7 @@ mod tests {
         let expected = DateTime::parse_from_rfc3339(timestamp_str)
             .unwrap()
             .with_timezone(&Utc);
-        assert_eq!(result.timestamp, expected);
-        assert_eq!(result.warnings.len(), 0);
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -472,8 +396,7 @@ mod tests {
 
         // Expected: now - offset = 01:44:00 - 6s = 01:43:54
         let expected = Utc.with_ymd_and_hms(2021, 10, 29, 1, 43, 54).unwrap();
-        assert_eq!(result.timestamp, expected);
-        assert_eq!(result.warnings.len(), 0);
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -489,8 +412,7 @@ mod tests {
 
         // Expected: now - offset = 01:44:00 - 6s = 01:43:54
         let expected = Utc.with_ymd_and_hms(2021, 10, 29, 1, 43, 54).unwrap();
-        assert_eq!(result.timestamp, expected);
-        assert_eq!(result.warnings.len(), 0);
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -512,14 +434,11 @@ mod tests {
 
         // The large offset creates an underflow, resulting in a very old timestamp
         // Our implementation actually does generate a warning for out-of-bounds results!
-        println!("Result timestamp: {}", result.timestamp);
+        println!("Result timestamp: {}", result);
         println!("Expected (now): {}", now);
-        println!("Warnings: {}", result.warnings.len());
 
-        // The result should be epoch time due to underflow, and we should get a warning
-        assert_eq!(result.timestamp.year(), 1970); // Epoch time
-        assert_eq!(result.warnings.len(), 1);
-        assert_eq!(result.warnings[0].warning_type, "ignored_invalid_timestamp");
+        // The result should be epoch time due to underflow
+        assert_eq!(result.year(), 1970); // Epoch time
     }
 
     #[test]
@@ -534,11 +453,10 @@ mod tests {
         let result = parse_event_timestamp(Some(invalid_timestamp), None, None, false, now);
 
         // Should fall back to now when timestamp is unparseable
-        assert_eq!(result.timestamp, now);
+        assert_eq!(result, now);
         // Note: Our Rust implementation doesn't generate warnings for unparseable timestamps,
         // it just silently falls back to now. This is different from Node.js behavior.
         // The warnings are only generated for invalid sent_at or out-of-bounds results.
-        assert_eq!(result.warnings.len(), 0);
     }
 
     #[test]
@@ -557,9 +475,7 @@ mod tests {
         let result = parse_event_timestamp(Some(timestamp_str), None, Some(sent_at), false, now);
 
         // Should clamp to now and generate warning
-        assert_eq!(result.timestamp, now);
-        assert_eq!(result.warnings.len(), 1);
-        assert_eq!(result.warnings[0].warning_type, "event_timestamp_in_future");
+        assert_eq!(result, now);
     }
 
     #[test]
@@ -574,9 +490,7 @@ mod tests {
         let result = parse_event_timestamp(Some(timestamp_str), None, None, true, now);
 
         // Should clamp to now and generate warning
-        assert_eq!(result.timestamp, now);
-        assert_eq!(result.warnings.len(), 1);
-        assert_eq!(result.warnings[0].warning_type, "event_timestamp_in_future");
+        assert_eq!(result, now);
     }
 
     #[test]
@@ -591,9 +505,7 @@ mod tests {
         let result = parse_event_timestamp(None, Some(offset), None, false, now);
 
         // Should clamp to now and generate warning
-        assert_eq!(result.timestamp, now);
-        assert_eq!(result.warnings.len(), 1);
-        assert_eq!(result.warnings[0].warning_type, "event_timestamp_in_future");
+        assert_eq!(result, now);
     }
 
     #[test]
