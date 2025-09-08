@@ -30,6 +30,7 @@ import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentHeader } from './ExperimentHeader'
 import { ExposureCriteriaModal } from './ExposureCriteria'
+import { Exposures } from './Exposures'
 import { Info } from './Info'
 import { LegacyExperimentHeader } from './LegacyExperimentHeader'
 import { Overview } from './Overview'
@@ -82,6 +83,10 @@ const MetricsTab = (): JSX.Element => {
 
     return (
         <>
+            <div className="w-full mb-4">
+                <Exposures />
+            </div>
+
             {/* Show overview if there's only a single primary metric */}
             {hasSinglePrimaryMetric && hasMinimumExposureForResults && (
                 <div className="mb-4 mt-2">

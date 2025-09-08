@@ -18,6 +18,10 @@ export class TriggerHandler implements ActionHandler {
             filterGlobals: invocation.filterGlobals,
         })
 
+        if (filterResults.error) {
+            throw new Error(filterResults.error as string)
+        }
+
         if (!filterResults.match) {
             return { finished: true }
         }
