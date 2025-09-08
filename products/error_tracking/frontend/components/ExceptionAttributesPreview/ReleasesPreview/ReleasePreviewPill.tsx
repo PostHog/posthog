@@ -43,11 +43,7 @@ export function ReleasePreviewPill({ exceptionReleases }: ReleasePreviewPillProp
                 onMouseEnter={() => setIsOpen(true)}
                 onMouseLeave={() => setIsOpen(false)}
             >
-                <LemonTag
-                    className="bg-fill-primary"
-                    onMouseEnter={() => setIsOpen(true)}
-                    onMouseLeave={() => setIsOpen(false)}
-                >
+                <LemonTag className="bg-fill-primary">
                     <IconCommit className="text-sm text-secondary" />
                     <span>{releasePillTitle(release)}</span>
                 </LemonTag>
