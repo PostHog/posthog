@@ -227,8 +227,8 @@ function extractPersonData(row: SurveyResponseRow): {
     let hasAnyProperties = false
     for (let i = 0; i < PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES.length; i++) {
         const value = row.at(-3 - i) as string
-        personProperties[PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES[i]] = value
         if (value && value !== null && value !== '') {
+            personProperties[PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES[i]] = value
             hasAnyProperties = true
         }
     }
