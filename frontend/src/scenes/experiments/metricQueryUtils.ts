@@ -506,12 +506,12 @@ export const getExposureConfigEventsNode = (
     exposureConfig: ExperimentEventExposureConfig,
     options: { featureFlagKey: string; featureFlagVariants: MultivariateFlagVariant[] }
 ): EventsNode => {
-    const expsoure_step_name = 'Experiment exposure'
+    const exposure_step_name = 'Experiment exposure'
     if (exposureConfig && exposureConfig.event !== '$feature_flag_called') {
         const { featureFlagKey, featureFlagVariants } = options
         return {
             kind: NodeKind.EventsNode,
-            custom_name: expsoure_step_name,
+            custom_name: exposure_step_name,
             event: exposureConfig.event,
             properties: [
                 ...(exposureConfig.properties || []),
@@ -527,7 +527,7 @@ export const getExposureConfigEventsNode = (
 
     return {
         kind: NodeKind.EventsNode,
-        custom_name: expsoure_step_name,
+        custom_name: exposure_step_name,
         event: '$feature_flag_called',
         properties: [
             {
