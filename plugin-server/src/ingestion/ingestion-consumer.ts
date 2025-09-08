@@ -7,14 +7,10 @@ import { MessageSizeTooLarge } from '~/utils/db/error'
 import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
-import { KafkaConsumer, parseEventHeaders, parseKafkaHeaders } from '../kafka/consumer'
+import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
-import {
-    eventDroppedCounter,
-    latestOffsetTimestampGauge,
-    setUsageInNonPersonEventsCounter,
-} from '../main/ingestion-queues/metrics'
+import { latestOffsetTimestampGauge, setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
 import {
     EventHeaders,
     HealthCheckResult,
@@ -33,6 +29,7 @@ import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { retryIfRetriable } from '../utils/retries'
+import { isRedirectResult, isSuccessResult } from '../worker/ingestion/event-pipeline/pipeline-step-result'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
@@ -41,13 +38,15 @@ import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/p
 import { deduplicateEvents } from './deduplication/events'
 import { DeduplicationRedis, createDeduplicationRedis } from './deduplication/redis-client'
 import {
-    applyDropEventsRestrictions,
-    applyForceOverflowRestrictions,
-    applyPersonProcessingRestrictions,
-    parseKafkaMessage,
-    resolveTeam,
-    validateEventUuid,
+    createApplyDropRestrictionsStep,
+    createApplyForceOverflowRestrictionsStep,
+    createApplyPersonProcessingRestrictionsStep,
+    createParseHeadersStep,
+    createParseKafkaMessageStep,
+    createResolveTeamStep,
+    createValidateEventUuidStep,
 } from './event-preprocessing'
+import { PreprocessingPipeline } from './preprocessing-pipeline'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
 const ingestionEventOverflowed = new Counter({
@@ -626,51 +625,55 @@ export class IngestionConsumer {
 
     private async preprocessEvents(messages: Message[]): Promise<IncomingEventWithTeam[]> {
         const preprocessedEvents: IncomingEventWithTeam[] = []
+        const pendingOverflowMessages: Array<{ message: Message; preservePartitionLocality?: boolean }> = []
+
+        // Create steps with baked-in context
+        const parseHeadersStep = createParseHeadersStep()
+        const applyDropRestrictionsStep = createApplyDropRestrictionsStep(this.eventIngestionRestrictionManager)
+        const applyForceOverflowRestrictionsStep = createApplyForceOverflowRestrictionsStep(
+            this.eventIngestionRestrictionManager,
+            this.overflowEnabled(),
+            forcedOverflowEventsCounter,
+            pendingOverflowMessages
+        )
+        const parseKafkaMessageStep = createParseKafkaMessageStep()
+        const resolveTeamStep = createResolveTeamStep(this.hub)
+        const applyPersonProcessingRestrictionsStep = createApplyPersonProcessingRestrictionsStep(
+            this.eventIngestionRestrictionManager
+        )
+        const validateEventUuidStep = createValidateEventUuidStep(this.hub)
 
         for (const message of messages) {
-            const headers = parseEventHeaders(message.headers)
+            try {
+                const pipeline = PreprocessingPipeline.of(message)
+                    .pipe(parseHeadersStep)
+                    .pipe(applyDropRestrictionsStep)
+                    .pipe(applyForceOverflowRestrictionsStep)
+                    .pipe(parseKafkaMessageStep)
+                    .pipeAsync(resolveTeamStep)
+                    .pipe(applyPersonProcessingRestrictionsStep)
+                    .pipeAsync(validateEventUuidStep)
+                const result = await pipeline.unwrap()
 
-            if (applyDropEventsRestrictions(this.eventIngestionRestrictionManager, headers)) {
-                eventDroppedCounter
-                    .labels({
-                        event_type: 'analytics',
-                        drop_cause: 'blocked_token',
-                    })
-                    .inc()
-                continue
+                // Handle the result
+                if (isSuccessResult(result)) {
+                    preprocessedEvents.push(result.value as IncomingEventWithTeam)
+                } else if (isRedirectResult(result)) {
+                    // Handle redirect case - overflow messages are already queued in pendingOverflowMessages
+                    // We'll emit them after processing all messages
+                }
+                // Drop and DLQ cases are handled by the steps themselves (metrics, etc.)
+            } catch (error) {
+                // Log error but continue processing other messages
+                console.error('Error processing message in pipeline:', error)
             }
+        }
 
-            const forceOverflowDecision = applyForceOverflowRestrictions(this.eventIngestionRestrictionManager, headers)
-            if (forceOverflowDecision.shouldRedirect && this.overflowEnabled()) {
-                ingestionEventOverflowed.inc(1)
-                forcedOverflowEventsCounter.inc()
-                void this.promiseScheduler.schedule(
-                    this.emitToOverflow([message], forceOverflowDecision.preservePartitionLocality)
-                )
-                continue
+        // Emit all pending overflow messages
+        if (pendingOverflowMessages.length > 0) {
+            for (const { message, preservePartitionLocality } of pendingOverflowMessages) {
+                void this.promiseScheduler.schedule(this.emitToOverflow([message], preservePartitionLocality))
             }
-
-            const parsedEvent = parseKafkaMessage(message)
-            if (!parsedEvent) {
-                continue
-            }
-
-            const eventWithHeaders = { ...parsedEvent, headers }
-
-            const eventWithTeam = await resolveTeam(this.hub, eventWithHeaders)
-            if (!eventWithTeam) {
-                continue
-            }
-
-            applyPersonProcessingRestrictions(eventWithTeam, this.eventIngestionRestrictionManager)
-
-            // We only validate it here because we want to raise ingestion warnings
-            const validEvent = await validateEventUuid(eventWithTeam, this.hub)
-            if (!validEvent) {
-                continue
-            }
-
-            preprocessedEvents.push(validEvent)
         }
 
         return preprocessedEvents

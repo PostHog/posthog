@@ -1,5 +1,9 @@
-import { IncomingEventWithTeam } from '../../types'
+import { Message } from 'node-rdkafka'
+
+import { EventHeaders, IncomingEventWithTeam } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
+import { success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
+import { SyncPreprocessingStep } from '../preprocessing-pipeline'
 
 export function applyPersonProcessingRestrictions(
     eventWithTeam: IncomingEventWithTeam,
@@ -20,5 +24,20 @@ export function applyPersonProcessingRestrictions(
         } else {
             event.properties = { $process_person_profile: false }
         }
+    }
+}
+
+export function createApplyPersonProcessingRestrictionsStep(
+    eventIngestionRestrictionManager: EventIngestionRestrictionManager
+): SyncPreprocessingStep<
+    { message: Message; headers: EventHeaders; eventWithTeam: IncomingEventWithTeam },
+    IncomingEventWithTeam
+> {
+    return (input) => {
+        const { eventWithTeam } = input
+
+        applyPersonProcessingRestrictions(eventWithTeam, eventIngestionRestrictionManager)
+
+        return success(eventWithTeam)
     }
 }

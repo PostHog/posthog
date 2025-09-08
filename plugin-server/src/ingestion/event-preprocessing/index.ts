@@ -1,6 +1,13 @@
-export { applyDropEventsRestrictions } from './apply-drop-events-restrictions'
-export { applyPersonProcessingRestrictions } from './apply-person-processing-restrictions'
-export { parseKafkaMessage } from './parse-kafka-message'
-export { resolveTeam } from './resolve-team'
-export { validateEventUuid } from './validate-event-uuid'
-export { applyForceOverflowRestrictions } from './apply-force-overflow-restrictions'
+export { applyDropEventsRestrictions, createApplyDropRestrictionsStep } from './apply-drop-events-restrictions'
+export {
+    applyPersonProcessingRestrictions,
+    createApplyPersonProcessingRestrictionsStep,
+} from './apply-person-processing-restrictions'
+export { parseKafkaMessage, createParseKafkaMessageStep } from './parse-kafka-message'
+export { resolveTeam, createResolveTeamStep } from './resolve-team'
+export { validateEventUuid, createValidateEventUuidStep } from './validate-event-uuid'
+export {
+    applyForceOverflowRestrictions,
+    createApplyForceOverflowRestrictionsStep,
+} from './apply-force-overflow-restrictions'
+export { createParseHeadersStep } from './parse-headers'
