@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0844_alter_externaldatasource_source_type"),
+        ("posthog", "0845_delete_invalid_personalapikeys"),
     ]
 
     operations = [
