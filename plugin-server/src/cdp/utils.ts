@@ -2,8 +2,6 @@
 import { DateTime } from 'luxon'
 import { gunzip, gzip } from 'zlib'
 
-import { sanitizeForUTF8 } from '~/utils/strings'
-
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { parseJSON } from '../utils/json-parse'
 import { castTimestampOrNow, clickHouseTimestampToISO } from '../utils/utils'
@@ -220,8 +218,23 @@ export const sanitizeLogMessage = (args: any[], sensitiveValues?: string[], maxL
         message = message.replaceAll(sensitiveValue, '***REDACTED***')
     })
 
-    if (message.length > maxLength + TRUNCATION_SUFFIX.length) {
-        message = sanitizeForUTF8(message.slice(0, maxLength) + TRUNCATION_SUFFIX)
+    let truncateAt = maxLength
+
+    // Check if we're in the middle of a surrogate pair
+    if (truncateAt > 0 && truncateAt < message.length + TRUNCATION_SUFFIX.length) {
+        const charAtTruncate = message.charCodeAt(truncateAt)
+        const charBeforeTruncate = message.charCodeAt(truncateAt - 1)
+
+        // If we're about to cut after a high surrogate or before a low surrogate
+        if ((charBeforeTruncate & 0xfc00) === 0xd800 || (charAtTruncate & 0xfc00) === 0xdc00) {
+            // Move back to avoid cutting through the surrogate pair
+            truncateAt--
+            // If we moved back and are still at a high surrogate, move back one more
+            if (truncateAt > 0 && (message.charCodeAt(truncateAt - 1) & 0xfc00) === 0xd800) {
+                truncateAt--
+            }
+        }
+        message = message.slice(0, truncateAt) + TRUNCATION_SUFFIX
     }
 
     return message
