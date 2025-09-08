@@ -258,8 +258,12 @@ impl EventSimilarity {
         } else {
             different_fields.push((
                 "timestamp".to_string(),
-                original_ts.map(|ts| ts.to_string()).unwrap_or_else(|| "<invalid>".to_string()),
-                new_ts.map(|ts| ts.to_string()).unwrap_or_else(|| "<invalid>".to_string()),
+                original_ts
+                    .map(|ts| ts.to_string())
+                    .unwrap_or_else(|| "<invalid>".to_string()),
+                new_ts
+                    .map(|ts| ts.to_string())
+                    .unwrap_or_else(|| "<invalid>".to_string()),
             ));
         }
 
@@ -778,7 +782,7 @@ mod tests {
             properties: HashMap::new(),
             ..Default::default()
         };
-        
+
         let event2 = RawEvent {
             uuid: Some(uuid::Uuid::new_v4()),
             event: "test_event".to_string(),
@@ -788,22 +792,27 @@ mod tests {
             properties: HashMap::new(),
             ..Default::default()
         };
-        
+
         // This should not panic even with non-ASCII timestamp
         let similarity = EventSimilarity::calculate(&event1, &event2).unwrap();
-        
+
         // Timestamps are different (one invalid, one valid), so they should show as different
-        assert!(similarity.different_fields.iter().any(|(field, _, _)| field == "timestamp"));
-        
+        assert!(similarity
+            .different_fields
+            .iter()
+            .any(|(field, _, _)| field == "timestamp"));
+
         // First timestamp is invalid (has non-ASCII), second is valid ISO
-        let timestamp_diff = similarity.different_fields.iter()
+        let timestamp_diff = similarity
+            .different_fields
+            .iter()
             .find(|(field, _, _)| field == "timestamp")
             .unwrap();
         assert_eq!(timestamp_diff.1, "<invalid>"); // Czech timestamp can't be parsed
-        // Second timestamp is valid ISO format, should show the milliseconds value
+                                                   // Second timestamp is valid ISO format, should show the milliseconds value
         assert!(timestamp_diff.2 != "<invalid>");
     }
-    
+
     #[test]
     fn test_completely_different_events_similarity() {
         let event1 = RawEvent {
