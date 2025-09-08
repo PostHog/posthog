@@ -1,0 +1,29 @@
+#!/bin/bash
+
+set -e
+
+# Check if we're in a flox environment
+if ! command -v flox &> /dev/null; then
+    echo "Error: flox not found. This script is optimized for flox environments."
+    exit 1
+fi
+
+# Check if Playwright is installed
+if ! command -v playwright &> /dev/null; then
+    echo "Installing Playwright via flox..."
+    flox install playwright
+    # Install Playwright browsers
+    flox activate -- playwright install
+else
+    echo "Playwright is already installed"
+fi
+
+# Check if FFmpeg is installed
+if ! command -v ffmpeg &> /dev/null; then
+    echo "Installing FFmpeg via flox..."
+    flox install ffmpeg
+else
+    echo "FFmpeg is already installed"
+fi
+
+echo "Video dependencies check complete"

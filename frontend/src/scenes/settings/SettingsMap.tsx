@@ -288,7 +288,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'marketing-settings',
                 title: 'Marketing settings',
-                component: <MarketingAnalyticsSettings />,
+                component: <MarketingAnalyticsSettings hideTitle />,
             },
         ],
     },
