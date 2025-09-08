@@ -1,5 +1,3 @@
-import { Message } from 'node-rdkafka'
-
 import { EventHeaders } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
 
@@ -9,7 +7,6 @@ export type ForceOverflowDecision = {
 }
 
 export function applyForceOverflowRestrictions(
-    message: Message,
     eventIngestionRestrictionManager: EventIngestionRestrictionManager,
     headers?: EventHeaders
 ): ForceOverflowDecision {

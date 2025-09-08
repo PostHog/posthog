@@ -10,7 +10,11 @@ import { HogTransformerService } from '../cdp/hog-transformations/hog-transforme
 import { KafkaConsumer, parseEventHeaders, parseKafkaHeaders } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
-import { latestOffsetTimestampGauge, setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
+import {
+    eventDroppedCounter,
+    latestOffsetTimestampGauge,
+    setUsageInNonPersonEventsCounter,
+} from '../main/ingestion-queues/metrics'
 import {
     EventHeaders,
     HealthCheckResult,
@@ -54,12 +58,6 @@ const ingestionEventOverflowed = new Counter({
 const forcedOverflowEventsCounter = new Counter({
     name: 'ingestion_forced_overflow_events_total',
     help: 'Number of events that were routed to overflow because they matched the force overflow tokens list',
-})
-
-const headerEventMismatchCounter = new Counter({
-    name: 'ingestion_header_event_mismatch_total',
-    help: 'Number of events where headers do not match the parsed event data',
-    labelNames: ['token', 'distinct_id'],
 })
 
 type EventsForDistinctId = {
@@ -632,26 +630,27 @@ export class IngestionConsumer {
         for (const message of messages) {
             const headers = parseEventHeaders(message.headers)
 
-            const filteredMessage = applyDropEventsRestrictions(message, this.eventIngestionRestrictionManager, headers)
-            if (!filteredMessage) {
+            if (applyDropEventsRestrictions(this.eventIngestionRestrictionManager, headers)) {
+                eventDroppedCounter
+                    .labels({
+                        event_type: 'analytics',
+                        drop_cause: 'blocked_token',
+                    })
+                    .inc()
                 continue
             }
 
-            const forceOverflowDecision = applyForceOverflowRestrictions(
-                filteredMessage,
-                this.eventIngestionRestrictionManager,
-                headers
-            )
+            const forceOverflowDecision = applyForceOverflowRestrictions(this.eventIngestionRestrictionManager, headers)
             if (forceOverflowDecision.shouldRedirect && this.overflowEnabled()) {
                 ingestionEventOverflowed.inc(1)
                 forcedOverflowEventsCounter.inc()
                 void this.promiseScheduler.schedule(
-                    this.emitToOverflow([filteredMessage], forceOverflowDecision.preservePartitionLocality)
+                    this.emitToOverflow([message], forceOverflowDecision.preservePartitionLocality)
                 )
                 continue
             }
 
-            const parsedEvent = parseKafkaMessage(filteredMessage)
+            const parsedEvent = parseKafkaMessage(message)
             if (!parsedEvent) {
                 continue
             }
@@ -714,44 +713,6 @@ export class IngestionConsumer {
             return false
         }
         return this.eventIngestionRestrictionManager.shouldForceOverflow(token, distinctId)
-    }
-
-    private validateHeadersMatchEvent(event: PipelineEvent, headerToken?: string, headerDistinctId?: string): void {
-        let tokenStatus = 'ok'
-        if (!headerToken && event.token) {
-            tokenStatus = 'missing_in_header'
-        } else if (headerToken && !event.token) {
-            tokenStatus = 'missing_in_event'
-        } else if (!headerToken && !event.token) {
-            tokenStatus = 'missing'
-        } else if (headerToken && event.token && headerToken !== event.token) {
-            tokenStatus = 'different'
-        }
-
-        let distinctIdStatus = 'ok'
-        if (!headerDistinctId && event.distinct_id) {
-            distinctIdStatus = 'missing_in_header'
-        } else if (headerDistinctId && !event.distinct_id) {
-            distinctIdStatus = 'missing_in_event'
-        } else if (!headerDistinctId && !event.distinct_id) {
-            distinctIdStatus = 'missing'
-        } else if (headerDistinctId && event.distinct_id && headerDistinctId !== event.distinct_id) {
-            distinctIdStatus = 'different'
-        }
-
-        if (tokenStatus !== 'ok' || distinctIdStatus !== 'ok') {
-            headerEventMismatchCounter.labels(tokenStatus, distinctIdStatus).inc()
-
-            logger.warn('🔍', `Header/event validation issue detected`, {
-                eventUuid: event.uuid,
-                headerToken,
-                eventToken: event.token,
-                headerDistinctId,
-                eventDistinctId: event.distinct_id,
-                tokenStatus,
-                distinctIdStatus,
-            })
-        }
     }
 
     private overflowEnabled(): boolean {
