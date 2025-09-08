@@ -79,7 +79,7 @@ export const TrialCancellationSurveyModal = ({
                             bordered
                             key={reason.reason}
                             label={reason.reason}
-                            data-attr={`trial-cancel-reason-${reason.reason.toLowerCase().replace(' ', '-')}`}
+                            data-attr={`trial-cancel-reason-${reason.reason.toLowerCase().replace(/ /g, '-')}`}
                             checked={surveyResponse['$survey_response_2'].includes(reason.reason)}
                             onChange={() => toggleSurveyReason(reason.reason)}
                             className="w-full"
