@@ -1603,6 +1603,10 @@ export interface QueryStatusResponse {
     query_status: QueryStatus
 }
 
+export interface QueryLogResponse {
+    query_log: QueryLog
+}
+
 /** @deprecated Only exported for use in test_query_runner.py! Don't use anywhere else. */
 export interface TestBasicQueryResponse extends AnalyticsQueryResponseBase {
     results: any[]
@@ -1668,6 +1672,38 @@ export type QueryStatus = {
     task_id?: string
     query_progress?: ClickhouseQueryProgress
     labels?: string[]
+}
+
+export type QueryLog = {
+    query_id: string
+    endpoint: string
+    query: string
+    /** @format date-time */
+    query_start_time: string
+    query_duration_ms: integer
+    hogql_name: string
+    created_by: integer
+    read_rows: integer
+    read_bytes: integer
+    result_rows: integer
+    result_bytes: integer
+    memory_usage: integer
+    status: string
+    exception_code: integer
+    is_personal_api_key_request: boolean
+    api_key_label: string
+    api_key_mask: string
+    cpu_microseconds: integer
+    real_time_microseconds: integer
+    s3_list_objects: integer
+    s3_head_object: integer
+    s3_get_object_attributes: integer
+    s3_get_object: integer
+    read_buffer_from_s3_bytes: integer
+    /** @format date-time */
+    event_time: string
+    /** @format date */
+    event_date: string
 }
 
 export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase {
