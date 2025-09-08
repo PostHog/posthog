@@ -8,7 +8,7 @@ import { IconChevronDown } from '@posthog/icons'
 import { accessLevelSatisfied, resourceTypeToString } from 'lib/components/AccessControlAction'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 
-import { AccessControlResourceType, AccessControlLevel } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
 import { Link } from '../Link'

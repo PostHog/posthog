@@ -8,7 +8,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 
-import { AccessControlResourceType, AccessControlLevel } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 export interface LemonSwitchProps {
     className?: string

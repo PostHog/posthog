@@ -5,7 +5,7 @@ import { IconX } from '@posthog/icons'
 
 import { LemonDropdownProps } from 'lib/lemon-ui/LemonDropdown'
 
-import { AccessControlResourceType, AccessControlLevel } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 import {
