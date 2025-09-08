@@ -335,3 +335,95 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
         # Assert - verify the prompt template was created with the user message
         # The chain should contain the user's message content (verify the call was made)
         mock_astream.assert_called_once()
+
+    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory")
+    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model")
+    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook")
+    async def test_stage_notebook_tracking_in_result(self, mock_astream, mock_get_model, mock_core_memory):
+        """Should add notebook to stage_notebooks in returned state."""
+        mock_core_memory.return_value = "Test core memory"
+        mock_model = AsyncMock()
+        mock_get_model.return_value = mock_model
+
+        notebook_title = "Custom Planning Notebook Title"
+        mock_notebook = MagicMock()
+        mock_notebook.short_id = "planning_nb_123"
+        mock_notebook.title = notebook_title
+        self.node.notebook = mock_notebook
+
+        mock_notebook_message = NotebookUpdateMessage(
+            notebook_id="planning_nb_123", content=ProsemirrorJSONContent(type="doc", content=[]), id=str(uuid4())
+        )
+        mock_astream.return_value = mock_notebook_message
+
+        state = DeepResearchState(messages=[HumanMessage(content="Create planning document")])
+
+        result = await self.node.arun(state, self.config)
+
+        # Verify stage_notebooks contains the planning notebook
+        self.assertEqual(len(result.stage_notebooks), 1)
+        notebook_info = result.stage_notebooks[0]
+        self.assertEqual(notebook_info.stage, "notebook_planning")
+        self.assertEqual(notebook_info.notebook_id, "planning_nb_123")
+        self.assertEqual(notebook_info.title, notebook_title)
+
+    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory")
+    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model")
+    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook")
+    async def test_stage_notebook_with_no_notebook_instance(self, mock_astream, mock_get_model, mock_core_memory):
+        """Should handle case where notebook instance is None."""
+        mock_core_memory.return_value = "Test core memory"
+        mock_model = AsyncMock()
+        mock_get_model.return_value = mock_model
+
+        # Explicitly set notebook to None
+        self.node.notebook = None
+
+        mock_notebook_message = NotebookUpdateMessage(
+            notebook_id="some_nb_id", content=ProsemirrorJSONContent(type="doc", content=[]), id=str(uuid4())
+        )
+        mock_astream.return_value = mock_notebook_message
+
+        state = DeepResearchState(messages=[HumanMessage(content="Create plan")])
+
+        result = await self.node.arun(state, self.config)
+
+        # Should use default title when notebook is None
+        notebook_info = result.stage_notebooks[0]
+        self.assertEqual(notebook_info.title, "Planning Notebook")
+
+    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory")
+    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._get_model")
+    @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook")
+    async def test_stage_notebook_info_serialization(self, mock_astream, mock_get_model, mock_core_memory):
+        """Should create notebook info that serializes correctly."""
+        mock_core_memory.return_value = "Test core memory"
+        mock_model = AsyncMock()
+        mock_get_model.return_value = mock_model
+
+        mock_notebook = MagicMock()
+        mock_notebook.short_id = "serialization_test_123"
+        mock_notebook.title = "Serialization Test Planning"
+        self.node.notebook = mock_notebook
+
+        mock_notebook_message = NotebookUpdateMessage(
+            notebook_id="serialization_test_123",
+            content=ProsemirrorJSONContent(type="doc", content=[]),
+            id=str(uuid4()),
+        )
+        mock_astream.return_value = mock_notebook_message
+
+        state = DeepResearchState(messages=[HumanMessage(content="Test serialization")])
+
+        result = await self.node.arun(state, self.config)
+
+        notebook_info = result.stage_notebooks[0]
+        serialized = notebook_info.model_dump()
+
+        expected = {
+            "stage": "notebook_planning",
+            "notebook_id": "serialization_test_123",
+            "title": "Serialization Test Planning",
+        }
+
+        self.assertEqual(serialized, expected)

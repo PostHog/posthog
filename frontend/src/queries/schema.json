@@ -9641,6 +9641,22 @@
         "Day": {
             "$ref": "#/definitions/integer"
         },
+        "DeepResearchNotebookInfo": {
+            "additionalProperties": false,
+            "properties": {
+                "notebook_id": {
+                    "type": "string"
+                },
+                "stage": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            },
+            "required": ["stage", "notebook_id", "title"],
+            "type": "object"
+        },
         "DefaultChannelTypes": {
             "enum": [
                 "Cross Network",
@@ -16370,6 +16386,12 @@
                 },
                 "notebook_id": {
                     "type": "string"
+                },
+                "stage_notebooks": {
+                    "items": {
+                        "$ref": "#/definitions/DeepResearchNotebookInfo"
+                    },
+                    "type": "array"
                 },
                 "tool_calls": {
                     "items": {

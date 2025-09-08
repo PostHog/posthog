@@ -9,6 +9,7 @@ from posthog.schema import (
     AssistantRetentionQuery,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
+    DeepResearchNotebookInfo,
 )
 
 from posthog.exceptions_capture import capture_exception
@@ -19,11 +20,11 @@ from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
     DeepResearchNodeName,
     DeepResearchState,
-    InsightArtifact,
     PartialDeepResearchState,
 )
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor
 from ee.hogai.notebook.notebook_serializer import NotebookContext
+from ee.hogai.utils.types import InsightArtifact
 
 
 class FormattedInsight(BaseModel):
@@ -89,8 +90,27 @@ class DeepResearchReportNode(DeepResearchNode):
             context=context,
         )
 
+        notebook_title = self.notebook.title if self.notebook else "Research Report"
+        current_notebook_info = DeepResearchNotebookInfo(
+            stage=DeepResearchNodeName.REPORT.value,
+            notebook_id=notebook_update_message.notebook_id,
+            title=notebook_title,
+        )
+
+        # Collect all stage notebooks from the entire research process
+        # and add to report update message
+        all_stage_notebooks = [*state.stage_notebooks, current_notebook_info]
+
+        notebook_update_message.stage_notebooks = [
+            DeepResearchNotebookInfo(
+                stage=notebook_info.stage, notebook_id=notebook_info.notebook_id, title=notebook_info.title
+            )
+            for notebook_info in all_stage_notebooks
+        ]
+
         return PartialDeepResearchState(
             messages=[notebook_update_message],
+            stage_notebooks=all_stage_notebooks,
         )
 
     def _collect_all_artifacts(self, state: DeepResearchState) -> list[InsightArtifact]:

@@ -1,6 +1,8 @@
 import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import type { MaxUIContext } from 'scenes/max/maxTypes'
 
+import type { DeepResearchNotebookInfo } from '~/types'
+
 import {
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
@@ -124,6 +126,7 @@ export interface NotebookUpdateMessage extends BaseAssistantMessage {
     notebook_id: string
     content: ProsemirrorJSONContent
     tool_calls?: AssistantToolCall[]
+    stage_notebooks?: DeepResearchNotebookInfo[]
 }
 
 export enum PlanningStepStatus {

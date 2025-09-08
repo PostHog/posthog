@@ -1,7 +1,7 @@
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import HumanMessage
+from posthog.schema import DeepResearchNotebookInfo, HumanMessage
 
 from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode
 from ee.hogai.graph.deep_research.notebook.prompts import DEEP_RESEARCH_NOTEBOOK_PLANNING_PROMPT
@@ -29,8 +29,16 @@ class DeepResearchNotebookPlanningNode(DeepResearchNode):
 
         notebook_update_message = await self._astream_notebook(chain, config, DeepResearchNodeName.NOTEBOOK_PLANNING)
 
+        notebook_title = self.notebook.title if self.notebook else "Planning Notebook"
+        notebook_info = DeepResearchNotebookInfo(
+            stage=DeepResearchNodeName.NOTEBOOK_PLANNING.value,
+            notebook_id=notebook_update_message.notebook_id,
+            title=notebook_title,
+        )
+
         return PartialDeepResearchState(
             messages=[notebook_update_message],
             previous_response_id=None,  # we reset the previous response id because we're starting a new conversation after the onboarding
             notebook_short_id=notebook_update_message.notebook_id,
+            stage_notebooks=[notebook_info],
         )

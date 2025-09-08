@@ -5565,6 +5565,12 @@ export enum ConversationType {
     DeepResearch = 'deep_research',
 }
 
+export interface DeepResearchNotebookInfo {
+    stage: string
+    notebook_id: string
+    title: string
+}
+
 export interface Conversation {
     id: string
     status: ConversationStatus

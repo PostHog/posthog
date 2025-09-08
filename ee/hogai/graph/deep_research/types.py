@@ -5,7 +5,7 @@ from typing import Annotated, Literal, Optional
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
-from posthog.schema import PlanningStepStatus, TaskExecutionItem, TaskExecutionStatus
+from posthog.schema import DeepResearchNotebookInfo, PlanningStepStatus, TaskExecutionItem, TaskExecutionStatus
 
 from ee.hogai.utils.types import AssistantMessageUnion, InsightArtifact, add_and_merge_messages
 from ee.hogai.utils.types.base import BaseStateWithMessages, append, replace
@@ -67,6 +67,10 @@ class _SharedDeepResearchState(BaseStateWithMessages):
     notebook_short_id: Optional[str] = Field(default=None)
     """
     The short ID of the notebook being used.
+    """
+    stage_notebooks: Annotated[list[DeepResearchNotebookInfo], append] = Field(default=[])
+    """
+    List of notebooks created during different stages of deep research.
     """
 
 

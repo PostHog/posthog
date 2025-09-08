@@ -917,6 +917,15 @@ class DatetimeDay(RootModel[datetime]):
     root: datetime
 
 
+class DeepResearchNotebookInfo(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    notebook_id: str
+    stage: str
+    title: str
+
+
 class DefaultChannelTypes(StrEnum):
     CROSS_NETWORK = "Cross Network"
     PAID_SEARCH = "Paid Search"
@@ -4086,6 +4095,7 @@ class NotebookUpdateMessage(BaseModel):
     content: ProsemirrorJSONContent
     id: Optional[str] = None
     notebook_id: str
+    stage_notebooks: Optional[list[DeepResearchNotebookInfo]] = None
     tool_calls: Optional[list[AssistantToolCall]] = None
     type: Literal["ai/notebook"] = "ai/notebook"
 

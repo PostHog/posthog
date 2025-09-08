@@ -597,3 +597,61 @@ class TestDeepResearchReportNode:
             assert formatted_insights[0].id == "artifact_1"
             assert formatted_insights[1].id == "artifact_2"
             assert formatted_insights[2].id == "artifact_3"
+
+    @pytest.mark.asyncio
+    @patch("ee.hogai.graph.deep_research.report.nodes.DeepResearchReportNode._get_model")
+    @patch("ee.hogai.graph.deep_research.report.nodes.DeepResearchReportNode._astream_notebook")
+    @patch("ee.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
+    async def test_arun_includes_stage_notebooks_in_final_message(
+        self, mock_executor_class, mock_astream_notebook, mock_get_model
+    ):
+        """Test that the report node includes all stage notebooks in the final message."""
+        from posthog.schema import DeepResearchNotebookInfo
+
+        mock_executor = MagicMock()
+        mock_executor.run_and_format_query.return_value = ("Results", False)
+        mock_executor_class.return_value = mock_executor
+
+        mock_notebook_message = NotebookUpdateMessage(
+            notebook_id="report_notebook_123",
+            content=ProsemirrorJSONContent(type="doc", content=[]),
+        )
+        mock_notebook_message.id = "message_id"
+        mock_astream_notebook.return_value = mock_notebook_message
+
+        mock_model = MagicMock()
+        mock_get_model.return_value = mock_model
+
+        mock_notebook = MagicMock()
+        mock_notebook.title = "Final Research Report"
+        self.node.notebook = mock_notebook
+
+        existing_notebooks = [
+            DeepResearchNotebookInfo(stage="notebook_planning", notebook_id="planning_123", title="Planning Doc"),
+            DeepResearchNotebookInfo(stage="intermediate", notebook_id="intermediate_456", title="Analysis"),
+        ]
+
+        tool_call_message = AssistantToolCallMessage(content="Task execution complete", tool_call_id="tool_call_123")
+        state = DeepResearchState(
+            messages=[tool_call_message],
+            stage_notebooks=existing_notebooks,
+            task_results=[],
+            intermediate_results=[],
+        )
+
+        result = await self.node.arun(state, self.config)
+
+        assert len(result.stage_notebooks) == 3  # 2 existing + 1 report
+        assert result.stage_notebooks[0].stage == "notebook_planning"
+        assert result.stage_notebooks[0].notebook_id == "planning_123"
+        assert result.stage_notebooks[1].stage == "intermediate"
+        assert result.stage_notebooks[1].notebook_id == "intermediate_456"
+        assert result.stage_notebooks[2].stage == "report"
+        assert result.stage_notebooks[2].notebook_id == "report_notebook_123"
+        assert result.stage_notebooks[2].title == "Final Research Report"
+
+        assert mock_notebook_message.stage_notebooks is not None
+        assert len(mock_notebook_message.stage_notebooks) == 3
+        assert mock_notebook_message.stage_notebooks[0].stage == "notebook_planning"
+        assert mock_notebook_message.stage_notebooks[1].stage == "intermediate"
+        assert mock_notebook_message.stage_notebooks[2].stage == "report"

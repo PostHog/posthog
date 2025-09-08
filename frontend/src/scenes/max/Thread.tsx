@@ -64,10 +64,11 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
-import { ProductKey } from '~/types'
+import { ConversationStatus, ConversationType, ProductKey } from '~/types'
 
 import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
+import { StageNotebooksDisplay } from './components/StageNotebooksDisplay'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { MessageStatus, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
@@ -87,7 +88,7 @@ import {
 } from './utils'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
-    const { conversationLoading, conversationId } = useValues(maxLogic)
+    const { conversationLoading, conversationId, conversation } = useValues(maxLogic)
     const { threadGrouped } = useValues(maxThreadLogic)
 
     return (
@@ -108,14 +109,38 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     <MessageGroupSkeleton groupType="human" className="opacity-5" />
                 </>
             ) : threadGrouped.length > 0 ? (
-                threadGrouped.map((group: ThreadMessage[], index: number) => (
-                    <MessageGroup
-                        // Reset the components when the thread changes
-                        key={`${conversationId}-${index}`}
-                        messages={group}
-                        isFinal={index === threadGrouped.length - 1}
-                    />
-                ))
+                <>
+                    {threadGrouped.map((group: ThreadMessage[], index: number) => (
+                        <MessageGroup
+                            // Reset the components when the thread changes
+                            key={`${conversationId}-${index}`}
+                            messages={group}
+                            isFinal={index === threadGrouped.length - 1}
+                        />
+                    ))}
+
+                    {/* Show stage notebooks for completed deep research conversations */}
+                    {(() => {
+                        if (
+                            conversation?.type !== ConversationType.DeepResearch ||
+                            conversation?.status !== ConversationStatus.Idle
+                        ) {
+                            return null
+                        }
+
+                        // Find the final notebook message with stage_notebooks data
+                        const finalMessages = threadGrouped[threadGrouped.length - 1] || []
+                        const finalNotebookMessage = finalMessages
+                            .filter(isNotebookUpdateMessage)
+                            .find((msg) => msg.stage_notebooks && msg.stage_notebooks.length > 0)
+
+                        if (!finalNotebookMessage?.stage_notebooks) {
+                            return null
+                        }
+
+                        return <StageNotebooksDisplay stageNotebooks={finalNotebookMessage.stage_notebooks} />
+                    })()}
+                </>
             ) : (
                 conversationId && (
                     <div className="flex flex-1 items-center justify-center">
