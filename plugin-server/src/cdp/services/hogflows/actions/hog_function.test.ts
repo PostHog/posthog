@@ -61,7 +61,7 @@ describe('HogFunctionHandler', () => {
                     required: true,
                 },
                 {
-                    key: 'slack',
+                    key: 'oauth',
                     type: 'integration',
                     required: true,
                 },
@@ -91,7 +91,7 @@ describe('HogFunctionHandler', () => {
                                 name: {
                                     value: 'John Doe',
                                 },
-                                slack: {
+                                oauth: {
                                     value: 1,
                                 },
                             },
@@ -138,7 +138,7 @@ describe('HogFunctionHandler', () => {
               [
                 "http://localhost/test",
                 {
-                  "body": "{"name":"John Doe","slack":{"team":"foobar","access_token":"token","not_encrypted":"not-encrypted"}}",
+                  "body": "{"name":"John Doe","oauth":{"team":"foobar","access_token":"token","not_encrypted":"not-encrypted","access_token_raw":"token"}}",
                   "headers": {
                     "Content-Type": "application/json",
                   },

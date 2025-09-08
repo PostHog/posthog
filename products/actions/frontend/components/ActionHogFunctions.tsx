@@ -7,7 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 
-import { SceneSection } from '~/layout/scenes/SceneContent'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ActionType } from '~/types'
 
 import { actionEditLogic } from '../logics/actionEditLogic'

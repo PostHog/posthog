@@ -1,30 +1,29 @@
 import json
+import uuid
 from typing import Any
+
+from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
+from unittest.mock import MagicMock, patch
+
+from django.db import transaction
+from django.test import SimpleTestCase, TestCase
 
 from clickhouse_driver.errors import ServerException
 
+from posthog.schema import ClickhouseQueryProgress, QueryStatus
+
+from posthog.clickhouse.client import (
+    execute_async as client,
+    sync_execute,
+)
 from posthog.clickhouse.client.async_task_chain import task_chain_context
-from posthog.clickhouse.client.connection import Workload, ClickHouseUser
-import uuid
-
-from django.test import TestCase, SimpleTestCase
-from django.db import transaction
-
-from posthog.clickhouse.client import execute_async as client
-from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, execute_process_query
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_client
-from posthog.schema import QueryStatus, ClickhouseQueryProgress
-from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
-from unittest.mock import patch, MagicMock
-from posthog.clickhouse.client.execute_async import (
-    QueryStatusManager,
-    execute_process_query,
-    QueryNotFoundError,
-)
 
 
 def build_query(sql):

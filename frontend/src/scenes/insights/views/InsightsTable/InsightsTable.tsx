@@ -7,7 +7,6 @@ import { useMemo } from 'react'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -16,9 +15,8 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import { isValidBreakdown } from '~/queries/utils'
-import { ChartDisplayType, ItemMode } from '~/types'
+import { ChartDisplayType } from '~/types'
 
 import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
 import { AggregationColumnItem, AggregationColumnTitle } from './columns/AggregationColumn'
@@ -58,6 +56,8 @@ export interface InsightsTableProps {
      * @default false
      */
     isMainInsightView?: boolean
+    /** Whether the insight is in edit mode. */
+    editMode?: boolean
 }
 
 export function InsightsTable({
@@ -68,9 +68,9 @@ export function InsightsTable({
     seriesNameTooltip,
     canCheckUncheckSeries = true,
     isMainInsightView = false,
+    editMode,
 }: InsightsTableProps): JSX.Element {
-    const { insightMode } = useValues(insightSceneLogic)
-    const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
+    const { insightProps, isInDashboardContext, insight, editingDisabledReason } = useValues(insightLogic)
     const {
         insightDataLoading,
         indexedResults,
@@ -90,7 +90,6 @@ export function InsightsTable({
     const { toggleResultHidden, toggleAllResultsHidden } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
-    const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
@@ -107,7 +106,11 @@ export function InsightsTable({
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const hasCheckboxes =
-        isLegend && (!display || ![ChartDisplayType.BoldNumber, ChartDisplayType.WorldMap].includes(display))
+        isLegend &&
+        (!display ||
+            ![ChartDisplayType.BoldNumber, ChartDisplayType.WorldMap, ChartDisplayType.CalendarHeatmap].includes(
+                display
+            ))
     // Build up columns to include. Order matters.
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
 
@@ -120,6 +123,7 @@ export function InsightsTable({
                         canCheckUncheckSeries={canCheckUncheckSeries}
                         getTrendsHidden={getTrendsHidden}
                         toggleAllResultsHidden={toggleAllResultsHidden}
+                        disabledReason={editingDisabledReason}
                     />
                 )}
                 <span>Series</span>
@@ -144,6 +148,7 @@ export function InsightsTable({
                     isHidden={getTrendsHidden(item)}
                     toggleResultHidden={toggleResultHidden}
                     label={<div className="ml-2 font-normal">{label}</div>}
+                    disabledReason={editingDisabledReason}
                 />
             ) : (
                 label
@@ -232,7 +237,7 @@ export function InsightsTable({
         })
     }
 
-    if (hasInsightColors && !isMainInsightView) {
+    if (!isMainInsightView && !embedded) {
         columns.push({
             title: <ColorCustomizationColumnTitle />,
             render: (_, item) => <ColorCustomizationColumnItem item={item} />,
@@ -265,6 +270,11 @@ export function InsightsTable({
     }
 
     const valueColumns: LemonTableColumn<IndexedTrendResult, any>[] = useMemo(() => {
+        // Don't show value columns for non-time-series displays like WorldMap and Heatmap
+        if (display === ChartDisplayType.WorldMap || display === ChartDisplayType.CalendarHeatmap) {
+            return []
+        }
+
         const results = indexedResults?.[0]?.data
         if (!results?.length) {
             return []
@@ -323,7 +333,7 @@ export function InsightsTable({
             disableTableWhileLoading={false}
             emptyState="No insight results"
             data-attr="insights-table-graph"
-            useURLForSorting={insightMode !== ItemMode.Edit}
+            useURLForSorting={!editMode}
             rowRibbonColor={
                 isLegend
                     ? (item) => {

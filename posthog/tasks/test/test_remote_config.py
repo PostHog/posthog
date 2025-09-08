@@ -1,7 +1,8 @@
+from posthog.test.base import BaseTest
+
 from posthog.models.project import Project
 from posthog.models.remote_config import RemoteConfig
 from posthog.tasks.remote_config import sync_all_remote_configs
-from posthog.test.base import BaseTest
 
 
 class TestRemoteConfig(BaseTest):

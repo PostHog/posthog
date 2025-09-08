@@ -1,14 +1,12 @@
-from posthog.clickhouse.client.connection import Workload
-from posthog.hogql import ast
-
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.parser import parse_select
 from posthog.schema import HogQLFilters, PropertyGroupsMode
 
-from products.logs.backend.logs_query_runner import (
-    LogsQueryRunner,
-    LogsQueryResponse,
-)
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client.connection import Workload
+
+from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQueryRunner
 
 
 class SparklineQueryRunner(LogsQueryRunner):

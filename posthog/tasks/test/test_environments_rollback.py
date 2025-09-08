@@ -1,21 +1,22 @@
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 from django.test import TransactionTestCase
 
 from posthog.models import (
+    Annotation,
+    Dashboard,
+    EarlyAccessFeature,
+    EventDefinition,
+    FeatureFlag,
+    Insight,
+    Project,
+    PropertyDefinition,
     Team,
     User,
-    Insight,
-    Dashboard,
-    FeatureFlag,
-    Annotation,
-    EarlyAccessFeature,
-    Project,
-    EventDefinition,
-    PropertyDefinition,
 )
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.tasks.environments_rollback import environments_rollback_migration
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 class TestEnvironmentsRollbackTask(TransactionTestCase):

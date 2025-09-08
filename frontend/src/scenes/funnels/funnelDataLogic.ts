@@ -61,6 +61,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 'insightFilter',
                 'funnelsFilter',
                 'breakdownFilter',
+                'goalLines',
                 'series',
                 'interval',
                 'insightData',

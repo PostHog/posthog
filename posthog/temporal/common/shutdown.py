@@ -1,7 +1,7 @@
-import asyncio
-import contextvars
-import threading
 import typing
+import asyncio
+import threading
+import contextvars
 
 from structlog import get_logger
 from temporalio import activity

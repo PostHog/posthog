@@ -1,12 +1,12 @@
-import asyncio
-import dataclasses
-import datetime as dt
 import json
-import statistics
 import typing
+import asyncio
+import datetime as dt
+import statistics
+import dataclasses
 
-import temporalio.activity
 import temporalio.common
+import temporalio.activity
 import temporalio.workflow
 from structlog import get_logger
 

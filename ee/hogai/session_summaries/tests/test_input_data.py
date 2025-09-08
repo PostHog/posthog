@@ -1,19 +1,21 @@
-from typing import Any
-import pytest
-from unittest.mock import patch, MagicMock
-from datetime import datetime
 import json
+from datetime import datetime
+from typing import Any
+
+import pytest
+from unittest.mock import MagicMock, patch
+
+from posthog.session_recordings.models.metadata import RecordingMetadata
 
 from ee.hogai.session_summaries.session.input_data import (
     COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT,
-    _skip_event_without_valid_context,
-    _get_improved_elements_chain_texts,
     _get_improved_elements_chain_elements,
+    _get_improved_elements_chain_texts,
+    _skip_event_without_valid_context,
+    _skip_exception_without_valid_context,
     add_context_and_filter_events,
     get_session_events,
-    _skip_exception_without_valid_context,
 )
-from posthog.session_recordings.models.metadata import RecordingMetadata
 
 
 @pytest.fixture

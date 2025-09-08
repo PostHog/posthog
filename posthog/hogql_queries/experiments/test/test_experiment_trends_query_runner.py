@@ -1,32 +1,25 @@
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
+from freezegun import freeze_time
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
+
 from django.test import override_settings
 from django.utils import timezone
+
 from flaky import flaky
-from freezegun import freeze_time
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.materialized_columns.columns import (
-    get_enabled_materialized_columns,
-    materialize,
-)
-from posthog.constants import ExperimentNoResultsErrorKeys
-from posthog.hogql.errors import QueryError
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.experiments.experiment_trends_query_runner import (
-    ExperimentTrendsQueryRunner,
-)
-from posthog.hogql_queries.experiments.types import ExperimentMetricType
-from posthog.models.action.action import Action
-from posthog.models.cohort.cohort import Cohort
-from posthog.models.experiment import Experiment, ExperimentHoldout
-from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.group.util import create_group
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
@@ -39,17 +32,24 @@ from posthog.schema import (
     PropertyMathType,
     TrendsQuery,
 )
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-)
+
+from posthog.hogql.errors import QueryError
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.constants import ExperimentNoResultsErrorKeys
+from posthog.hogql_queries.experiments.experiment_trends_query_runner import ExperimentTrendsQueryRunner
+from posthog.hogql_queries.experiments.types import ExperimentMetricType
+from posthog.models.action.action import Action
+from posthog.models.cohort.cohort import Cohort
+from posthog.models.experiment import Experiment, ExperimentHoldout
+from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.group.util import create_group
 from posthog.test.test_journeys import journeys_for
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.warehouse.models.join import DataWarehouseJoin
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
+
+from ee.clickhouse.materialized_columns.columns import get_enabled_materialized_columns, materialize
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery"
 

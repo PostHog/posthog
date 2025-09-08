@@ -1,6 +1,6 @@
 from django.db import models
 
-from posthog.models.utils import CreatedMetaFields, UUIDTModel, UpdatedMetaFields, sane_repr, RootTeamMixin
+from posthog.models.utils import CreatedMetaFields, RootTeamMixin, UpdatedMetaFields, UUIDTModel, sane_repr
 
 
 class InsightVariable(UUIDTModel, RootTeamMixin, CreatedMetaFields, UpdatedMetaFields):

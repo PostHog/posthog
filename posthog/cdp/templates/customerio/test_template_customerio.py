@@ -1,13 +1,16 @@
-from inline_snapshot import snapshot
 import pytest
-from common.hogvm.python.utils import UncaughtHogVMException
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
+from posthog.test.base import BaseTest
+
+from inline_snapshot import snapshot
+
 from posthog.cdp.templates.customerio.template_customerio import (
     TemplateCustomerioMigrator,
     template as template_customerio,
 )
+from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.models.plugin import PluginConfig
-from posthog.test.base import BaseTest
+
+from common.hogvm.python.utils import UncaughtHogVMException
 
 
 def create_inputs(**kwargs):

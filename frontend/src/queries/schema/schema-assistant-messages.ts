@@ -7,6 +7,7 @@ import {
     AssistantRetentionQuery,
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
+import { FunnelsQuery, HogQLQuery, RetentionQuery, TrendsQuery } from './schema-general'
 
 // re-export MaxBillingContext to make it available in the schema
 export type { MaxBillingContext }
@@ -33,8 +34,11 @@ export enum AssistantMessageType {
     Assistant = 'ai',
     Reasoning = 'ai/reasoning',
     Visualization = 'ai/viz',
+    MultiVisualization = 'ai/multi_viz',
     Failure = 'ai/failure',
     Notebook = 'ai/notebook',
+    Planning = 'ai/planning',
+    TaskExecution = 'ai/task_execution',
 }
 
 export interface BaseAssistantMessage {
@@ -84,13 +88,30 @@ export interface ReasoningMessage extends BaseAssistantMessage {
     substeps?: string[]
 }
 
-export interface VisualizationMessage extends BaseAssistantMessage {
-    type: AssistantMessageType.Visualization
+/**
+ * The union type with all cleaned queries for the assistant. Only used for generating the schemas with an LLM.
+ */
+export type AnyAssistantGeneratedQuery =
+    | AssistantTrendsQuery
+    | AssistantFunnelsQuery
+    | AssistantRetentionQuery
+    | AssistantHogQLQuery
+
+/**
+ * The union type with all supported base queries for the assistant.
+ */
+export type AnyAssistantSupportedQuery = TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery
+
+export interface VisualizationItem {
     /** @default '' */
     query: string
     plan?: string
-    answer: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+    answer: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery
     initiator?: string
+}
+
+export interface VisualizationMessage extends BaseAssistantMessage, VisualizationItem {
+    type: AssistantMessageType.Visualization
 }
 
 export interface FailureMessage extends BaseAssistantMessage {
@@ -105,13 +126,59 @@ export interface NotebookUpdateMessage extends BaseAssistantMessage {
     tool_calls?: AssistantToolCall[]
 }
 
+export enum PlanningStepStatus {
+    Pending = 'pending',
+    InProgress = 'in_progress',
+    Completed = 'completed',
+}
+
+export interface PlanningStep {
+    description: string
+    status: PlanningStepStatus
+}
+
+export interface PlanningMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.Planning
+    steps: PlanningStep[]
+}
+
+export enum TaskExecutionStatus {
+    Pending = 'pending',
+    InProgress = 'in_progress',
+    Completed = 'completed',
+    Failed = 'failed',
+}
+
+export interface TaskExecutionItem {
+    id: string
+    description: string
+    prompt: string
+    status: TaskExecutionStatus
+    artifact_ids?: string[]
+    progress_text?: string
+}
+
+export interface TaskExecutionMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.TaskExecution
+    tasks: TaskExecutionItem[]
+}
+
+export interface MultiVisualizationMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.MultiVisualization
+    visualizations: VisualizationItem[]
+    commentary?: string
+}
+
 export type RootAssistantMessage =
     | VisualizationMessage
+    | MultiVisualizationMessage
     | ReasoningMessage
     | AssistantMessage
     | HumanMessage
     | FailureMessage
     | NotebookUpdateMessage
+    | PlanningMessage
+    | TaskExecutionMessage
     | (AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>>)
 
 export enum AssistantEventType {

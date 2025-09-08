@@ -1,19 +1,18 @@
-import datetime
-import json
 import re
+import json
+import datetime
 from typing import cast
+
+from posthog.models import Team
+from posthog.session_recordings.constants import COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT, EXTRA_SUMMARY_EVENT_FIELDS
+from posthog.session_recordings.models.metadata import RecordingMetadata
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 from ee.hogai.session_summaries.local.input_data import (
     _get_production_session_events_locally,
     _get_production_session_metadata_locally,
 )
-from ee.hogai.session_summaries.utils import (
-    get_column_index,
-)
-from posthog.session_recordings.models.metadata import RecordingMetadata
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.models import Team
-from posthog.session_recordings.constants import EXTRA_SUMMARY_EVENT_FIELDS, COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT
+from ee.hogai.session_summaries.utils import get_column_index
 
 
 def get_team(team_id: int) -> Team:

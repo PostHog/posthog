@@ -1,11 +1,11 @@
 from posthog.hogql.database.models import (
+    BooleanDatabaseField,
     DatabaseField,
+    DateTimeDatabaseField,
+    FieldOrTable,
     IntegerDatabaseField,
     StringDatabaseField,
-    DateTimeDatabaseField,
     Table,
-    FieldOrTable,
-    BooleanDatabaseField,
 )
 
 DEVICE_BROWSER_FIELDS = {
@@ -48,6 +48,8 @@ SHARED_SCHEMA_FIELDS = {
     **UTM_FIELDS,
     **ATTRIBUTION_FIELDS,
     **PATH_FIELDS,
+    "mat_metadata_loggedIn": BooleanDatabaseField(name="mat_metadata_loggedIn", nullable=True),
+    "mat_metadata_backend": StringDatabaseField(name="mat_metadata_backend", nullable=True),
 }
 
 

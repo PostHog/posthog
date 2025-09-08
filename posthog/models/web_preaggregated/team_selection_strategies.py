@@ -2,8 +2,9 @@ import os
 from abc import ABC, abstractmethod
 
 import dagster
-from posthog.models.team.team import Team
+
 from posthog.clickhouse.client import sync_execute
+from posthog.models.team.team import Team
 from posthog.models.web_preaggregated.team_selection import (
     DEFAULT_TOP_TEAMS_BY_PAGEVIEWS_LIMIT,
     get_top_teams_by_median_pageviews_sql,

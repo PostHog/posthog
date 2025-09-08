@@ -1,28 +1,27 @@
 import time
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Literal, Optional, Union, cast, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
-import structlog
 from django.conf import settings
 from django.db import connection, models
 from django.db.models import Q, QuerySet
 from django.db.models.expressions import F
-
 from django.utils import timezone
-from posthog.exceptions_capture import capture_exception
+
+import structlog
 
 from posthog.constants import PropertyOperatorType
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.batch_iterators import ArrayBatchIterator, BatchIterator, FunctionBatchIterator
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.filters.filter import Filter
-from posthog.models.person import Person
+from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.person import READ_DB_FOR_PERSONS
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.settings.base_variables import TEST
-from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.person import PersonDistinctId
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -500,7 +499,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             for person in self.people.all()
         ]
 
-        from posthog.models.activity_logging.activity_log import field_exclusions, common_field_exclusions
+        from posthog.models.activity_logging.activity_log import common_field_exclusions, field_exclusions
 
         excluded_fields = field_exclusions.get("Cohort", []) + common_field_exclusions
         base_dict = {

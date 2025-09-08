@@ -111,11 +111,12 @@ export function initKea({
         loadersPlugin({
             onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
                 // Toast if it's a fetch error or a specific API update error
+                const isLoadAction = typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     error?.status !== undefined &&
-                    ![200, 201, 204, 401].includes(error.status)
-                    // 401 is handled by api.ts and the userLogic
+                    ![200, 201, 204, 401].includes(error.status) && // 401 is handled by api.ts and the userLogic
+                    !(isLoadAction && error.status === 403) // 403 access denied is handled by sceneLogic gates
                 ) {
                     let errorMessage = error.detail || error.statusText
 

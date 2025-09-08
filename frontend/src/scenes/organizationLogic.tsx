@@ -29,6 +29,7 @@ export type OrganizationUpdatePayload = Partial<
         | 'is_ai_data_processing_approved'
         | 'default_experiment_stats_method'
         | 'allow_publicly_shared_resources'
+        | 'default_role_id'
     >
 >
 

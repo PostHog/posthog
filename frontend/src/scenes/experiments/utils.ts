@@ -16,11 +16,15 @@ import {
     ExperimentTrendsQuery,
     NodeKind,
     TrendsQuery,
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
+    isExperimentRatioMetric,
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
 import {
     ChartDisplayType,
     Experiment,
+    ExperimentMetricGoal,
     ExperimentMetricMathType,
     FeatureFlagFilters,
     FeatureFlagType,
@@ -192,7 +196,7 @@ export function getViewRecordingFilters(
      * for mean metrics, we add the single action/event to the filters
      */
     if (
-        metric.metric_type === ExperimentMetricType.MEAN &&
+        isExperimentMeanMetric(metric) &&
         (metric.source.kind === NodeKind.EventsNode || metric.source.kind === NodeKind.ActionsNode)
     ) {
         const meanFilter = seriesToFilter(metric.source)
@@ -204,7 +208,7 @@ export function getViewRecordingFilters(
     /**
      * for funnel metrics, we need to add each element in the series as a filter
      */
-    if (metric.metric_type === ExperimentMetricType.FUNNEL) {
+    if (isExperimentFunnelMetric(metric)) {
         metric.series.forEach((series) => {
             const funnelMetric = seriesToFilter(series)
             if (funnelMetric) {
@@ -216,7 +220,7 @@ export function getViewRecordingFilters(
     /**
      * for ratio metrics, we add both numerator and denominator events to the filters
      */
-    if (metric.metric_type === ExperimentMetricType.RATIO) {
+    if (isExperimentRatioMetric(metric)) {
         const numeratorFilter = seriesToFilter(metric.numerator)
         const denominatorFilter = seriesToFilter(metric.denominator)
 
@@ -238,7 +242,7 @@ export function getViewRecordingFiltersLegacy(
 ): UniversalFiltersGroupValue[] {
     const filters: UniversalFiltersGroupValue[] = []
     if (metric.kind === NodeKind.ExperimentMetric) {
-        if (metric.metric_type === ExperimentMetricType.MEAN) {
+        if (isExperimentMeanMetric(metric)) {
             if (metric.source.kind === NodeKind.EventsNode) {
                 return [
                     {
@@ -317,6 +321,7 @@ export function featureFlagEligibleForExperiment(featureFlag: FeatureFlagType): 
 export function getDefaultTrendsMetric(): ExperimentTrendsQuery {
     return {
         kind: NodeKind.ExperimentTrendsQuery,
+        uuid: uuid(),
         count_query: {
             kind: NodeKind.TrendsQuery,
             series: [
@@ -343,6 +348,7 @@ export function getDefaultTrendsMetric(): ExperimentTrendsQuery {
 export function getDefaultFunnelsMetric(): ExperimentFunnelsQuery {
     return {
         kind: NodeKind.ExperimentFunnelsQuery,
+        uuid: uuid(),
         funnels_query: {
             kind: NodeKind.FunnelsQuery,
             filterTestAccounts: true,
@@ -381,6 +387,7 @@ export function getDefaultFunnelMetric(): ExperimentMetric {
         kind: NodeKind.ExperimentMetric,
         uuid: uuid(),
         metric_type: ExperimentMetricType.FUNNEL,
+        goal: ExperimentMetricGoal.Increase,
         series: [
             {
                 kind: NodeKind.EventsNode,
@@ -399,6 +406,7 @@ export function getDefaultCountMetric(): ExperimentMetric {
         kind: NodeKind.ExperimentMetric,
         uuid: uuid(),
         metric_type: ExperimentMetricType.MEAN,
+        goal: ExperimentMetricGoal.Increase,
         source: {
             kind: NodeKind.EventsNode,
             event: '$pageview',
@@ -412,6 +420,7 @@ export function getDefaultRatioMetric(): ExperimentMetric {
         kind: NodeKind.ExperimentMetric,
         uuid: uuid(),
         metric_type: ExperimentMetricType.RATIO,
+        goal: ExperimentMetricGoal.Increase,
         numerator: {
             kind: NodeKind.EventsNode,
             event: '$pageview',
@@ -427,9 +436,6 @@ export function getDefaultRatioMetric(): ExperimentMetric {
     }
 }
 
-/**
- * TODO: review. Probably deprecated
- */
 export function getDefaultExperimentMetric(metricType: ExperimentMetricType): ExperimentMetric {
     switch (metricType) {
         case ExperimentMetricType.FUNNEL:
@@ -453,6 +459,7 @@ export function getExperimentMetricFromInsight(insight: QueryBasedInsightModel |
             kind: NodeKind.ExperimentMetric,
             uuid: uuid(),
             metric_type: ExperimentMetricType.FUNNEL,
+            goal: ExperimentMetricGoal.Increase,
             name: metricName,
             series: insight.query.source.series.map((series) => ({
                 ...series,
@@ -480,6 +487,7 @@ export function getExperimentMetricFromInsight(insight: QueryBasedInsightModel |
             kind: NodeKind.ExperimentMetric,
             uuid: uuid(),
             metric_type: ExperimentMetricType.MEAN,
+            goal: ExperimentMetricGoal.Increase,
             name: metricName,
             source: {
                 ...firstSeries,
@@ -562,6 +570,8 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): Experimen
             return [
                 ExperimentMetricMathType.TotalCount,
                 ExperimentMetricMathType.Sum,
+                ExperimentMetricMathType.UniqueUsers,
+                ExperimentMetricMathType.UniqueGroup,
                 ExperimentMetricMathType.Avg,
                 ExperimentMetricMathType.Min,
                 ExperimentMetricMathType.Max,
@@ -572,6 +582,9 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): Experimen
             return [
                 ExperimentMetricMathType.TotalCount,
                 ExperimentMetricMathType.Sum,
+                ExperimentMetricMathType.UniqueUsers,
+                ExperimentMetricMathType.UniqueGroup,
+                ExperimentMetricMathType.UniqueSessions,
                 ExperimentMetricMathType.Avg,
                 ExperimentMetricMathType.Min,
                 ExperimentMetricMathType.Max,
@@ -620,10 +633,10 @@ export const isLegacySharedMetric = ({ query }: SharedMetric): boolean => isLega
 export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts: boolean): TrendsQuery | null {
     let series: AnyEntityNode[] = []
 
-    if (metric.metric_type === ExperimentMetricType.MEAN || metric.metric_type === ExperimentMetricType.RATIO) {
+    if (isExperimentMeanMetric(metric) || isExperimentRatioMetric(metric)) {
         let source: ExperimentMetricSource
         // For now, we simplify things by just showing the number of numerator events for ratio metrics
-        if (metric.metric_type === ExperimentMetricType.RATIO) {
+        if (isExperimentRatioMetric(metric)) {
             source = metric.numerator
         } else {
             source = metric.source
@@ -663,7 +676,7 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
                 },
             ]
         }
-    } else if (metric.metric_type === ExperimentMetricType.FUNNEL) {
+    } else if (isExperimentFunnelMetric(metric)) {
         const lastStep = metric.series[metric.series.length - 1]
         if (lastStep) {
             if (lastStep.kind === NodeKind.EventsNode) {
@@ -711,4 +724,86 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
         interval: 'day',
         filterTestAccounts,
     }
+}
+
+/**
+ * Appends a metric UUID to the appropriate ordering array
+ * Returns a new array with the UUID added
+ */
+export function appendMetricToOrderingArray(experiment: Experiment, uuid: string, isSecondary: boolean): string[] {
+    const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
+    const orderingArray = experiment[orderingField] ?? []
+
+    if (!orderingArray.includes(uuid)) {
+        return [...orderingArray, uuid]
+    }
+
+    return orderingArray
+}
+
+/**
+ * Removes a metric UUID from the appropriate ordering array
+ * Returns a new array with the UUID removed
+ */
+export function removeMetricFromOrderingArray(experiment: Experiment, uuid: string, isSecondary: boolean): string[] {
+    const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
+    const orderingArray = experiment[orderingField] ?? []
+
+    return orderingArray.filter((existingUuid) => existingUuid !== uuid)
+}
+
+/**
+ * Inserts a metric UUID into the ordering array right after another UUID
+ * Returns a new array with the UUID inserted at the correct position
+ */
+export function insertMetricIntoOrderingArray(
+    experiment: Experiment,
+    newUuid: string,
+    afterUuid: string,
+    isSecondary: boolean
+): string[] {
+    const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
+    const orderingArray = experiment[orderingField] ?? []
+
+    const afterIndex = orderingArray.indexOf(afterUuid)
+
+    const newArray = [...orderingArray]
+    newArray.splice(afterIndex + 1, 0, newUuid)
+    return newArray
+}
+
+/**
+ * Initialize ordering arrays for metrics if they're null
+ * Returns a new experiment object with initialized ordering arrays
+ */
+export function initializeMetricOrdering(experiment: Experiment): Experiment {
+    const newExperiment = { ...experiment }
+
+    // Initialize primary_metrics_ordered_uuids if it's null
+    if (newExperiment.primary_metrics_ordered_uuids === null) {
+        const primaryMetrics = newExperiment.metrics || []
+        const sharedPrimaryMetrics = (newExperiment.saved_metrics || []).filter(
+            (sharedMetric: any) => sharedMetric.metadata.type === 'primary'
+        )
+
+        const allMetrics = [...primaryMetrics, ...sharedPrimaryMetrics]
+        newExperiment.primary_metrics_ordered_uuids = allMetrics
+            .map((metric: any) => metric.uuid || metric.query?.uuid)
+            .filter(Boolean)
+    }
+
+    // Initialize secondary_metrics_ordered_uuids if it's null
+    if (newExperiment.secondary_metrics_ordered_uuids === null) {
+        const secondaryMetrics = newExperiment.metrics_secondary || []
+        const sharedSecondaryMetrics = (newExperiment.saved_metrics || []).filter(
+            (sharedMetric: any) => sharedMetric.metadata.type === 'secondary'
+        )
+
+        const allMetrics = [...secondaryMetrics, ...sharedSecondaryMetrics]
+        newExperiment.secondary_metrics_ordered_uuids = allMetrics
+            .map((metric: any) => metric.uuid || metric.query?.uuid)
+            .filter(Boolean)
+    }
+
+    return newExperiment
 }

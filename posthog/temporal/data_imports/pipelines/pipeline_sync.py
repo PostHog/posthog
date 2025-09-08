@@ -3,18 +3,19 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Optional
 
-import dlt
-import dlt.common
-import dlt.common.libs
-import dlt.common.libs.pyarrow
-import dlt.extract
-import dlt.extract.incremental
-import dlt.extract.incremental.transform
-import pendulum
-import pyarrow
-from clickhouse_driver.errors import ServerException
 from django.conf import settings
 from django.db.models import Prefetch
+
+import dlt
+import pyarrow
+import pendulum
+import dlt.common
+import dlt.extract
+import dlt.common.libs
+import dlt.common.libs.pyarrow
+import dlt.extract.incremental
+import dlt.extract.incremental.transform
+from clickhouse_driver.errors import ServerException
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.exceptions_capture import capture_exception

@@ -1,10 +1,11 @@
-import collections.abc
 import io
 import random
 import string
+import collections.abc
+
+import pytest
 
 import pyarrow as pa
-import pytest
 
 from posthog.temporal.common import asyncpa
 

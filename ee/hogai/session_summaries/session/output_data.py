@@ -1,8 +1,10 @@
 from datetime import datetime
 from typing import Any
-from rest_framework import serializers
+
 import yaml
 import structlog
+from rest_framework import serializers
+
 from ee.hogai.session_summaries import SummaryValidationError
 from ee.hogai.session_summaries.constants import HALLUCINATED_EVENTS_MIN_RATIO
 from ee.hogai.session_summaries.utils import (

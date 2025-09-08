@@ -122,6 +122,7 @@ export function PropertyFilters({
                                     showConditionBadge={showConditionBadge}
                                     disablePopover={disablePopover || orFiltering}
                                     label={buttonText}
+                                    size={buttonSize}
                                     onRemove={remove}
                                     orFiltering={orFiltering}
                                     editable={editable}

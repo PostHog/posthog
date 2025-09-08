@@ -1,15 +1,11 @@
 import pytest
+from posthog.test.base import BaseTest
+
 from django.db.utils import IntegrityError
 
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import (
-    ActivityLog,
-    Change,
-    Detail,
-    log_activity,
-)
+from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, log_activity
 from posthog.models.utils import UUIDT
-from posthog.test.base import BaseTest
 
 
 class TestActivityLogModel(BaseTest):

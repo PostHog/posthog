@@ -1,20 +1,22 @@
-from datetime import datetime, timedelta, UTC
 import time
+from datetime import UTC, datetime, timedelta
 from typing import Optional
-from unittest.mock import patch, MagicMock
+
+import pytest
+from freezegun import freeze_time
+from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
 
 from django.db import connection
-from freezegun import freeze_time
-import pytest
+
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import (
+    GitHubIntegration,
+    GoogleCloudIntegration,
     Integration,
     OauthIntegration,
     SlackIntegration,
-    GoogleCloudIntegration,
-    GitHubIntegration,
 )
-from posthog.test.base import BaseTest
 
 
 def get_db_field_value(field, model_id):

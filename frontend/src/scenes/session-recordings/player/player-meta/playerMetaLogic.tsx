@@ -11,7 +11,13 @@ import api from 'lib/api'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { capitalizeFirstLetter, ceilMsToClosestSecond, humanFriendlyDuration, percentage } from 'lib/utils'
+import {
+    capitalizeFirstLetter,
+    ceilMsToClosestSecond,
+    humanFriendlyDuration,
+    isEmptyObject,
+    percentage,
+} from 'lib/utils'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { OverviewItem } from 'scenes/session-recordings/components/OverviewGrid'
 import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
@@ -81,26 +87,17 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
             sessionRecordingDataLogic(props),
-            [
-                'urls',
-                'sessionPlayerData',
-                'sessionEventsData',
-                'sessionPlayerMetaData',
-                'sessionPlayerMetaDataLoading',
-                'snapshotsLoading',
-                'windowIds',
-                'trackedWindow',
-            ],
+            ['urls', 'sessionPlayerData', 'sessionEventsData', 'sessionPlayerMetaData', 'windowIds', 'trackedWindow'],
             sessionRecordingPlayerLogic(props),
             ['scale', 'currentTimestamp', 'currentPlayerTime', 'currentSegment', 'currentURL', 'resolution'],
             sessionRecordingsListPropertiesLogic,
-            ['recordingPropertiesById', 'recordingPropertiesLoading'],
+            ['recordingPropertiesById'],
         ],
         actions: [
             sessionRecordingDataLogic(props),
             ['loadRecordingMetaSuccess', 'setTrackedWindow'],
             sessionRecordingsListPropertiesLogic,
-            ['maybeLoadPropertiesForSessions'],
+            ['maybeLoadPropertiesForSessions', 'loadPropertiesForSessionsSuccess'],
         ],
     })),
     actions({
@@ -133,9 +130,12 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
     })),
     selectors(() => ({
         loading: [
-            (s) => [s.sessionPlayerMetaDataLoading, s.snapshotsLoading, s.recordingPropertiesLoading],
-            (sessionPlayerMetaDataLoading, snapshotsLoading, recordingPropertiesLoading) =>
-                sessionPlayerMetaDataLoading || snapshotsLoading || recordingPropertiesLoading,
+            (s) => [s.sessionPlayerMetaData, s.recordingPropertiesById],
+            (sessionPlayerMetaData, recordingPropertiesById) => {
+                const hasSessionPlayerMetadata = !!sessionPlayerMetaData && !isEmptyObject(sessionPlayerMetaData)
+                const hasRecordingProperties = !!recordingPropertiesById && !isEmptyObject(recordingPropertiesById)
+                return !hasSessionPlayerMetadata || !hasRecordingProperties
+            },
         ],
         sessionPerson: [
             (s) => [s.sessionPlayerData],

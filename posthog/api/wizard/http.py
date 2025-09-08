@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import hashlib
 import json
+import hashlib
 
-import posthoganalytics
 from django.core.cache import cache
 from django.utils.crypto import get_random_string
+
+import posthoganalytics
 from google.genai.types import GenerateContentConfig, Schema
 from openai.types.chat import (
     ChatCompletionMessageParam,

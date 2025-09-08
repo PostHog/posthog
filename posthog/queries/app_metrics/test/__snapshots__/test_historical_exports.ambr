@@ -30,7 +30,7 @@
                  category)
      GROUP BY date
      ORDER BY date WITH FILL
-     FROM dateTrunc('hour', toDateTime('2021-08-25 00:00:00'), 'UTC') TO dateTrunc('hour', toDateTime('2021-08-25 06:00:00') + toIntervalHour(1), 'UTC') STEP 3600)
+     FROM dateTrunc('hour', toDateTime64('2021-08-25 00:00:00', 0, 'UTC'), 'UTC') TO dateTrunc('hour', toDateTime64('2021-08-25 06:00:00', 0, 'UTC') + toIntervalHour(1), 'UTC') STEP toIntervalHour(1))
   '''
 # ---
 # name: TestHistoricalExports.test_historical_export_metrics.1

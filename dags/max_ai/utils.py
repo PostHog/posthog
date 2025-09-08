@@ -4,9 +4,10 @@ from contextlib import contextmanager
 from datetime import datetime
 from tempfile import TemporaryFile
 
+from django.conf import settings
+
 import botocore
 from dagster_aws.s3 import S3Resource
-from django.conf import settings
 from fastavro import parse_schema, writer
 from pydantic_avro import AvroBase
 from tenacity import retry, stop_after_attempt, wait_exponential

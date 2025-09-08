@@ -1,6 +1,8 @@
 import {
+    Edge,
     EdgeChange,
     MarkerType,
+    Node,
     NodeChange,
     Position,
     ReactFlowInstance,
@@ -8,14 +10,17 @@ import {
     applyNodeChanges,
     getOutgoers,
 } from '@xyflow/react'
-import { Edge, Node } from '@xyflow/react'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { lazyLoaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import type { DragEvent } from 'react'
+import type { DragEvent, RefObject } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { AppMetricsTotalsRequest, loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
 import { uuid } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { CampaignLogicProps, campaignLogic } from '../campaignLogic'
@@ -29,7 +34,18 @@ import type { HogFlow, HogFlowAction, HogFlowActionNode } from './types'
 
 const getEdgeId = (edge: HogFlow['edges'][number]): string => `${edge.from}->${edge.to} ${edge.index ?? ''}`.trim()
 
-export type HogFlowEditorMode = 'build' | 'test'
+export const HOG_FLOW_EDITOR_MODES = ['build', 'test', 'metrics', 'logs'] as const
+export type HogFlowEditorMode = (typeof HOG_FLOW_EDITOR_MODES)[number]
+export type HogFlowEditorActionMetrics = {
+    actionId: string
+    succeeded: number
+    failed: number
+    filtered: number
+}
+
+export type CreateActionType = Pick<HogFlowAction, 'type' | 'config' | 'name' | 'description'> & {
+    branchEdges?: number
+}
 
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as CampaignLogicProps),
@@ -38,13 +54,19 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     connect((props: CampaignLogicProps) => ({
         values: [
             campaignLogic(props),
-            ['campaign', 'edgesByActionId'],
+            ['campaign', 'edgesByActionId', 'hogFunctionTemplatesById'],
             optOutCategoriesLogic(),
             ['categories', 'categoriesLoading'],
         ],
         actions: [
             campaignLogic(props),
-            ['setCampaignInfo', 'setCampaignActionConfig', 'setCampaignAction', 'setCampaignActionEdges'],
+            [
+                'setCampaignInfo',
+                'setCampaignActionConfig',
+                'setCampaignAction',
+                'setCampaignActionEdges',
+                'loadCampaignSuccess',
+            ],
             optOutCategoriesLogic(),
             ['loadCategories'],
         ],
@@ -62,12 +84,15 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setReactFlowInstance: (reactFlowInstance: ReactFlowInstance<Node, Edge>) => ({
             reactFlowInstance,
         }),
+        setReactFlowWrapper: (reactFlowWrapper: RefObject<HTMLDivElement>) => ({ reactFlowWrapper }),
         onDragStart: true,
         onDragOver: (event: DragEvent) => ({ event }),
         onDrop: (event: DragEvent) => ({ event }),
-        setNewDraggingNode: (newDraggingNode: HogFlowAction['type'] | null) => ({ newDraggingNode }),
+        setNewDraggingNode: (newDraggingNode: CreateActionType | null) => ({ newDraggingNode }),
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
+        loadActionMetricsById: (params: AppMetricsTotalsRequest, timezone: string) => ({ params, timezone }),
+        fitView: (options: { duration?: number; noZoom?: boolean } = {}) => options,
     }),
     reducers(() => ({
         mode: [
@@ -108,7 +133,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ],
 
         newDraggingNode: [
-            null as HogFlowAction['type'] | null,
+            null as CreateActionType | null,
             {
                 setNewDraggingNode: (_, { newDraggingNode }) => newDraggingNode,
             },
@@ -118,6 +143,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             null as ReactFlowInstance<Node, Edge> | null,
             {
                 setReactFlowInstance: (_, { reactFlowInstance }) => reactFlowInstance,
+            },
+        ],
+        reactFlowWrapper: [
+            null as RefObject<HTMLDivElement> | null,
+            {
+                setReactFlowWrapper: (_, { reactFlowWrapper }) => reactFlowWrapper,
             },
         ],
     })),
@@ -141,7 +172,53 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 return nodes.find((node) => node.id === selectedNodeId) ?? null
             },
         ],
+        selectedNodeCanBeDeleted: [
+            (s) => [s.selectedNode, s.nodes, s.edges],
+            (selectedNode, nodes, edges) => {
+                if (!selectedNode) {
+                    return false
+                }
+
+                const outgoingNodes = getOutgoers(selectedNode, nodes, edges)
+                if (outgoingNodes.length === 1) {
+                    return true
+                }
+
+                return new Set(outgoingNodes.map((node) => node.id)).size === 1
+            },
+        ],
     }),
+    lazyLoaders(() => ({
+        actionMetricsById: [
+            null as Record<string, HogFlowEditorActionMetrics> | null,
+            {
+                loadActionMetricsById: async ({ params, timezone }, breakpoint) => {
+                    await breakpoint(10)
+                    const response = await loadAppMetricsTotals(params, timezone)
+                    await breakpoint(10)
+
+                    const res: Record<string, HogFlowEditorActionMetrics> = {}
+                    Object.values(response).forEach((value) => {
+                        const [instanceId, metricName] = value.breakdowns
+                        if (!instanceId || !metricName) {
+                            return
+                        }
+                        res[instanceId] = res[instanceId] || {
+                            actionId: instanceId,
+                            succeeded: 0,
+                            failed: 0,
+                            filtered: 0,
+                        }
+                        if (metricName in res[instanceId]) {
+                            ;(res[instanceId] as any)[metricName] = value.total
+                        }
+                    })
+
+                    return res
+                },
+            },
+        ],
+    })),
     listeners(({ values, actions }) => ({
         onEdgesChange: ({ edges }) => {
             actions.setEdges(applyEdgeChanges(edges, values.edges))
@@ -211,15 +288,18 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 })
 
                 const nodes: HogFlowActionNode[] = hogFlow.actions.map((action: HogFlowAction) => {
-                    const step = getHogFlowStep(action.type)
+                    const step = getHogFlowStep(action, values.hogFunctionTemplatesById)
+
                     if (!step) {
-                        console.error(`Step not found for action type: ${action.type}`)
-                        throw new Error(`Step not found for action type: ${action.type}`)
+                        // Migrate old function actions to the basic functon action type
+                        if (action.type.startsWith('function_')) {
+                            action.type = 'function'
+                        }
                     }
 
                     return {
                         id: action.id,
-                        type: action.type,
+                        type: 'action',
                         data: action,
                         position: { x: 0, y: 0 },
                         handles: Object.values(handlesByIdByNodeId[action.id] ?? {}),
@@ -331,21 +411,25 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
             if (values.newDraggingNode && dropzoneNode) {
                 const edgeToInsertNodeInto = dropzoneNode?.data.edge
-                const step = getHogFlowStep(values.newDraggingNode)
-
-                if (!step) {
-                    throw new Error(`Step not found for action type: ${values.newDraggingNode}`)
-                }
-
-                const { action: partialNewAction, branchEdges = 0 } = step.create()
+                const partialNewAction = values.newDraggingNode
 
                 const newAction = {
-                    id: `action_${step.type}_${uuid()}`,
-                    type: step.type,
+                    id: `action_${partialNewAction.type}_${uuid()}`,
+                    type: partialNewAction.type,
+                    name: partialNewAction.name,
+                    description: partialNewAction.description,
+                    config: partialNewAction.config,
                     created_at: Date.now(),
                     updated_at: Date.now(),
-                    ...partialNewAction,
                 } as HogFlowAction
+
+                const step = getHogFlowStep(newAction, values.hogFunctionTemplatesById)
+
+                const branchEdges = partialNewAction.branchEdges ?? 0
+
+                if (!step) {
+                    throw new Error(`Step not found for action type: ${newAction}`)
+                }
 
                 const edgeToBeReplacedIndex = values.campaign.edges.findIndex(
                     (edge) => getEdgeId(edge) === edgeToInsertNodeInto.id
@@ -398,6 +482,45 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             // We can clear the dropzones now
             actions.setDropzoneNodes([])
         },
+        setReactFlowInstance: () => {
+            // TRICKY: Slight race condition here where the react flow instance is not set yet
+            setTimeout(() => {
+                actions.fitView({ duration: 0 })
+            }, 100)
+        },
+        setSelectedNodeId: ({ selectedNodeId }) => {
+            if (selectedNodeId) {
+                actions.fitView({ noZoom: true })
+            }
+        },
+        fitView: ({ duration, noZoom }) => {
+            const { reactFlowWrapper, reactFlowInstance } = values
+            if (!reactFlowWrapper?.current || !reactFlowInstance) {
+                return
+            }
+            // This is a rough estimate which we could improve by getting from the actual panel
+            const PANEL_WIDTH = 580
+            // Get the width of the wrapper
+            const wrapperWidth = reactFlowWrapper.current.getBoundingClientRect()?.width ?? 0
+            // Get the width of the thing we are going to fit to the view
+            const nodesWidth =
+                reactFlowInstance.getNodesBounds(values.selectedNode ? [values.selectedNode] : values.nodes)?.width ?? 0
+            // Adjust the width for the zoom factor to be relative to the wrapper width
+            const nodesWidthAdjusted = nodesWidth * reactFlowInstance.getZoom()
+            // Calculate the padding right to fit the panel width to the wrapper width
+            // Looks complicated but its basically the difference between the wrapper width and the nodes width adjusted for the zoom factor
+            const paddingRight = wrapperWidth - nodesWidthAdjusted / 2 - (wrapperWidth - PANEL_WIDTH) / 2
+
+            reactFlowInstance.fitView({
+                padding: {
+                    right: `${paddingRight}px`,
+                },
+                maxZoom: noZoom ? reactFlowInstance.getZoom() : undefined,
+                minZoom: noZoom ? reactFlowInstance.getZoom() : undefined,
+                nodes: values.selectedNode ? [values.selectedNode] : values.nodes,
+                duration: duration ?? 100,
+            })
+        },
     })),
 
     subscriptions(({ actions }) => ({
@@ -407,4 +530,40 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             }
         },
     })),
+
+    actionToUrl(({ values }) => {
+        const syncProperty = (
+            key: string,
+            value: string | null
+        ): [string, Record<string, any>, Record<string, any>] => {
+            return [
+                router.values.location.pathname,
+                {
+                    ...router.values.searchParams,
+                    [key]: value,
+                },
+                router.values.hashParams,
+            ]
+        }
+
+        return {
+            setSelectedNodeId: () => syncProperty('node', values.selectedNodeId ?? null),
+            setMode: () => syncProperty('mode', values.mode),
+        }
+    }),
+    urlToAction(({ actions, values }) => {
+        const reactToTabChange = (_: any, search: Record<string, string>): void => {
+            const { node = null, mode } = search
+            if (node !== values.selectedNodeId) {
+                actions.setSelectedNodeId(node ?? null)
+            }
+            if (mode && HOG_FLOW_EDITOR_MODES.includes(mode as HogFlowEditorMode) && mode !== values.mode) {
+                actions.setMode(mode as HogFlowEditorMode)
+            }
+        }
+
+        return {
+            [urls.messagingCampaign(':id', ':tab')]: reactToTabChange,
+        }
+    }),
 ])

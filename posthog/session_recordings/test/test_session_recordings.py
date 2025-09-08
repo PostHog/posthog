@@ -1,26 +1,9 @@
 from datetime import UTC, datetime, timedelta
 from typing import cast
-from unittest.mock import ANY, MagicMock, call, patch
 from urllib.parse import urlencode
 
-from dateutil.relativedelta import relativedelta
-from django.utils.timezone import now
-from freezegun import freeze_time
-from parameterized import parameterized
 import pytest
-from rest_framework import status
-
-from posthog.clickhouse.client import sync_execute
-from posthog.models import Organization, Person, SessionRecording, User
-from posthog.models.team import Team
-from posthog.models.utils import uuid7
-from posthog.schema import RecordingsQuery, LogEntryPropertyFilter
-from posthog.session_recordings.models.session_recording_event import (
-    SessionRecordingViewed,
-)
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
+from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -31,8 +14,24 @@ from posthog.test.base import (
     snapshot_postgres_queries,
     snapshot_postgres_queries_context,
 )
+from unittest.mock import ANY, MagicMock, call, patch
+
+from django.utils.timezone import now
+
 from clickhouse_driver.errors import ServerException
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries, CHQueryErrorCannotScheduleTask
+from dateutil.relativedelta import relativedelta
+from parameterized import parameterized
+from rest_framework import status
+
+from posthog.schema import LogEntryPropertyFilter, RecordingsQuery
+
+from posthog.clickhouse.client import sync_execute
+from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
+from posthog.models import Organization, Person, SessionRecording, User
+from posthog.models.team import Team
+from posthog.models.utils import uuid7
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 
 class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):

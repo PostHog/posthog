@@ -5,12 +5,7 @@ import dagster
 from clickhouse_driver.errors import Error, ErrorCodes
 
 from posthog.clickhouse import query_tagging
-from posthog.clickhouse.cluster import (
-    ClickhouseCluster,
-    ExponentialBackoff,
-    RetryPolicy,
-    get_cluster,
-)
+from posthog.clickhouse.cluster import ClickhouseCluster, ExponentialBackoff, RetryPolicy, get_cluster
 from posthog.clickhouse.custom_metrics import MetricsClient
 from posthog.clickhouse.query_tagging import DagsterTags
 

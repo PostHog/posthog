@@ -1,18 +1,17 @@
-from dataclasses import dataclass
-import collections.abc
-import datetime as dt
 import json
 import typing
+import datetime as dt
+import collections.abc
+from dataclasses import dataclass
 
 import requests
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
-from posthog.models.integration import Integration, ERROR_TOKEN_REFRESH_FAILED, MetaAdsIntegration
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, MetaAdsIntegration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
-from posthog.warehouse.types import IncrementalFieldType
 from posthog.temporal.data_imports.sources.meta_ads.schemas import RESOURCE_SCHEMAS
-
+from posthog.warehouse.types import IncrementalFieldType
 
 # Meta Ads API only supports data from the last 3 years
 META_ADS_MAX_HISTORY_DAYS = 3 * 365

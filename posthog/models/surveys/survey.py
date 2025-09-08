@@ -3,18 +3,19 @@ import uuid
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import QuerySet
-
-from posthog.models import Action
-from posthog.models.utils import UUIDTModel, RootTeamMixin
-from django.contrib.postgres.fields import ArrayField
-from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
-from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from dateutil.rrule import rrule, DAILY
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
+
+from dateutil.rrule import DAILY, rrule
 from django_deprecate_fields import deprecate_field
+
+from posthog.models import Action
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.utils import RootTeamMixin, UUIDTModel
 
 # we have seen users accidentally set a huge value for iteration count
 # and cause performance issues, so we are extra careful with this value

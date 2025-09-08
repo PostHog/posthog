@@ -1,15 +1,15 @@
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from freezegun import freeze_time
-
-from ee.tasks.subscriptions.slack_subscriptions import send_slack_subscription_report
-from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription
-from posthog.test.base import APIBaseTest
+
+from ee.tasks.subscriptions.slack_subscriptions import send_slack_subscription_report
+from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 
 @patch("ee.tasks.subscriptions.slack_subscriptions.SlackIntegration")

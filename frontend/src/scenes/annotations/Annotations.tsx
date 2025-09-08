@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconApps, IconPencil } from '@posthog/icons'
+import { IconNotification, IconPencil } from '@posthog/icons'
 import { LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
@@ -19,7 +19,9 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationScope, AnnotationType, InsightShortId, ProductKey } from '~/types'
 
@@ -153,7 +155,7 @@ export function Annotations(): JSX.Element {
                 resourceType={{
                     type: 'annotation',
                     typePlural: 'annotations',
-                    forceIcon: <IconApps />,
+                    forceIcon: <IconNotification />,
                 }}
             />
             <SceneDivider />

@@ -1,7 +1,7 @@
 {
     "type": "ai/viz",
     "plan": "Test plan",
-    "query": {
+    "answer": {
         "aggregation_group_type_index": null,
         "breakdownFilter": {
             "breakdown_hide_other_aggregation": null,
@@ -18,7 +18,11 @@
             ]
         },
         "compareFilter": null,
-        "dateRange": { "date_from": "-30d", "date_to": null, "explicitDate": false },
+        "dateRange": {
+            "date_from": "-30d",
+            "date_to": null,
+            "explicitDate": false
+        },
         "filterTestAccounts": true,
         "interval": "day",
         "kind": "TrendsQuery",

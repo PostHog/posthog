@@ -1,8 +1,9 @@
 import uuid
 
+from django.conf import settings
+
 from asgiref.sync import sync_to_async
 from clickhouse_driver.errors import ServerException
-from django.conf import settings
 from structlog.contextvars import bind_contextvars
 
 from posthog.exceptions_capture import capture_exception
@@ -30,7 +31,7 @@ async def calculate_table_size(saved_query: DataWarehouseSavedQuery, team_id: in
     await logger.adebug("Calculating table size in S3")
 
     folder_name = saved_query.folder_path
-    s3_folder = f"{settings.BUCKET_URL}/{folder_name}/{saved_query.name}"
+    s3_folder = f"{settings.BUCKET_URL}/{folder_name}/{saved_query.name}__query"
 
     total_mib = get_size_of_folder(s3_folder)
 

@@ -1,39 +1,31 @@
-import asyncio
-import dataclasses
-import datetime as dt
 import json
-import posixpath
 import typing
+import asyncio
+import datetime as dt
+import posixpath
+import dataclasses
 
+import pyarrow as pa
 import aioboto3
 import botocore.exceptions
-import pyarrow as pa
 from aiobotocore.config import AioConfig
 from aiobotocore.session import ClientCreatorContext
 
 if typing.TYPE_CHECKING:
     from types_aiobotocore_s3.client import S3Client
-    from types_aiobotocore_s3.type_defs import (
-        CompletedPartTypeDef,
-        UploadPartOutputTypeDef,
-    )
+    from types_aiobotocore_s3.type_defs import CompletedPartTypeDef, UploadPartOutputTypeDef
 
 from django.conf import settings
+
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import (
-    BatchExportField,
-    BatchExportInsertInputs,
-    S3BatchExportInputs,
-)
+from posthog.batch_exports.service import BatchExportField, BatchExportInsertInputs, S3BatchExportInputs
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import (
-    get_produce_only_logger,
-    get_write_only_logger,
-)
+from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
+
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
     default_fields,
@@ -41,21 +33,11 @@ from products.batch_exports.backend.temporal.batch_exports import (
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.metrics import ExecutionTimeRecorder
-from products.batch_exports.backend.temporal.pipeline.consumer import (
-    Consumer,
-    run_consumer_from_stage,
-)
-from products.batch_exports.backend.temporal.pipeline.entrypoint import (
-    execute_batch_export_using_internal_stage,
-)
-from products.batch_exports.backend.temporal.pipeline.producer import (
-    Producer as ProducerFromInternalStage,
-)
+from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
+from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
+from products.batch_exports.backend.temporal.pipeline.producer import Producer as ProducerFromInternalStage
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.spmc import (
-    RecordBatchQueue,
-    wait_for_schema_or_producer,
-)
+from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
 NON_RETRYABLE_ERROR_TYPES = (

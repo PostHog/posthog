@@ -3,6 +3,7 @@ import React from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { SceneConfig } from 'scenes/sceneTypes'
 
 import type { sceneLayoutLogicType } from './sceneLayoutLogicType'
 
@@ -21,6 +22,7 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
         setForceScenePanelClosedWhenRelative: (closed: boolean) => ({ closed }),
         setSceneContainerRef: (ref: SceneLayoutContainerRef) => ({ ref }),
         setSceneContainerRect: (rect: DOMRect) => ({ rect }),
+        setSceneLayoutConfig: (config: SceneConfig) => ({ config }),
     }),
     reducers({
         scenePanelElement: [
@@ -59,6 +61,12 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
             null as DOMRect | null,
             {
                 setSceneContainerRect: (_, { rect }) => rect,
+            },
+        ],
+        sceneLayoutConfig: [
+            null as SceneConfig | null,
+            {
+                setSceneLayoutConfig: (_, { config }) => config,
             },
         ],
     }),

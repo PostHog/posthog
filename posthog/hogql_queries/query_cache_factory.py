@@ -1,8 +1,7 @@
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
-
-from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_cache import DjangoCacheQueryCacheManager
+from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.models import Team
 
 if TYPE_CHECKING:

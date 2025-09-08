@@ -18,12 +18,12 @@ describe('summarizeUsage', () => {
     it('should summarise usage', () => {
         expect(summarizeUsage(0)).toEqual('0')
         expect(summarizeUsage(999)).toEqual('999')
-        expect(summarizeUsage(1000)).toEqual('1 thousand')
-        expect(summarizeUsage(3345)).toEqual('3.3 thousand')
-        expect(summarizeUsage(3600)).toEqual('3.6 thousand')
-        expect(summarizeUsage(100000)).toEqual('100 thousand')
-        expect(summarizeUsage(999999)).toEqual('1 million')
-        expect(summarizeUsage(10000000)).toEqual('10 million')
+        expect(summarizeUsage(1000)).toEqual('1 K')
+        expect(summarizeUsage(3345)).toEqual('3.35 K')
+        expect(summarizeUsage(3600)).toEqual('3.6 K')
+        expect(summarizeUsage(100000)).toEqual('100 K')
+        expect(summarizeUsage(999999)).toEqual('1 M')
+        expect(summarizeUsage(10000000)).toEqual('10 M')
     })
 })
 

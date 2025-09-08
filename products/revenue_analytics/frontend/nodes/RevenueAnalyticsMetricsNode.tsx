@@ -1,10 +1,7 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
-
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
-import { InsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -18,14 +15,7 @@ import { QueryContext } from '~/queries/types'
 import { GraphDataset } from '~/types'
 
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
-import {
-    AlphaTag,
-    DISPLAY_MODE_OPTIONS,
-    RevenueAnalyticsLineGraph,
-    TileProps,
-    TileWrapper,
-    extractLabelAndDatasets,
-} from './shared'
+import { RevenueAnalyticsLineGraph, TileProps, TileWrapper, extractLabelAndDatasets } from './shared'
 
 let uniqueNode = 0
 export function RevenueAnalyticsMetricsNode(props: {
@@ -35,44 +25,26 @@ export function RevenueAnalyticsMetricsNode(props: {
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `RevenueAnalyticsMetrics.${uniqueNode++}`)
-    const logic = dataNodeLogic({
-        query: props.query,
-        key,
-        cachedResults: props.cachedResults,
-        loadPriority,
-        onData,
-        dataNodeCollectionId: dataNodeCollectionId ?? key,
-    })
-
-    const { response, responseLoading, queryId } = useValues(logic)
 
     return (
         <BindLogic logic={insightLogic} props={props.context.insightProps ?? {}}>
             <BindLogic logic={insightVizDataLogic} props={props.context.insightProps ?? {}}>
-                <SubscriptionCountTile
-                    response={response as RevenueAnalyticsMetricsQueryResponse}
-                    responseLoading={responseLoading}
-                    queryId={queryId ?? ''}
-                    context={props.context}
-                />
-                <CustomerCountTile
-                    response={response as RevenueAnalyticsMetricsQueryResponse}
-                    responseLoading={responseLoading}
-                    queryId={queryId ?? ''}
-                    context={props.context}
-                />
-                <ARPUTile
-                    response={response as RevenueAnalyticsMetricsQueryResponse}
-                    responseLoading={responseLoading}
-                    queryId={queryId ?? ''}
-                    context={props.context}
-                />
-                <LTVTile
-                    response={response as RevenueAnalyticsMetricsQueryResponse}
-                    responseLoading={responseLoading}
-                    queryId={queryId ?? ''}
-                    context={props.context}
-                />
+                <BindLogic
+                    logic={dataNodeLogic}
+                    props={{
+                        query: props.query,
+                        key,
+                        cachedResults: props.cachedResults,
+                        loadPriority,
+                        onData,
+                        dataNodeCollectionId: dataNodeCollectionId ?? key,
+                    }}
+                >
+                    <SubscriptionCountTile context={props.context} />
+                    <CustomerCountTile context={props.context} />
+                    <ARPUTile context={props.context} />
+                    <LTVTile context={props.context} />
+                </BindLogic>
             </BindLogic>
         </BindLogic>
     )
@@ -98,60 +70,39 @@ const makeTile = (
     tooltip: JSX.Element | string,
     labelMatcher: string,
     { isCurrency = false }: { isCurrency?: boolean } = {}
-): React.FC<TileProps<RevenueAnalyticsMetricsQueryResponse>> => {
-    const Component = ({
-        response,
-        responseLoading,
-        queryId,
-        context,
-    }: TileProps<RevenueAnalyticsMetricsQueryResponse>): JSX.Element => {
-        const { baseCurrency, insightsDisplayMode } = useValues(revenueAnalyticsLogic)
-        const { setInsightsDisplayMode } = useActions(revenueAnalyticsLogic)
-
+): React.FC<TileProps> => {
+    const Component = ({ context }: TileProps): JSX.Element => {
+        const { baseCurrency } = useValues(revenueAnalyticsLogic)
         const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
-        const results = ((response?.results as GraphDataset[]) ?? []).filter((result) =>
-            result.label?.includes(labelMatcher)
-        )
-
-        const { labels, datasets } = extractLabelAndDatasets(results)
-
         return (
-            <TileWrapper
-                title={title}
-                tooltip={tooltip}
-                extra={
-                    <div className="flex flex-row items-center gap-2 text-muted-alt">
-                        <span className="flex items-center">
-                            <AlphaTag />
-                        </span>
-                        <LemonSegmentedButton
-                            value={insightsDisplayMode}
-                            onChange={setInsightsDisplayMode}
-                            options={DISPLAY_MODE_OPTIONS}
-                            size="small"
+            <TileWrapper context={context} title={title} tooltip={tooltip}>
+                {(response) => {
+                    const castResponse = response as RevenueAnalyticsMetricsQueryResponse | null
+
+                    const results = ((castResponse?.results as GraphDataset[]) ?? []).filter((result) =>
+                        result.label?.includes(labelMatcher)
+                    )
+
+                    const { labels, datasets } = extractLabelAndDatasets(results)
+
+                    return (
+                        <RevenueAnalyticsLineGraph
+                            data-attr={`revenue-analytics-${title.toLowerCase().replace(' ', '-')}-tile-graph`}
+                            datasets={datasets}
+                            labels={labels}
+                            trendsFilter={
+                                isCurrency
+                                    ? {
+                                          aggregationAxisFormat: 'numeric',
+                                          aggregationAxisPrefix: isPrefix ? currencySymbol : undefined,
+                                          aggregationAxisPostfix: isPrefix ? undefined : currencySymbol,
+                                      }
+                                    : undefined
+                            }
                         />
-                    </div>
-                }
-            >
-                {responseLoading ? (
-                    <InsightLoadingState queryId={queryId} key={queryId} insightProps={context.insightProps ?? {}} />
-                ) : (
-                    <RevenueAnalyticsLineGraph
-                        data-attr={`revenue-analytics-${title.toLowerCase().replace(' ', '-')}-tile-graph`}
-                        datasets={datasets}
-                        labels={labels}
-                        trendsFilter={
-                            isCurrency
-                                ? {
-                                      aggregationAxisFormat: 'numeric',
-                                      aggregationAxisPrefix: isPrefix ? currencySymbol : undefined,
-                                      aggregationAxisPostfix: isPrefix ? undefined : currencySymbol,
-                                  }
-                                : undefined
-                        }
-                    />
-                )}
+                    )
+                }}
             </TileWrapper>
         )
     }

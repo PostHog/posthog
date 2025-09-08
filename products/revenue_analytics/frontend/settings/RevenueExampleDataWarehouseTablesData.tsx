@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 
-import { SceneSection } from '~/layout/scenes/SceneContent'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { Query } from '~/queries/Query/Query'
 import { CurrencyCode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
