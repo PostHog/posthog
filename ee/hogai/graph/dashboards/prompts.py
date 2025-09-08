@@ -21,7 +21,7 @@ Generate only the dashboard name, nothing else.
 """
 
 DASHBOARD_CREATION_ERROR_MESSAGE = """
-I encountered an issue while creating your dashboard. Please try again.
+I encountered an issue while creating the dashboard. Please try again.
 """
 
 DASHBOARD_SUCCESS_MESSAGE_TEMPLATE = """
@@ -48,8 +48,10 @@ IF YOU DON'T USE THE HYPERLINK FORMAT, THE USER WILL NOT BE ABLE TO CLICK ON THE
 
 
 DASHBOARD_NO_INSIGHTS_MESSAGE = """
-I couldn't find any existing insights matching your request, and I wasn't able to create new ones.
+No existing insights matched the user's request and new insights were not able to be created.
 
 From the insight creation process, the message was:
+
 {subgraph_last_message}
+
 """

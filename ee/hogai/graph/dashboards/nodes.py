@@ -93,8 +93,8 @@ class DashboardCreatorNode(AssistantNode):
                 writer=self._get_stream_writer(),
             )
 
-            # query_to_insight_ids, last_messages = await self._search_insights(state)
-            query_to_insight_ids, found_insight_messages = {}, []
+            query_to_insight_ids, found_insight_messages = await self._search_insights(state)
+            # query_to_insight_ids, found_insight_messages = {}, []
             self._stream_reasoning(
                 progress_message=f"Found {len(query_to_insight_ids)} insights", writer=self._get_stream_writer()
             )
@@ -220,6 +220,7 @@ class DashboardCreatorNode(AssistantNode):
 
         created_insights = await self._save_insights(task_executor_state.task_results)
         query_to_insight_ids.update(created_insights)
+
         task_descriptions = []
         for task in task_executor_state.task_results:
             if task.status == TaskExecutionStatus.COMPLETED:
@@ -237,9 +238,8 @@ class DashboardCreatorNode(AssistantNode):
             task.description: set() for task in task_results if task.status == TaskExecutionStatus.COMPLETED
         }
 
-        # Collect all insights to create
         insights_to_create = []
-        insight_metadata = []  # Store metadata to map back to task descriptions
+        insight_metadata = []
 
         for task_result in task_results:
             if task_result.status != TaskExecutionStatus.COMPLETED:
@@ -258,17 +258,14 @@ class DashboardCreatorNode(AssistantNode):
                     team=self._team,
                     created_by=self._user,
                     query=converted,
-                    # filters=filters,
                     description=insight_description,
                     saved=True,
                 )
                 insights_to_create.append(insight)
                 insight_metadata.append(task_result.description)
 
-        # Bulk create all insights
         created_insight_objects = Insight.objects.bulk_create(insights_to_create)
 
-        # Map created insights back to task descriptions
         for insight, task_description in zip(created_insight_objects, insight_metadata):
             created_insights[task_description].add(insight.id)
 
