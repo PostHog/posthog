@@ -4,9 +4,9 @@ import {
     ErrorEventProperties,
     ErrorTrackingException,
     ErrorTrackingRuntime,
+    EventExceptionRelease,
     ExceptionAttributes,
     FingerprintRecordPart,
-    RawEventExceptionRelease,
 } from './types'
 
 export function hasStacktrace(exceptionList: ErrorTrackingException[]): boolean {
@@ -115,7 +115,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
     const handled = exceptionList?.[0]?.mechanism?.handled ?? false
     const runtime: ErrorTrackingRuntime = getRuntimeFromLib(lib)
 
-    const exceptionReleases: RawEventExceptionRelease[] = Object.values(releases ?? {})
+    const exceptionReleases: EventExceptionRelease[] = Object.values(releases ?? {})
 
     return {
         type,

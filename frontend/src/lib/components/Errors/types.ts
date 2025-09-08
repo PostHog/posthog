@@ -114,10 +114,10 @@ export interface ExceptionAttributes {
     level?: string
     url?: string
     handled?: boolean
-    exceptionReleases?: RawEventExceptionRelease[]
+    exceptionReleases?: EventExceptionRelease[]
 }
 
-export interface RawEventExceptionRelease {
+export interface EventExceptionRelease {
     metadata?: {
         git?: {
             commit_id?: string

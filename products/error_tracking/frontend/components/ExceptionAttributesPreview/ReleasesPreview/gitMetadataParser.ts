@@ -1,8 +1,8 @@
 import 'lib/components/Errors/stackFrameLogic'
-import { RawEventExceptionRelease } from 'lib/components/Errors/types'
+import { EventExceptionRelease } from 'lib/components/Errors/types'
 
 export class GitMetadataParser {
-    static getViewCommitLink(release: RawEventExceptionRelease): string | undefined {
+    static getViewCommitLink(release: EventExceptionRelease): string | undefined {
         const hasRemoteUrl = release.metadata?.git?.remote_url !== undefined
         const hasCommitId = release.metadata?.git?.commit_id !== undefined
 

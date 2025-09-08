@@ -3,13 +3,13 @@ import { useMemo } from 'react'
 import { IconCommit, IconExternal, IconGitBranch, IconGitRepository, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { RawEventExceptionRelease } from 'lib/components/Errors/types'
+import { EventExceptionRelease } from 'lib/components/Errors/types'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { GitMetadataParser } from './gitMetadataParser'
 
 export interface ReleasesPopoverContentProps {
-    release: RawEventExceptionRelease
+    release: EventExceptionRelease
 }
 
 export function ReleasePopoverContent({ release }: ReleasesPopoverContentProps): JSX.Element {
@@ -32,7 +32,7 @@ export function ReleasePopoverContent({ release }: ReleasesPopoverContentProps):
     )
 }
 
-function GitContent({ release }: { release: RawEventExceptionRelease }): JSX.Element {
+function GitContent({ release }: { release: EventExceptionRelease }): JSX.Element {
     return (
         <div>
             <div className="flex items-center gap-2 flex-wrap">
@@ -68,7 +68,7 @@ function GitContent({ release }: { release: RawEventExceptionRelease }): JSX.Ele
     )
 }
 
-function GitlessContent({ release }: { release: RawEventExceptionRelease }): JSX.Element {
+function GitlessContent({ release }: { release: EventExceptionRelease }): JSX.Element {
     return (
         <div className="flex items-center justify-between gap-2">
             <LemonTag className="bg-fill-primary text-xs">

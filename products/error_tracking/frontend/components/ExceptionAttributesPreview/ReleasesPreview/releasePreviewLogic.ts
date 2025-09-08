@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders/lib'
 
 import api from 'lib/api'
 import 'lib/components/Errors/stackFrameLogic'
-import { ErrorTrackingStackFrame, RawEventExceptionRelease } from 'lib/components/Errors/types'
+import { ErrorTrackingStackFrame, EventExceptionRelease } from 'lib/components/Errors/types'
 
 import type { releasePreviewLogicType } from './releasePreviewLogicType'
 
@@ -20,11 +20,11 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
 
     loaders(() => ({
         release: [
-            undefined as RawEventExceptionRelease | undefined,
+            undefined as EventExceptionRelease | undefined,
             {
                 loadRelease: async (dto: {
                     // we have exceptionReleases from the already loaded event. Cymbal enriches event with that data
-                    exceptionReleases?: RawEventExceptionRelease[]
+                    exceptionReleases?: EventExceptionRelease[]
                     frames?: ErrorTrackingStackFrame[]
                 }) => {
                     // we can't do anything if there are neither frames nor existing releases
