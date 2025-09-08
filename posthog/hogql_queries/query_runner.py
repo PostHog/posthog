@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from time import perf_counter
 from types import UnionType
 from typing import Any, Generic, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args
 
@@ -13,6 +14,7 @@ from posthog.schema import (
     ActorsQuery,
     CacheMissResponse,
     CalendarHeatmapQuery,
+    ChartDisplayType,
     DashboardFilter,
     DateRange,
     EventsQuery,
@@ -53,6 +55,7 @@ from posthog.schema import (
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
+    WebTrendsQuery,
 )
 
 from posthog.hogql import ast
@@ -75,6 +78,7 @@ from posthog.clickhouse.client.limit import (
     get_org_app_concurrency_limit,
 )
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_cache import count_query_cache_hit
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
@@ -158,6 +162,7 @@ RunnableQueryNode = Union[
     WebOverviewQuery,
     WebStatsTableQuery,
     WebGoalsQuery,
+    WebTrendsQuery,
     SessionAttributionExplorerQuery,
     MarketingAnalyticsTableQuery,
     ActorsPropertyTaxonomyQuery,
@@ -177,10 +182,26 @@ def get_query_runner(
         raise ValueError(f"Can't get a runner for an unknown query type: {query}")
 
     if kind == "TrendsQuery":
+        # Check if this should use calendar heatmap runner instead
+        query_obj = cast(TrendsQuery | dict[str, Any], query)
+        trends_filter = get_from_dict_or_attr(query_obj, "trendsFilter") or {}
+        display_type = get_from_dict_or_attr(trends_filter, "display") if trends_filter else None
+
+        if display_type == ChartDisplayType.CALENDAR_HEATMAP:
+            from .insights.trends.calendar_heatmap_trends_query_runner import CalendarHeatmapTrendsQueryRunner
+
+            return CalendarHeatmapTrendsQueryRunner(
+                query=query_obj,
+                team=team,
+                timings=timings,
+                limit_context=limit_context,
+                modifiers=modifiers,
+            )
+
         from .insights.trends.trends_query_runner import TrendsQueryRunner
 
         return TrendsQueryRunner(
-            query=cast(TrendsQuery | dict[str, Any], query),
+            query=query_obj,
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -372,6 +393,17 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "WebTrendsQuery":
+        from .web_analytics.web_trends_query_runner import WebTrendsQueryRunner
+
+        return WebTrendsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "WebExternalClicksTableQuery":
         from .web_analytics.external_clicks import WebExternalClicksTableQueryRunner
 
@@ -413,12 +445,12 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "RevenueAnalyticsGrowthRateQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_growth_rate_query_runner import (
-            RevenueAnalyticsGrowthRateQueryRunner,
+    if kind == "RevenueAnalyticsGrossRevenueQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_gross_revenue_query_runner import (
+            RevenueAnalyticsGrossRevenueQueryRunner,
         )
 
-        return RevenueAnalyticsGrowthRateQueryRunner(
+        return RevenueAnalyticsGrossRevenueQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -439,12 +471,12 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "RevenueAnalyticsOverviewQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
-            RevenueAnalyticsOverviewQueryRunner,
+    if kind == "RevenueAnalyticsMRRQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_mrr_query_runner import (
+            RevenueAnalyticsMRRQueryRunner,
         )
 
-        return RevenueAnalyticsOverviewQueryRunner(
+        return RevenueAnalyticsMRRQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -452,12 +484,12 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "RevenueAnalyticsRevenueQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_revenue_query_runner import (
-            RevenueAnalyticsRevenueQueryRunner,
+    if kind == "RevenueAnalyticsOverviewQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
+            RevenueAnalyticsOverviewQueryRunner,
         )
 
-        return RevenueAnalyticsRevenueQueryRunner(
+        return RevenueAnalyticsOverviewQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -764,6 +796,20 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         refresh_requested: bool = False,
         user: Optional[User] = None,
     ) -> QueryStatus:
+        posthoganalytics.capture(
+            distinct_id=user.distinct_id if user else str(self.team.uuid),
+            event="query async recalculation initiated",
+            properties={
+                "query_type": getattr(self.query, "kind", "Other"),
+                "cache_key": cache_manager.cache_key,
+                "insight_id": cache_manager.insight_id,
+                "dashboard_id": cache_manager.dashboard_id,
+                "refresh_requested": refresh_requested,
+                "user_id": user.id if user else None,
+            },
+            groups=(groups(self.team.organization, self.team)),
+        )
+
         return enqueue_process_query_task(
             team=self.team,
             user_id=user.id if user else None,
@@ -870,6 +916,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         insight_id: Optional[int] = None,
         dashboard_id: Optional[int] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
+        start_time = perf_counter()
         cache_key = self.get_cache_key()
 
         with posthoganalytics.new_context():
@@ -911,16 +958,40 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     execution_mode=execution_mode, cache_manager=cache_manager, user=user
                 )
                 if results:
-                    if (
-                        isinstance(results, CachedResponse)
-                        and (not trigger or not trigger.startswith("warming"))
-                        and results.query_metadata
-                    ):
-                        log_event_usage_from_query_metadata(
-                            results.query_metadata,
-                            team_id=self.team.id,
-                            user_id=user.id if user else None,
-                        )
+                    cache_tracking_props = {}
+                    if isinstance(results, CachedResponse):
+                        if (not trigger or not trigger.startswith("warming")) and results.query_metadata:
+                            log_event_usage_from_query_metadata(
+                                results.query_metadata,
+                                team_id=self.team.id,
+                                user_id=user.id if user else None,
+                            )
+
+                        last_refresh = last_refresh_from_cached_result(results)
+                        cache_tracking_props = {
+                            "is_cache_stale": self._is_stale(last_refresh=last_refresh),
+                            "calculation_trigger": results.calculation_trigger,
+                            "cache_age_seconds": round((datetime.now(UTC) - last_refresh).total_seconds(), 2)
+                            if last_refresh
+                            else None,
+                            "last_refresh": last_refresh.isoformat() if last_refresh else None,
+                        }
+
+                    posthoganalytics.capture(
+                        distinct_id=user.distinct_id if user else str(self.team.uuid),
+                        event="query executed",
+                        properties={
+                            "insight_id": insight_id,
+                            "dashboard_id": dashboard_id,
+                            "execution_mode": execution_mode.value,
+                            "query_type": getattr(self.query, "kind", "Other"),
+                            "cache_key": cache_key,
+                            "cache_hit": True if isinstance(results, CachedResponse) else False,
+                            "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
+                            **cache_tracking_props,
+                        },
+                        groups=(groups(self.team.organization, self.team)),
+                    )
 
                     return results
 
@@ -958,8 +1029,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         team_id=self.team.id,
                         is_api=get_query_tag_value("access_method") == "personal_api_key",
                     ):
+                        query_start_time = perf_counter()
+                        query_result = self.calculate()
+                        query_duration_ms = round((perf_counter() - query_start_time) * 1000, 2)
+
                         fresh_response_dict = {
-                            **self.calculate().model_dump(),
+                            **query_result.model_dump(),
                             "is_cached": False,
                             "last_refresh": last_refresh,
                             "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
@@ -1000,6 +1075,24 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     # Set target_age to None in that case
                     target_age=target_age,
                 )
+
+            posthoganalytics.capture(
+                distinct_id=user.distinct_id if user else str(self.team.uuid),
+                event="query executed",
+                properties={
+                    "insight_id": insight_id,
+                    "dashboard_id": dashboard_id,
+                    "cache_hit": False,
+                    "cache_key": cache_key,
+                    "calculation_trigger": trigger,
+                    "execution_mode": execution_mode.value,
+                    "query_type": getattr(self.query, "kind", "Other"),
+                    "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
+                    "query_duration_ms": query_duration_ms,
+                    "has_error": has_error is not None and len(has_error) > 0,
+                },
+                groups=(groups(self.team.organization, self.team)),
+            )
 
             return fresh_response
 

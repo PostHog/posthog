@@ -48,11 +48,17 @@ from posthog.constants import (
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import LABEL_TEAM_ID
-from posthog.models import Cohort, FeatureFlag, Person
-from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, load_activity, log_activity
+from posthog.models import Cohort, FeatureFlag, Person, User
+from posthog.models.activity_logging.activity_log import (
+    Change,
+    Detail,
+    dict_changes_between,
+    load_activity,
+    log_activity,
+)
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.cohort import CohortOrEmpty
+from posthog.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, CohortOrEmpty
 from posthog.models.cohort.util import get_dependent_cohorts, print_cohort_hogql_query
 from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.feature_flag.flag_matching import (
@@ -67,6 +73,7 @@ from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.models.person.sql import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.team.team import Team
+from posthog.models.utils import UUIDT
 from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
 from posthog.queries.base import property_group_to_Q
 from posthog.queries.person_query import PersonQuery
@@ -768,6 +775,39 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER.labels(team_id=team.pk).inc(size)
 
         return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
+
+    @action(methods=["PATCH"], detail=True)
+    def add_persons_to_static_cohort(self, request: request.Request, **kwargs):
+        cohort: Cohort = self.get_object()
+        if not cohort.is_static:
+            raise ValidationError("Can only add users to static cohorts")
+        person_ids = request.data.get("person_ids", None)
+        if not isinstance(person_ids, list):
+            raise ValidationError("person_ids must be a list")
+        if len(person_ids) == 0:
+            raise ValidationError("person_ids cannot be empty")
+        if len(person_ids) > DEFAULT_COHORT_INSERT_BATCH_SIZE:
+            raise ValidationError("List size exceeds limit")
+        uuids = [
+            str(uuid)
+            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(team_id=self.team_id, uuid__in=person_ids)
+            .values_list("uuid", flat=True)
+        ]
+        if len(uuids) == 0:
+            raise ValidationError("No valid users to add to cohort")
+        cohort.insert_users_list_by_uuid(uuids, team_id=self.team_id, insert_in_clickhouse=True)
+        log_activity(
+            organization_id=cast(UUIDT, self.organization_id),
+            team_id=self.team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=str(cohort.id),
+            scope="Cohort",
+            activity="persons_added_manually",
+            detail=Detail(changes=[Change(type="Cohort", action="changed")]),
+        )
+        return Response({"success": True}, status=200)
 
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):

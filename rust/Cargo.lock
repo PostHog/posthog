@@ -1091,6 +1091,7 @@ dependencies = [
  "httpdate",
  "httpmock",
  "metrics",
+ "moka",
  "natord",
  "rayon",
  "rdkafka",
@@ -1103,6 +1104,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "urlencoding",
  "uuid",
  "zip 4.0.0",
 ]
@@ -2961,6 +2963,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
 dependencies = [
  "ahash 0.8.11",
+ "allocator-api2",
  "serde",
 ]
 
@@ -3798,13 +3801,18 @@ dependencies = [
  "bincode",
  "bytesize",
  "chrono",
+ "common-alloc",
  "common-types",
  "dashmap 6.1.0",
  "envconfig",
  "futures",
  "health",
  "metrics",
+ "metrics-exporter-prometheus",
  "num_cpus",
+ "opentelemetry 0.22.0",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk 0.22.1",
  "rdkafka",
  "rocksdb",
  "serde",
@@ -3813,7 +3821,9 @@ dependencies = [
  "tempfile",
  "time",
  "tokio",
+ "tokio-util",
  "tracing",
+ "tracing-opentelemetry",
  "tracing-subscriber",
  "uuid",
 ]
@@ -7410,6 +7420,8 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
+ "hashbrown 0.14.5",
  "pin-project-lite",
  "tokio",
  "tracing",
@@ -7638,6 +7650,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-serde"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "704b1aeb7be0d0a84fc9828cae51dab5970fee5088f83d1dd7ee6f6246fc6ff1"
+dependencies = [
+ "serde",
+ "tracing-core",
+]
+
+[[package]]
 name = "tracing-subscriber"
 version = "0.3.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7647,12 +7669,15 @@ dependencies = [
  "nu-ansi-term",
  "once_cell",
  "regex",
+ "serde",
+ "serde_json",
  "sharded-slab",
  "smallvec",
  "thread_local",
  "tracing",
  "tracing-core",
  "tracing-log",
+ "tracing-serde",
 ]
 
 [[package]]

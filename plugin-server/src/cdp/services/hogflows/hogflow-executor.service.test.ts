@@ -7,16 +7,16 @@ import { compileHog } from '~/cdp/templates/compiler'
 import { HogFlow } from '~/schema/hogflow'
 import { resetTestDatabase } from '~/tests/helpers/sql'
 
+import { fetch } from '~/utils/request'
 import { Hub } from '../../../types'
 import { createHub } from '../../../utils/db/hub'
 import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
-import { HogFlowExecutorService } from './hogflow-executor.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
-import { fetch } from '~/utils/request'
+import { HogFlowExecutorService } from './hogflow-executor.service'
 
 // Mock before importing fetch
 jest.mock('~/utils/request', () => {
@@ -223,7 +223,7 @@ describe('Hogflow Executor', () => {
                     {
                         level: 'info',
                         timestamp: expect.any(DateTime),
-                        message: "Workflow moved to action 'exit (exit)'",
+                        message: 'Workflow moved to action [Action:exit]',
                     },
                     {
                         level: 'info',
@@ -296,8 +296,8 @@ describe('Hogflow Executor', () => {
                 [
                   "[Action:function_id_1] Fetch 3, 200",
                   "[Action:function_id_1] All fetches done!",
-                  "[Action:function_id_1] Function completed in REPLACEDms. Sync: 0ms. Mem: 101 bytes. Ops: 32. Event: 'http://localhost:8000/events/1'",
-                  "Workflow moved to action 'exit (exit)'",
+                  "[Action:function_id_1] Function completed in REPLACEDms. Sync: 0ms. Mem: 0.099kb. Ops: 32. Event: 'http://localhost:8000/events/1'",
+                  "Workflow moved to action [Action:exit]",
                   "Workflow completed",
                 ]
             `)
@@ -355,6 +355,46 @@ describe('Hogflow Executor', () => {
                 })
             })
         })
+
+        describe('executeTest', () => {
+            it('executes only a single step at a time', async () => {
+                const invocation = createExampleHogFlowInvocation(hogFlow, {
+                    event: {
+                        ...createHogExecutionGlobals().event,
+                        properties: {
+                            name: 'Debug User',
+                        },
+                    },
+                })
+
+                // NOTE: Slightly contrived as we dont set the current action to trigger when creating the invocation
+                // but we do support it technically from the frontend
+                invocation.state.currentAction = {
+                    id: 'trigger',
+                    startedAtTimestamp: DateTime.now().toMillis(),
+                }
+
+                // First step: should process trigger and move to function_id_1, but not complete
+                const result1 = await executor.executeCurrentAction(invocation)
+                expect(result1.finished).toBe(false)
+                expect(result1.invocation.state.currentAction?.id).toBe('function_id_1')
+                expect(result1.logs.map((log) => log.message)).toEqual([
+                    'Workflow moved to action [Action:function_id_1]',
+                ])
+
+                // Second step: should process function_id_1 and move to exit, but not complete
+                const result2 = await executor.execute(result1.invocation)
+                expect(result2.finished).toBe(true)
+                expect(result2.invocation.state.currentAction?.id).toBe('exit')
+                expect(result2.logs.map((log) => log.message)).toEqual([
+                    '[Action:function_id_1] Hello, Mr Debug User!',
+                    '[Action:function_id_1] Fetch 1, 200',
+                    expect.stringContaining('[Action:function_id_1] Function completed in'),
+                    'Workflow moved to action [Action:exit]',
+                    'Workflow completed',
+                ])
+            })
+        })
     })
 
     describe('actions', () => {
@@ -386,6 +426,193 @@ describe('Hogflow Executor', () => {
                 })
                 .build()
         }
+
+        describe('early exit conditions', () => {
+            let hogFlow: HogFlow
+
+            beforeEach(async () => {
+                // Setup: exit if person no longer matches trigger filters
+                hogFlow = new FixtureHogFlowBuilder()
+                    .withExitCondition('exit_only_at_end')
+                    .withWorkflow({
+                        actions: {
+                            trigger: {
+                                type: 'trigger',
+                                config: {
+                                    type: 'event',
+                                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
+                                },
+                            },
+                            function_id_1: {
+                                type: 'function',
+                                config: {
+                                    template_id: 'template-test-hogflow-executor',
+                                    inputs: {
+                                        name: {
+                                            value: `Mr {event?.properties?.name}`,
+                                            bytecode: await compileHog(`return f'Mr {event?.properties?.name}'`),
+                                        },
+                                    },
+                                },
+                            },
+                            exit: {
+                                type: 'exit',
+                                config: {},
+                            },
+                        },
+                        edges: [
+                            { from: 'trigger', to: 'function_id_1', type: 'continue' },
+                            { from: 'function_id_1', to: 'exit', type: 'continue' },
+                        ],
+                    })
+                    .build()
+            })
+
+            it('should not exit early if exit condition is exit_only_at_end', async () => {
+                const invocation = createExampleHogFlowInvocation(hogFlow, {
+                    event: {
+                        ...createHogExecutionGlobals().event,
+                        event: '$pageview',
+                        properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                    },
+                })
+
+                // Step 1: run first action (function_id_1)
+                const result1 = await executor.execute(invocation)
+                expect(result1.finished).toBe(true)
+                expect(result1.metrics.map((m) => m.metric_name)).toEqual(['succeeded', 'succeeded'])
+
+                const invocation2 = createExampleHogFlowInvocation(hogFlow, {
+                    event: {
+                        ...createHogExecutionGlobals().event,
+                        event: 'not-a-pageview',
+                        properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                    },
+                })
+
+                // Step 2: run again, should NOT exit early due to exit_only_at_end
+                const result2 = await executor.execute(invocation2)
+                expect(result2.finished).toBe(true)
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['succeeded', 'succeeded'])
+            })
+
+            it('should exit early if exit condition is exit_on_conversion', async () => {
+                hogFlow.exit_condition = 'exit_on_conversion'
+                hogFlow.conversion = {
+                    window_minutes: 10,
+                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
+                }
+
+                // Simulate a non-conversion event
+                const invocation = createExampleHogFlowInvocation(hogFlow, {
+                    event: {
+                        ...createHogExecutionGlobals().event,
+                        event: '$not-a-pageview',
+                        properties: { name: 'John Doe', $current_url: 'https://posthog.com', conversion: true },
+                    },
+                })
+
+                const result1 = await executor.execute(invocation)
+                expect(result1.finished).toBe(true)
+                expect(result1.metrics.map((m) => m.metric_name)).toEqual(['succeeded', 'succeeded'])
+
+                const invocation2 = createExampleHogFlowInvocation(hogFlow, {
+                    event: {
+                        ...createHogExecutionGlobals().event,
+                        event: '$pageview',
+                        properties: { name: 'John Doe', $current_url: 'https://posthog.com', conversion: true },
+                    },
+                })
+                const result2 = await executor.execute(invocation2)
+                expect(result2.finished).toBe(true)
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
+                expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
+                    [
+                      "Workflow exited early due to exit condition: exit_on_conversion (Person matches conversion filters)",
+                    ]
+                `)
+            })
+
+            it('should exit early if exit condition is exit_on_trigger_not_matched', async () => {
+                hogFlow.exit_condition = 'exit_on_trigger_not_matched'
+                hogFlow.trigger = {
+                    type: 'event',
+                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
+                }
+
+                const invocation1 = createExampleHogFlowInvocation(hogFlow, {
+                    event: {
+                        ...createHogExecutionGlobals().event,
+                        event: '$pageview',
+                        properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                    },
+                })
+
+                const result1 = await executor.execute(invocation1)
+                expect(result1.finished).toBe(true)
+                expect(result1.metrics.map((m) => m.metric_name)).toEqual(['succeeded', 'succeeded'])
+
+                const invocation2 = createExampleHogFlowInvocation(hogFlow, {
+                    event: {
+                        ...createHogExecutionGlobals().event,
+                        event: '$not-a-pageview',
+                        properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                    },
+                })
+
+                const result2 = await executor.execute(invocation2)
+                expect(result2.finished).toBe(true)
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
+                expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
+                    [
+                      "Workflow exited early due to exit condition: exit_on_trigger_not_matched (Person no longer matches trigger filters)",
+                    ]
+                `)
+            })
+
+            it('should exit early if exit condition is exit_on_trigger_not_matched_or_conversion', async () => {
+                // Setup: exit if person no longer matches trigger filters or conversion event is seen
+                hogFlow.exit_condition = 'exit_on_trigger_not_matched_or_conversion'
+                hogFlow.trigger = {
+                    type: 'event',
+                    filters: HOG_FILTERS_EXAMPLES.no_filters.filters,
+                }
+                hogFlow.conversion = {
+                    window_minutes: 10,
+                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
+                }
+
+                // Simulate person data changing so they no longer match the trigger filter
+                const invocation = createExampleHogFlowInvocation(hogFlow, {
+                    event: {
+                        ...createHogExecutionGlobals().event,
+                        event: '$not-a-pageview',
+                        properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                    },
+                })
+
+                const result1 = await executor.execute(invocation)
+                expect(result1.finished).toBe(true)
+                expect(result1.metrics.map((m) => m.metric_name)).toEqual(['succeeded', 'succeeded'])
+
+                const invocation2 = createExampleHogFlowInvocation(hogFlow, {
+                    event: {
+                        ...createHogExecutionGlobals().event,
+                        event: '$pageview',
+                        properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                    },
+                })
+
+                const result2 = await executor.execute(invocation2)
+                expect(result2.finished).toBe(true)
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
+                expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
+                    [
+                      "Workflow exited early due to exit condition: exit_on_trigger_not_matched_or_conversion (Person matches conversion filters)",
+                    ]
+                `)
+            })
+        })
 
         describe('per action runner tests', () => {
             // NOTE: We test one case of each action to ensure it works as expected, the rest is handles as per-action unit test

@@ -16,10 +16,10 @@ use tower_http::trace::TraceLayer;
 use crate::test_endpoint;
 use crate::{sinks, time::TimeSource, v0_endpoint};
 use common_redis::Client;
-use limiters::redis::RedisLimiter;
 use limiters::token_dropper::TokenDropper;
 
 use crate::config::CaptureMode;
+use crate::limiters::CaptureQuotaLimiter;
 use crate::prometheus::{setup_metrics_recorder, track_metrics};
 
 const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
@@ -31,8 +31,7 @@ pub struct State {
     pub sink: Arc<dyn sinks::Event + Send + Sync>,
     pub timesource: Arc<dyn TimeSource + Send + Sync>,
     pub redis: Arc<dyn Client + Send + Sync>,
-    pub billing_limiter: RedisLimiter,
-    pub survey_limiter: RedisLimiter,
+    pub quota_limiter: Arc<CaptureQuotaLimiter>,
     pub token_dropper: Arc<TokenDropper>,
     pub event_size_limit: usize,
     pub historical_cfg: HistoricalConfig,
@@ -103,8 +102,7 @@ pub fn router<
     liveness: HealthRegistry,
     sink: S,
     redis: Arc<R>,
-    billing_limiter: RedisLimiter,
-    survey_limiter: RedisLimiter,
+    quota_limiter: CaptureQuotaLimiter,
     token_dropper: TokenDropper,
     metrics: bool,
     capture_mode: CaptureMode,
@@ -120,8 +118,7 @@ pub fn router<
         sink: Arc::new(sink),
         timesource: Arc::new(timesource),
         redis,
-        billing_limiter,
-        survey_limiter,
+        quota_limiter: Arc::new(quota_limiter),
         event_size_limit,
         token_dropper: Arc::new(token_dropper),
         historical_cfg: HistoricalConfig::new(

@@ -16,6 +16,7 @@ import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
 import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
@@ -44,7 +45,7 @@ import { isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 export function InsightDisplayConfig(): JSX.Element {
-    const { insightProps, canEditInsight } = useValues(insightLogic)
+    const { insightProps, canEditInsight, editingDisabledReason } = useValues(insightLogic)
 
     const {
         querySource,
@@ -75,7 +76,9 @@ export function InsightDisplayConfig(): JSX.Element {
         funnelDataLogic(insightProps)
     )
 
-    const showCompare = (isTrends && display !== ChartDisplayType.ActionsAreaGraph) || isStickiness
+    const showCompare =
+        (isTrends && display !== ChartDisplayType.ActionsAreaGraph && display !== ChartDisplayType.CalendarHeatmap) ||
+        isStickiness
     const showInterval =
         isTrendsFunnel ||
         isLifecycle ||
@@ -92,11 +95,12 @@ export function InsightDisplayConfig(): JSX.Element {
     )
 
     const advancedOptions: LemonMenuItems = [
-        ...(isTrends || isRetention
+        ...(((isTrends || isRetention) && display !== ChartDisplayType.CalendarHeatmap) || isLifecycle
             ? [
                   {
                       title: 'Display',
                       items: [
+                          ...(isLifecycle ? [{ label: () => <LifecycleStackingFilter /> }] : []),
                           ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
                           ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
                           ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
@@ -126,7 +130,7 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
-        ...(!showPercentStackView && isTrends
+        ...(!showPercentStackView && isTrends && display !== ChartDisplayType.CalendarHeatmap
             ? [
                   {
                       title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
@@ -134,7 +138,7 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
-        ...(!isNonTimeSeriesDisplay && isTrends
+        ...(!isNonTimeSeriesDisplay && isTrends && display !== ChartDisplayType.CalendarHeatmap
             ? [
                   {
                       title: 'Y-axis scale',
@@ -215,7 +219,7 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
-        ...(mightContainFractionalNumbers && isTrends
+        ...(mightContainFractionalNumbers && isTrends && display !== ChartDisplayType.CalendarHeatmap
             ? [
                   {
                       title: 'Decimal places',
@@ -288,6 +292,7 @@ export function InsightDisplayConfig(): JSX.Element {
                             compareFilter={compareFilter}
                             updateCompareFilter={updateCompareFilter}
                             disabled={!canEditInsight || !supportsCompare}
+                            disableReason={editingDisabledReason}
                         />
                     </ConfigFilter>
                 )}
@@ -295,7 +300,7 @@ export function InsightDisplayConfig(): JSX.Element {
             <div className="flex items-center gap-x-2 flex-wrap">
                 {advancedOptions.length > 0 && (
                     <LemonMenu items={advancedOptions} closeOnClickInside={false}>
-                        <LemonButton size="small">
+                        <LemonButton size="small" disabledReason={editingDisabledReason}>
                             <span className="font-medium whitespace-nowrap">
                                 Options
                                 {advancedOptionsCount ? (

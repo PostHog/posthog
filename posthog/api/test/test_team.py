@@ -1607,6 +1607,108 @@ def team_api_test_factory():
             assert response.status_code == expected_status, response.json()
             return response
 
+        @patch("posthoganalytics.capture_exception")
+        def test_access_control_field_deprecated_on_create(self, mock_capture_exception):
+            """Test that access_control field is deprecated and cannot be used when creating a team."""
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "limit": 100},
+                {"key": AvailableFeature.ENVIRONMENTS, "limit": 100},
+            ]
+            self.organization.save()
+
+            response = self.client.post(
+                "/api/projects/@current/environments/",
+                {"name": "Test Environment", "access_control": True},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            error_data = response.json()
+            self.assertIn("deprecated", error_data["detail"])
+            self.assertIn("https://posthog.com/docs/settings/access-control", error_data["detail"])
+
+            # Verify that the exception was captured
+            mock_capture_exception.assert_called_once()
+            call_args = mock_capture_exception.call_args
+            self.assertEqual(call_args[0][0].args[0], "Deprecated access control field used")
+            self.assertEqual(call_args[1]["properties"]["field"], "access_control")
+            self.assertEqual(call_args[1]["properties"]["value"], "True")
+            self.assertEqual(call_args[1]["properties"]["user_id"], self.user.id)
+
+        @patch("posthoganalytics.capture_exception")
+        def test_access_control_field_deprecated_on_update(self, mock_capture_exception):
+            """Test that access_control field is deprecated and cannot be used when updating a team."""
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"name": "Updated Name", "access_control": False},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            error_data = response.json()
+            self.assertIn("deprecated", error_data["detail"])
+            self.assertIn("https://posthog.com/docs/settings/access-control", error_data["detail"])
+
+            # Verify that the exception was captured
+            mock_capture_exception.assert_called_once()
+            call_args = mock_capture_exception.call_args
+            self.assertEqual(call_args[0][0].args[0], "Deprecated access control field used")
+            self.assertEqual(call_args[1]["properties"]["field"], "access_control")
+            self.assertEqual(call_args[1]["properties"]["value"], "False")
+            self.assertEqual(call_args[1]["properties"]["user_id"], self.user.id)
+
+        @patch("posthoganalytics.capture_exception")
+        def test_access_control_field_deprecated_on_partial_update(self, mock_capture_exception):
+            """Test that access_control field is deprecated and cannot be used when partially updating a team."""
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"access_control": True},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            error_data = response.json()
+            self.assertIn("deprecated", error_data["detail"])
+            self.assertIn("https://posthog.com/docs/settings/access-control", error_data["detail"])
+
+            # Verify that the exception was captured
+            mock_capture_exception.assert_called_once()
+            call_args = mock_capture_exception.call_args
+            self.assertEqual(call_args[0][0].args[0], "Deprecated access control field used")
+            self.assertEqual(call_args[1]["properties"]["field"], "access_control")
+            self.assertEqual(call_args[1]["properties"]["value"], "True")
+            self.assertEqual(call_args[1]["properties"]["user_id"], self.user.id)
+
+        @patch("posthoganalytics.capture_exception")
+        def test_access_control_field_deprecated_with_other_valid_fields(self, mock_capture_exception):
+            """Test that access_control field is deprecated even when other valid fields are provided."""
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"timezone": "Europe/London", "access_control": True},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            error_data = response.json()
+            self.assertIn("deprecated", error_data["detail"])
+            self.assertIn("https://posthog.com/docs/settings/access-control", error_data["detail"])
+
+            # Verify that the exception was captured
+            mock_capture_exception.assert_called_once()
+            call_args = mock_capture_exception.call_args
+            self.assertEqual(call_args[0][0].args[0], "Deprecated access control field used")
+            self.assertEqual(call_args[1]["properties"]["field"], "access_control")
+            self.assertEqual(call_args[1]["properties"]["value"], "True")
+            self.assertEqual(call_args[1]["properties"]["user_id"], self.user.id)
+
+            # Verify that no changes were made to the team
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.timezone, "UTC")  # Should remain unchanged
+
         @parameterized.expand(
             [
                 (

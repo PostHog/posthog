@@ -17,6 +17,7 @@ export function useSparklineOptions(overrides: Partial<SparklineOptions> = {}, d
             eventLabelPaddingX: 5,
             eventLabelPaddingY: 3,
             eventMinSpace: 2,
+            minBarHeight: 10,
             ...overrides,
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps

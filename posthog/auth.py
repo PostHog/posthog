@@ -169,6 +169,8 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             user_id=personal_api_key_object.user.pk,
             team_id=personal_api_key_object.user.current_team_id,
             access_method="personal_api_key",
+            api_key_mask=personal_api_key_object.mask_value,
+            api_key_label=personal_api_key_object.label,
         )
 
         self.personal_api_key = personal_api_key_object

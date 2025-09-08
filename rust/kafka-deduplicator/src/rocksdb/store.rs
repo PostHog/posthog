@@ -83,6 +83,32 @@ impl RocksDbStore {
         })
     }
 
+    pub fn get(&self, cf_name: &str, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        let start_time = Instant::now();
+
+        // Track read operation
+        self.metrics
+            .counter(ROCKSDB_READ_OPERATIONS_COUNTER)
+            .increment(1);
+
+        let cf = self.get_cf_handle(cf_name)?;
+        let result = self
+            .db
+            .get_cf(&cf, key)
+            .context("Failed to get key from RocksDB");
+
+        let duration = start_time.elapsed();
+        self.metrics
+            .histogram(ROCKSDB_READ_DURATION_HISTOGRAM)
+            .record(duration.as_secs_f64());
+
+        if result.is_err() {
+            self.metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
+        }
+
+        result
+    }
+
     pub fn multi_get(&self, cf_name: &str, keys: Vec<&[u8]>) -> Result<Vec<Option<Vec<u8>>>> {
         let start_time = Instant::now();
         self.metrics
@@ -192,11 +218,12 @@ impl RocksDbStore {
             .context("Column family not found")
     }
 
-    pub fn get_db_size(&self) -> Result<u64> {
+    pub fn get_db_size(&self, cf_name: &str) -> Result<u64> {
+        let cf = self.get_cf_handle(cf_name)?;
         // Try to get SST files size
         let sst_size = self
             .db
-            .property_int_value("rocksdb.total-sst-files-size")?
+            .property_int_value_cf(&cf, "rocksdb.total-sst-files-size")?
             .unwrap_or(0);
 
         Ok(sst_size)
@@ -206,7 +233,7 @@ impl RocksDbStore {
     /// This should be called periodically to emit current database state
     pub fn update_db_metrics(&self, cf_name: &str) -> Result<()> {
         // Update database size metric
-        let db_size = self.get_db_size()?;
+        let db_size = self.get_db_size(cf_name)?;
         self.metrics
             .gauge(ROCKSDB_SIZE_BYTES_GAUGE)
             .set(db_size as f64);

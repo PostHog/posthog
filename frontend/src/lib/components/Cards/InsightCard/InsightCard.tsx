@@ -230,6 +230,7 @@ function InsightCardInternal(
                                     embedded
                                     inSharedMode={placement === DashboardPlacement.Public}
                                     variablesOverride={variablesOverride}
+                                    editMode={false}
                                 />
                             )}
                         </div>
@@ -247,4 +248,5 @@ function InsightCardInternal(
         </div>
     )
 }
+
 export const InsightCard = React.forwardRef(InsightCardInternal) as typeof InsightCardInternal

@@ -87,9 +87,10 @@ def format_patterns_assignment_progress() -> TipTapNode:
 class SummaryNotebookIntermediateState:
     """Manages the intermediate state of a notebook during session group summarization."""
 
-    def __init__(self, team_name: str):
+    def __init__(self, team_name: str, summary_title: str | None):
         """Initialize the intermediate state with a plan."""
         self.team_name = team_name
+        self.summary_title = summary_title
         # Using dict to maintain order (Python 3.7+ guarantees order)
         self.plan_items: dict[SessionSummaryStep, tuple[str, bool]] = {
             SessionSummaryStep.WATCHING_SESSIONS: ("Watch sessions", False),
@@ -161,7 +162,11 @@ class SummaryNotebookIntermediateState:
         content = []
 
         # Add main title
-        content.append(create_heading_with_text(_create_notebook_title(team_name=self.team_name), 1))
+        content.append(
+            create_heading_with_text(
+                _create_notebook_title(team_name=self.team_name, summary_title=self.summary_title), 1
+            )
+        )
         content.append(create_empty_paragraph())
 
         # Add plan section
@@ -190,15 +195,20 @@ class SummaryNotebookIntermediateState:
         return {"type": "doc", "content": content}
 
 
-def _create_notebook_title(team_name: str) -> str:
-    return f"Session Summaries Report - {team_name} ({timezone.now().strftime('%Y-%m-%d')})"
+def _create_notebook_title(team_name: str, summary_title: str | None) -> str:
+    title = f"Session summaries report - {team_name}"
+    timestamp = timezone.now().strftime("%Y-%m-%d")
+    if summary_title:
+        title += f" - {summary_title}"
+    title += f" ({timestamp})"
+    return title
 
 
-async def create_empty_notebook_for_summary(user: User, team: Team) -> Notebook:
+async def create_empty_notebook_for_summary(user: User, team: Team, summary_title: str | None) -> Notebook:
     """Create an empty notebook for a summary."""
     notebook = await Notebook.objects.acreate(
         team=team,
-        title=_create_notebook_title(team_name=team.name),
+        title=_create_notebook_title(team_name=team.name, summary_title=summary_title),
         content="",
         created_by=user,
         last_modified_by=user,
@@ -206,11 +216,13 @@ async def create_empty_notebook_for_summary(user: User, team: Team) -> Notebook:
     return notebook
 
 
-async def create_notebook_from_summary_content(user: User, team: Team, summary_content: TipTapNode) -> Notebook:
+async def create_notebook_from_summary_content(
+    user: User, team: Team, summary_content: TipTapNode, summary_title: str | None
+) -> Notebook:
     """Create a notebook with session summary patterns."""
     notebook = await Notebook.objects.acreate(
         team=team,
-        title=_create_notebook_title(team_name=team.name),
+        title=_create_notebook_title(team_name=team.name, summary_title=summary_title),
         content=summary_content,
         created_by=user,
         last_modified_by=user,
@@ -232,7 +244,11 @@ async def update_notebook_from_summary_content(
 
 
 def generate_notebook_content_from_summary(
-    summary: EnrichedSessionGroupSummaryPatternsList, session_ids: list[str], project_name: str, team_id: int
+    summary: EnrichedSessionGroupSummaryPatternsList,
+    session_ids: list[str],
+    project_name: str,
+    team_id: int,
+    summary_title: str | None,
 ) -> TipTapNode:
     """Convert summary data to notebook structure."""
     patterns = summary.patterns
@@ -241,8 +257,9 @@ def generate_notebook_content_from_summary(
         return {
             "type": "doc",
             "content": [
-                create_heading_with_text(_create_notebook_title(team_name=project_name), 1),
-                create_empty_paragraph(),
+                create_heading_with_text(
+                    _create_notebook_title(team_name=project_name, summary_title=summary_title), 1
+                ),
                 create_paragraph_with_text("No patterns found."),
                 create_paragraph_with_text(f"Sessions covered: {', '.join(session_ids)}"),
             ],
@@ -251,10 +268,12 @@ def generate_notebook_content_from_summary(
     # Sort patterns by severity: critical, high, medium, low
     content = []
     # Title
-    content.append(create_heading_with_text(_create_notebook_title(team_name=project_name), 1))
+    content.append(
+        create_heading_with_text(_create_notebook_title(team_name=project_name, summary_title=summary_title), 1)
+    )
     # Issues to review summary
     session_text = "session" if total_sessions == 1 else "sessions"
-    content.append(create_heading_with_text(f"📊 Issues to review ({total_sessions} {session_text} scope)", 2))
+    content.append(create_heading_with_text(f"Issues to review – based on {total_sessions} {session_text}", 2))
     # Summary table
     table_content = _create_summary_table(patterns, total_sessions)
     content.extend(table_content)
@@ -263,15 +282,10 @@ def generate_notebook_content_from_summary(
     # Pattern details
     for pattern in patterns:
         pattern_content = _create_pattern_section(pattern=pattern, total_sessions=total_sessions, team_id=team_id)
-        content.append(create_empty_paragraph())
         content.extend(pattern_content)
 
-    content.extend(
-        [
-            create_empty_paragraph(),
-            _create_line_separator(),
-            create_paragraph_with_text(f"Sessions covered: {', '.join(session_ids)}"),
-        ]
+    content.append(
+        create_paragraph_with_text(f"Sessions covered: {', '.join(session_ids)}"),
     )
 
     return {
@@ -286,7 +300,22 @@ def _milliseconds_to_timestamp(milliseconds: int) -> str:
     hours = seconds // 3600
     minutes = (seconds % 3600) // 60
     seconds = seconds % 60
-    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}" if hours > 0 else f"{minutes:02d}:{seconds:02d}"
+
+
+def _create_recording_widget_content(name: str, *, session_id: str, timestamp_ms: int) -> TipTapNode:
+    """Create a session recording widget for playing the session within notebook."""
+    return {
+        "type": "ph-recording",
+        "attrs": {
+            "id": session_id,
+            "noInspector": False,
+            # Actually start playback from 5 seconds before the interesting timestamp,
+            # so that the user sees what happened just before
+            "timestampMs": max(timestamp_ms - 5000, 0),
+            "title": f"{name} at {_milliseconds_to_timestamp(timestamp_ms)}",
+        },
+    }
 
 
 def _create_line_separator() -> TipTapNode:
@@ -345,7 +374,6 @@ def _create_pattern_section(
     success_percentage = f"{stats.segments_success_ratio * 100:.0f}%"
     success_count = int(stats.segments_success_ratio * stats.occurences)
     severity_text = pattern.severity.value if hasattr(pattern.severity, "value") else pattern.severity
-    content.append(create_empty_paragraph())
     content.append(
         create_paragraph_with_content(
             [create_text_content("How severe it is: ", is_bold=True), create_text_content(severity_text.title())]
@@ -369,7 +397,6 @@ def _create_pattern_section(
     )
 
     # Detection indicators
-    content.append(create_empty_paragraph())
     content.append(
         create_paragraph_with_content(
             [create_text_content("🔍 "), create_text_content("How we detect this:", is_bold=True)]
@@ -378,9 +405,8 @@ def _create_pattern_section(
     # Convert indicators to bullet list
     content.append(create_bullet_list(pattern.indicators))
 
-    # Examples section
-    content.append(create_empty_paragraph())
-    content.append(create_heading_with_text("Examples", 3))
+    # Examples section, collapsed to avoid overwhelming the user
+    content.append(create_heading_with_text("Examples", 3, collapsed=True))
     # TODO: Decide if to limit examples (or create some sort of collapsible section in notebooks)
     events_to_show = pattern.events
     for event_data in events_to_show:
@@ -395,33 +421,18 @@ def _create_example_section(event_data: PatternAssignedEventSegmentContext, team
     """Create example section content for an event."""
     content = []
     session_id = event_data.target_event.session_id
-    # Calculate seconds till start, so link opens player on a proper position
-    seconds_since_start = int(event_data.target_event.milliseconds_since_start / 1000)
 
-    # Example header with session link
+    # Embedded session recording widget
     content.append(
-        {
-            "type": "heading",
-            "attrs": {"level": 4},
-            "content": [
-                {"type": "text", "text": "Session "},
-                {
-                    "type": "ph-backlink",
-                    "attrs": {
-                        "href": f"/project/{team_id}/replay/{session_id}?t={seconds_since_start}",
-                        "type": None,
-                        "title": session_id,
-                    },
-                },
-                {
-                    "type": "text",
-                    "text": f" at {_milliseconds_to_timestamp(event_data.target_event.milliseconds_since_start)}",
-                },
-            ],
-        }
+        _create_recording_widget_content(
+            name=event_data.target_event.description,
+            session_id=session_id,
+            timestamp_ms=event_data.target_event.milliseconds_since_start,
+        )
     )
+
     # Quick summary
-    content.append(create_heading_with_text("Quick summary", 5))
+    content.append(create_heading_with_text("Quick summary", 4))
     quick_summary_items = [
         [create_text_content("What user was doing: ", is_bold=True), create_text_content(event_data.segment_name)],
         [
@@ -435,7 +446,7 @@ def _create_example_section(event_data: PatternAssignedEventSegmentContext, team
     ]
     content.append(create_bullet_list(quick_summary_items))
     # Outcome section
-    content.append(create_heading_with_text("Outcome", 5))
+    content.append(create_heading_with_text("Outcome", 4))
     outcome_items = []
     # What happened before
     if event_data.previous_events_in_segment:
