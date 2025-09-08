@@ -39,7 +39,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { AccessControlAction, accessLevelSatisfied } from '../AccessControlAction'
+import { accessLevelSatisfied } from '../AccessControlAction'
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { sharingLogic } from './sharingLogic'
 
@@ -143,37 +143,25 @@ export function SharingModalContent({
                         {!sharingAllowed ? (
                             <LemonBanner type="warning">Public sharing is disabled for this organization.</LemonBanner>
                         ) : (
-                            <AccessControlAction
-                                resourceType={
-                                    dashboardId
+                            <LemonSwitch
+                                id="sharing-switch"
+                                label={`Share ${resource} publicly`}
+                                checked={sharingConfiguration.enabled}
+                                data-attr="sharing-switch"
+                                onChange={(active) => setIsEnabled(active)}
+                                bordered
+                                fullWidth
+                                loading={sharingConfigurationLoading}
+                                accessControl={{
+                                    userLevel: userAccessLevel,
+                                    minLevel: AccessControlLevel.Editor,
+                                    resource: dashboardId
                                         ? AccessControlResourceType.Dashboard
                                         : insightShortId
                                           ? AccessControlResourceType.Insight
-                                          : AccessControlResourceType.Project
-                                }
-                                minAccessLevel={AccessControlLevel.Editor}
-                                userAccessLevel={userAccessLevel}
-                            >
-                                {({ disabled, disabledReason }) => (
-                                    <>
-                                        {disabled && disabledReason && (
-                                            <LemonBanner type="warning">{disabledReason}</LemonBanner>
-                                        )}
-                                        <LemonSwitch
-                                            id="sharing-switch"
-                                            label={`Share ${resource} publicly`}
-                                            checked={sharingConfiguration.enabled}
-                                            data-attr="sharing-switch"
-                                            onChange={(active) => setIsEnabled(active)}
-                                            disabled={disabled}
-                                            bordered
-                                            fullWidth
-                                            tooltip={disabledReason}
-                                            loading={sharingConfigurationLoading}
-                                        />
-                                    </>
-                                )}
-                            </AccessControlAction>
+                                          : AccessControlResourceType.Project,
+                                }}
+                            />
                         )}
 
                         {sharingAllowed && sharingConfiguration.enabled && sharingConfiguration.access_token ? (
