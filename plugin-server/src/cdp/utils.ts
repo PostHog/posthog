@@ -14,6 +14,7 @@ import { HogFunctionInvocationGlobals, HogFunctionType, LogEntry, LogEntrySerial
 // For example, transformations use this to only run if in comparison mode
 export const CDP_TEST_ID = '[CDP-TEST-HIDDEN]'
 export const MAX_LOG_LENGTH = 10000
+const TRUNCATION_SUFFIX = '... (truncated)'
 
 export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'email',
@@ -219,8 +220,8 @@ export const sanitizeLogMessage = (args: any[], sensitiveValues?: string[], maxL
         message = message.replaceAll(sensitiveValue, '***REDACTED***')
     })
 
-    if (message.length > maxLength) {
-        message = sanitizeForUTF8(message.slice(0, maxLength) + '... (truncated)')
+    if (message.length > maxLength + TRUNCATION_SUFFIX.length) {
+        message = sanitizeForUTF8(message.slice(0, maxLength) + TRUNCATION_SUFFIX)
     }
 
     return message
