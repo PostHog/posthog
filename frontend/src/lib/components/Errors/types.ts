@@ -114,7 +114,7 @@ export interface ExceptionAttributes {
     level?: string
     url?: string
     handled?: boolean
-    exceptionReleases?: ParsedEventExceptionRelease[]
+    exceptionReleases?: RawEventExceptionRelease[]
 }
 
 export interface RawEventExceptionRelease {
@@ -123,19 +123,6 @@ export interface RawEventExceptionRelease {
             commit_id?: string
             remote_url?: string
             repo_name?: string
-            branch?: string
-        }
-    }
-    version: string
-    timestamp: string
-}
-
-export interface ParsedEventExceptionRelease {
-    metadata?: {
-        git?: {
-            commitId?: string
-            remoteUrl?: string
-            repoName?: string
             branch?: string
         }
     }

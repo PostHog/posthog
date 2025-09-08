@@ -3,8 +3,7 @@ import { loaders } from 'kea-loaders/lib'
 
 import api from 'lib/api'
 import 'lib/components/Errors/stackFrameLogic'
-import { ErrorTrackingStackFrame, ParsedEventExceptionRelease } from 'lib/components/Errors/types'
-import { parseExceptionRelease } from 'lib/components/Errors/utils'
+import { ErrorTrackingStackFrame, RawEventExceptionRelease } from 'lib/components/Errors/types'
 
 import type { releasePreviewLogicType } from './releasePreviewLogicType'
 
@@ -21,11 +20,11 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
 
     loaders(() => ({
         release: [
-            undefined as ParsedEventExceptionRelease | undefined,
+            undefined as RawEventExceptionRelease | undefined,
             {
                 loadRelease: async (dto: {
                     // we have exceptionReleases from the already loaded event. Cymbal enriches event with that data
-                    exceptionReleases?: ParsedEventExceptionRelease[]
+                    exceptionReleases?: RawEventExceptionRelease[]
                     frames?: ErrorTrackingStackFrame[]
                 }) => {
                     // we can't do anything if there are neither frames nor existing releases
@@ -59,7 +58,7 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
 
                     if (kaboomFrame) {
                         const relatedRelease = resultMap[kaboomFrame.raw_id]
-                        return parseExceptionRelease(relatedRelease)
+                        return relatedRelease
                     }
 
                     return undefined

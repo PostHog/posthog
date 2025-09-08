@@ -5,13 +5,13 @@ import { IconCommit } from '@posthog/icons'
 import { LemonTag, Popover } from '@posthog/lemon-ui'
 
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
-import { ParsedEventExceptionRelease } from 'lib/components/Errors/types'
+import { RawEventExceptionRelease } from 'lib/components/Errors/types'
 
 import { ReleasePopoverContent } from './ReleasesPopoverContent'
 import { releasePreviewLogic } from './releasePreviewLogic'
 
 export interface ReleasePreviewPillProps {
-    exceptionReleases?: ParsedEventExceptionRelease[]
+    exceptionReleases?: RawEventExceptionRelease[]
 }
 
 export function ReleasePreviewPill({ exceptionReleases }: ReleasePreviewPillProps): JSX.Element {
@@ -52,6 +52,6 @@ export function ReleasePreviewPill({ exceptionReleases }: ReleasePreviewPillProp
     )
 }
 
-function releasePillTitle(release: ParsedEventExceptionRelease): string {
-    return release.metadata?.git?.commitId?.slice(0, 7) ?? release.version ?? ''
+function releasePillTitle(release: RawEventExceptionRelease): string {
+    return release.metadata?.git?.commit_id?.slice(0, 7) ?? release.version ?? ''
 }

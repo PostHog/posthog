@@ -3,13 +3,13 @@ import { useMemo } from 'react'
 import { IconCommit, IconExternal, IconGitBranch, IconGitRepository, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { ParsedEventExceptionRelease } from 'lib/components/Errors/types'
+import { RawEventExceptionRelease } from 'lib/components/Errors/types'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { GitMetadataParser } from './gitMetadataParser'
 
 export interface ReleasesPopoverContentProps {
-    release: ParsedEventExceptionRelease
+    release: RawEventExceptionRelease
 }
 
 export function ReleasePopoverContent({ release }: ReleasesPopoverContentProps): JSX.Element {
@@ -32,18 +32,18 @@ export function ReleasePopoverContent({ release }: ReleasesPopoverContentProps):
     )
 }
 
-function GitContent({ release }: { release: ParsedEventExceptionRelease }): JSX.Element {
+function GitContent({ release }: { release: RawEventExceptionRelease }): JSX.Element {
     return (
         <div>
             <div className="flex items-center gap-2 flex-wrap">
                 <Tooltip title="Click to copy full commit SHA to clipboard">
                     <LemonTag
                         className="bg-fill-primary font-mono text-xs cursor-pointer hover:bg-fill-secondary"
-                        onClick={() => copyToClipboard(release.metadata?.git?.commitId ?? '', 'full commit SHA')}
+                        onClick={() => copyToClipboard(release.metadata?.git?.commit_id ?? '', 'full commit SHA')}
                     >
                         <IconCommit className="text-sm text-secondary" />
-                        <span title={`${release.metadata?.git?.commitId ?? ''} (click to copy)`}>
-                            {release.metadata?.git?.commitId?.slice(0, 7)}
+                        <span title={`${release.metadata?.git?.commit_id ?? ''} (click to copy)`}>
+                            {release.metadata?.git?.commit_id?.slice(0, 7)}
                         </span>
                     </LemonTag>
                 </Tooltip>
@@ -55,11 +55,11 @@ function GitContent({ release }: { release: ParsedEventExceptionRelease }): JSX.
                         </LemonTag>
                     </Tooltip>
                 )}
-                {release.metadata?.git?.repoName && (
+                {release.metadata?.git?.repo_name && (
                     <Tooltip title="Git repository name">
                         <LemonTag className="bg-fill-primary text-xs">
                             <IconGitRepository className="text-sm text-secondary" />
-                            <span title={release.metadata?.git?.repoName}>{release.metadata?.git?.repoName}</span>
+                            <span title={release.metadata?.git?.repo_name}>{release.metadata?.git?.repo_name}</span>
                         </LemonTag>
                     </Tooltip>
                 )}
@@ -68,7 +68,7 @@ function GitContent({ release }: { release: ParsedEventExceptionRelease }): JSX.
     )
 }
 
-function GitlessContent({ release }: { release: ParsedEventExceptionRelease }): JSX.Element {
+function GitlessContent({ release }: { release: RawEventExceptionRelease }): JSX.Element {
     return (
         <div className="flex items-center justify-between gap-2">
             <LemonTag className="bg-fill-primary text-xs">
