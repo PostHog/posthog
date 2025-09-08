@@ -38,7 +38,6 @@ import {
     Node,
     NodeKind,
     PersistedFolder,
-    QueryLogResponse,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
@@ -3789,7 +3788,7 @@ const api = {
     },
 
     queryLog: {
-        async get(queryId: string): Promise<QueryLogResponse> {
+        async get(queryId: string): Promise<HogQLQueryResponse> {
             return await new ApiRequest().queryLog(queryId).get()
         },
     },

@@ -44,6 +44,7 @@ import {
     GroupsQuery,
     GroupsQueryResponse,
     HogQLQueryModifiers,
+    HogQLQueryResponse,
     HogQLVariable,
     InsightVizNode,
     MarketingAnalyticsTableQuery,
@@ -446,20 +447,20 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             },
         ],
         queryLog: [
-            {},
+            null as HogQLQueryResponse | null,
             {
                 loadQueryLog: async (queryId, breakpoint) => {
                     if (!queryId) {
                         throw new Error('No query ID provided')
                     }
                     if (!values.featureFlags[FEATURE_FLAGS.QUERY_EXECUTION_DETAILS]) {
-                        return
+                        return null
                     }
 
                     try {
                         return await api.queryLog.get(queryId)
                     } catch (e: any) {
-                        console.warn('Failed to get query execution details:', e)
+                        console.warn('Failed to get query execution details', e)
                         e.queryId = queryId
                         breakpoint()
                         throw e
@@ -896,7 +897,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 cache.localResults[JSON.stringify(props.query.query)] = response
             }
 
-            // Auto-load query log when main data loads successfully
             if (values.queryId) {
                 actions.loadQueryLog(values.queryId)
             }
