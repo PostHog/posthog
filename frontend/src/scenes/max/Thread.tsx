@@ -29,7 +29,11 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
+import {
+    InsightBreakdownSummary,
+    PropertiesSummary,
+    SeriesSummary,
+} from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -641,7 +645,7 @@ const Visualization = React.memo(function Visualization({
                     {!isHogQLQuery(query.source) && (
                         <div className="flex flex-wrap gap-4 mt-1 *:grow">
                             <PropertiesSummary properties={query.source.properties} />
-                            <BreakdownSummary query={query.source} />
+                            <InsightBreakdownSummary query={query.source} />
                         </div>
                     )}
                 </>
@@ -747,7 +751,7 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                               {!isHogQLQuery(query.source) && (
                                   <div className="flex flex-wrap gap-4 mt-1 *:grow">
                                       <PropertiesSummary properties={query.source.properties} />
-                                      <BreakdownSummary query={query.source} />
+                                      <InsightBreakdownSummary query={query.source} />
                                   </div>
                               )}
                           </>

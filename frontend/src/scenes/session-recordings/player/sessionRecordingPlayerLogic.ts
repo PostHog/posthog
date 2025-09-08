@@ -293,7 +293,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         exportRecordingToFile: true,
         deleteRecording: true,
         openExplorer: true,
-        takeScreenshot: (format: ExporterFormat) => ({ format }),
+        takeScreenshot: true,
+        getClip: (format: ExporterFormat, duration: number = 5) => ({ format, duration }),
+        exportRecording: (
+            format: ExporterFormat,
+            timestamp: number = 0,
+            mode: SessionRecordingPlayerMode = SessionRecordingPlayerMode.Screenshot,
+            duration: number = 5
+        ) => ({ format, timestamp, mode, duration }),
         closeExplorer: true,
         openHeatmap: true,
         setExplorerProps: (props: SessionRecordingPlayerExplorerProps | null) => ({ props }),
@@ -320,8 +327,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         exportRecordingToVideoFile: true,
         markViewed: (delay?: number) => ({ delay }),
         setWasMarkedViewed: (wasMarkedViewed: boolean) => ({ wasMarkedViewed }),
+        setShowingClipParams: (showingClipParams: boolean) => ({ showingClipParams }),
     }),
     reducers(({ props }) => ({
+        showingClipParams: [
+            false as boolean,
+            {
+                setShowingClipParams: (_, { showingClipParams }) => showingClipParams,
+                setIsCommenting: (state, { isCommenting }) => (isCommenting ? false : state),
+                setQuickEmojiIsOpen: (state, { quickEmojiIsOpen }) => (quickEmojiIsOpen ? false : state),
+            },
+        ],
         wasMarkedViewed: [
             false as boolean,
             {
@@ -332,12 +348,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             false,
             {
                 setIsCommenting: (_, { isCommenting }) => isCommenting,
+                setShowingClipParams: (state, { showingClipParams }) => (showingClipParams ? false : state),
+                setQuickEmojiIsOpen: (state, { quickEmojiIsOpen }) => (quickEmojiIsOpen ? false : state),
             },
         ],
         quickEmojiIsOpen: [
             false,
             {
                 setQuickEmojiIsOpen: (_, { quickEmojiIsOpen }) => quickEmojiIsOpen,
+                setShowingClipParams: (state, { showingClipParams }) => (showingClipParams ? false : state),
+                setIsCommenting: (state, { isCommenting }) => (isCommenting ? false : state),
             },
         ],
         maskingWindow: [
@@ -1414,56 +1434,40 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 height: parseFloat(iframe.height),
             })
         },
-        takeScreenshot: async ({ format }) => {
+        exportRecording: ({ format, timestamp = 0, mode = SessionRecordingPlayerMode.Screenshot, duration = 5 }) => {
             actions.setPause()
             const iframe = values.rootFrame?.querySelector('iframe')
             if (!iframe) {
-                lemonToast.error('Cannot take screenshot. Please try again.')
+                lemonToast.error('Cannot export recording. Please try again.')
                 return
             }
 
+            actions.startReplayExport(values.sessionRecordingId, format, timestamp, duration, mode, {
+                width: iframe?.width ? Number(iframe.width) : 1400,
+                height: iframe?.height ? Number(iframe.height) : 600,
+                css_selector: '.replayer-wrapper',
+                filename: `replay-${values.sessionRecordingId}`,
+            })
+        },
+        takeScreenshot: async () => {
             // We need to subtract 1 second as the player starts immediately
             const timestamp = Math.max(0, getCurrentPlayerTime(values.logicProps) - 1)
-
-            actions.startReplayExport(
-                values.sessionRecordingId,
-                format,
-                timestamp,
-                5,
-                SessionRecordingPlayerMode.Screenshot,
-                {
-                    width: iframe?.width ? Number(iframe.width) : 1400,
-                    height: iframe?.height ? Number(iframe.height) : 600,
-                    css_selector: '.replayer-wrapper',
-                    filename: `replay-${values.sessionRecordingId}`,
-                }
+            actions.exportRecording(ExporterFormat.PNG, timestamp, SessionRecordingPlayerMode.Screenshot)
+        },
+        getClip: async ({ format, duration = 5 }) => {
+            // Center the clip around current time, minus 1 second offset for player start
+            const timestamp = Math.max(
+                0,
+                Math.floor(getCurrentPlayerTime(values.logicProps) - 1 - Math.floor(duration / 2))
             )
+            actions.exportRecording(format, timestamp, SessionRecordingPlayerMode.Screenshot, duration)
         },
         exportRecordingToVideoFile: async () => {
-            actions.setPause()
-            const iframe = values.rootFrame?.querySelector('iframe')
-            if (!iframe) {
-                lemonToast.error('Cannot export recording to video. Please try again.')
-                return
-            }
-
             const duration = values.sessionPlayerData?.durationMs
                 ? Math.floor(values.sessionPlayerData?.durationMs / 1000)
                 : 5
 
-            actions.startReplayExport(
-                values.sessionRecordingId,
-                ExporterFormat.MP4,
-                0,
-                duration,
-                SessionRecordingPlayerMode.Video,
-                {
-                    width: iframe?.width ? Number(iframe.width) : 1400,
-                    height: iframe?.height ? Number(iframe.height) : 600,
-                    css_selector: '.replayer-wrapper',
-                    filename: `replay-${values.sessionRecordingId}`,
-                }
-            )
+            actions.exportRecording(ExporterFormat.MP4, 0, SessionRecordingPlayerMode.Video, duration)
         },
         openHeatmap: () => {
             actions.setPause()
