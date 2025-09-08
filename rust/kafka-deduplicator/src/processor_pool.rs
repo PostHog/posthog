@@ -116,8 +116,7 @@ impl<P: MessageProcessor + Clone + 'static> ProcessorPool<P> {
                     // Nack the message that couldn't be delivered
                     failed_msg
                         .nack(format!(
-                            "Worker {} died, unable to process message",
-                            worker_id
+                            "Worker {worker_id} died, unable to process message",
                         ))
                         .await;
 
@@ -675,7 +674,7 @@ mod tests {
             async fn process_message(&self, message: AckableMessage) -> anyhow::Result<()> {
                 let offset = message.kafka_message().offset();
                 if offset == self.panic_on_offset {
-                    panic!("Intentional panic for testing at offset {}", offset);
+                    panic!("Intentional panic for testing at offset {offset}");
                 }
                 self.processed_count.fetch_add(1, Ordering::SeqCst);
                 message.ack().await;
@@ -887,7 +886,7 @@ mod tests {
 
                 if offset == self.panic_on_offset {
                     // Panic without acking - message should auto-nack via Drop
-                    panic!("Intentional panic at offset {}", offset);
+                    panic!("Intentional panic at offset {offset}");
                 }
 
                 // Normal path: ack the message
