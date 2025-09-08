@@ -57,6 +57,7 @@ import { playerSettingsLogic } from './playerSettingsLogic'
 import { BuiltLogging, COMMON_REPLAYER_CONFIG, CorsPlugin, HLSPlayerPlugin, makeLogger, makeNoOpLogger } from './rrweb'
 import { CanvasReplayerPlugin } from './rrweb/canvas/canvas-plugin'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
+import { snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording } from './utils/playerUtils'
 import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionRecordingPlayerExplorer'
 
@@ -216,12 +217,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
+            snapshotDataLogic(props),
+            ['snapshotsLoaded', 'snapshotsLoading', 'isRealtimePolling'],
             sessionRecordingDataLogic(props),
             [
                 'urls',
-                'snapshotsLoaded',
-                'snapshotsLoading',
-                'isRealtimePolling',
                 'sessionPlayerData',
                 'sessionPlayerMetaData',
                 'sessionPlayerMetaDataLoading',
@@ -240,15 +240,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ['featureFlags'],
         ],
         actions: [
+            snapshotDataLogic(props),
+            ['loadSnapshots', 'loadSnapshotsForSourceFailure', 'loadSnapshotSourcesFailure'],
             sessionRecordingDataLogic(props),
-            [
-                'maybeLoadRecordingMeta',
-                'loadSnapshots',
-                'loadSnapshotsForSourceFailure',
-                'loadSnapshotSourcesFailure',
-                'loadRecordingMetaSuccess',
-                'maybePersistRecording',
-            ],
+            ['maybeLoadRecordingMeta', 'loadRecordingMetaSuccess', 'maybePersistRecording'],
             playerSettingsLogic,
             ['setSpeed', 'setSkipInactivitySetting'],
             sessionRecordingEventUsageLogic,
@@ -315,6 +310,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadRecordingMeta: true,
         setSimilarRecordings: (results: string[]) => ({ results }),
         setIsCommenting: (isCommenting: boolean) => ({ isCommenting }),
+        setQuickEmojiIsOpen: (quickEmojiIsOpen: boolean) => ({ quickEmojiIsOpen }),
         updatePlayerTimeTracking: true,
         exportRecordingToVideoFile: true,
         markViewed: (delay?: number) => ({ delay }),
@@ -331,6 +327,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             false,
             {
                 setIsCommenting: (_, { isCommenting }) => isCommenting,
+            },
+        ],
+        quickEmojiIsOpen: [
+            false,
+            {
+                setQuickEmojiIsOpen: (_, { quickEmojiIsOpen }) => quickEmojiIsOpen,
             },
         ],
         maskingWindow: [

@@ -11,12 +11,14 @@ import {
     getOutgoers,
 } from '@xyflow/react'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { lazyLoaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import type { DragEvent } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { AppMetricsTotalsRequest, loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
 import { uuid } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -32,8 +34,18 @@ import type { HogFlow, HogFlowAction, HogFlowActionNode } from './types'
 
 const getEdgeId = (edge: HogFlow['edges'][number]): string => `${edge.from}->${edge.to} ${edge.index ?? ''}`.trim()
 
-export const HOG_FLOW_EDITOR_MODES = ['build', 'test'] as const
+export const HOG_FLOW_EDITOR_MODES = ['build', 'test', 'metrics', 'logs'] as const
 export type HogFlowEditorMode = (typeof HOG_FLOW_EDITOR_MODES)[number]
+export type HogFlowEditorActionMetrics = {
+    actionId: string
+    succeeded: number
+    failed: number
+    filtered: number
+}
+
+export type CreateActionType = Pick<HogFlowAction, 'type' | 'config' | 'name' | 'description'> & {
+    branchEdges?: number
+}
 
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as CampaignLogicProps),
@@ -42,7 +54,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     connect((props: CampaignLogicProps) => ({
         values: [
             campaignLogic(props),
-            ['campaign', 'edgesByActionId'],
+            ['campaign', 'edgesByActionId', 'hogFunctionTemplatesById'],
             optOutCategoriesLogic(),
             ['categories', 'categoriesLoading'],
         ],
@@ -69,9 +81,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         onDragStart: true,
         onDragOver: (event: DragEvent) => ({ event }),
         onDrop: (event: DragEvent) => ({ event }),
-        setNewDraggingNode: (newDraggingNode: HogFlowAction['type'] | null) => ({ newDraggingNode }),
+        setNewDraggingNode: (newDraggingNode: CreateActionType | null) => ({ newDraggingNode }),
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
+        loadActionMetricsById: (params: AppMetricsTotalsRequest, timezone: string) => ({ params, timezone }),
     }),
     reducers(() => ({
         mode: [
@@ -112,7 +125,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ],
 
         newDraggingNode: [
-            null as HogFlowAction['type'] | null,
+            null as CreateActionType | null,
             {
                 setNewDraggingNode: (_, { newDraggingNode }) => newDraggingNode,
             },
@@ -161,6 +174,37 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
     }),
+    lazyLoaders(() => ({
+        actionMetricsById: [
+            null as Record<string, HogFlowEditorActionMetrics> | null,
+            {
+                loadActionMetricsById: async ({ params, timezone }, breakpoint) => {
+                    await breakpoint(10)
+                    const response = await loadAppMetricsTotals(params, timezone)
+                    await breakpoint(10)
+
+                    const res: Record<string, HogFlowEditorActionMetrics> = {}
+                    Object.values(response).forEach((value) => {
+                        const [instanceId, metricName] = value.breakdowns
+                        if (!instanceId || !metricName) {
+                            return
+                        }
+                        res[instanceId] = res[instanceId] || {
+                            actionId: instanceId,
+                            succeeded: 0,
+                            failed: 0,
+                            filtered: 0,
+                        }
+                        if (metricName in res[instanceId]) {
+                            ;(res[instanceId] as any)[metricName] = value.total
+                        }
+                    })
+
+                    return res
+                },
+            },
+        ],
+    })),
     listeners(({ values, actions }) => ({
         onEdgesChange: ({ edges }) => {
             actions.setEdges(applyEdgeChanges(edges, values.edges))
@@ -230,15 +274,18 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 })
 
                 const nodes: HogFlowActionNode[] = hogFlow.actions.map((action: HogFlowAction) => {
-                    const step = getHogFlowStep(action.type)
+                    const step = getHogFlowStep(action, values.hogFunctionTemplatesById)
+
                     if (!step) {
-                        console.error(`Step not found for action type: ${action.type}`)
-                        throw new Error(`Step not found for action type: ${action.type}`)
+                        // Migrate old function actions to the basic functon action type
+                        if (action.type.startsWith('function_')) {
+                            action.type = 'function'
+                        }
                     }
 
                     return {
                         id: action.id,
-                        type: action.type,
+                        type: 'action',
                         data: action,
                         position: { x: 0, y: 0 },
                         handles: Object.values(handlesByIdByNodeId[action.id] ?? {}),
@@ -350,21 +397,25 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
             if (values.newDraggingNode && dropzoneNode) {
                 const edgeToInsertNodeInto = dropzoneNode?.data.edge
-                const step = getHogFlowStep(values.newDraggingNode)
-
-                if (!step) {
-                    throw new Error(`Step not found for action type: ${values.newDraggingNode}`)
-                }
-
-                const { action: partialNewAction, branchEdges = 0 } = step.create()
+                const partialNewAction = values.newDraggingNode
 
                 const newAction = {
-                    id: `action_${step.type}_${uuid()}`,
-                    type: step.type,
+                    id: `action_${partialNewAction.type}_${uuid()}`,
+                    type: partialNewAction.type,
+                    name: partialNewAction.name,
+                    description: partialNewAction.description,
+                    config: partialNewAction.config,
                     created_at: Date.now(),
                     updated_at: Date.now(),
-                    ...partialNewAction,
                 } as HogFlowAction
+
+                const step = getHogFlowStep(newAction, values.hogFunctionTemplatesById)
+
+                const branchEdges = partialNewAction.branchEdges ?? 0
+
+                if (!step) {
+                    throw new Error(`Step not found for action type: ${newAction}`)
+                }
 
                 const edgeToBeReplacedIndex = values.campaign.edges.findIndex(
                     (edge) => getEdgeId(edge) === edgeToInsertNodeInto.id
@@ -443,14 +494,14 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         }
 
         return {
-            setSelectedNodeId: () => syncProperty('selectedNodeId', values.selectedNodeId ?? null),
+            setSelectedNodeId: () => syncProperty('node', values.selectedNodeId ?? null),
             setMode: () => syncProperty('mode', values.mode),
         }
     }),
     urlToAction(({ actions }) => {
         const reactToTabChange = (_: any, search: Record<string, string>): void => {
-            const { selectedNodeId, mode } = search
-            actions.setSelectedNodeId(selectedNodeId ?? null)
+            const { node, mode } = search
+            actions.setSelectedNodeId(node ?? null)
             if (mode && HOG_FLOW_EDITOR_MODES.includes(mode as HogFlowEditorMode)) {
                 actions.setMode(mode as HogFlowEditorMode)
             }

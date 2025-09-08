@@ -34,7 +34,7 @@ import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-
 import { ChartDisplayType, GraphType } from '~/types'
 
 import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
-import { AxisBreakdownSeries, BreakdownSeriesData } from '../seriesBreakdownLogic'
+import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 
 Chart.register(annotationPlugin)
 Chart.register(ChartjsPluginStacked100)
@@ -101,7 +101,6 @@ const getYAxisSettings = (
 export type LineGraphProps = {
     xData: AxisSeries<string> | null
     yData: AxisSeries<number>[] | AxisBreakdownSeries<number>[]
-    seriesBreakdownData?: BreakdownSeriesData<number>
     visualizationType: ChartDisplayType
     chartSettings: ChartSettings
     presetChartHeight?: boolean

@@ -10,7 +10,7 @@ import { errorTrackingQuery } from '@posthog/products-error-tracking/frontend/qu
 
 import api from 'lib/api'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { FEATURE_FLAGS, RETENTION_FIRST_TIME } from 'lib/constants'
+import { FEATURE_FLAGS, RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link/Link'
@@ -1585,7 +1585,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       dateRange,
                                       filterTestAccounts,
                                       retentionFilter: {
-                                          retentionType: RETENTION_FIRST_TIME,
+                                          retentionType: RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
                                           retentionReference: 'total',
                                           totalIntervals: isGreaterThanMd ? 8 : 5,
                                           period: RetentionPeriod.Week,

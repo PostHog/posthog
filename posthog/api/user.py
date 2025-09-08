@@ -87,6 +87,7 @@ class UserSerializer(serializers.ModelSerializer):
     sensitive_session_expires_at = serializers.SerializerMethodField()
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
+    has_sso_enforcement = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
     organization = OrganizationSerializer(read_only=True)
     organizations = OrganizationBasicSerializer(many=True, read_only=True)
@@ -113,6 +114,7 @@ class UserSerializer(serializers.ModelSerializer):
             "anonymize_data",
             "toolbar_mode",
             "has_password",
+            "id",
             "is_staff",
             "is_impersonated",
             "is_impersonated_until",
@@ -127,6 +129,7 @@ class UserSerializer(serializers.ModelSerializer):
             "events_column_config",
             "is_2fa_enabled",
             "has_social_auth",
+            "has_sso_enforcement",
             "has_seen_product_intro_for",
             "scene_personalisation",
             "theme_mode",
@@ -141,6 +144,7 @@ class UserSerializer(serializers.ModelSerializer):
             "pending_email",
             "is_email_verified",
             "has_password",
+            "id",
             "is_impersonated",
             "is_impersonated_until",
             "sensitive_session_expires_at",
@@ -148,6 +152,7 @@ class UserSerializer(serializers.ModelSerializer):
             "organization",
             "organizations",
             "has_social_auth",
+            "has_sso_enforcement",
         ]
 
         extra_kwargs = {
@@ -192,6 +197,17 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_is_2fa_enabled(self, instance: User) -> bool:
         return default_device(instance) is not None
+
+    def get_has_sso_enforcement(self, instance: User) -> bool:
+        from posthog.models.organization_domain import OrganizationDomain
+
+        organization = instance.current_organization
+        if not organization:
+            return False
+
+        return bool(
+            OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email, organization=organization)
+        )
 
     def validate_set_current_organization(self, value: str) -> Organization:
         try:
@@ -391,7 +407,7 @@ class UserViewSet(
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, UserNoOrgMembershipDeletePermission]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["is_staff"]
+    filterset_fields = ["is_staff", "email"]
     queryset = User.objects.filter(is_active=True)
     lookup_field = "uuid"
 

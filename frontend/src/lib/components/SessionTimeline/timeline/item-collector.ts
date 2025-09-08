@@ -1,13 +1,14 @@
-import { ItemCache, ItemCategory, ItemLoader, ItemRenderer, TimelineItem } from '.'
+import { ItemCategory, ItemLoader, ItemRenderer, TimelineItem } from '.'
 
 import { Dayjs } from 'lib/dayjs'
+import { TimeTree } from 'lib/utils/time-tree'
 
 export class ItemCollector {
     sessionId: string
     timestamp: Dayjs
     beforeCursor: Dayjs
     afterCursor: Dayjs
-    itemCache: ItemCache<TimelineItem>
+    itemCache: TimeTree<TimelineItem>
     loaders: Map<ItemCategory, ItemLoader<TimelineItem>> = new Map()
     renderers: Map<ItemCategory, ItemRenderer<TimelineItem>> = new Map()
 
@@ -20,11 +21,20 @@ export class ItemCollector {
         this.timestamp = timestamp
         this.beforeCursor = this.timestamp
         this.afterCursor = this.timestamp
-        this.itemCache = new ItemCache<TimelineItem>()
+        this.itemCache = new TimeTree<TimelineItem>()
         for (const [category, renderer, loader] of categories) {
             this.loaders.set(category, loader)
             this.renderers.set(category, renderer)
         }
+    }
+
+    addCategory(category: ItemCategory, renderer: ItemRenderer<TimelineItem>, loader: ItemLoader<TimelineItem>): void {
+        this.loaders.set(category, loader)
+        this.renderers.set(category, renderer)
+    }
+
+    getAllCategories(): ItemCategory[] {
+        return Array.from(this.loaders.keys())
     }
 
     findMinTimestamp(array: TimelineItem[]): TimelineItem {
@@ -38,7 +48,7 @@ export class ItemCollector {
     clear(): void {
         this.beforeCursor = this.timestamp
         this.afterCursor = this.timestamp
-        this.itemCache = new ItemCache<TimelineItem>()
+        this.itemCache = new TimeTree<TimelineItem>()
     }
 
     getRenderer(category: ItemCategory): ItemRenderer<TimelineItem> | undefined {

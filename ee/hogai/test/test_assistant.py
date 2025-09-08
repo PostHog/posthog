@@ -60,7 +60,7 @@ from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
 from ee.hogai.tool import search_documentation
-from ee.hogai.utils.state import GraphValueUpdateTuple
+from ee.hogai.utils.state import GraphMessageUpdateTuple, GraphValueUpdateTuple, LangGraphState
 from ee.hogai.utils.tests import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
 from ee.hogai.utils.types import (
     AssistantMode,
@@ -138,13 +138,13 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         test_graph: Optional[CompiledStateGraph] = None,
         message: Optional[str] = "Hello",
         conversation: Optional[Conversation] = None,
-        tool_call_partial_state: Optional[AssistantState | PartialAssistantState] = None,
+        tool_call_partial_state: Optional[AssistantState] = None,
         is_new_conversation: bool = False,
         mode: AssistantMode = AssistantMode.ASSISTANT,
         contextual_tools: Optional[dict[str, Any]] = None,
         ui_context: Optional[MaxUIContext] = None,
         filter_ack_messages: bool = True,
-    ) -> tuple[list[tuple[str, Any]], Assistant]:
+    ) -> tuple[list[AssistantOutput], Assistant]:
         # Create assistant instance with our test graph
         assistant = Assistant(
             self.team,
@@ -163,11 +163,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         async for event in assistant.astream():
             output.append(event)
         if filter_ack_messages:
-            output = [
-                event
-                for event in output
-                if event[0] != AssistantEventType.STATUS and event[1].type != AssistantGenerationStatusType.ACK
-            ]
+            output = [event for event in output if event[1].type != AssistantGenerationStatusType.ACK]
         return output, assistant
 
     def assertConversationEqual(self, output: list[AssistantOutput], expected_output: list[tuple[Any, Any]]):
@@ -334,7 +330,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             )
             .compile(),
             conversation=self.conversation,
-            tool_call_partial_state=PartialAssistantState(root_tool_call_id="foo"),
+            tool_call_partial_state=AssistantState(root_tool_call_id="foo"),
         )
 
         # Assert that ReasoningMessages are added
@@ -454,7 +450,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     }
                 )
                 .compile(),
-                tool_call_partial_state=PartialAssistantState(root_tool_call_id="foo"),
+                tool_call_partial_state=AssistantState(root_tool_call_id="foo"),
                 conversation=self.conversation,
             )
 
@@ -590,10 +586,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 }
             }
 
-            def interrupt_graph(_):
+            def interrupt_graph_1(_):
                 raise NodeInterrupt("test")
 
-            mock.return_value = RunnableLambda(interrupt_graph)
+            mock.return_value = RunnableLambda(interrupt_graph_1)
             await self._run_assistant_graph(graph, conversation=self.conversation)
             snapshot: StateSnapshot = await graph.aget_state(config)
             self.assertTrue(snapshot.next)
@@ -601,12 +597,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             self.assertIsInstance(snapshot.values["messages"][-1], AssistantMessage)
             self.assertEqual(snapshot.values["messages"][-1].content, "test")
 
-            def interrupt_graph(_):
+            def interrupt_graph_2(_):
                 snapshot = async_to_sync(graph.aget_state)(config)
                 self.assertEqual(snapshot.values["graph_status"], "resumed")
                 raise NodeInterrupt("test")
 
-            mock.return_value = RunnableLambda(interrupt_graph)
+            mock.return_value = RunnableLambda(interrupt_graph_2)
             await self._run_assistant_graph(graph, conversation=self.conversation)
 
     async def test_recursion_error_is_handled(self):
@@ -623,7 +619,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         with patch("langgraph.pregel.Pregel.astream", side_effect=FakeStream):
             output, _ = await self._run_assistant_graph(conversation=self.conversation)
             self.assertEqual(output[0][0], "message")
-            self.assertEqual(output[0][1].content, "Hello")
+            self.assertEqual(cast(AssistantMessage, output[0][1]).content, "Hello")
             self.assertEqual(output[1][0], "message")
             self.assertIsInstance(output[1][1], FailureMessage)
 
@@ -747,17 +743,23 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
         self.assertConversationEqual(actual_output, expected_output)
-        self.assertEqual(actual_output[1][1].id, actual_output[5][1].initiator)  # viz message must have this id
+        self.assertEqual(
+            cast(HumanMessage, actual_output[1][1]).id, cast(VisualizationMessage, actual_output[5][1]).initiator
+        )  # viz message must have this id
 
         # Second run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1].id, actual_output[4][1].initiator)
+        self.assertEqual(
+            cast(HumanMessage, actual_output[0][1]).id, cast(VisualizationMessage, actual_output[4][1]).initiator
+        )
 
         # Third run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1].id, actual_output[4][1].initiator)
+        self.assertEqual(
+            cast(HumanMessage, actual_output[0][1]).id, cast(VisualizationMessage, actual_output[4][1]).initiator
+        )
 
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
@@ -820,17 +822,23 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
         self.assertConversationEqual(actual_output, expected_output)
-        self.assertEqual(actual_output[1][1].id, actual_output[5][1].initiator)  # viz message must have this id
+        self.assertEqual(
+            cast(HumanMessage, actual_output[1][1]).id, cast(VisualizationMessage, actual_output[5][1]).initiator
+        )  # viz message must have this id
 
         # Second run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1].id, actual_output[4][1].initiator)
+        self.assertEqual(
+            cast(HumanMessage, actual_output[0][1]).id, cast(VisualizationMessage, actual_output[4][1]).initiator
+        )
 
         # Third run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1].id, actual_output[4][1].initiator)
+        self.assertEqual(
+            cast(HumanMessage, actual_output[0][1]).id, cast(VisualizationMessage, actual_output[4][1]).initiator
+        )
 
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
@@ -893,17 +901,23 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
         self.assertConversationEqual(actual_output, expected_output)
-        self.assertEqual(actual_output[1][1].id, actual_output[5][1].initiator)  # viz message must have this id
+        self.assertEqual(
+            cast(HumanMessage, actual_output[1][1]).id, cast(VisualizationMessage, actual_output[5][1]).initiator
+        )  # viz message must have this id
 
         # Second run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1].id, actual_output[4][1].initiator)
+        self.assertEqual(
+            cast(HumanMessage, actual_output[0][1]).id, cast(VisualizationMessage, actual_output[4][1]).initiator
+        )
 
         # Third run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1].id, actual_output[4][1].initiator)
+        self.assertEqual(
+            cast(HumanMessage, actual_output[0][1]).id, cast(VisualizationMessage, actual_output[4][1]).initiator
+        )
 
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
@@ -958,7 +972,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
         self.assertConversationEqual(actual_output, expected_output)
-        self.assertEqual(actual_output[1][1].id, actual_output[5][1].initiator)  # viz message must have this id
+        self.assertEqual(
+            cast(AssistantMessage, actual_output[1][1]).id, cast(VisualizationMessage, actual_output[5][1]).initiator
+        )  # viz message must have this id
 
     @patch("ee.hogai.graph.memory.nodes.MemoryOnboardingEnquiryNode._model")
     @patch("ee.hogai.graph.memory.nodes.MemoryInitializerNode._model")
@@ -966,7 +982,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         await self._set_up_onboarding_tests()
 
         # Mock the memory initializer to return a product description
-        model_mock.return_value = RunnableLambda(lambda x: "PostHog is a product analytics platform.")
+        model_mock.return_value = RunnableLambda(
+            lambda x: "Here's what I found on posthog.com: PostHog is a product analytics platform."
+        )
 
         def mock_response(input_dict):
             input_str = str(input_dict)
@@ -977,11 +995,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         onboarding_enquiry_model_mock.return_value = RunnableLambda(mock_response)
 
         # Create a graph with memory initialization flow
-        graph = (
-            AssistantGraph(self.team, self.user)
-            .add_memory_onboarding(AssistantNodeName.END, AssistantNodeName.END)
-            .compile()
-        )
+        graph = AssistantGraph(self.team, self.user).add_memory_onboarding(AssistantNodeName.END).compile()
 
         # First run - get the product description
         output, _ = await self._run_assistant_graph(graph, is_new_conversation=True, message=SLASH_COMMAND_INIT)
@@ -991,13 +1005,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             (
                 "message",
                 AssistantMessage(
-                    content=memory_prompts.SCRAPING_INITIAL_MESSAGE,
+                    content="Let me find information about your product to help me understand your project better. Looking at your event data, **`us.posthog.com`** may be relevant. This may take a minute…",
                 ),
             ),
             (
                 "message",
+                # Kinda dirty but currently we determine the routing based on "Here's what I found" appearing in content
                 AssistantMessage(
-                    content=memory_prompts.SCRAPING_SUCCESS_MESSAGE + "PostHog is a product analytics platform."
+                    content="Here's what I found on posthog.com: PostHog is a product analytics platform."
                 ),
             ),
             ("message", AssistantMessage(content=memory_prompts.SCRAPING_VERIFICATION_MESSAGE)),
@@ -1023,7 +1038,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         core_memory = await CoreMemory.objects.aget(team=self.team)
         self.assertEqual(
             core_memory.initial_text,
-            "Question: What does the company do?\nAnswer: PostHog is a product analytics platform.\nQuestion: What is your target market?\nAnswer:",
+            "Question: What does the company do?\nAnswer: Here's what I found on posthog.com: PostHog is a product analytics platform.\nQuestion: What is your target market?\nAnswer:",
         )
 
     @patch("ee.hogai.graph.memory.nodes.MemoryInitializerNode._model")
@@ -1032,15 +1047,13 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         await self._set_up_onboarding_tests()
 
         # Mock the memory initializer to return a product description
-        model_mock.return_value = RunnableLambda(lambda _: "PostHog is a product analytics platform.")
+        model_mock.return_value = RunnableLambda(
+            lambda _: "Here's what I found on posthog.com: PostHog is a product analytics platform."
+        )
         onboarding_enquiry_model_mock.return_value = RunnableLambda(lambda _: "===What is your target market?")
 
         # Create a graph with memory initialization flow
-        graph = (
-            AssistantGraph(self.team, self.user)
-            .add_memory_onboarding(AssistantNodeName.END, AssistantNodeName.END)
-            .compile()
-        )
+        graph = AssistantGraph(self.team, self.user).add_memory_onboarding(AssistantNodeName.END).compile()
 
         # First run - get the product description
         output, _ = await self._run_assistant_graph(graph, is_new_conversation=True, message=SLASH_COMMAND_INIT)
@@ -1050,13 +1063,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             (
                 "message",
                 AssistantMessage(
-                    content=memory_prompts.SCRAPING_INITIAL_MESSAGE,
+                    content="Let me find information about your product to help me understand your project better. Looking at your event data, **`us.posthog.com`** may be relevant. This may take a minute…",
                 ),
             ),
             (
                 "message",
+                # Kinda dirty but currently we determine the routing based on "Here's what I found" appearing in content
                 AssistantMessage(
-                    content=memory_prompts.SCRAPING_SUCCESS_MESSAGE + "PostHog is a product analytics platform."
+                    content="Here's what I found on posthog.com: PostHog is a product analytics platform."
                 ),
             ),
             ("message", AssistantMessage(content=memory_prompts.SCRAPING_VERIFICATION_MESSAGE)),
@@ -1182,7 +1196,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         output, _ = await self._run_assistant_graph(graph)
 
         # Verify the last message doesn't contain any tool calls and has our expected content
-        last_message = output[-1][1]
+        last_message = cast(AssistantMessage, output[-1][1])
         self.assertNotIn("tool_calls", last_message, "The final message should not contain any tool calls")
         self.assertEqual(
             last_message.content,
@@ -1421,14 +1435,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # First run should add the message with initial content
         output, _ = await self._run_assistant_graph(graph, conversation=self.conversation)
         self.assertEqual(len(output), 2)  # Human message + AI message
-        self.assertEqual(output[1][1].id, message_id)
-        self.assertEqual(output[1][1].content, first_content)
+        self.assertEqual(cast(AssistantMessage, output[1][1]).id, message_id)
+        self.assertEqual(cast(AssistantMessage, output[1][1]).content, first_content)
 
         # Second run should update the message with new content
         output, _ = await self._run_assistant_graph(graph, conversation=self.conversation)
         self.assertEqual(len(output), 2)  # Human message + AI message
-        self.assertEqual(output[1][1].id, message_id)
-        self.assertEqual(output[1][1].content, updated_content)
+        self.assertEqual(cast(AssistantMessage, output[1][1]).id, message_id)
+        self.assertEqual(cast(AssistantMessage, output[1][1]).content, updated_content)
 
         # Verify the message was actually replaced, not duplicated
         snapshot = await graph.aget_state(config)
@@ -1511,7 +1525,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         ui_context = MaxUIContext(
             dashboards=[
                 MaxDashboardContext(
-                    id="1",
+                    id=1,
                     filters=DashboardFilter(),
                     insights=[MaxInsightContext(id="1", query=TrendsQuery(series=[]))],
                 )
@@ -1666,7 +1680,8 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ),
             AssistantMessage(content="Everything is fine"),
         ]
-        self.assertStateMessagesEqual(state.messages, expected_state_messages)
+        state = cast(AssistantState, state)
+        self.assertStateMessagesEqual(cast(list[Any], state.messages), expected_state_messages)
 
     # Tests for ainvoke method
     async def test_ainvoke_basic_functionality(self):
@@ -1699,7 +1714,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(len(item), 2)
         self.assertEqual(item[0], AssistantEventType.MESSAGE)
         self.assertIsInstance(item[1], AssistantMessage)
-        self.assertEqual(item[1].content, "Response")
+        self.assertEqual(cast(AssistantMessage, item[1]).content, "Response")
 
     def test_chunk_reasoning_headline(self):
         """Test _chunk_reasoning_headline method with various scenarios."""
@@ -1784,19 +1799,23 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="Hello"), user=self.user)
 
         # Create a value update tuple that doesn't match special nodes
-        update: GraphValueUpdateTuple = (
-            AssistantNodeName.ROOT,
-            {"root": {"messages": []}},  # Empty update that doesn't match visualization or verbose nodes
+        update = cast(
+            GraphValueUpdateTuple,
+            (
+                AssistantNodeName.ROOT,
+                {"root": {"messages": []}},  # Empty update that doesn't match visualization or verbose nodes
+            ),
         )
 
         # Process the update
         result = assistant._process_value_update(update)
+        result = cast(list[BaseModel], result)
 
         # Should receive a list with an ACK event
         self.assertIsNotNone(result)
         self.assertEqual(len(result), 1)
         self.assertIsInstance(result[0], AssistantGenerationStatusEvent)
-        self.assertEqual(result[0].type, AssistantGenerationStatusType.ACK)
+        self.assertEqual(cast(AssistantGenerationStatusEvent, result[0]).type, AssistantGenerationStatusType.ACK)
 
     def test_billing_context_in_config(self):
         billing_context = MaxBillingContext(
@@ -1848,9 +1867,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         # Simulate a chunk from OpenAI Responses API (list format)
         list_chunk = AIMessageChunk(content=[{"type": "text", "text": "new content from o3"}])
-        langgraph_state = {"langgraph_node": AssistantNodeName.ROOT}
+        langgraph_state: LangGraphState = {"langgraph_node": AssistantNodeName.ROOT}
 
-        update = ("messages", (list_chunk, langgraph_state))
+        update: GraphMessageUpdateTuple = ("messages", (list_chunk, langgraph_state))
         assistant._process_message_update(update)
 
         # Verify the chunks were reset to list format
@@ -1882,14 +1901,15 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         # Add first list chunk
         chunk1 = AIMessageChunk(content=[{"type": "text", "text": "First part"}])
-        langgraph_state = {"langgraph_node": AssistantNodeName.ROOT}
-        update = ("messages", (chunk1, langgraph_state))
+        langgraph_state: LangGraphState = {"langgraph_node": AssistantNodeName.ROOT}
+        update: GraphMessageUpdateTuple = ("messages", (chunk1, langgraph_state))
         assistant._process_message_update(update)
 
         # Add second list chunk
         chunk2 = AIMessageChunk(content=[{"type": "text", "text": " second part"}])
         update = ("messages", (chunk2, langgraph_state))
         result = assistant._process_message_update(update)
+        result = cast(AssistantMessage, result)
 
         # Verify the content was extracted correctly
         assert result is not None

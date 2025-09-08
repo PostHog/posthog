@@ -14,7 +14,6 @@ from django.conf import settings
 from django.test import override_settings
 
 import psycopg
-import pytest_asyncio
 from psycopg import sql
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
@@ -245,7 +244,7 @@ def postgres_config():
     }
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def postgres_connection(postgres_config, setup_postgres_test_db):
     connection = await psycopg.AsyncConnection.connect(
         user=postgres_config["user"],
@@ -632,7 +631,7 @@ def table_name(ateam, interval):
     return f"test_table_{ateam.pk}_{interval}"
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def persons_table_without_primary_key(postgres_connection, postgres_config, table_name):
     """Managed a table for a persons batch export without a primary key."""
     self_managed_table_name = table_name + f"_self_managed_{uuid.uuid4().hex}"
@@ -712,7 +711,7 @@ async def test_insert_into_postgres_activity_inserts_fails_on_missing_primary_ke
         assert result.error.message.startswith("An operation could not be completed as")
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def postgres_batch_export(ateam, table_name, postgres_config, interval, exclude_events, temporal_client):
     destination_data = {
         "type": "Postgres",
