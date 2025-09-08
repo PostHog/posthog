@@ -9,6 +9,5 @@
  * TODO: if we upgrade TS then we can use Node 20's `toWellFormed` avoiding this "hack"
  */
 export function sanitizeForUTF8(input: string): string {
-    const buffer = Buffer.from(input)
-    return buffer.toString()
+    return Buffer.from(input).toString()
 }
