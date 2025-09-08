@@ -9,6 +9,7 @@ on:
         branches:
             - 'master'
             - 'jose-sequeira/worker-failure-health-check'
+            - 'jose-sequeira/add-uuid-prefixed-store'
 jobs:
     build:
         name: build ${{ matrix.image }}
