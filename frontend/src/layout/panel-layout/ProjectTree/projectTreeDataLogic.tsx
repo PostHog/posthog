@@ -34,7 +34,7 @@ import {
 } from '~/layout/panel-layout/ProjectTree/utils'
 import { FEATURE_FLAGS } from '~/lib/constants'
 import { groupsModel } from '~/models/groupsModel'
-import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import type { projectTreeDataLogicType } from './projectTreeDataLogicType'
@@ -571,7 +571,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                           {
                               path: 'Groups',
                               category: 'Groups',
-                              iconType: 'cohort',
+                              iconType: 'group',
                               href: urls.groups(0),
                               visualOrder: 30,
                           },
@@ -579,7 +579,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     : Array.from(groupTypes.values()).map((groupType) => ({
                           path: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
                           category: 'Groups',
-                          iconType: 'cohort',
+                          iconType: 'group',
                           href: urls.groups(groupType.group_type_index),
                           visualOrder: 30 + groupType.group_type_index,
                       }))
@@ -594,7 +594,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                               path: shortcut.path,
                               type: shortcut.type,
                               category: 'Saved Views',
-                              iconType: 'database' as const,
+                              iconType: 'group' as FileSystemIconType,
                               href: shortcut.href || '',
                               visualOrder: 100,
                               shortcut: true,

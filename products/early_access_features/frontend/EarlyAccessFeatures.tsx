@@ -42,7 +42,6 @@ export function EarlyAccessFeatures(): JSX.Element {
                 description="Allow your users to individually enable or disable features that are in public beta."
                 resourceType={{
                     type: 'early_access_feature',
-                    typePlural: 'Early access features',
                 }}
             />
             <SceneDivider />
