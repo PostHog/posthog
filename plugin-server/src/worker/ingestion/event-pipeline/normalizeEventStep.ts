@@ -2,16 +2,27 @@ import { DateTime } from 'luxon'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
+import { KafkaEventHeaders } from '../../../types'
 import { normalizeEvent, normalizeProcessPerson } from '../../../utils/event'
 import { logger } from '../../../utils/logger'
+import { compareTimestamps } from '../timestamp-comparison'
 import { parseEventTimestamp } from '../timestamps'
 
-export function normalizeEventStep(event: PluginEvent, processPerson: boolean): Promise<[PluginEvent, DateTime]> {
+export function normalizeEventStep(
+    event: PluginEvent,
+    processPerson: boolean,
+    headers?: KafkaEventHeaders
+): Promise<[PluginEvent, DateTime]> {
     let timestamp: DateTime
     try {
         event = normalizeEvent(event)
         event = normalizeProcessPerson(event, processPerson)
         timestamp = parseEventTimestamp(event)
+
+        // Compare timestamp from headers with event.timestamp - they should be equal if implemented correctly
+        if (event.timestamp) {
+            compareTimestamps(event.timestamp, headers, event.team_id, event.uuid, 'normalize_event_step')
+        }
     } catch (error) {
         logger.warn('⚠️', 'Failed normalizing event', {
             team_id: event.team_id,

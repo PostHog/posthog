@@ -18,6 +18,7 @@ import {
     IncomingEventWithTeam,
     KafkaConsumerBreadcrumb,
     KafkaConsumerBreadcrumbSchema,
+    KafkaEventHeaders,
     PipelineEvent,
     PluginServerService,
     PluginsServerConfig,
@@ -525,7 +526,7 @@ export class IngestionConsumer {
         personsStoreForBatch: PersonsStoreForBatch,
         groupStoreForBatch: GroupStoreForBatch
     ): Promise<EventPipelineResult | undefined> {
-        const { event, message, team } = incomingEvent
+        const { event, message, team, headers } = incomingEvent
 
         const existingBreadcrumbs = this.getExistingBreadcrumbsFromHeaders(message)
         const currentBreadcrumb = this.createBreadcrumb(message)
@@ -538,7 +539,8 @@ export class IngestionConsumer {
                         event,
                         allBreadcrumbs,
                         personsStoreForBatch,
-                        groupStoreForBatch
+                        groupStoreForBatch,
+                        headers
                     )
                     return await runner.runEventPipeline(event, team)
                 })
@@ -610,7 +612,8 @@ export class IngestionConsumer {
         event: PipelineEvent,
         breadcrumbs: KafkaConsumerBreadcrumb[] = [],
         personsStoreForBatch: PersonsStoreForBatch,
-        groupStoreForBatch: GroupStoreForBatch
+        groupStoreForBatch: GroupStoreForBatch,
+        headers?: KafkaEventHeaders
     ): EventPipelineRunner {
         return new EventPipelineRunner(
             this.hub,
@@ -618,7 +621,8 @@ export class IngestionConsumer {
             this.hogTransformer,
             breadcrumbs,
             personsStoreForBatch,
-            groupStoreForBatch
+            groupStoreForBatch,
+            headers
         )
     }
 
@@ -649,7 +653,16 @@ export class IngestionConsumer {
                 continue
             }
 
-            const eventWithTeam = await resolveTeam(this.hub, parsedEvent)
+            // Parse Kafka headers to access timestamp header and other metadata
+            const rawHeaders = parseKafkaHeaders(filteredMessage.headers)
+            const headers: KafkaEventHeaders = {
+                token: rawHeaders.token,
+                distinct_id: rawHeaders.distinct_id,
+                timestamp: rawHeaders.timestamp,
+            }
+            const eventWithHeaders = { ...parsedEvent, headers }
+
+            const eventWithTeam = await resolveTeam(this.hub, eventWithHeaders)
             if (!eventWithTeam) {
                 continue
             }
