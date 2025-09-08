@@ -78,7 +78,7 @@ export function HedgehogModeStatic({ config, size, direction = 'right' }: Hedgeh
             style={{ width: imgSize, height: imgSize }}
         >
             {dataUrl ? (
-                <img src={dataUrl} width={imgSize} height={imgSize} />
+                <img style={{ imageRendering: 'pixelated' }} src={dataUrl} width={imgSize} height={imgSize} />
             ) : (
                 <LemonSkeleton className="w-full h-full" />
             )}
@@ -97,7 +97,7 @@ export function HedgehogModeProfile({ size, config }: HedgehogModeStaticProps): 
                 height: size,
             }}
         >
-            <div className="absolute top-0 left-0 w-full h-full transform translate-x-[-3%] translate-y-[10%] scale-[1.8]">
+            <div className="absolute top-0 left-0 w-full h-full transform translate-x-[-15%] scale-[1.8]">
                 <HedgehogModeStatic config={config} size={size} />
             </div>
         </div>
