@@ -8,28 +8,41 @@ import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
 
 import { campaignLogic } from './campaignLogic'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 
-export const CAMPAIGN_METRICS_INFO: Record<string, { description: string; color: string }> = {
+export const CAMPAIGN_METRICS_INFO: Record<string, { name: string; description: string; color: string }> = {
     succeeded: {
+        name: 'Success',
         description: 'Total number of events processed successfully',
         color: getColorVar('success'),
     },
     failed: {
+        name: 'Failure',
         description: 'Total number of events that had errors during processing',
         color: getColorVar('danger'),
     },
     filtered: {
+        name: 'Filtered',
         description: 'Total number of events that were filtered out',
         color: getColorVar('muted'),
     },
-    disabled: {
+    disabled_permanently: {
+        name: 'Disabled Permanently',
         description:
             'Total number of events that were skipped due to the destination being permanently disabled (due to prolonged issues with the destination)',
         color: getColorVar('danger'),
+    },
+    rate_limited: {
+        name: 'Rate Limited',
+        description: 'Total number of events that were rate limited',
+        color: getColorVar('danger'),
+    },
+    triggered: {
+        name: 'Triggered',
+        description: 'Total number of events that were triggered',
+        color: getColorVar('success'),
     },
 }
 
@@ -109,14 +122,14 @@ export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
             </div>
 
             <div className="flex flex-row gap-2 flex-wrap justify-center">
-                {Object.entries(CAMPAIGN_METRICS_INFO).map(([key, metric]) => (
+                {['succeeded', 'failed', 'filtered', 'disabled_permanently'].map((key) => (
                     <AppMetricSummary
-                        name={capitalizeFirstLetter(key)}
-                        description={metric.description}
+                        name={CAMPAIGN_METRICS_INFO[key].name}
+                        description={CAMPAIGN_METRICS_INFO[key].description}
                         loading={appMetricsTrendsLoading}
                         timeSeries={getSingleTrendSeries(key)}
                         previousPeriodTimeSeries={getSingleTrendSeries(key, true)}
-                        color={metric.color}
+                        color={CAMPAIGN_METRICS_INFO[key].color}
                         colorIfZero={getColorVar('muted')}
                     />
                 ))}
