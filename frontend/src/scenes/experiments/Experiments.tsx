@@ -57,16 +57,14 @@ const ExperimentSurveyButton = ({ experiment }: { experiment: Experiment }): JSX
         return <></>
     }
 
-    if (!openMax) {
-        return (
-            <LemonButton size="small" fullWidth data-attr="create-survey" disabled>
-                Create survey
-            </LemonButton>
-        )
-    }
-
     return (
-        <LemonButton onClick={openMax} size="small" fullWidth data-attr="create-survey">
+        <LemonButton
+            onClick={openMax || undefined}
+            size="small"
+            fullWidth
+            data-attr="create-survey"
+            disabled={!openMax}
+        >
             Create survey
         </LemonButton>
     )
