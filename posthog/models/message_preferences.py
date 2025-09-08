@@ -60,7 +60,7 @@ class MessageRecipientPreference(UUIDTModel):
         except Exception:
             return None, "An error occurred validating your preferences link."
 
-    def set_preference(self, category_id: uuid.UUID, status: PreferenceStatus) -> None:
+    def set_preference(self, category_id: str, status: PreferenceStatus) -> None:
         """Set preference for a specific category"""
         if not isinstance(status, PreferenceStatus):
             raise ValueError(f"Status must be a PreferenceStatus enum, got {type(status)}")
@@ -68,18 +68,18 @@ class MessageRecipientPreference(UUIDTModel):
         self.preferences[str(category_id)] = status.value
         self.save(update_fields=["preferences", "updated_at"])
 
-    def get_preference(self, category_id: uuid.UUID) -> PreferenceStatus:
+    def get_preference(self, category_id: str) -> PreferenceStatus:
         """Get preference for a specific category"""
         status = self.preferences.get(str(category_id), PreferenceStatus.NO_PREFERENCE.value)
         return PreferenceStatus(status)
 
-    def get_all_preferences(self) -> dict[uuid.UUID, PreferenceStatus]:
+    def get_all_preferences(self) -> dict[str, PreferenceStatus]:
         """Get all preferences as a dictionary of UUID to PreferenceStatus"""
-        return {uuid.UUID(category_id): PreferenceStatus(status) for category_id, status in self.preferences.items()}
+        return {str(category_id): PreferenceStatus(status) for category_id, status in self.preferences.items()}
 
     @classmethod
     def get_or_create_for_identifier(
-        cls, team_id: int, identifier: str, defaults: Optional[dict[uuid.UUID, PreferenceStatus]] = None
+        cls, team_id: int, identifier: str, defaults: Optional[dict[str, PreferenceStatus]] = None
     ) -> "MessageRecipientPreference":
         """Get or create preferences for an identifier"""
         if defaults is None:

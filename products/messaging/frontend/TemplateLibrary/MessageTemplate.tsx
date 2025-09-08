@@ -86,6 +86,9 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element 
                             <EmailTemplater
                                 value={template?.content.email}
                                 onChange={(value) => setTemplateValue('content.email', value)}
+                                onChangeTemplating={(templating) =>
+                                    setTemplateValue('content.email.templating', templating)
+                                }
                                 type="native_email_template"
                             />
                         )}

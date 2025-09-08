@@ -166,7 +166,9 @@ function JsonConfigField(props: {
                                 <CyclotronJobTemplateSuggestionsButton
                                     templating={templatingKind}
                                     value={jsonValue}
-                                    setTemplating={(templating) => props.onChange?.({ ...props.input, templating })}
+                                    setTemplatingEngine={(templating) =>
+                                        props.onChange?.({ ...props.input, templating })
+                                    }
                                     onOptionSelect={(option) => {
                                         void copyToClipboard(`{${option.example}}`, 'template code')
                                     }}
@@ -201,6 +203,7 @@ function EmailTemplateField({
             defaultValue={schema.default}
             value={value}
             onChange={onChange}
+            templating={schema.templating}
         />
     )
 }
@@ -237,7 +240,7 @@ function CyclotronJobTemplateInput(props: {
                 <CyclotronJobTemplateSuggestionsButton
                     templating={templating}
                     value={props.input.value}
-                    setTemplating={(templating) => props.onChange?.({ ...props.input, templating })}
+                    setTemplatingEngine={(templating) => props.onChange?.({ ...props.input, templating })}
                     onOptionSelect={(option) => {
                         props.onChange?.({ ...props.input, value: `${props.input.value} {${option.example}}` })
                     }}

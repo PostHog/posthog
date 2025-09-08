@@ -37,9 +37,10 @@ export const template: HogFunctionTemplate = {
                 subject: '',
                 preheader: '',
                 text: 'Hello from PostHog!',
-                html: '<div>Hello from PostHog!</div>',
+                html: '<div>Hi {{ person.properties.name }}, this email was sent from PostHog!</div>',
             },
             secret: false,
+            templating: 'liquid',
         },
     ],
 }

@@ -33,11 +33,13 @@ export type EmailTemplate = {
 }
 
 export interface EmailTemplaterLogicProps {
-    defaultValue: EmailTemplate | null
     value: EmailTemplate | null
     onChange: (value: EmailTemplate) => void
     variables?: Record<string, any>
     type: EmailTemplaterType
+    defaultValue?: EmailTemplate | null
+    templating?: boolean | 'hog' | 'liquid'
+    onChangeTemplating?: (templating: 'hog' | 'liquid') => void
 }
 
 export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
@@ -52,6 +54,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         setIsModalOpen: (isModalOpen: boolean) => ({ isModalOpen }),
         applyTemplate: (template: MessageTemplate) => ({ template }),
         closeWithConfirmation: true,
+        setTemplatingEngine: (templating: 'hog' | 'liquid') => ({ templating }),
     }),
     reducers({
         emailEditorRef: [
@@ -77,6 +80,14 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             null as MessageTemplate | null,
             {
                 applyTemplate: (_, { template }) => template,
+            },
+        ],
+        templatingEngine: [
+            'liquid' as 'hog' | 'liquid',
+            {
+                setTemplatingEngine: (_, { templating }) => {
+                    return templating
+                },
             },
         ],
     }),

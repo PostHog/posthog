@@ -198,11 +198,15 @@ function LiquidSupportedText({
     onChange: (value?: string) => void
     globals: any
 }): JSX.Element {
+    const { templatingEngine } = useValues(emailTemplaterLogic)
+    const { setTemplatingEngine } = useActions(emailTemplaterLogic)
+
     return (
         <span className="flex grow group relative justify-between">
             <span className="absolute top-0 right-2 z-20 p-px opacity-0 transition-opacity group-hover:opacity-100">
                 <CyclotronJobTemplateSuggestionsButton
-                    templating="liquid"
+                    templating={templatingEngine}
+                    setTemplatingEngine={setTemplatingEngine}
                     value={value}
                     onOptionSelect={(option) => {
                         onChange?.(`${value || ''}${option.example}`)
@@ -251,9 +255,14 @@ function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Elem
                                 {field.key === 'from' ? (
                                     <NativeEmailIntegrationChoice value={value} onChange={onChange} />
                                 ) : field.key === 'to' ? (
-                                    <NativeEmailIntegrationChoice
+                                    /**
+                                     * In email inputs, "to" maps to { email: string; name: string; },
+                                     * whereas other fields map directly to their string value
+                                     */
+                                    <LiquidSupportedText
                                         value={value?.email}
                                         onChange={(email) => onChange({ ...value, email })}
+                                        globals={logicProps.variables}
                                     />
                                 ) : (
                                     <LiquidSupportedText
