@@ -8,7 +8,6 @@ from unittest.mock import patch
 from django.http import HttpResponse
 from django.utils.timezone import now
 
-import celery
 import requests.exceptions
 from boto3 import resource
 from botocore.client import Config
@@ -102,7 +101,10 @@ class TestExports(APIBaseTest):
             .replace("+00:00", "Z"),
         }
 
-        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
+        # export_asset_direct is called with the actual ExportedAsset instance, not the ID
+        mock_exporter_task.export_asset_direct.assert_called_once()
+        called_instance = mock_exporter_task.export_asset_direct.call_args[0][0]
+        self.assertEqual(called_instance.id, data["id"])
 
     @patch("posthog.api.exports.exporter")
     def test_can_create_export_with_ttl(self, mock_exporter_task) -> None:
@@ -130,7 +132,9 @@ class TestExports(APIBaseTest):
             "expires_after": one_week_from_now.isoformat() + "Z",
         }
 
-        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
+        mock_exporter_task.export_asset_direct.assert_called_once()
+        called_instance = mock_exporter_task.export_asset_direct.call_args[0][0]
+        self.assertEqual(called_instance.id, data["id"])
 
     @patch("posthog.api.exports.exporter")
     def test_swallow_missing_schema_and_allow_front_end_to_poll(self, mock_exporter_task) -> None:
@@ -153,7 +157,9 @@ class TestExports(APIBaseTest):
             msg=f"was not HTTP 201 😱 - {response.json()}",
         )
         data = response.json()
-        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
+        mock_exporter_task.export_asset_direct.assert_called_once()
+        called_instance = mock_exporter_task.export_asset_direct.call_args[0][0]
+        self.assertEqual(called_instance.id, data["id"])
 
     @patch("posthog.tasks.exports.image_exporter._export_to_png")
     @patch("posthog.api.exports.exporter")
@@ -215,7 +221,9 @@ class TestExports(APIBaseTest):
             ],
         )
 
-        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
+        mock_exporter_task.export_asset_direct.assert_called_once()
+        called_instance = mock_exporter_task.export_asset_direct.call_args[0][0]
+        self.assertEqual(called_instance.id, data["id"])
 
         # look at the page the screenshot will be taken of
         exported_asset = ExportedAsset.objects.get(pk=data["id"])
@@ -260,17 +268,8 @@ class TestExports(APIBaseTest):
         )
 
     @patch("posthog.api.exports.exporter")
-    def test_will_respond_even_if_task_timesout(self, mock_exporter_task) -> None:
-        mock_exporter_task.export_asset.delay.return_value.get.side_effect = celery.exceptions.TimeoutError("timed out")
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/exports",
-            {"export_format": "image/png", "insight": self.insight.id},
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-    @patch("posthog.api.exports.exporter")
     def test_will_error_if_export_unsupported(self, mock_exporter_task) -> None:
-        mock_exporter_task.export_asset.delay.return_value.get.side_effect = NotImplementedError("not implemented")
+        mock_exporter_task.export_asset_direct.return_value.get.side_effect = NotImplementedError("not implemented")
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {"export_format": "application/pdf", "insight": self.insight.id},
