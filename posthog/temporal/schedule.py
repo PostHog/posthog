@@ -17,7 +17,7 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
-from posthog.constants import BILLING_TASK_QUEUE, GENERAL_PURPOSE_TASK_QUEUE, MAX_AI_TASK_QUEUE
+from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE, MAX_AI_TASK_QUEUE
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
 from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
@@ -59,7 +59,7 @@ async def create_run_quota_limiting_schedule(client: Client):
             "run-quota-limiting",
             asdict(RunQuotaLimitingInputs()),
             id="run-quota-limiting-schedule",
-            task_queue=BILLING_TASK_QUEUE,
+            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
         ),
         spec=ScheduleSpec(cron_expressions=["10,25,40,55 * * * *"]),  # Run at minutes 10, 25, 40, and 55 of every hour
     )
