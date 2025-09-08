@@ -35,13 +35,16 @@ export function ExceptionCard({ issue, issueLoading, event, eventLoading, label 
         setLoading(eventLoading)
     }, [setLoading, eventLoading])
 
-    const logicProps: ErrorPropertiesLogicProps = {
-        properties: event?.properties,
-        id: event?.uuid ?? issue?.id ?? 'error',
-    }
-
     return (
-        <BindLogic logic={errorPropertiesLogic} props={logicProps}>
+        <BindLogic
+            logic={errorPropertiesLogic}
+            props={
+                {
+                    properties: event?.properties,
+                    id: event?.uuid ?? issue?.id ?? 'error',
+                } as ErrorPropertiesLogicProps
+            }
+        >
             <ExceptionCardContent
                 issue={issue}
                 timestamp={event?.timestamp}

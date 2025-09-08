@@ -1,3 +1,5 @@
+import { useMemo } from 'react'
+
 import { IconCommit, IconExternal, IconGitBranch, IconGitRepository, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
@@ -11,7 +13,16 @@ export interface ReleasesPopoverContentProps {
 }
 
 export function ReleasePopoverContent({ release }: ReleasesPopoverContentProps): JSX.Element {
-    const viewCommitLink = GitMetadataParser.getViewCommitLink(release)
+    const viewCommitLink = useMemo(
+        () => GitMetadataParser.getViewCommitLink(release),
+        [
+            release.metadata?.git?.commitId,
+            release.metadata?.git?.remoteUrl,
+            release.metadata?.git?.repoName,
+            release.metadata?.git?.branch,
+            release,
+        ]
+    )
 
     return (
         <div className="overflow-hidden">
