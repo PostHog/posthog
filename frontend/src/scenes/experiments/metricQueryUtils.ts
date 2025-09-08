@@ -402,6 +402,7 @@ export function filterToMetricConfig(
                         ({
                             kind: NodeKind.EventsNode,
                             event: event.id,
+                            custom_name: event.custom_name,
                             properties: event.properties,
                             order: event.order,
                         }) as EventsNode & { order: number }
