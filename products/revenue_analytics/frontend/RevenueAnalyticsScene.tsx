@@ -51,8 +51,7 @@ export function RevenueAnalyticsScene(): JSX.Element {
                     name={PRODUCT_NAME}
                     description={PRODUCT_DESCRIPTION}
                     resourceType={{
-                        type: PRODUCT_THING_NAME,
-                        typePlural: PRODUCT_NAME,
+                        type: 'revenue_analytics',
                     }}
                 />
                 <SceneDivider />

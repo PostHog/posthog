@@ -643,7 +643,6 @@ export function DashboardHeader(): JSX.Element | null {
                 description={dashboard?.description}
                 resourceType={{
                     type: 'dashboard',
-                    typePlural: 'dashboards',
                 }}
                 onNameChange={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
                 onDescriptionChange={(value) =>

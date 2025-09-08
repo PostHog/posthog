@@ -341,8 +341,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                     name="LLM Analytics"
                     description="Analyze and understand your LLM usage and performance."
                     resourceType={{
-                        type: 'ai',
-                        typePlural: 'LLM Analytics',
+                        type: 'llm_analytics',
                     }}
                 />
                 <SceneDivider />

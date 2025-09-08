@@ -20,6 +20,7 @@ import {
     ExperimentHoldoutType,
     ExperimentMetricGoal,
     ExperimentMetricMathType,
+    FileSystemIconColor,
     FilterLogicalOperator,
     FilterType,
     FunnelConversionWindowTimeUnit,
@@ -2354,30 +2355,43 @@ export interface FileSystemEntry {
 }
 
 export type FileSystemIconType =
-    | 'plug'
-    | 'cohort'
-    | 'insight'
-    | 'definitions'
-    | 'warning'
-    | 'errorTracking'
-    | 'ai'
-    | 'cursor'
+    | 'dashboard'
+    | 'llm_analytics'
+    | 'product_analytics'
+    | 'revenue_analytics'
+    | 'sql_editor'
+    | 'web_analytics'
+    | 'error_tracking'
     | 'heatmap'
-    | 'database'
-    | 'folder'
-    | 'handMoney'
-    | 'live'
-    | 'notification'
-    | 'pieChart'
-    | 'piggyBank'
-    | 'sql'
-    | 'insightFunnel'
-    | 'insightTrends'
-    | 'insightRetention'
-    | 'insightUserPaths'
-    | 'insightLifecycle'
-    | 'insightStickiness'
-    | 'insightHogQL'
+    | 'session_replay'
+    | 'survey'
+    | 'user_interview'
+    | 'early_access_feature'
+    | 'experiment'
+    | 'feature_flag'
+    | 'data_pipeline'
+    | 'data_warehouse'
+    | 'task'
+    | 'link'
+    | 'logs'
+    | 'messaging'
+    | 'notebook'
+    | 'action'
+    | 'comment'
+    | 'annotation'
+    | 'event_definition'
+    | 'property_definition'
+    | 'ingestion_warning'
+    | 'person'
+    | 'cohort'
+    | 'group'
+    | 'insight_funnel'
+    | 'insight_trend'
+    | 'insight_retention'
+    | 'insight_user_path'
+    | 'insight_lifecycle'
+    | 'insight_stickiness'
+    | 'insight_hogql'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
@@ -2390,6 +2404,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     protocol?: string
     /** Category label to place this under */
     category?: string
+    /** Color of the icon */
+    iconColor?: FileSystemIconColor
 }
 
 export interface PersistedFolder {
