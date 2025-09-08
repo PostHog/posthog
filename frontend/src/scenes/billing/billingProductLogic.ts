@@ -48,6 +48,16 @@ export const randomizeReasons = (reasons: UnsubscribeReason[]): UnsubscribeReaso
     return shuffledReasons
 }
 
+export const TRIAL_CANCEL_REASONS: UnsubscribeReason[] = [
+    { reason: 'Too expensive', question: 'What budget would make sense?' },
+    { reason: 'Trial too short', question: 'How long would be enough to try the add-on features?' },
+    { reason: 'Complex setup', question: 'Which part of the setup was challenging?' },
+    { reason: 'Found a better alternative', question: 'Which alternative are you going with?' },
+    { reason: "Don't need add-on features", question: 'Which features did you not need?' },
+    { reason: 'Poor customer support', question: 'Please provide details on your support experience.' },
+    { reason: 'Other', question: 'What should we know?' },
+]
+
 export const isPlatformAndSupportAddon = (product: BillingProductV2Type | BillingProductV2AddonType): boolean => {
     return (
         product.type === BillingPlan.Boost ||
@@ -379,6 +389,17 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     .join('\n')
             },
         ],
+        trialCancelReasonQuestions: [
+            (s) => [s.surveyResponse],
+            (surveyResponse): string => {
+                return surveyResponse['$survey_response_2']
+                    .map((reason) => {
+                        const reasonObject = TRIAL_CANCEL_REASONS.find((r) => r.reason === reason)
+                        return reasonObject?.question
+                    })
+                    .join('\n')
+            },
+        ],
         isProductWithVariants: [
             (_s, p) => [p.product],
             (product): boolean =>
@@ -615,11 +636,15 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 actions.loadBilling()
             }
         },
-        cancelTrial: async () => {
+        cancelTrial: async (_, breakpoint) => {
             actions.setTrialLoading(true)
             try {
                 await api.create(`api/billing/trials/cancel`)
                 lemonToast.success('Your trial has been cancelled!')
+                if (values.surveyID) {
+                    actions.reportSurveySent(values.surveyID, values.surveyResponse)
+                }
+                await breakpoint(1000)
                 window.location.reload()
             } catch {
                 lemonToast.error('There was an error cancelling your trial. Please try again or contact support.')
