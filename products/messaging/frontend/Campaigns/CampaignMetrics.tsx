@@ -59,7 +59,6 @@ export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
         forceParams: {
             appSource: 'hog_flow',
             appSourceId: id,
-            // metricName: ['succeeded', 'failed', 'filtered', 'disabled_permanently'],
             breakdownBy: 'metric_name',
         },
     })
