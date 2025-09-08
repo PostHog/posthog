@@ -673,9 +673,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     <LemonDivider />
                                                     <LemonButton
                                                         accessControl={{
-                                                            userLevel: featureFlag.user_access_level,
-                                                            minLevel: AccessControlLevel.Editor,
-                                                            resource: AccessControlResourceType.FeatureFlag,
+                                                            resourceType: AccessControlResourceType.FeatureFlag,
+                                                            minAccessLevel: AccessControlLevel.Editor,
+                                                            userAccessLevel: featureFlag.user_access_level,
                                                         }}
                                                         data-attr={
                                                             featureFlag.deleted
@@ -719,9 +719,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 
                                         <LemonButton
                                             accessControl={{
-                                                userLevel: featureFlag.user_access_level,
-                                                minLevel: AccessControlLevel.Editor,
-                                                resource: AccessControlResourceType.FeatureFlag,
+                                                resourceType: AccessControlResourceType.FeatureFlag,
+                                                minAccessLevel: AccessControlLevel.Editor,
+                                                userAccessLevel: featureFlag.user_access_level,
                                             }}
                                             data-attr="edit-feature-flag"
                                             type="secondary"

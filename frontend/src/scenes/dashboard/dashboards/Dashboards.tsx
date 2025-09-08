@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -61,9 +63,10 @@ export function Dashboards(): JSX.Element {
                         }}
                         type="primary"
                         accessControl={{
-                            minLevel: AccessControlLevel.Editor,
-                            resource: AccessControlResourceType.Dashboard,
-                            userLevel: getAppContext()?.resource_access_control?.[AccessControlResourceType.Dashboard],
+                            resourceType: AccessControlResourceType.Dashboard,
+                            minAccessLevel: AccessControlLevel.Editor,
+                            userAccessLevel:
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.Dashboard],
                         }}
                     >
                         New dashboard

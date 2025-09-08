@@ -757,9 +757,9 @@ export function SavedInsightsEmptyState({
                             icon={<IconPlusSmall />}
                             className="add-insight-button"
                             accessControl={{
-                                resource: AccessControlResourceType.Insight,
-                                minLevel: AccessControlLevel.Editor,
-                                userLevel:
+                                resourceType: AccessControlResourceType.Insight,
+                                minAccessLevel: AccessControlLevel.Editor,
+                                userAccessLevel:
                                     getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight],
                             }}
                         >

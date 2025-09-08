@@ -165,9 +165,9 @@ export function DashboardsTable({
 
                                       <LemonButton
                                           accessControl={{
-                                              userLevel: user_access_level,
-                                              minLevel: AccessControlLevel.Editor,
-                                              resource: AccessControlResourceType.Dashboard,
+                                              resourceType: AccessControlResourceType.Dashboard,
+                                              minAccessLevel: AccessControlLevel.Editor,
+                                              userAccessLevel: user_access_level,
                                           }}
                                           to={urls.dashboard(id)}
                                           onClick={() => {
@@ -205,9 +205,9 @@ export function DashboardsTable({
 
                                       <LemonButton
                                           accessControl={{
-                                              userLevel: user_access_level,
-                                              minLevel: AccessControlLevel.Editor,
-                                              resource: AccessControlResourceType.Dashboard,
+                                              resourceType: AccessControlResourceType.Dashboard,
+                                              minAccessLevel: AccessControlLevel.Editor,
+                                              userAccessLevel: user_access_level,
                                           }}
                                           onClick={() => {
                                               showDeleteDashboardModal(id)

@@ -576,9 +576,9 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
             size="small"
             icon={<IconPlusSmall />}
             accessControl={{
-                resource: AccessControlResourceType.Insight,
-                minLevel: AccessControlLevel.Editor,
-                userLevel: getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight],
+                resourceType: AccessControlResourceType.Insight,
+                minAccessLevel: AccessControlLevel.Editor,
+                userAccessLevel: getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight],
             }}
         >
             New
@@ -664,9 +664,9 @@ export function SavedInsights(): JSX.Element {
 
                                     <LemonButton
                                         accessControl={{
-                                            userLevel: insight.user_access_level,
-                                            minLevel: AccessControlLevel.Editor,
-                                            resource: AccessControlResourceType.Insight,
+                                            resourceType: AccessControlResourceType.Insight,
+                                            minAccessLevel: AccessControlLevel.Editor,
+                                            userAccessLevel: insight.user_access_level,
                                         }}
                                         className="ml-1"
                                         size="xsmall"
@@ -737,9 +737,9 @@ export function SavedInsights(): JSX.Element {
 
                                 <LemonButton
                                     accessControl={{
-                                        userLevel: insight.user_access_level,
-                                        minLevel: AccessControlLevel.Editor,
-                                        resource: AccessControlResourceType.Insight,
+                                        resourceType: AccessControlResourceType.Insight,
+                                        minAccessLevel: AccessControlLevel.Editor,
+                                        userAccessLevel: insight.user_access_level,
                                     }}
                                     to={urls.insightEdit(insight.short_id)}
                                     fullWidth
@@ -749,9 +749,9 @@ export function SavedInsights(): JSX.Element {
 
                                 <LemonButton
                                     accessControl={{
-                                        userLevel: insight.user_access_level,
-                                        minLevel: AccessControlLevel.Editor,
-                                        resource: AccessControlResourceType.Insight,
+                                        resourceType: AccessControlResourceType.Insight,
+                                        minAccessLevel: AccessControlLevel.Editor,
+                                        userAccessLevel: insight.user_access_level,
                                     }}
                                     onClick={() => renameInsight(insight)}
                                     data-attr={`insight-item-${insight.short_id}-dropdown-rename`}
@@ -772,9 +772,9 @@ export function SavedInsights(): JSX.Element {
 
                                 <LemonButton
                                     accessControl={{
-                                        userLevel: insight.user_access_level,
-                                        minLevel: AccessControlLevel.Editor,
-                                        resource: AccessControlResourceType.Insight,
+                                        resourceType: AccessControlResourceType.Insight,
+                                        minAccessLevel: AccessControlLevel.Editor,
+                                        userAccessLevel: insight.user_access_level,
                                     }}
                                     status="danger"
                                     onClick={() =>

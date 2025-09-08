@@ -37,9 +37,9 @@ export function AddInsightToDashboardModal(): JSX.Element {
                             data-attr="dashboard-add-new-insight"
                             to={urls.insightNew({ dashboardId: dashboard?.id })}
                             accessControl={{
-                                resource: AccessControlResourceType.Insight,
-                                minLevel: AccessControlLevel.Editor,
-                                userLevel:
+                                resourceType: AccessControlResourceType.Insight,
+                                minAccessLevel: AccessControlLevel.Editor,
+                                userAccessLevel:
                                     getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight],
                             }}
                         >

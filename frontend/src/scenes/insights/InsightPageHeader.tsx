@@ -255,9 +255,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             canEditInsight && (
                                 <LemonButton
                                     accessControl={{
-                                        userLevel: insight.user_access_level,
-                                        minLevel: AccessControlLevel.Editor,
-                                        resource: AccessControlResourceType.Insight,
+                                        resourceType: AccessControlResourceType.Insight,
+                                        minAccessLevel: AccessControlLevel.Editor,
+                                        userAccessLevel: insight.user_access_level,
                                     }}
                                     type="primary"
                                     icon={dashboardOverridesExist ? <IconWarning /> : undefined}
@@ -504,9 +504,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 <LemonDivider />
                                                 <LemonButton
                                                     accessControl={{
-                                                        userLevel: insight.user_access_level,
-                                                        minLevel: AccessControlLevel.Editor,
-                                                        resource: AccessControlResourceType.Insight,
+                                                        resourceType: AccessControlResourceType.Insight,
+                                                        minAccessLevel: AccessControlLevel.Editor,
+                                                        userAccessLevel: insight.user_access_level,
                                                     }}
                                                     status="danger"
                                                     onClick={() =>

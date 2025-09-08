@@ -349,9 +349,9 @@ export function DashboardHeader(): JSX.Element | null {
                                                     {canEditDashboard && (
                                                         <LemonButton
                                                             accessControl={{
-                                                                userLevel: dashboard.user_access_level,
-                                                                minLevel: AccessControlLevel.Editor,
-                                                                resource: AccessControlResourceType.Dashboard,
+                                                                resourceType: AccessControlResourceType.Dashboard,
+                                                                minAccessLevel: AccessControlLevel.Editor,
+                                                                userAccessLevel: dashboard.user_access_level,
                                                             }}
                                                             onClick={() => {
                                                                 showDeleteDashboardModal(dashboard.id)
@@ -390,9 +390,9 @@ export function DashboardHeader(): JSX.Element | null {
                             {dashboard ? (
                                 <LemonButton
                                     accessControl={{
-                                        userLevel: dashboard.user_access_level,
-                                        minLevel: AccessControlLevel.Editor,
-                                        resource: AccessControlResourceType.Dashboard,
+                                        resourceType: AccessControlResourceType.Dashboard,
+                                        minAccessLevel: AccessControlLevel.Editor,
+                                        userAccessLevel: dashboard.user_access_level,
                                     }}
                                     onClick={showAddInsightToDashboardModal}
                                     type="primary"
@@ -404,9 +404,9 @@ export function DashboardHeader(): JSX.Element | null {
                                                 <>
                                                     <LemonButton
                                                         accessControl={{
-                                                            userLevel: dashboard.user_access_level,
-                                                            minLevel: AccessControlLevel.Editor,
-                                                            resource: AccessControlResourceType.Dashboard,
+                                                            resourceType: AccessControlResourceType.Dashboard,
+                                                            minAccessLevel: AccessControlLevel.Editor,
+                                                            userAccessLevel: dashboard.user_access_level,
                                                         }}
                                                         fullWidth
                                                         onClick={() => {

@@ -106,9 +106,9 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
 
                     <LemonButton
                         accessControl={{
-                            userLevel: featureFlag.user_access_level,
-                            minLevel: AccessControlLevel.Editor,
-                            resource: AccessControlResourceType.FeatureFlag,
+                            resourceType: AccessControlResourceType.FeatureFlag,
+                            minAccessLevel: AccessControlLevel.Editor,
+                            userAccessLevel: featureFlag.user_access_level,
                         }}
                         data-attr={`feature-flag-${featureFlag.key}-switch`}
                         onClick={() => {
@@ -147,9 +147,9 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                     {featureFlag.id && (
                         <LemonButton
                             accessControl={{
-                                userLevel: featureFlag.user_access_level,
-                                minLevel: AccessControlLevel.Editor,
-                                resource: AccessControlResourceType.FeatureFlag,
+                                resourceType: AccessControlResourceType.FeatureFlag,
+                                minAccessLevel: AccessControlLevel.Editor,
+                                userAccessLevel: featureFlag.user_access_level,
                             }}
                             fullWidth
                             disabled={!featureFlag.can_edit}
@@ -188,9 +188,9 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                     {featureFlag.id && (
                         <LemonButton
                             accessControl={{
-                                userLevel: featureFlag.user_access_level,
-                                minLevel: AccessControlLevel.Editor,
-                                resource: AccessControlResourceType.FeatureFlag,
+                                resourceType: AccessControlResourceType.FeatureFlag,
+                                minAccessLevel: AccessControlLevel.Editor,
+                                userAccessLevel: featureFlag.user_access_level,
                             }}
                             status="danger"
                             onClick={() => {
@@ -578,9 +578,9 @@ export function FeatureFlags(): JSX.Element {
                         to={urls.featureFlag('new')}
                         data-attr="new-feature-flag"
                         accessControl={{
-                            resource: AccessControlResourceType.FeatureFlag,
-                            minLevel: AccessControlLevel.Editor,
-                            userLevel:
+                            resourceType: AccessControlResourceType.FeatureFlag,
+                            minAccessLevel: AccessControlLevel.Editor,
+                            userAccessLevel:
                                 getAppContext()?.resource_access_control?.[AccessControlResourceType.FeatureFlag],
                         }}
                     >

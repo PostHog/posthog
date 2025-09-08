@@ -70,9 +70,9 @@ export function NotebooksScene(): JSX.Element {
                             to={urls.notebook('new')}
                             type="primary"
                             accessControl={{
-                                resource: AccessControlResourceType.Notebook,
-                                minLevel: AccessControlLevel.Editor,
-                                userLevel:
+                                resourceType: AccessControlResourceType.Notebook,
+                                minAccessLevel: AccessControlLevel.Editor,
+                                userAccessLevel:
                                     getAppContext()?.resource_access_control?.[AccessControlResourceType.Notebook],
                             }}
                         >
