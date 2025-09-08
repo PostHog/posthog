@@ -62,7 +62,9 @@ class DatasetFilter(django_filters.FilterSet):
 
     class Meta:
         model = Dataset
-        fields = ["search", "order_by"]
+        fields = {
+            "id": ["in"],
+        }
 
     def filter_search(self, queryset, name, value):
         if value:

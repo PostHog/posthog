@@ -348,6 +348,8 @@ export interface HogQLQueryModifiers {
     useWebAnalyticsPreAggregatedTables?: boolean
     formatCsvAllowDoubleQuotes?: boolean
     convertToProjectTimezone?: boolean
+    /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level **/
+    usePreaggregatedTableTransforms?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
@@ -1274,6 +1276,8 @@ export type FunnelsFilter = {
     resultCustomizations?: Record<string, ResultCustomizationByValue>
     /** Goal Lines */
     goalLines?: GoalLine[]
+    /** @default false */
+    showValuesOnSeries?: boolean
 }
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
@@ -3507,6 +3511,11 @@ export interface RevenueAnalyticsGoal {
     name: string
     due_date: string
     goal: number
+
+    /**
+     * @default 'gross'
+     */
+    mrr_or_gross: 'mrr' | 'gross'
 }
 
 export interface RevenueAnalyticsConfig {

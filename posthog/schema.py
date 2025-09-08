@@ -2265,12 +2265,18 @@ class RevenueAnalyticsBreakdown(BaseModel):
     type: Literal["revenue_analytics"] = "revenue_analytics"
 
 
+class MrrOrGross(StrEnum):
+    MRR = "mrr"
+    GROSS = "gross"
+
+
 class RevenueAnalyticsGoal(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     due_date: str
     goal: float
+    mrr_or_gross: Optional[MrrOrGross] = MrrOrGross.GROSS
     name: str
 
 
@@ -3910,6 +3916,10 @@ class HogQLQueryModifiers(BaseModel):
     sessionsV2JoinMode: Optional[SessionsV2JoinMode] = None
     timings: Optional[bool] = None
     useMaterializedViews: Optional[bool] = None
+    usePreaggregatedTableTransforms: Optional[bool] = Field(
+        default=None,
+        description="Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
+    )
     usePresortedEventsTable: Optional[bool] = None
     useWebAnalyticsPreAggregatedTables: Optional[bool] = None
 
@@ -11512,6 +11522,7 @@ class FunnelsFilter(BaseModel):
     resultCustomizations: Optional[dict[str, ResultCustomizationByValue]] = Field(
         default=None, description="Customizations for the appearance of result datasets."
     )
+    showValuesOnSeries: Optional[bool] = False
     useUdf: Optional[bool] = None
 
 

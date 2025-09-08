@@ -295,7 +295,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     ref={containerRef}
                 >
                     <div
-                        className={`flex justify-between p-1 pl-[5px] h-[var(--scene-layout-header-height)] items-center ${isLayoutNavCollapsed ? 'justify-center' : ''}`}
+                        className={`flex justify-between p-1 pl-[5px] items-center ${isLayoutNavCollapsed ? 'justify-center' : 'h-[var(--scene-layout-header-height)]'}`}
                     >
                         {newSceneLayout ? (
                             <div className={cn('flex gap-1 rounded-md w-full', isLayoutNavCollapsed && 'flex-col')}>
