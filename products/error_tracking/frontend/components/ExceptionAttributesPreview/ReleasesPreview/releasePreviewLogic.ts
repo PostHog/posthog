@@ -1,10 +1,9 @@
-import { connect, kea, path, props } from 'kea'
-import { loaders } from 'kea-loaders/lib'
+import { connect, kea, path, props, selectors } from 'kea'
 
-import api from 'lib/api'
 import { ErrorPropertiesLogicProps, errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import 'lib/components/Errors/stackFrameLogic'
-import { EventExceptionRelease } from 'lib/components/Errors/types'
+import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
+import { ErrorTrackingStackFrame } from 'lib/components/Errors/types'
 
 import type { releasePreviewLogicType } from './releasePreviewLogicType'
 
@@ -22,41 +21,32 @@ export const releasePreviewLogic = kea<releasePreviewLogicType>([
     props({} as ErrorPropertiesLogicProps),
 
     connect((props: ErrorPropertiesLogicProps) => ({
-        values: [errorPropertiesLogic(props), ['frames']],
+        values: [errorPropertiesLogic(props), ['frames'], stackFrameLogic, ['stackFrameRecords']],
     })),
 
-    loaders(({ values }) => ({
+    selectors(({ values }) => ({
         release: [
-            undefined as EventExceptionRelease | undefined,
-            {
-                loadRelease: async (exceptionReleases?: EventExceptionRelease[]) => {
-                    if (!values.frames && !exceptionReleases) {
-                        return undefined
-                    }
+            (s) => [s.frames, s.stackFrameRecords],
+            () => {
+                const frames = values.frames as ErrorTrackingStackFrame[]
+                const stackFrameRecords = values.stackFrameRecords
 
-                    if (exceptionReleases?.length === 1) {
-                        return exceptionReleases[0]
-                    }
+                const rawIds = frames.map((f) => f.raw_id)
+                const relatedReleases = rawIds.map((id) => stackFrameRecords[id]?.release).filter((r) => Boolean(r))
+                const uniqueRelatedReleasesIds = [...new Set(relatedReleases.map((r) => r?.id))]
 
-                    if (!values.frames || values.frames.length === 0) {
-                        return undefined
-                    }
+                if (uniqueRelatedReleasesIds.length === 1) {
+                    return relatedReleases[0]
+                }
 
-                    const rawIds = values.frames.map((f) => f.raw_id)
-                    const response = await api.errorTracking.stackFrameReleaseMetadata(rawIds)
+                const framesEnrichedWithReleases = frames.map((f) => ({
+                    ...f,
+                    release: stackFrameRecords[f.raw_id]?.release,
+                }))
 
-                    const resultMap = response.results || {}
+                const kaboomFrame = framesEnrichedWithReleases.reverse().find((f) => Boolean(f.release))
 
-                    // we reverse the list in order to pick the stack frame which is "the closest" to the error
-                    const kaboomFrame = values.frames.reverse().find((f) => resultMap[f.raw_id])
-
-                    if (kaboomFrame) {
-                        const relatedRelease = resultMap[kaboomFrame.raw_id]
-                        return relatedRelease
-                    }
-
-                    return undefined
-                },
+                return kaboomFrame?.release
             },
         ],
     })),

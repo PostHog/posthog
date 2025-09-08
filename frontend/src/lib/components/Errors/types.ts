@@ -49,6 +49,7 @@ export interface ErrorTrackingStackFrameRecord {
     context: ErrorTrackingStackFrameContext | null
     contents: ErrorTrackingStackFrame // For now, while we're not 100% on content structure
     symbol_set_ref: ErrorTrackingSymbolSet['ref']
+    release: ErrorTrackingRelease | null
 }
 
 export type ErrorTrackingStackFrameContext = {
@@ -114,10 +115,10 @@ export interface ExceptionAttributes {
     level?: string
     url?: string
     handled?: boolean
-    exceptionReleases?: EventExceptionRelease[]
 }
 
-export interface EventExceptionRelease {
+export interface ErrorTrackingRelease {
+    id: string
     metadata?: {
         git?: {
             commit_id?: string

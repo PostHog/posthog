@@ -175,7 +175,6 @@ import {
     ErrorTrackingStackFrame,
     ErrorTrackingStackFrameRecord,
     ErrorTrackingSymbolSet,
-    EventExceptionRelease,
     SymbolSetStatusFilter,
 } from './components/Errors/types'
 import {
@@ -991,10 +990,6 @@ export class ApiRequest {
 
     public errorTrackingStackFrames(): ApiRequest {
         return this.errorTracking().addPathComponent('stack_frames/batch_get')
-    }
-
-    public errorTrackingStackFramesReleaseMetadata(): ApiRequest {
-        return this.errorTracking().addPathComponent('stack_frames/release_metadata')
     }
 
     public errorTrackingRules(ruleType: ErrorTrackingRuleType, teamId?: TeamType['id']): ApiRequest {
@@ -2816,12 +2811,6 @@ const api = {
             raw_ids: ErrorTrackingStackFrame['raw_id'][]
         ): Promise<{ results: ErrorTrackingStackFrameRecord[] }> {
             return await new ApiRequest().errorTrackingStackFrames().create({ data: { raw_ids: raw_ids } })
-        },
-
-        async stackFrameReleaseMetadata(
-            raw_ids: ErrorTrackingStackFrame['raw_id'][]
-        ): Promise<{ results: Record<string, EventExceptionRelease> }> {
-            return await new ApiRequest().errorTrackingStackFramesReleaseMetadata().create({ data: { raw_ids } })
         },
 
         async rules(ruleType: ErrorTrackingRuleType): Promise<{ results: ErrorTrackingRule[] }> {

@@ -87,7 +87,6 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         $sentry_url: sentryUrl,
         $level: level,
         $cymbal_errors: ingestionErrors,
-        $exception_releases: releases,
     } = properties
 
     let type = properties.$exception_type
@@ -130,7 +129,6 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         handled,
         level,
         ingestionErrors,
-        exceptionReleases: releases ? Object.values(releases) : undefined,
     }
 }
 

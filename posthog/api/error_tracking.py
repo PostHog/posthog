@@ -1,5 +1,4 @@
 import hashlib
-from collections.abc import Mapping
 from typing import Any, Optional, Protocol, TypeVar
 
 from django.conf import settings
@@ -408,59 +407,6 @@ def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_i
     )
 
 
-class ErrorTrackingStackFrameSerializer(serializers.ModelSerializer):
-    symbol_set_ref = serializers.CharField(source="symbol_set.ref", default=None)
-
-    class Meta:
-        model = ErrorTrackingStackFrame
-        fields = ["id", "raw_id", "created_at", "contents", "resolved", "context", "symbol_set_ref"]
-
-
-class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ReadOnlyModelViewSet):
-    scope_object = "INTERNAL"
-    queryset = ErrorTrackingStackFrame.objects.all()
-    serializer_class = ErrorTrackingStackFrameSerializer
-
-    @action(methods=["POST"], detail=False)
-    def batch_get(self, request, **kwargs):
-        raw_ids = request.data.get("raw_ids", [])
-        symbol_set = request.data.get("symbol_set", None)
-
-        queryset = self.queryset.filter(team_id=self.team.id)
-
-        if raw_ids:
-            queryset = queryset.filter(raw_id__in=raw_ids)
-
-        if symbol_set:
-            queryset = queryset.filter(symbol_set=symbol_set)
-
-        serializer = self.get_serializer(queryset, many=True)
-        return Response({"results": serializer.data})
-
-    @action(methods=["POST"], detail=False)
-    def release_metadata(self, request, **kwargs):
-        raw_ids = request.data.get("raw_ids", [])
-
-        if not isinstance(raw_ids, list):
-            return Response({"detail": "raw_ids must be a list"}, status=status.HTTP_400_BAD_REQUEST)
-
-        result: dict[str, Mapping[str, Any] | None] = {raw_id: None for raw_id in raw_ids}
-
-        if not raw_ids:
-            return Response({"results": result})
-
-        frames = self.queryset.filter(team_id=self.team.id, raw_id__in=raw_ids).select_related("symbol_set__release")
-
-        for frame in frames:
-            if result.get(frame.raw_id) is None:
-                release = frame.symbol_set.release if frame.symbol_set else None
-                if release is not None:
-                    serializer = ErrorTrackingReleaseSerializer(release)
-                    result[frame.raw_id] = serializer.data
-
-        return Response({"results": result})
-
-
 class ErrorTrackingReleaseSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingRelease
@@ -536,6 +482,37 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
 
         serializer = ErrorTrackingReleaseSerializer(release)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class ErrorTrackingStackFrameSerializer(serializers.ModelSerializer):
+    symbol_set_ref = serializers.CharField(source="symbol_set.ref", default=None)
+    release = ErrorTrackingReleaseSerializer(source="symbol_set.release", read_only=True)
+
+    class Meta:
+        model = ErrorTrackingStackFrame
+        fields = ["id", "raw_id", "created_at", "contents", "resolved", "context", "symbol_set_ref", "release"]
+
+
+class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ReadOnlyModelViewSet):
+    scope_object = "INTERNAL"
+    queryset = ErrorTrackingStackFrame.objects.all()
+    serializer_class = ErrorTrackingStackFrameSerializer
+
+    @action(methods=["POST"], detail=False)
+    def batch_get(self, request, **kwargs):
+        raw_ids = request.data.get("raw_ids", [])
+        symbol_set = request.data.get("symbol_set", None)
+
+        queryset = self.queryset.filter(team_id=self.team.id).select_related("symbol_set__release")
+
+        if raw_ids:
+            queryset = queryset.filter(raw_id__in=raw_ids)
+
+        if symbol_set:
+            queryset = queryset.filter(symbol_set=symbol_set)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({"results": serializer.data})
 
 
 class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):

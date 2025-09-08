@@ -50,7 +50,7 @@ export function StacktraceTab({
             <SubHeader className="justify-between">
                 <div className="flex items-center gap-1">
                     <ExceptionAttributesPreview attributes={exceptionAttributes} loading={loading} />
-                    <ReleasePreviewPill exceptionReleases={exceptionAttributes?.exceptionReleases} />
+                    <ReleasePreviewPill />
                 </div>
                 <ButtonGroupPrimitive size="sm">
                     {showFixButton && (
