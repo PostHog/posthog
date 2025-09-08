@@ -218,26 +218,8 @@ export const sanitizeLogMessage = (args: any[], sensitiveValues?: string[], maxL
     })
 
     if (message.length > maxLength) {
-        // Truncate at a safe boundary to avoid cutting through Unicode surrogate pairs
-        let truncateAt = maxLength
-
-        // Check if we're in the middle of a surrogate pair
-        if (truncateAt > 0 && truncateAt < message.length) {
-            const charAtTruncate = message.charCodeAt(truncateAt)
-            const charBeforeTruncate = message.charCodeAt(truncateAt - 1)
-
-            // If we're about to cut after a high surrogate or before a low surrogate
-            if ((charBeforeTruncate & 0xfc00) === 0xd800 || (charAtTruncate & 0xfc00) === 0xdc00) {
-                // Move back to avoid cutting through the surrogate pair
-                truncateAt--
-                // If we moved back and are still at a high surrogate, move back one more
-                if (truncateAt > 0 && (message.charCodeAt(truncateAt - 1) & 0xfc00) === 0xd800) {
-                    truncateAt--
-                }
-            }
-        }
-
-        message = message.slice(0, truncateAt) + '... (truncated)'
+        message = message.slice(0, maxLength) + '... (truncated)'
+        message = message.toWellFormed()
     }
 
     return message
