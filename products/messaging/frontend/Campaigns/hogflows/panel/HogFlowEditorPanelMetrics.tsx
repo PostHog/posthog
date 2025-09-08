@@ -115,7 +115,7 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
                             visualizationType={ChartDisplayType.ActionsLineGraph}
                             chartSettings={{
                                 showLegend: true,
-                                showTotalRow: true,
+                                showTotalRow: false,
                             }}
                         />
                     )}
