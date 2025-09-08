@@ -171,7 +171,7 @@ zsh = '''
 '''
 fish = '''
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
-  set -gx PATH "$FLOX_ENV/bin" $PATH
+  fish_add_path "$FLOX_ENV/bin"
   source $UV_PROJECT_ENVIRONMENT/bin/activate.fish
 '''
 tcsh = '''
