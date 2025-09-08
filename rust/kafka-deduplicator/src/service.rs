@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 use health::{HealthHandle, HealthRegistry};
 use rdkafka::consumer::Consumer;
 use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
 use crate::{
@@ -30,6 +31,8 @@ pub struct KafkaDeduplicatorService {
     shutdown_tx: Option<oneshot::Sender<()>>,
     liveness: HealthRegistry,
     service_health: Option<HealthHandle>,
+    health_task_cancellation: CancellationToken,
+    health_task_handles: Vec<tokio::task::JoinHandle<()>>,
 }
 
 impl KafkaDeduplicatorService {
@@ -68,6 +71,8 @@ impl KafkaDeduplicatorService {
             shutdown_tx: None,
             liveness,
             service_health: None,
+            health_task_cancellation: CancellationToken::new(),
+            health_task_handles: Vec::new(),
         })
     }
 
@@ -127,19 +132,27 @@ impl KafkaDeduplicatorService {
         
         // Spawn task to report processor pool health
         let pool_health_reporter = pool_health.clone();
-        tokio::spawn(async move {
+        let cancellation = self.health_task_cancellation.child_token();
+        let handle = tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(10));
             loop {
-                interval.tick().await;
-                if pool_health_reporter.load(Ordering::SeqCst) {
-                    pool_health_handle.report_healthy().await;
-                } else {
-                    // Explicitly report unhealthy when a worker dies
-                    pool_health_handle.report_status(health::ComponentStatus::Unhealthy).await;
-                    error!("Processor pool is unhealthy - worker died");
+                tokio::select! {
+                    _ = cancellation.cancelled() => {
+                        break;
+                    }
+                    _ = interval.tick() => {
+                        if pool_health_reporter.load(Ordering::SeqCst) {
+                            pool_health_handle.report_healthy().await;
+                        } else {
+                            // Explicitly report unhealthy when a worker dies
+                            pool_health_handle.report_status(health::ComponentStatus::Unhealthy).await;
+                            error!("Processor pool is unhealthy - worker died");
+                        }
+                    }
                 }
             }
         });
+        self.health_task_handles.push(handle);
 
         // Create stateful Kafka consumer that sends to the processor pool
         let kafka_consumer = StatefulKafkaConsumer::from_config(
@@ -200,13 +213,21 @@ impl KafkaDeduplicatorService {
 
         // Start health reporting task for the main service
         if let Some(health_handle) = self.service_health.clone() {
-            tokio::spawn(async move {
+            let cancellation = self.health_task_cancellation.child_token();
+            let handle = tokio::spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_secs(10));
                 loop {
-                    interval.tick().await;
-                    health_handle.report_healthy().await;
+                    tokio::select! {
+                        _ = cancellation.cancelled() => {
+                            break;
+                        }
+                        _ = interval.tick() => {
+                            health_handle.report_healthy().await;
+                        }
+                    }
                 }
             });
+            self.health_task_handles.push(handle);
         }
 
         // Start consumption
@@ -222,6 +243,12 @@ impl KafkaDeduplicatorService {
         // Send shutdown signal
         if let Some(shutdown_tx) = self.shutdown_tx.take() {
             let _ = shutdown_tx.send(());
+        }
+
+        // Cancel health reporting tasks
+        self.health_task_cancellation.cancel();
+        for handle in self.health_task_handles.drain(..) {
+            let _ = handle.await;
         }
 
         // Stop the checkpoint manager
@@ -273,13 +300,21 @@ impl KafkaDeduplicatorService {
 
         // Start health reporting task for the main service
         if let Some(health_handle) = self.service_health.clone() {
-            tokio::spawn(async move {
+            let cancellation = self.health_task_cancellation.child_token();
+            let handle = tokio::spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_secs(10));
                 loop {
-                    interval.tick().await;
-                    health_handle.report_healthy().await;
+                    tokio::select! {
+                        _ = cancellation.cancelled() => {
+                            break;
+                        }
+                        _ = interval.tick() => {
+                            health_handle.report_healthy().await;
+                        }
+                    }
                 }
             });
+            self.health_task_handles.push(handle);
         }
 
         // Start consumption
@@ -293,6 +328,12 @@ impl KafkaDeduplicatorService {
         // Send shutdown signal
         if let Some(shutdown_tx) = self.shutdown_tx.take() {
             let _ = shutdown_tx.send(());
+        }
+
+        // Cancel health reporting tasks
+        self.health_task_cancellation.cancel();
+        for handle in self.health_task_handles.drain(..) {
+            let _ = handle.await;
         }
 
         // Stop the checkpoint manager
