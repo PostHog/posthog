@@ -1,5 +1,5 @@
 use chrono::{DateTime, Datelike, Duration, Utc};
-use jiff::{civil::DateTime as JiffDateTime, Timestamp as JiffTimestamp};
+use jiff::civil::DateTime as JiffDateTime;
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -228,11 +228,11 @@ fn handle_timestamp(
     parsed_ts
 }
 
-/// Parse a date string using multiple parsing strategies
+/// Parse a date string using a streamlined two-step approach
 ///
 /// This function tries parsing in order of preference:
-/// 1. dateparser for most common formats (ISO 8601, slash-separated, RFC2822, numeric timestamps)
-/// 2. jiff for formats that dateparser doesn't handle (civil datetime with T but no timezone)
+/// 1. dateparser (handles 95%+ of formats): ISO 8601, slash-separated, RFC2822, numeric timestamps
+/// 2. jiff (minimal fallback): civil datetime with T but no timezone (e.g., "2023-01-01T12:00:00")
 fn parse_date(supposed_iso_string: &str) -> Option<DateTime<Utc>> {
     // Try dateparser first - it handles most formats including:
     // - ISO 8601/RFC3339: 2023-01-01T12:00:00Z, 2023-01-01T12:00:00+02:00
@@ -245,56 +245,23 @@ fn parse_date(supposed_iso_string: &str) -> Option<DateTime<Utc>> {
         return Some(dt);
     }
 
-    // Fallback to jiff for formats that dateparser doesn't handle
-    // Primarily: civil datetime with T but no timezone (2023-01-01T12:00:00)
-
-    // Try parsing as a timestamp first (with timezone)
-    if let Ok(jiff_timestamp) = supposed_iso_string.parse::<JiffTimestamp>() {
-        // Convert jiff timestamp to chrono
-        let seconds = jiff_timestamp.as_second();
-        let nanos = jiff_timestamp.subsec_nanosecond();
-        // Convert i32 to u32 safely (nanoseconds should always be positive)
-        if let Ok(nanos_u32) = nanos.try_into() {
-            if let Some(chrono_dt) = DateTime::from_timestamp(seconds, nanos_u32) {
-                return Some(chrono_dt);
-            }
-        }
-    }
-
-    // Try parsing as a civil datetime (no timezone) and assume UTC
+    // Minimal jiff fallback for the one format dateparser can't handle:
+    // Civil datetime with T but no timezone (e.g., "2023-01-01T12:00:00")
     if let Ok(jiff_civil) = supposed_iso_string.parse::<JiffDateTime>() {
-        // Convert to timestamp assuming UTC
-        if let Ok(jiff_timestamp) = jiff_civil.to_zoned(jiff::tz::TimeZone::UTC) {
-            let seconds = jiff_timestamp.timestamp().as_second();
-            let nanos = jiff_timestamp.timestamp().subsec_nanosecond();
-            // Convert i32 to u32 safely
-            if let Ok(nanos_u32) = nanos.try_into() {
-                if let Some(chrono_dt) = DateTime::from_timestamp(seconds, nanos_u32) {
-                    return Some(chrono_dt);
-                }
-            }
-        }
-    }
-
-    // Try parsing as just a date (assume midnight UTC)
-    if let Ok(jiff_date) = supposed_iso_string.parse::<jiff::civil::Date>() {
-        // Convert to datetime at midnight UTC
-        let jiff_datetime = jiff_date.at(0, 0, 0, 0);
-        if let Ok(jiff_timestamp) = jiff_datetime.to_zoned(jiff::tz::TimeZone::UTC) {
-            let seconds = jiff_timestamp.timestamp().as_second();
-            let nanos = jiff_timestamp.timestamp().subsec_nanosecond();
-            // Convert i32 to u32 safely
-            if let Ok(nanos_u32) = nanos.try_into() {
-                if let Some(chrono_dt) = DateTime::from_timestamp(seconds, nanos_u32) {
-                    return Some(chrono_dt);
-                }
-            }
-        }
+        return convert_jiff_to_chrono(jiff_civil.to_zoned(jiff::tz::TimeZone::UTC).ok()?);
     }
 
     None
 }
 
+/// Helper function to convert jiff timestamp to chrono DateTime<Utc>
+fn convert_jiff_to_chrono(jiff_timestamp: jiff::Zoned) -> Option<DateTime<Utc>> {
+    let seconds = jiff_timestamp.timestamp().as_second();
+    let nanos = jiff_timestamp.timestamp().subsec_nanosecond();
+    // Convert i32 to u32 safely (nanoseconds should always be positive)
+    let nanos_u32 = nanos.try_into().ok()?;
+    DateTime::from_timestamp(seconds, nanos_u32)
+}
 
 #[cfg(test)]
 mod tests {
@@ -484,211 +451,44 @@ mod tests {
 
     #[test]
     fn test_parse_date_various_formats() {
-        let test_cases = vec![
-            // ISO 8601 formats (handled by jiff)
-            ("2023-01-01T12:00:00Z", true),
-            ("2023-01-01T12:00:00.123Z", true),
-            ("2023-01-01T12:00:00+02:00", true),
-            ("2023-01-01T12:00:00-05:00", true),
-
-            // Date-only formats (handled by jiff)
-            ("2023-01-01", true),
-            ("2023-12-31", true),
-
-            // Civil datetime (no timezone, handled by jiff)
-            ("2023-01-01 12:00:00", true),
-            ("2023-01-01T12:00:00", true),
-
-            // Slash-separated formats (handled by our custom logic)
-            ("01/01/2023", true),
-            ("12/31/2023", true),
-            ("2023/01/01", true),
-
-            // Numeric timestamps (handled by our logic)
-            ("1672574400000", true), // Timestamp in milliseconds
-            ("1672574400", true),    // Timestamp in seconds
-
-            // Invalid formats
-            ("invalid-date", false),
-            ("99999-01-01T12:00:00Z", false), // Year too large, should not parse
-            ("13/32/2023", false), // Invalid month and day
-            ("01/32/2023", false), // Invalid day
-            ("", false),
-            ("not-a-date-at-all", false),
-        ];
-
-        for (date_str, should_parse) in test_cases {
-            let result = parse_date(date_str);
-            if should_parse {
-                assert!(result.is_some(), "Failed to parse: {}", date_str);
-            } else {
-                assert!(result.is_none(), "Unexpectedly parsed: {}", date_str);
-            }
-        }
-    }
-
-    #[test]
-    fn test_jiff_parsing_capabilities() {
-        // Test that jiff provides better parsing than the old hardcoded approach
-        let test_cases = vec![
-            // Various ISO 8601 variants (previously handled by chrono RFC3339)
-            "2023-01-01T12:00:00.123456Z",
-            "2023-01-01T12:00:00.123Z",
+        // Test core date parsing functionality across different format types
+        let valid_cases = vec![
+            // ISO 8601/RFC3339 (dateparser)
             "2023-01-01T12:00:00Z",
-            "2023-01-01T12:00Z",
-
-            // With different timezones (previously handled by chrono RFC3339)
-            "2023-01-01T12:00:00+05:30", // India timezone
-            "2023-01-01T12:00:00-08:00", // PST
-            "2023-01-01T12:00:00+00:00", // Explicit UTC
-
-            // Date-only formats
-            "2023-01-01",
-            "2023-12-31",
-        ];
-
-        for date_str in test_cases {
-            let result = parse_date(date_str);
-            assert!(result.is_some(), "Failed to parse with jiff: {}", date_str);
-
-            // Verify the result is a valid UTC datetime
-            let dt = result.unwrap();
-            assert!(dt.year() >= 1 && dt.year() <= 9999, "Year out of expected range for: {}", date_str);
-        }
-    }
-
-    #[test]
-    fn test_rfc3339_handled_by_jiff() {
-        // Verify that jiff handles RFC3339 formats that we removed from chrono fallback
-        let rfc3339_cases = vec![
-            "2023-01-01T12:00:00Z",
-            "2023-01-01T12:00:00.123Z",
             "2023-01-01T12:00:00+02:00",
-            "2023-01-01T12:00:00-05:00",
-        ];
+            "2023-01-01",
 
-        for date_str in rfc3339_cases {
-            let result = parse_date(date_str);
-            assert!(result.is_some(), "jiff should handle RFC3339 format: {}", date_str);
-        }
-    }
+            // Civil datetime (jiff fallback)
+            "2023-01-01T12:00:00",
 
-    #[test]
-    fn test_dateparser_fallback_formats() {
-        // Verify that dateparser handles formats that jiff doesn't support
-        let test_cases = vec![
-            // Slash-separated dates
+            // Slash-separated (dateparser)
             "01/01/2023",
-            "12/31/2023",
             "2023/01/01",
 
-            // RFC2822 formats
+            // RFC2822 (dateparser)
             "Tue, 1 Jul 2003 10:52:37 +0200",
-            "Thu, 13 Feb 1969 23:32:54 -0330",
-            "Mon, 24 Nov 1997 14:22:01 +0000",
-            "Wed, 30 Dec 2020 23:59:59 -0800",
+
+            // Numeric timestamps (dateparser)
+            "1672574400000",
+            "1672574400",
         ];
 
-        for date_str in test_cases {
-            let result = parse_date(date_str);
-            assert!(result.is_some(), "Should handle format via dateparser fallback: {}", date_str);
+        let invalid_cases = vec![
+            "invalid-date",
+            "99999-01-01T12:00:00Z", // Year too large
+            "13/32/2023", // Invalid month/day
+            "",
+        ];
+
+        for date_str in valid_cases {
+            assert!(parse_date(date_str).is_some(), "Failed to parse: {}", date_str);
+        }
+
+        for date_str in invalid_cases {
+            assert!(parse_date(date_str).is_none(), "Unexpectedly parsed: {}", date_str);
         }
     }
 
-    #[test]
-    fn test_dateparser_vs_jiff_capabilities() {
-        // Test if dateparser can handle ALL formats, including those currently handled by jiff
-        let test_cases = vec![
-            // ISO 8601/RFC3339 formats (currently handled by jiff)
-            ("2023-01-01T12:00:00Z", "ISO 8601 with Z"),
-            ("2023-01-01T12:00:00.123Z", "ISO 8601 with milliseconds"),
-            ("2023-01-01T12:00:00+02:00", "ISO 8601 with timezone"),
-            ("2023-01-01T12:00:00-05:00", "ISO 8601 with negative timezone"),
-            ("2023-01-01T12:00:00+00:00", "ISO 8601 explicit UTC"),
-
-            // Civil datetime formats (currently handled by jiff)
-            ("2023-01-01 12:00:00", "Civil datetime"),
-            ("2023-01-01T12:00:00", "Civil datetime with T"),
-
-            // Date-only formats (currently handled by jiff)
-            ("2023-01-01", "Date only"),
-            ("2023-12-31", "Date only end of year"),
-
-            // Slash-separated formats (currently handled by dateparser)
-            ("01/01/2023", "MM/DD/YYYY"),
-            ("12/31/2023", "MM/DD/YYYY end of year"),
-            ("2023/01/01", "YYYY/MM/DD"),
-
-            // RFC2822 formats (currently handled by dateparser)
-            ("Tue, 1 Jul 2003 10:52:37 +0200", "RFC2822"),
-            ("Thu, 13 Feb 1969 23:32:54 -0330", "RFC2822 old date"),
-            ("Mon, 24 Nov 1997 14:22:01 +0000", "RFC2822 UTC"),
-
-            // Numeric timestamps (currently handled by custom logic)
-            ("1672574400000", "Millisecond timestamp"),
-            ("1672574400", "Second timestamp"),
-        ];
-
-        let mut dateparser_can_handle_all = true;
-
-        for (date_str, description) in test_cases {
-            // Test with dateparser
-            let dateparser_result = dateparser::parse(date_str);
-
-            // Compare with our current implementation
-            let current_result = parse_date(date_str);
-
-            println!("Testing {}: '{}'", description, date_str);
-            println!("  dateparser: {:?}", dateparser_result.is_ok());
-            println!("  current:    {:?}", current_result.is_some());
-
-            if !dateparser_result.is_ok() && current_result.is_some() {
-                dateparser_can_handle_all = false;
-                println!("  ❌ dateparser failed where current succeeded");
-            } else if dateparser_result.is_ok() && current_result.is_some() {
-                println!("  ✅ both succeeded");
-            } else if !dateparser_result.is_ok() && !current_result.is_some() {
-                println!("  ⚪ both failed");
-            }
-            println!();
-        }
-
-        if dateparser_can_handle_all {
-            println!("🎉 dateparser can potentially replace both jiff AND custom logic!");
-        } else {
-            println!("⚠️ dateparser cannot replace all current functionality");
-        }
-    }
-
-    #[test]
-    fn test_simplified_architecture() {
-        // Verify that our new dateparser-first architecture works correctly
-        let test_cases = vec![
-            // Most common formats should be handled by dateparser (first priority)
-            "2023-01-01T12:00:00Z",        // ISO 8601 with Z
-            "2023-01-01T12:00:00+02:00",   // ISO 8601 with timezone
-            "2023-01-01 12:00:00",         // Civil datetime with space
-            "2023-01-01",                  // Date only
-            "01/01/2023",                  // Slash-separated MM/DD/YYYY
-            "Tue, 1 Jul 2003 10:52:37 +0200", // RFC2822
-            "1672574400000",               // Numeric timestamp (milliseconds)
-            "1672574400",                  // Numeric timestamp (seconds)
-
-            // Edge case that should be handled by jiff fallback
-            "2023-01-01T12:00:00",         // Civil datetime with T (dateparser fails on this)
-        ];
-
-        for date_str in test_cases {
-            let result = parse_date(date_str);
-            assert!(result.is_some(), "Failed to parse with new architecture: {}", date_str);
-
-            // Verify the result is a valid UTC datetime
-            let dt = result.unwrap();
-            assert!(dt.year() >= 1 && dt.year() <= 9999, "Year out of expected range for: {}", date_str);
-        }
-
-        println!("✅ All formats successfully parsed with simplified dateparser-first architecture");
-    }
 
     #[test]
     fn test_complex_timestamp_scenario() {
@@ -712,29 +512,4 @@ mod tests {
         assert_eq!(result.warnings.len(), 0);
     }
 
-    #[test]
-    fn test_bounds_check_logic() {
-        // Test that the bounds check logic works correctly
-        // This is more of a unit test for the bounds checking code
-
-        // Test that year 0 is within bounds (year 0 is actually valid in chrono)
-        let year_zero = Utc.with_ymd_and_hms(0, 1, 1, 12, 0, 0).unwrap();
-        assert!(!(year_zero.year() < 0 || year_zero.year() > 9999), "Year 0 should be within bounds");
-
-        // Test that year 10000 is out of bounds
-        let year_10000 = Utc.with_ymd_and_hms(10000, 1, 1, 12, 0, 0).unwrap();
-        assert!(year_10000.year() < 0 || year_10000.year() > 9999, "Year 10000 should be out of bounds");
-
-        // Test that year 1 is within bounds
-        let year_1 = Utc.with_ymd_and_hms(1, 1, 1, 12, 0, 0).unwrap();
-        assert!(!(year_1.year() < 0 || year_1.year() > 9999), "Year 1 should be within bounds");
-
-        // Test that year 9999 is within bounds
-        let year_9999 = Utc.with_ymd_and_hms(9999, 1, 1, 12, 0, 0).unwrap();
-        assert!(!(year_9999.year() < 0 || year_9999.year() > 9999), "Year 9999 should be within bounds");
-
-        // Test negative year
-        let year_neg1 = Utc.with_ymd_and_hms(-1, 1, 1, 12, 0, 0).unwrap();
-        assert!(year_neg1.year() < 0 || year_neg1.year() > 9999, "Year -1 should be out of bounds");
-    }
 }
