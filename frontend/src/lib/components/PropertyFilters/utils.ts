@@ -307,7 +307,8 @@ export function isPropertyFilterWithOperator(
             isGroupPropertyFilter(filter) ||
             isCohortPropertyFilter(filter) ||
             isDataWarehousePropertyFilter(filter) ||
-            isDataWarehousePersonPropertyFilter(filter))
+            isDataWarehousePersonPropertyFilter(filter) ||
+            isErrorTrackingIssuePropertyFilter(filter))
     )
 }
 
