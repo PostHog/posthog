@@ -56,7 +56,7 @@ def mock_exporter_template(test_func):
         </script>
     </head>
     <body>
-        <div>{exported_data_str}</div>
+        <div>"{exported_data_str}"</div>
         <div id="root"></div>
     </body>
 </html>"""
@@ -1066,7 +1066,7 @@ class TestSharePasswordLogging(APIBaseTest):
         assert change_data["client_ip"] == "192.168.1.100"
         assert change_data["success"] is True
         assert change_data["resource_type"] == "dashboard"
-        assert change_data["password_id"] == share_password.id
+        assert change_data["password_id"] == str(share_password.id)
         assert change_data["password_note"] == "Test password for dashboard access"
 
     def test_log_share_password_attempt_failure(self):
