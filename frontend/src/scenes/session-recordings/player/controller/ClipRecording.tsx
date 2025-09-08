@@ -119,6 +119,7 @@ export function ClipOverlay(): JSX.Element | null {
                 disabledReason={
                     !duration || duration < 5 || duration > 15 ? 'Duration must be between 5 and 15 seconds' : undefined
                 }
+                data-attr="replay-clip-create"
             >
                 Create clip
             </LemonButton>
