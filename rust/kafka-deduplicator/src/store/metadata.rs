@@ -24,7 +24,7 @@ impl TimestampMetadata {
     pub fn new(event: &RawEvent) -> Self {
         let mut seen_uuids = HashSet::new();
         let mut no_uuid_count = 0;
-        
+
         if let Some(uuid) = event.uuid {
             seen_uuids.insert(uuid.to_string());
         } else {
@@ -153,7 +153,10 @@ impl UuidMetadata {
 mod tests {
     use super::*;
 
-    fn create_test_event_with_uuid_and_timestamp(uuid: Option<uuid::Uuid>, timestamp: &str) -> RawEvent {
+    fn create_test_event_with_uuid_and_timestamp(
+        uuid: Option<uuid::Uuid>,
+        timestamp: &str,
+    ) -> RawEvent {
         RawEvent {
             uuid,
             event: "test_event".to_string(),
@@ -191,7 +194,7 @@ mod tests {
     fn test_timestamp_metadata_update() {
         let uuid1 = uuid::Uuid::new_v4();
         let uuid2 = uuid::Uuid::new_v4();
-        
+
         let event1 = create_test_event_with_uuid_and_timestamp(Some(uuid1), "2021-01-01T00:00:00Z");
         let mut metadata = TimestampMetadata::new(&event1);
 

@@ -68,10 +68,7 @@ impl TryFrom<&[u8]> for TimestampKey {
 
         Ok(Self::new(
             parts[0].parse::<u64>().with_context(|| {
-                format!(
-                    "Failed to parse timestamp '{}' in timestamp key",
-                    parts[0]
-                )
+                format!("Failed to parse timestamp '{}' in timestamp key", parts[0])
             })?,
             parts[1].to_string(),
             parts[2].to_string(),
@@ -226,10 +223,10 @@ mod tests {
     fn test_timestamp_key_formatting() {
         let event = create_test_event();
         let key = TimestampKey::from(&event);
-        
+
         // Parse the ISO timestamp to get the milliseconds value
         let timestamp_millis = parse_timestamp(event.timestamp.as_ref().unwrap()).unwrap();
-        
+
         let expected = format!("{timestamp_millis}:user123:token456:test_event");
         assert_eq!(String::from_utf8_lossy(key.as_ref()), expected);
     }
@@ -238,7 +235,7 @@ mod tests {
     fn test_uuid_key_formatting() {
         let event = create_test_event();
         let key = UuidKey::from(&event);
-        
+
         let uuid_str = event.uuid.unwrap().to_string();
         let expected = format!("{uuid_str}:user123:token456:test_event");
         assert_eq!(String::from_utf8_lossy(key.as_ref()), expected);
@@ -248,10 +245,10 @@ mod tests {
     fn test_timestamp_key_roundtrip() {
         let event = create_test_event();
         let key = TimestampKey::from(&event);
-        
+
         let key_bytes: Vec<u8> = (&key).into();
         let parsed_key = TimestampKey::try_from(key_bytes.as_slice()).unwrap();
-        
+
         assert_eq!(key.timestamp, parsed_key.timestamp);
         assert_eq!(key.distinct_id, parsed_key.distinct_id);
         assert_eq!(key.token, parsed_key.token);
@@ -262,10 +259,10 @@ mod tests {
     fn test_uuid_key_roundtrip() {
         let event = create_test_event();
         let key = UuidKey::from(&event);
-        
+
         let key_bytes: Vec<u8> = (&key).into();
         let parsed_key = UuidKey::try_from(key_bytes.as_slice()).unwrap();
-        
+
         assert_eq!(key.uuid, parsed_key.uuid);
         assert_eq!(key.distinct_id, parsed_key.distinct_id);
         assert_eq!(key.token, parsed_key.token);
