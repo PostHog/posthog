@@ -87,7 +87,7 @@ export function ExternalDataSourceConfiguration({
                         width: 0,
                         render: (_, source: ExternalDataSource) => {
                             if (dataWarehouseSourcesLoading) {
-                                return <Spinner />
+                                return <Spinner size="medium" />
                             }
 
                             return <DataWarehouseSourceIcon type={source.source_type} />
