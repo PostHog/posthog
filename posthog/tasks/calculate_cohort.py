@@ -322,6 +322,7 @@ def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> N
     if team_id is None:
         team_id = cohort.team_id
     team = Team.objects.get(pk=team_id)
+    processing_error = None
     try:
         cohort.is_calculating = True
         cohort.save(update_fields=["is_calculating"])
@@ -329,18 +330,21 @@ def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> N
 
         insert_cohort_query_actors_into_ch(cohort, team=team)
         insert_cohort_people_into_pg(cohort, team_id=team_id)
-        cohort.count = get_static_cohort_size(cohort_id=cohort.id, team_id=cohort.team_id)
-        cohort.errors_calculating = 0
-        cohort.last_calculation = timezone.now()
-    except:
-        cohort.errors_calculating = F("errors_calculating") + 1
-        cohort.last_error_at = timezone.now()
+    except Exception as err:
+        processing_error = err
         capture_exception()
         if settings.DEBUG:
             raise
     finally:
-        cohort.is_calculating = False
-        cohort.save()
+        # Always update the count and cohort state, even if processing failed
+        try:
+            cohort.count = get_static_cohort_size(cohort_id=cohort.id, team_id=cohort.team_id)
+        except Exception as count_err:
+            # If count calculation fails, log the error but don't override the processing error
+            logger.exception("Failed to calculate static cohort size", cohort_id=cohort.id, team_id=team_id)
+            capture_exception(count_err, additional_properties={"cohort_id": cohort.id, "team_id": team_id})
+
+        cohort._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
 
 
 @shared_task(ignore_result=True, max_retries=1)

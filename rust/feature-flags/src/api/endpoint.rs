@@ -15,6 +15,7 @@ use axum::response::{IntoResponse, Response};
 use axum::{debug_handler, Json};
 use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
+use serde_json;
 use std::collections::HashMap;
 use tracing::Instrument;
 use uuid::Uuid;
@@ -40,6 +41,10 @@ fn get_minimal_flags_response(version: Option<&str>) -> Result<Json<ServiceRespo
     // Create minimal config response
     let config = ConfigResponse {
         supported_compression: vec!["gzip".to_string(), "gzip-js".to_string()],
+        config: Some(serde_json::json!({"enable_collect_everything": true})),
+        toolbar_params: Some(serde_json::json!({})),
+        is_authenticated: Some(false),
+        session_recording: Some(crate::api::types::SessionRecordingField::Disabled(false)),
         ..Default::default()
     };
 
