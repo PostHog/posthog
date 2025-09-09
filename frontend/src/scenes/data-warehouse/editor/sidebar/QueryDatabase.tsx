@@ -11,6 +11,7 @@ import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { urls } from 'scenes/urls'
 
@@ -94,14 +95,19 @@ export const QueryDatabase = (): JSX.Element => {
                 return (
                     <span className="truncate">
                         {hasMatches && searchTerm ? (
-                            <SearchHighlightMultiple
-                                string={item.name}
-                                substring={searchTerm}
-                                className="font-mono text-xs"
-                            />
+                            <SearchHighlightMultiple string={item.name} substring={searchTerm} className="text-xs" />
                         ) : (
                             <div className="flex flex-row justify-between gap-1">
-                                <span className="truncate font-mono text-xs">{item.name}</span>
+                                <span
+                                    className={cn(
+                                        ['managed-views', 'views', 'sources'].includes(item.record?.type) &&
+                                            'font-bold',
+                                        ['column'].includes(item.record?.type) && 'font-mono text-xs',
+                                        'truncate'
+                                    )}
+                                >
+                                    {item.name}
+                                </span>
                                 {renderTableCount(item.record?.row_count)}
                             </div>
                         )}
