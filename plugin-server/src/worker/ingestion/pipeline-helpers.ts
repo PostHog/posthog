@@ -6,7 +6,7 @@ import { PipelineEvent } from '../../types'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { droppedEventCounter, pipelineStepDLQCounter } from './event-pipeline/metrics'
+import { droppedEventCounter, pipelineStepDLQCounter, pipelineStepRedirectCounter } from './event-pipeline/metrics'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from './utils'
 
 /**
@@ -253,27 +253,21 @@ export async function redirectMessageToTopic(
     consumerGroupId?: string
 ): Promise<void> {
     const step = stepName || 'unknown'
-    const messageInfo = getEventMetadata(originalMessage)
 
-    logger.info('Event redirected to topic', {
-        step,
-        team_id: messageInfo.teamId,
-        distinct_id: messageInfo.distinctId,
-        event: messageInfo.event,
-        topic,
+    pipelineStepRedirectCounter.inc({
+        step_name: step,
+        target_topic: topic,
+        preserve_key: preserveKey.toString(),
     })
 
     try {
-        // Add breadcrumbs for overflow topics
         let headers = copyAndExtendHeaders(originalMessage, {
             'redirect-step': step,
             'redirect-timestamp': new Date().toISOString(),
         })
 
-        // If this is an overflow topic and we have a consumer group ID, add breadcrumbs
         if (topic.includes('overflow') && consumerGroupId) {
             const headersWithBreadcrumbs = addBreadcrumbsToHeaders(originalMessage, consumerGroupId)
-            // Convert MessageHeader[] to Record<string, string> for merging
             const breadcrumbHeaders: Record<string, string> = {}
             for (const header of headersWithBreadcrumbs) {
                 if (header.key && header.value !== undefined) {
@@ -282,7 +276,6 @@ export async function redirectMessageToTopic(
                     breadcrumbHeaders[key] = value
                 }
             }
-            // Merge with redirect headers
             headers = copyAndExtendHeaders(originalMessage, {
                 ...breadcrumbHeaders,
                 'redirect-step': step,
@@ -297,31 +290,26 @@ export async function redirectMessageToTopic(
             headers: headers,
         })
 
-        // Always register the promise with the scheduler
         const promise = promiseScheduler.schedule(producePromise)
 
         if (awaitAck) {
             await promise
         }
-
-        logger.info('Event successfully redirected to topic', {
-            team_id: messageInfo.teamId,
-            distinct_id: messageInfo.distinctId,
-            event: messageInfo.event,
-            topic,
-        })
     } catch (redirectError) {
-        logger.error('Failed to redirect event to topic', {
-            team_id: messageInfo.teamId,
-            distinct_id: messageInfo.distinctId,
-            topic,
-            error: redirectError,
-        })
+        const eventMetadata = getEventMetadata(originalMessage)
         captureException(redirectError, {
-            tags: { team_id: messageInfo.teamId, pipeline_step: step },
-            extra: { originalMessage, topic, error: redirectError },
+            tags: {
+                team_id: eventMetadata.teamId,
+                pipeline_step: step,
+            },
+            extra: {
+                topic,
+                distinct_id: eventMetadata.distinctId,
+                event: eventMetadata.event,
+                error: redirectError,
+            },
         })
-        throw redirectError // Re-throw to ensure the pipeline handles the failure appropriately
+        throw redirectError
     }
 }
 
@@ -332,7 +320,7 @@ export function logDroppedMessage(originalMessage: Message, reason: string, step
     const step = stepName || 'unknown'
     const messageInfo = getEventMetadata(originalMessage)
 
-    logger.info('Event dropped', {
+    logger.debug('Event dropped', {
         step,
         team_id: messageInfo.teamId,
         distinct_id: messageInfo.distinctId,
