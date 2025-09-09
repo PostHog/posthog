@@ -14,6 +14,7 @@ import {
     IconFlask,
     IconFunnels,
     IconGraph,
+    IconHandMoney,
     IconHogQL,
     IconLifecycle,
     IconLive,
@@ -64,6 +65,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     revenue_analytics: {
         icon: <IconPiggyBank />,
         iconColor: ['var(--color-product-revenue-analytics-light)', 'var(--color-product-revenue-analytics-dark)'],
+    },
+    marketing_settings: {
+        icon: <IconHandMoney />,
     },
     web_analytics: {
         icon: <IconPieChart />,
