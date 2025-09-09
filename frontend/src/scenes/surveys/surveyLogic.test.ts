@@ -1900,13 +1900,7 @@ describe('processResultsForSurveyQuestions', () => {
                 distinctId: 'user123',
                 response: 'Great product!',
                 personProperties: {
-                    email: null,
-                    Email: null,
                     name: 'John',
-                    Name: null,
-                    username: null,
-                    Username: null,
-                    UserName: null,
                 },
                 timestamp: '2024-01-15T10:30:00Z',
             })
@@ -1951,13 +1945,7 @@ describe('processResultsForSurveyQuestions', () => {
                 isPredefined: true,
                 distinctId: 'user3',
                 personProperties: {
-                    email: null,
-                    Email: null,
                     name: 'Carol',
-                    Name: null,
-                    username: null,
-                    Username: null,
-                    UserName: null,
                 },
                 timestamp: '2024-01-15T12:00:00Z',
             })
@@ -1969,13 +1957,7 @@ describe('processResultsForSurveyQuestions', () => {
                 isPredefined: true,
                 distinctId: 'user4',
                 personProperties: {
-                    email: null,
-                    Email: null,
                     name: 'Dave',
-                    Name: null,
-                    username: null,
-                    Username: null,
-                    UserName: null,
                 },
                 timestamp: '2024-01-15T13:00:00Z',
             })
@@ -2011,13 +1993,7 @@ describe('processResultsForSurveyQuestions', () => {
                 isPredefined: true,
                 distinctId: 'user2',
                 personProperties: {
-                    email: null,
-                    Email: null,
                     name: 'Bob',
-                    Name: null,
-                    username: null,
-                    Username: null,
-                    UserName: null,
                 },
                 timestamp: '2024-01-15T11:00:00Z',
             })
@@ -2029,13 +2005,7 @@ describe('processResultsForSurveyQuestions', () => {
                 isPredefined: true,
                 distinctId: 'user3',
                 personProperties: {
-                    email: null,
-                    Email: null,
                     name: 'Carol',
-                    Name: null,
-                    username: null,
-                    Username: null,
-                    UserName: null,
                 },
                 timestamp: '2024-01-15T12:00:00Z',
             })
@@ -2047,13 +2017,7 @@ describe('processResultsForSurveyQuestions', () => {
                 isPredefined: true,
                 distinctId: 'user3',
                 personProperties: {
-                    email: null,
-                    Email: null,
                     name: 'Carol',
-                    Name: null,
-                    username: null,
-                    Username: null,
-                    UserName: null,
                 },
                 timestamp: '2024-01-15T12:00:00Z',
             })
