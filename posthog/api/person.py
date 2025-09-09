@@ -57,12 +57,7 @@ from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.util import get_earliest_timestamp
-from posthog.rate_limit import (
-    BreakGlassBurstThrottle,
-    BreakGlassSustainedThrottle,
-    ClickHouseBurstRateThrottle,
-    ClickHouseSustainedRateThrottle,
-)
+from posthog.rate_limit import BreakGlassBurstThrottle, BreakGlassSustainedThrottle, ClickHouseBurstRateThrottle
 from posthog.renderers import SafeJSONRenderer
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
