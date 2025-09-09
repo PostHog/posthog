@@ -14265,7 +14265,9 @@ class QueryRequest(BaseModel):
     filters_override: Optional[DashboardFilter] = None
     name: Optional[constr(max_length=128)] = Field(
         default=None,
-        description="Name give to a query. It's used to identify the query in the UI. Up to 128 characters for a name.",
+        description=(
+            "Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name."
+        ),
     )
     query: Union[
         EventsNode,

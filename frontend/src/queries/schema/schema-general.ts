@@ -1550,7 +1550,7 @@ export interface QueryRequest {
     filters_override?: DashboardFilter
     variables_override?: Record<string, Record<string, any>>
     /**
-     * Name give to a query. It's used to identify the query in the UI.
+     * Name given to a query. It's used to identify the query in the UI.
      * Up to 128 characters for a name.
      * @maxLength 128
      */
