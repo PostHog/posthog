@@ -388,9 +388,8 @@ class OauthIntegration:
 
     @classmethod
     def redirect_uri(cls, kind: str) -> str:
-        # TEMPORAL CHANGE
-        site_url = "http://posthog.local:8000"
-        return f"{site_url}/integrations/{kind}/callback"
+        # The redirect uri is fixed but should always be https and include the "next" parameter for the frontend to redirect
+        return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
 
     @classmethod
     def authorize_url(cls, kind: str, token: str, next="") -> str:
