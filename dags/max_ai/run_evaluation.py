@@ -1,12 +1,18 @@
 import base64
+from typing import Any, cast
+from uuid import UUID
 
 from django.conf import settings
 
 import boto3
 import dagster
+from dagster._core.definitions.metadata import RawMetadataMapping
 from dagster_docker import PipesDockerClient
-from pydantic import Field
+from dagster_slack import SlackResource
+from pydantic import Field, ValidationError
 from tenacity import retry, stop_after_attempt, wait_exponential
+
+from posthog.models import Dataset, DatasetItem
 
 from dags.common import JobOwners
 from dags.max_ai.snapshot_team_data import (
@@ -32,19 +38,47 @@ def get_object_storage_endpoint() -> str:
     return settings.OBJECT_STORAGE_ENDPOINT
 
 
-class ExportTeamsConfig(dagster.Config):
-    team_ids: list[int]
-    """Team IDs to run the evaluation for."""
+class PrepareDatasetConfig(dagster.Config):
+    dataset_id: str
+    """Dataset ID to run the evaluation for."""
+
+
+@dagster.op(
+    description="Pulls the dataset and dataset items and validates inputs, outputs, metadata, and team_id presence in metadata."
+)
+def prepare_dataset(
+    context: dagster.OpExecutionContext, config: PrepareDatasetConfig
+) -> tuple[UUID, str, list[DatasetInput]]:
+    dataset = Dataset.objects.get(id=config.dataset_id)
+    dataset_items = DatasetItem.objects.filter(dataset=dataset).iterator(500)
+
+    dataset_inputs: list[DatasetInput] = []
+    try:
+        for dataset_item in dataset_items:
+            metadata = dataset_item.metadata or {}
+            dataset_inputs.append(
+                DatasetInput(
+                    input=dataset_item.input,
+                    expected=dataset_item.output,
+                    metadata=metadata,
+                    team_id=metadata.get("team_id"),
+                )
+            )
+    except ValidationError:
+        context.log.exception(f"Validation error for dataset item {dataset_item.id}")
+        raise
+
+    return dataset.id, dataset.name, dataset_inputs
 
 
 @dagster.op(out=dagster.DynamicOut(int))
-def export_teams(config: ExportTeamsConfig):
+def prepare_evaluation(inputs: list[DatasetInput]):
     seen_teams = set()
-    for tid in config.team_ids:
-        if tid in seen_teams:
+    for dataset_input in inputs:
+        if dataset_input.team_id in seen_teams:
             continue
-        seen_teams.add(tid)
-        yield dagster.DynamicOutput(tid, mapping_key=str(tid))
+        seen_teams.add(dataset_input.team_id)
+        yield dagster.DynamicOutput(dataset_input.team_id, mapping_key=str(dataset_input.team_id))
 
 
 class EvaluationConfig(dagster.Config):
@@ -79,15 +113,121 @@ def get_registry_credentials():
     }
 
 
+EvaluationResults = list[dict[Any, Any]]
+
+
+def unpack_evaluation_results(metadata: RawMetadataMapping | None) -> EvaluationResults | None:
+    if not metadata:
+        return None
+    try:
+        meta = metadata["evaluation_results"]
+        return cast(list[dict[Any, Any]], meta)
+    except KeyError:
+        return None
+
+
+def get_last_dataset_materialization_metadata(
+    context: dagster.OpExecutionContext, asset_key: dagster.AssetKey
+) -> EvaluationResults | None:
+    last_materialization_event = context.instance.get_latest_materialization_event(asset_key)
+    if not last_materialization_event or not last_materialization_event.asset_materialization:
+        return None
+    return unpack_evaluation_results(last_materialization_event.asset_materialization.metadata)
+
+
+def format_results(
+    dataset_id: UUID, dataset_name: str, results: EvaluationResults, prev_results: EvaluationResults | None = None
+) -> tuple[list[dict[str, Any]], str]:
+    experiment_summaries = []
+    for result in results:
+        # Find corresponding previous result by project_name
+        prev_result = None
+        if prev_results:
+            for prev in prev_results:
+                if prev.get("project_name") == result.get("project_name"):
+                    prev_result = prev
+                    break
+
+        # Format scores as bullet points with improvements/regressions and baseline comparison
+        scores_list = []
+        for key, value in (result.get("scores") or {}).items():
+            score = (
+                f"{(value['score'] * 100):.2f}%" if isinstance(value.get("score"), int | float) else value.get("score")
+            )
+            baseline_comparison = None
+            diff_highlight = ""
+            diff_emoji = "🆕"
+
+            if prev_result:
+                prev_scores = prev_result.get("scores", {})
+                prev_score_data = prev_scores.get(key)
+                if prev_score_data:
+                    prev_score = prev_score_data.get("score", 0)
+                    current_score = value.get("score", 0)
+                    diff_val = current_score - prev_score
+
+                    diff_highlight = "**" if abs(diff_val) > 0.01 else ""
+                    diff_sign = "+" if diff_val > 0 else ("" if diff_val < 0 else "±")
+
+                    # Calculate improvements/regressions (simplified logic)
+                    improvements = 1 if diff_val > 0.01 else 0
+                    regressions = 1 if diff_val < -0.01 else 0
+
+                    baseline_comparison = f"{diff_highlight}{diff_sign}{(diff_val * 100):.2f}%{diff_highlight} (improvements: {improvements}, regressions: {regressions})"
+                    diff_emoji = "🟢" if diff_val > 0.01 else ("🔴" if diff_val < -0.01 else "🔵")
+
+            score_line = f"{diff_emoji} **{key}**: **{score}**"
+            if baseline_comparison:
+                score_line += f", {baseline_comparison}"
+            scores_list.append(score_line)
+
+        scores_text = "\n".join(scores_list)
+
+        # Format key metrics concisely
+        metrics = result.get("metrics", {})
+        if metrics:
+            duration = f"⏱️ {metrics['duration']['metric']:.2f} s" if metrics.get("duration") else None
+            total_tokens = (
+                f"🔢 {int(metrics['total_tokens']['metric'])} tokens" if metrics.get("total_tokens") else None
+            )
+            cost = f"💵 ${metrics['estimated_cost']['metric']:.4f} in tokens" if metrics.get("estimated_cost") else None
+            metrics_text = ", ".join(filter(None, [duration, total_tokens, cost]))
+
+        summary_parts = [
+            f"**Experiment**: {result.get('project_name', '')}",
+            scores_text,
+            "Baseline: Previous run",
+            f"Avg. case performance: {metrics_text}",
+        ]
+        experiment_summaries.append("\n\n".join(summary_parts))
+
+    total_experiments = len(results)
+    total_metrics = sum(len(result.get("scores", {})) for result in results)
+
+    body_parts = [
+        f"🧠 **AI eval results** for dataset [{dataset_name}](https://us.posthog.com/llm-analytics/datasets/{dataset_id})",
+        f"Evaluated **{total_experiments}** experiment{'' if total_experiments == 1 else 's'}, comprising **{total_metrics}** metric{'' if total_metrics == 1 else 's'}.",
+        *experiment_summaries,
+    ]
+    formatted_markdown = "\n\n".join(body_parts)
+    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": formatted_markdown}}]
+    return blocks, formatted_markdown
+
+
 @dagster.op
 def spawn_evaluation_container(
     context: dagster.OpExecutionContext,
     config: EvaluationConfig,
     docker_pipes_client: PipesDockerClient,
+    slack: SlackResource,
+    dataset_id: UUID,
+    dataset_name: str,
+    dataset_inputs: list[DatasetInput],
     team_ids: list[int],
     postgres_snapshots: list[PostgresTeamDataSnapshot],
     clickhouse_snapshots: list[ClickhouseTeamDataSnapshot],
 ):
+    asset_key = dagster.AssetKey(["evaluation_dataset", str(dataset_id)])
     evaluation_config = EvalsDockerImageConfig(
         aws_endpoint_url=get_object_storage_endpoint(),
         aws_bucket_name=settings.OBJECT_STORAGE_BUCKET,
@@ -96,14 +236,7 @@ def spawn_evaluation_container(
             for team_id, postgres, clickhouse in zip(team_ids, postgres_snapshots, clickhouse_snapshots)
         ],
         experiment_name=config.experiment_name,
-        dataset=[
-            DatasetInput(
-                team_id=team_id,
-                input={"query": "List all events from the last 7 days. Use SQL."},
-                expected={"output": "SELECT * FROM events WHERE timestamp >= now() - INTERVAL 7 day"},
-            )
-            for team_id in team_ids
-        ],
+        dataset_inputs=dataset_inputs,
     )
 
     context.log.info(f"Running evaluation for the image: {config.image}")
@@ -132,11 +265,29 @@ def spawn_evaluation_container(
         registry=get_registry_credentials(),
     ).get_materialize_result()
 
+    previous_results = get_last_dataset_materialization_metadata(context, asset_key)
+    new_results = unpack_evaluation_results(asset_result.metadata)
+
+    if not new_results:
+        context.log.error("No new evaluation results returned")
+        raise ValueError("No new evaluation results found")
+
+    blocks, formatted_markdown = format_results(dataset_id, dataset_name, new_results, previous_results)
+    try:
+        slack.get_client().chat_postMessage(channel="#evals-max-ai", blocks=blocks)
+    except Exception as e:
+        context.log.exception(f"Failed to send Slack notification: {str(e)}")
+
     context.log_event(
         dagster.AssetMaterialization(
-            asset_key=asset_result.asset_key or "evaluation_report",
-            metadata=asset_result.metadata,
-            tags={"owner": JobOwners.TEAM_MAX_AI.value},
+            asset_key=asset_key,
+            metadata={
+                "evaluation_results": new_results,
+                "report": formatted_markdown,
+            },
+            tags={
+                "owner": JobOwners.TEAM_MAX_AI.value,
+            },
         )
     )
 
@@ -150,9 +301,9 @@ def spawn_evaluation_container(
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 4}),
     config=dagster.RunConfig(
         ops={
-            "export_teams": ExportTeamsConfig(team_ids=[]),
+            "prepare_dataset": PrepareDatasetConfig(dataset_id=""),
             "spawn_evaluation_container": EvaluationConfig(
-                evaluation_module="",
+                evaluation_module="ee/hogai/eval/offline/",
                 experiment_name="offline_evaluation",
                 image_name="posthog-ai-evals",
                 image_tag="master",
@@ -161,7 +312,15 @@ def spawn_evaluation_container(
     ),
 )
 def run_evaluation():
-    team_ids = export_teams()
+    dataset_id, dataset_name, dataset_inputs = prepare_dataset()
+    team_ids = prepare_evaluation(dataset_inputs)
     postgres_snapshots = team_ids.map(snapshot_postgres_team_data)
     clickhouse_snapshots = team_ids.map(snapshot_clickhouse_team_data)
-    spawn_evaluation_container(team_ids.collect(), postgres_snapshots.collect(), clickhouse_snapshots.collect())
+    spawn_evaluation_container(
+        dataset_id,
+        dataset_name,
+        dataset_inputs,
+        team_ids.collect(),
+        postgres_snapshots.collect(),
+        clickhouse_snapshots.collect(),
+    )

@@ -86,7 +86,7 @@ class SnapshotLoader:
 
         self._patch_query_runners()
 
-        return self.organization, self.user, self.config.dataset
+        return self.organization, self.user, self.config.dataset_inputs
 
     def cleanup(self):
         for mock in self.patches:

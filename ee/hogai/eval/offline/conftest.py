@@ -1,3 +1,4 @@
+import json
 from collections.abc import Generator
 from typing import Annotated
 
@@ -65,6 +66,6 @@ def eval_ctx(
             dagster_context.report_asset_materialization(
                 asset_key="evaluation_report",
                 metadata={
-                    "output": "\n".join(lines),
+                    "evaluation_results": [json.loads(line) for line in lines],
                 },
             )

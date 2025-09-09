@@ -91,7 +91,7 @@ async def sql_syntax_scorer(input: DatasetInput, expected: str, output: EvalOutp
 
 
 def generate_test_cases(eval_ctx: EvaluationContext):
-    for entry in eval_ctx.dataset:
+    for entry in eval_ctx.dataset_inputs:
         metadata: EvalMetadata = {"team_id": entry.team_id}
         yield EvalCase(input=entry, expected=entry.expected["output"], metadata=cast(dict, metadata))
 

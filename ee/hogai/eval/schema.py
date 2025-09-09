@@ -179,8 +179,8 @@ class TeamEvaluationSnapshot(BaseModel):
 
 class DatasetInput(BaseModel):
     team_id: int
-    input: dict[str, Any]
-    expected: dict[str, Any]
+    input: dict[str, Any] = Field(default_factory=dict)
+    expected: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -204,7 +204,7 @@ class EvalsDockerImageConfig(BaseModel):
     """
     Name of the experiment.
     """
-    dataset: list[DatasetInput]
+    dataset_inputs: list[DatasetInput]
     """
     Parsed dataset.
     """
