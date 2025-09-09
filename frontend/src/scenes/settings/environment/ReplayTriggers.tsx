@@ -23,7 +23,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
@@ -111,20 +110,21 @@ function LinkedFlagSelector(): JSX.Element | null {
                             )}
                         </AccessControlAction>
                         {currentTeam?.session_recording_linked_flag && (
-                            <AccessControlledLemonButton
+                            <LemonButton
                                 className="ml-2"
                                 icon={<IconCancel />}
                                 size="small"
                                 type="secondary"
                                 onClick={() => updateCurrentTeam({ session_recording_linked_flag: null })}
                                 title="Clear selected flag"
-                                minAccessLevel={AccessControlLevel.Editor}
-                                resourceType={AccessControlResourceType.SessionRecording}
-                                userAccessLevel={
-                                    getAppContext()?.resource_access_control?.[
-                                        AccessControlResourceType.SessionRecording
-                                    ]
-                                }
+                                accessControl={{
+                                    resourceType: AccessControlResourceType.SessionRecording,
+                                    minAccessLevel: AccessControlLevel.Editor,
+                                    userAccessLevel:
+                                        getAppContext()?.resource_access_control?.[
+                                            AccessControlResourceType.SessionRecording
+                                        ],
+                                }}
                             />
                         )}
                     </div>
@@ -285,20 +285,21 @@ function UrlConfigRow({
                 <span>{trigger.url}</span>
             </span>
             <div className="Actions flex deprecated-space-x-1 shrink-0">
-                <AccessControlledLemonButton
+                <LemonButton
                     icon={<IconPencil />}
                     onClick={() => onEdit(index)}
                     tooltip="Edit"
                     center
-                    minAccessLevel={AccessControlLevel.Editor}
-                    resourceType={AccessControlResourceType.SessionRecording}
-                    userAccessLevel={
-                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
-                    }
+                    accessControl={{
+                        resourceType: AccessControlResourceType.SessionRecording,
+                        minAccessLevel: AccessControlLevel.Editor,
+                        userAccessLevel:
+                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                    }}
                 >
                     Edit
-                </AccessControlledLemonButton>
-                <AccessControlledLemonButton
+                </LemonButton>
+                <LemonButton
                     icon={<IconTrash />}
                     tooltip={`Remove URL ${type}`}
                     center
@@ -316,14 +317,15 @@ function UrlConfigRow({
                             },
                         })
                     }}
-                    minAccessLevel={AccessControlLevel.Editor}
-                    resourceType={AccessControlResourceType.SessionRecording}
-                    userAccessLevel={
-                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
-                    }
+                    accessControl={{
+                        resourceType: AccessControlResourceType.SessionRecording,
+                        minAccessLevel: AccessControlLevel.Editor,
+                        userAccessLevel:
+                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                    }}
                 >
                     Remove
-                </AccessControlledLemonButton>
+                </LemonButton>
             </div>
         </div>
     )
@@ -351,19 +353,20 @@ function UrlConfigSection({
         <div className="flex flex-col deprecated-space-y-2 mt-4">
             <div className="flex items-center gap-2 justify-between">
                 <LemonLabel className="text-base">{title}</LemonLabel>
-                <AccessControlledLemonButton
+                <LemonButton
                     onClick={props.onAdd}
                     type="secondary"
                     icon={<IconPlus />}
                     data-attr={`session-replay-add-url-${type}`}
-                    minAccessLevel={AccessControlLevel.Editor}
-                    resourceType={AccessControlResourceType.SessionRecording}
-                    userAccessLevel={
-                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
-                    }
+                    accessControl={{
+                        resourceType: AccessControlResourceType.SessionRecording,
+                        minAccessLevel: AccessControlLevel.Editor,
+                        userAccessLevel:
+                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                    }}
                 >
                     Add
-                </AccessControlledLemonButton>
+                </LemonButton>
             </div>
             <SupportedPlatforms
                 android={false}
@@ -466,18 +469,21 @@ function EventSelectButton(): JSX.Element {
                 />
             }
         >
-            <AccessControlledLemonButton
+            <LemonButton
                 size="small"
                 type="secondary"
                 icon={<IconPlus />}
                 sideIcon={null}
                 onClick={() => setOpen(!open)}
-                minAccessLevel={AccessControlLevel.Editor}
-                resourceType={AccessControlResourceType.SessionRecording}
-                userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]}
+                accessControl={{
+                    resourceType: AccessControlResourceType.SessionRecording,
+                    minAccessLevel: AccessControlLevel.Editor,
+                    userAccessLevel:
+                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                }}
             >
                 Add event
-            </AccessControlledLemonButton>
+            </LemonButton>
         </Popover>
     )
 }
