@@ -86,7 +86,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     join_use_nulls=1
   '''
 # ---
 # name: TestWebGoalsQueryRunner.test_dont_show_deleted_actions
@@ -140,7 +141,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     join_use_nulls=1
   '''
 # ---
 # name: TestWebGoalsQueryRunner.test_many_users_and_actions
@@ -201,7 +203,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     join_use_nulls=1
   '''
 # ---
 # name: TestWebGoalsQueryRunner.test_no_comparison
@@ -262,7 +265,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     join_use_nulls=1
   '''
 # ---
 # name: TestWebGoalsQueryRunner.test_no_crash_when_no_data_and_some_actions
@@ -323,7 +327,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     join_use_nulls=1
   '''
 # ---
 # name: TestWebGoalsQueryRunner.test_one_user_one_action
@@ -384,7 +389,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     join_use_nulls=1
   '''
 # ---
 # name: TestWebGoalsQueryRunner.test_one_user_two_different_actions
@@ -445,7 +451,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     join_use_nulls=1
   '''
 # ---
 # name: TestWebGoalsQueryRunner.test_one_user_two_similar_actions_across_sessions
@@ -506,7 +513,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     join_use_nulls=1
   '''
 # ---
 # name: TestWebGoalsQueryRunner.test_one_users_one_action_each
@@ -567,6 +575,7 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     join_use_nulls=1
   '''
 # ---
