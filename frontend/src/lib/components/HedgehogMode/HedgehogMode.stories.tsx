@@ -1,10 +1,6 @@
 import { Meta, StoryFn } from '@storybook/react'
 
-import {
-    HedgehogActorAccessoryOptions,
-    HedgehogActorColorOptions,
-    HedgehogActorSkinOptions,
-} from '@posthog/hedgehog-mode'
+import { HedgehogActorAccessoryOptions, HedgehogActorColorOptions } from '@posthog/hedgehog-mode'
 
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
@@ -41,15 +37,13 @@ function deterministicShuffle<T>(array: T[], seed: number): T[] {
 
 // Generate all combinations of accessories, colors, and skins
 let allCombinations = Object.values(HedgehogActorAccessoryOptions).flatMap((accessory) =>
-    Object.values(HedgehogActorColorOptions).flatMap((color) =>
-        Object.values(HedgehogActorSkinOptions).map(
-            (skin): MinimalHedgehogConfig => ({
-                accessories: [accessory],
-                color,
-                skin,
-                use_as_profile: true,
-            })
-        )
+    Object.values(HedgehogActorColorOptions).map(
+        (color): MinimalHedgehogConfig => ({
+            accessories: [accessory],
+            color,
+            skin: 'default',
+            use_as_profile: true,
+        })
     )
 )
 

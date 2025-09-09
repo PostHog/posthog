@@ -6,8 +6,6 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { HedgehogConfig, MinimalHedgehogConfig } from '~/types'
 
-import { Semaphore } from './utils/sempahore'
-
 export type HedgehogModeStaticProps = {
     size?: number | string
     config: HedgehogConfig | MinimalHedgehogConfig
@@ -17,8 +15,6 @@ export type HedgehogModeStaticProps = {
 const staticHedgehogRenderer = new StaticHedgehogRenderer({
     assetsUrl: '/static/hedgehog-mode/',
 })
-
-const renderSemaphore = new Semaphore(10)
 const CACHE = new Map<string, Promise<string | null>>()
 
 const renderHedgehog = (
@@ -28,25 +24,22 @@ const renderHedgehog = (
 ): Promise<string | null> => {
     const key = JSON.stringify({ skin, accessories, color })
     if (!CACHE.has(key)) {
-        const promise = renderSemaphore.run(async () => {
-            await new Promise((resolve) => setTimeout(resolve, 1))
-            return staticHedgehogRenderer
-                .render({
-                    id: JSON.stringify({
-                        skin,
-                        accessories: accessories,
-                        color: color,
-                    }),
+        const promise = staticHedgehogRenderer
+            .render({
+                id: JSON.stringify({
                     skin,
-                    accessories,
-                    color,
-                })
-                .then((src) => src)
-                .catch((e) => {
-                    console.error('Error rendering hedgehog', e)
-                    return null
-                })
-        })
+                    accessories: accessories,
+                    color: color,
+                }),
+                skin,
+                accessories,
+                color,
+            })
+            .then((src) => src)
+            .catch((e) => {
+                console.error('Error rendering hedgehog', e)
+                return null
+            })
 
         CACHE.set(key, promise)
     }
