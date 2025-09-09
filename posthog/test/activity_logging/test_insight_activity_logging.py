@@ -2,7 +2,6 @@ import random
 import string
 
 from posthog.test.base import BaseTest
-from unittest import mock
 
 from dateutil import parser
 
@@ -31,13 +30,6 @@ class TestChangesBetweenInsights(BaseTest):
                     }
                 ],
             ),
-            Change(
-                type="Insight",
-                field="query_metadata",
-                action="changed",
-                before=mock.ANY,
-                after=mock.ANY,
-            ),
         ]
 
         assert actual == expected
@@ -49,13 +41,6 @@ class TestChangesBetweenInsights(BaseTest):
             current=self._an_insight_with(name="new name"),
         )
         expected = [
-            Change(
-                type="Insight",
-                field="query_metadata",
-                action="changed",
-                before=mock.ANY,
-                after=mock.ANY,
-            ),
             Change(
                 type="Insight",
                 field="name",
@@ -76,13 +61,6 @@ class TestChangesBetweenInsights(BaseTest):
         expected = [
             Change(
                 type="Insight",
-                field="query_metadata",
-                action="changed",
-                before=mock.ANY,
-                after=mock.ANY,
-            ),
-            Change(
-                type="Insight",
                 field="tags",
                 action="changed",
                 before=["before", "tags"],
@@ -101,13 +79,6 @@ class TestChangesBetweenInsights(BaseTest):
         expected = [
             Change(
                 type="Insight",
-                field="query_metadata",
-                action="changed",
-                before=mock.ANY,
-                after=mock.ANY,
-            ),
-            Change(
-                type="Insight",
                 field="derived_name",
                 action="changed",
                 before="starting",
@@ -124,13 +95,6 @@ class TestChangesBetweenInsights(BaseTest):
             current=self._an_insight_with(description="after"),
         )
         expected = [
-            Change(
-                type="Insight",
-                field="query_metadata",
-                action="changed",
-                before=mock.ANY,
-                after=mock.ANY,
-            ),
             Change(
                 type="Insight",
                 field="description",

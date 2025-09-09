@@ -49,7 +49,7 @@ pub struct InjectArgs {
     ignore: Vec<String>,
 }
 
-#[derive(clap::Args)]
+#[derive(clap::Args, Clone)]
 pub struct UploadArgs {
     /// The directory containing the bundled chunks
     #[arg(short, long)]
@@ -78,6 +78,10 @@ pub struct UploadArgs {
     /// self-deployed instances
     #[arg(long, default_value = "false")]
     skip_ssl_verification: bool,
+
+    /// The maximum number of chunks to upload in a single batch
+    #[arg(long, default_value = "50")]
+    batch_size: usize,
 }
 
 #[derive(Subcommand)]
@@ -103,44 +107,11 @@ impl Cli {
                     sourcemap::inject::inject(&input_args.directory, &input_args.ignore)?;
                 }
                 SourcemapCommand::Upload(upload_args) => {
-                    let UploadArgs {
-                        directory,
-                        ignore,
-                        project,
-                        version,
-                        delete_after,
-                        skip_ssl_verification,
-                    } = upload_args;
-                    sourcemap::upload::upload(
-                        command.host,
-                        directory,
-                        ignore,
-                        project.clone(),
-                        version.clone(),
-                        *delete_after,
-                        *skip_ssl_verification,
-                    )?;
+                    sourcemap::upload::upload(command.host, upload_args.clone())?;
                 }
                 SourcemapCommand::Process(args) => {
-                    let UploadArgs {
-                        directory,
-                        project,
-                        ignore,
-                        version,
-                        delete_after,
-                        skip_ssl_verification,
-                    } = args;
-
-                    sourcemap::inject::inject(directory, ignore)?;
-                    sourcemap::upload::upload(
-                        command.host,
-                        directory,
-                        ignore,
-                        project.clone(),
-                        version.clone(),
-                        *delete_after,
-                        *skip_ssl_verification,
-                    )?;
+                    sourcemap::inject::inject(&args.directory, &args.ignore)?;
+                    sourcemap::upload::upload(command.host, args.clone())?;
                 }
             },
             Commands::Query { cmd } => query::query_command(command.host, cmd)?,

@@ -22,6 +22,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
+import { snapshotDataLogic } from './snapshotDataLogic'
 
 describe('sessionRecordingPlayerLogic', () => {
     let logic: ReturnType<typeof sessionRecordingPlayerLogic.build>
@@ -33,6 +34,7 @@ describe('sessionRecordingPlayerLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/session_recordings/:id/comments/': { results: [] },
+                '/api/projects/:team_id/notebooks/recording_comments': { results: [] },
                 '/api/environments/:team_id/session_recordings/:id/snapshots/': (req, res, ctx) => {
                     // with no sources, returns sources...
                     if (req.url.searchParams.get('source') === 'blob') {
@@ -60,6 +62,9 @@ describe('sessionRecordingPlayerLogic', () => {
             },
             post: {
                 '/api/environments/:team_id/query': recordingEventsJson,
+            },
+            patch: {
+                '/api/environments/:team_id/session_recordings/:id': { success: true },
             },
         })
         initKeaTests()
@@ -91,7 +96,7 @@ describe('sessionRecordingPlayerLogic', () => {
 
             await expectLogic(logic).toNotHaveDispatchedActions([
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources,
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSourcesSuccess,
+                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSourcesSuccess,
             ])
         })
 
@@ -105,6 +110,7 @@ describe('sessionRecordingPlayerLogic', () => {
             await expectLogic(logic).toDispatchActions([
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMeta,
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+                logic.actionTypes.setPlay,
             ])
 
             expect(logic.values.sessionPlayerData).toMatchSnapshot()
@@ -113,8 +119,8 @@ describe('sessionRecordingPlayerLogic', () => {
                 // once to gather sources
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources,
                 // once to load source from that
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotsForSource,
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotsForSourceSuccess,
+                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotsForSource,
+                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotsForSourceSuccess,
             ])
 
             expect(logic.values.sessionPlayerData).toMatchSnapshot()
@@ -122,8 +128,26 @@ describe('sessionRecordingPlayerLogic', () => {
             resumeKeaLoadersErrors()
         })
 
-        it('load snapshot errors and triggers error state', async () => {
+        it('marks as viewed once playing', async () => {
+            logic.unmount()
+            logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test', autoPlay: true })
+            logic.mount()
+
             silenceKeaLoadersErrors()
+
+            await expectLogic(logic).toDispatchActions([logic.actionTypes.setPlay, logic.actionTypes.markViewed])
+
+            resumeKeaLoadersErrors()
+        })
+
+        it('load snapshot errors and triggers error state', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/session_recordings/:id/snapshots': () => [500, { status: 0 }],
+                    '/api/projects/:team_id/session_recordings/:id/snapshots': () => [500, { status: 0 }],
+                },
+            })
+
             // Unmount and remount the logic to trigger fetching the data again after the mock change
             logic.unmount()
             logic = sessionRecordingPlayerLogic({
@@ -132,11 +156,6 @@ describe('sessionRecordingPlayerLogic', () => {
                 autoPlay: true,
             })
 
-            useMocks({
-                get: {
-                    '/api/environments/:team_id/session_recordings/:id/snapshots': () => [500, { status: 0 }],
-                },
-            })
             logic.mount()
 
             await expectLogic(logic, () => {
@@ -144,10 +163,11 @@ describe('sessionRecordingPlayerLogic', () => {
             })
                 .toDispatchActions([
                     'seekToTimestamp',
-                    sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSourcesFailure,
+                    snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSourcesFailure,
                 ])
                 .toFinishAllListeners()
                 .toDispatchActions(['setPlayerError'])
+                .toNotHaveDispatchedActions(['markViewed'])
 
             expect(logic.values).toMatchObject({
                 sessionPlayerData: {
@@ -157,8 +177,8 @@ describe('sessionRecordingPlayerLogic', () => {
                 },
                 playerError: 'loadSnapshotSourcesFailure',
             })
-            resumeKeaLoadersErrors()
         })
+
         it('ensures the cache initialization is reset after the player is unmounted', async () => {
             logic.unmount()
             logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test' })

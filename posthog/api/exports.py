@@ -1,3 +1,4 @@
+import threading
 from datetime import timedelta
 from typing import Any
 
@@ -6,19 +7,27 @@ from django.utils.timezone import now
 
 import structlog
 import posthoganalytics
+from asgiref.sync import async_to_sync
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.event_usage import report_user_action
+from posthog.constants import VIDEO_EXPORT_TASK_QUEUE
+from posthog.event_usage import groups
 from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, get_content_response
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.tasks import exporter
+from posthog.temporal.common.client import async_connect
+from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
+
+VIDEO_EXPORT_SEMAPHORE = threading.Semaphore(10)  # Allow max 10 concurrent video exports
 
 logger = structlog.get_logger(__name__)
 
@@ -59,6 +68,22 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         ):
             timeout_message = f"Export failed without throwing an exception. Please try to rerun this export and contact support if it fails to complete multiple times."
             data["exception"] = timeout_message
+
+            distinct_id = (
+                self.context["request"].user.distinct_id
+                if "request" in self.context and self.context["request"].user
+                else str(instance.team.uuid)
+            )
+            posthoganalytics.capture(
+                distinct_id=distinct_id,
+                event="export timeout error returned",
+                properties={
+                    **instance.get_analytics_metadata(),
+                    "timeout_message": timeout_message,
+                    "stuck_duration_seconds": (now() - instance.created_at).total_seconds(),
+                },
+                groups=groups(instance.team.organization, instance.team),
+            )
 
         return data
 
@@ -107,31 +132,71 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
         team = instance.team
 
-        blocking_exports = posthoganalytics.feature_enabled(
-            "blocking-exports",
-            str(team.uuid),
-            groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
+        posthoganalytics.capture(
+            distinct_id=user.distinct_id if user else str(team.uuid),
+            event="export requested",
+            properties={
+                **instance.get_analytics_metadata(),
+                "force_async": force_async,
+                "reason": reason,
             },
-            group_properties={
-                "organization": {
-                    "id": str(team.organization_id),
-                },
-                "project": {
-                    "id": str(team.id),
-                },
-            },
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
+            groups=groups(team.organization, team),
         )
-        if blocking_exports and not force_async:
-            exporter.export_asset(instance.id)
-        else:
-            exporter.export_asset.delay(instance.id)
 
-        if user is not None:
-            report_user_action(user, "export created", instance.get_analytics_metadata())
+        if not force_async:
+            if instance.export_format in ("video/mp4", "video/webm", "image/gif"):
+                # recordings-only
+                if not (instance.export_context and instance.export_context.get("session_recording_id")):
+                    raise serializers.ValidationError(
+                        {"export_format": ["Video export supports session recordings only."]}
+                    )
+
+                logger.info("starting_video_export_workflow", asset_id=instance.id)
+
+                async def _start():
+                    client = await async_connect()
+                    await client.execute_workflow(
+                        VideoExportWorkflow.run,
+                        VideoExportInputs(exported_asset_id=instance.id),
+                        id=f"export-video-{instance.id}",
+                        task_queue=VIDEO_EXPORT_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
+                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    )
+
+                with VIDEO_EXPORT_SEMAPHORE:
+                    try:
+                        async_to_sync(_start)()
+                        logger.info("video_export_workflow_dispatched", asset_id=instance.id)
+                    except Exception as e:
+                        logger.exception("video_export_workflow_dispatch_failed", asset_id=instance.id, error=str(e))
+                        raise
+            else:
+                exporter.export_asset(instance.id)
+        else:
+            task = exporter.export_asset.delay(instance.id)
+            posthoganalytics.capture(
+                distinct_id=user.distinct_id if user else str(team.uuid),
+                event="export queued",
+                properties={
+                    **instance.get_analytics_metadata(),
+                    "force_async": force_async,
+                    "reason": reason,
+                    "task_id": task.id,
+                },
+                groups=groups(team.organization, team),
+            )
+
+        posthoganalytics.capture(
+            distinct_id=user.distinct_id if user else str(team.uuid),
+            event="export created",
+            properties={
+                **instance.get_analytics_metadata(),
+                "force_async": force_async,
+                "reason": reason,
+            },
+            groups=groups(team.organization, team),
+        )
 
         instance.refresh_from_db()
         insight_id = instance.insight_id

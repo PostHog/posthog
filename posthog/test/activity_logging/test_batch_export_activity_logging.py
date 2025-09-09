@@ -49,6 +49,7 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
         self.assertIn("BatchExport", get_args(ActivityScope))
 
     def test_batch_export_integration_test(self):
+        """Integration test to verify the basic setup works"""
         from posthog.models.activity_logging.utils import activity_storage
 
         activity_storage.set_user(self.user)
@@ -75,6 +76,7 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
             self.update_batch_export(
                 batch_export["id"], {"schema": [{"alias": "test", "table": "events", "fields": ["event"]}]}
             )
+
         finally:
             activity_storage.clear_user()
 
@@ -162,5 +164,6 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
             changes = activity_log.detail.get("changes", [])
             deleted_change = next((change for change in changes if change["field"] == "deleted"), None)
             self.assertIsNotNone(deleted_change)
+
         finally:
             activity_storage.clear_user()

@@ -8,6 +8,7 @@ export const USAGE_TYPES = [
     { label: 'Synced Rows', value: 'rows_synced_in_period' },
     { label: 'Identified Events', value: 'enhanced_persons_event_count_in_period' },
     { label: 'Survey Responses', value: 'survey_responses_count_in_period' },
+    { label: 'LLM Events', value: 'ai_event_count_in_period' },
     { label: 'Data Pipelines', value: 'data_pipelines' },
     { label: 'Group Analytics', value: 'group_analytics' },
 ] as const

@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { IconEllipsis, IconGear, IconOpenSidebar } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import {
     AuthorizedUrlListType,
     authorizedUrlListLogic,
@@ -15,10 +16,13 @@ import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheck
 import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -26,7 +30,8 @@ import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playli
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ProductKey, ReplayTab, ReplayTabs } from '~/types'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { AccessControlLevel, AccessControlResourceType, ProductKey, ReplayTab, ReplayTabs } from '~/types'
 
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { createPlaylist } from './playlist/playlistUtils'
@@ -50,44 +55,53 @@ function Header(): JSX.Element {
     })
 
     return (
-        <PageHeader
-            buttons={
-                <>
-                    {tab === ReplayTabs.Home && !recordingsDisabled && (
-                        <>
-                            <LemonMenu
-                                items={[
-                                    {
-                                        label: 'Playback from PostHog JSON file',
-                                        to: urls.replayFilePlayback(),
-                                    },
-                                ]}
-                            >
-                                <LemonButton icon={<IconEllipsis />} />
-                            </LemonMenu>
-                            <NotebookSelectButton
-                                resource={{
-                                    type: NotebookNodeType.RecordingPlaylist,
-                                    attrs: { filters: filters },
-                                }}
-                                type="secondary"
-                            />
-                        </>
-                    )}
+        <>
+            <PageHeader
+                buttons={
+                    <>
+                        {tab === ReplayTabs.Home && !recordingsDisabled && (
+                            <>
+                                <LemonMenu
+                                    items={[
+                                        {
+                                            label: 'Playback from PostHog JSON file',
+                                            to: urls.replayFilePlayback(),
+                                        },
+                                    ]}
+                                >
+                                    <LemonButton icon={<IconEllipsis />} />
+                                </LemonMenu>
+                                <NotebookSelectButton
+                                    resource={{
+                                        type: NotebookNodeType.RecordingPlaylist,
+                                        attrs: { filters: filters },
+                                    }}
+                                    type="secondary"
+                                />
+                            </>
+                        )}
 
-                    {tab === ReplayTabs.Playlists && (
-                        <LemonButton
-                            type="primary"
-                            onClick={(e) => newPlaylistHandler.onEvent?.(e)}
-                            data-attr="save-recordings-playlist-button"
-                            loading={newPlaylistHandler.loading}
-                        >
-                            New collection
-                        </LemonButton>
-                    )}
-                </>
-            }
-        />
+                        {tab === ReplayTabs.Playlists && (
+                            <AccessControlledLemonButton
+                                type="primary"
+                                onClick={(e) => newPlaylistHandler.onEvent?.(e)}
+                                data-attr="save-recordings-playlist-button"
+                                loading={newPlaylistHandler.loading}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                resourceType={AccessControlResourceType.SessionRecording}
+                                userAccessLevel={
+                                    getAppContext()?.resource_access_control?.[
+                                        AccessControlResourceType.SessionRecording
+                                    ]
+                                }
+                            >
+                                New collection
+                            </AccessControlledLemonButton>
+                        )}
+                    </>
+                }
+            />
+        </>
     )
 }
 
@@ -198,7 +212,7 @@ function MainPanel(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
 
     return (
-        <div className="deprecated-space-y-4 mt-2">
+        <SceneContent forceNewSpacing>
             <Warnings />
 
             {!tab ? (
@@ -212,7 +226,7 @@ function MainPanel(): JSX.Element {
             ) : tab === ReplayTabs.Templates ? (
                 <SessionRecordingTemplates />
             ) : null}
-        </div>
+        </SceneContent>
     )
 }
 
@@ -244,12 +258,15 @@ const ReplayPageTabs: ReplayTab[] = [
 
 function PageTabs(): JSX.Element {
     const { tab, shouldShowNewBadge } = useValues(sessionReplaySceneLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     return (
         <LemonTabs
             activeKey={tab}
-            className="flex"
+            className={cn('flex', newSceneLayout && 'mt-0')}
+            barClassName="mb-0"
             onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
+            sceneInset={newSceneLayout}
             tabs={ReplayPageTabs.map((replayTab): LemonTab<string> => {
                 return {
                     label: (
@@ -271,11 +288,11 @@ function PageTabs(): JSX.Element {
 }
 export function SessionsRecordings(): JSX.Element {
     return (
-        <>
+        <SceneContent forceNewSpacing className="h-full">
             <Header />
             <PageTabs />
             <MainPanel />
-        </>
+        </SceneContent>
     )
 }
 

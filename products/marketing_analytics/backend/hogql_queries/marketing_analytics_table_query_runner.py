@@ -12,6 +12,7 @@ from posthog.schema import (
     DateRange,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsHelperForColumnNames,
+    MarketingAnalyticsItem,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsTableQueryResponse,
 )
@@ -36,6 +37,7 @@ from .constants import (
     TOTAL_CLICKS_FIELD,
     TOTAL_COST_FIELD,
     TOTAL_IMPRESSIONS_FIELD,
+    to_marketing_analytics_data,
 )
 from .conversion_goal_processor import ConversionGoalProcessor
 from .utils import convert_team_conversion_goals_to_objects
@@ -176,6 +178,11 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
         # Trim results to the requested limit if we got extra
         if has_more:
             results = results[:requested_limit]
+
+        has_comparison = bool(self.query.compareFilter is not None and self.query.compareFilter.compare)
+
+        # Transform results to MarketingAnalyticsItem objects
+        results = self._transform_results_to_marketing_analytics_items(results, columns, has_comparison)
 
         return MarketingAnalyticsTableQueryResponse(
             results=results,
@@ -441,9 +448,9 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
                         )
                     )
         else:
-            if MarketingAnalyticsBaseColumns.TOTAL_COST.value in select_columns:
+            if MarketingAnalyticsBaseColumns.COST.value in select_columns:
                 # Build default order by: Total Cost DESC
-                default_field = ast.Field(chain=[MarketingAnalyticsBaseColumns.TOTAL_COST.value])
+                default_field = ast.Field(chain=[MarketingAnalyticsBaseColumns.COST.value])
                 order_by_exprs.append(ast.OrderExpr(expr=default_field, order="DESC"))
 
         return order_by_exprs
@@ -552,3 +559,56 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
                 conditions.extend([gte_condition, lte_condition])
 
         return conditions
+
+    def _transform_results_to_marketing_analytics_items(
+        self, results: list, columns: list, has_comparison: bool
+    ) -> list:
+        """Transform raw query results to MarketingAnalyticsItem objects."""
+        logger.debug(
+            "transforming_results_to_marketing_analytics",
+            row_count=len(results),
+            column_count=len(columns),
+            has_comparison=has_comparison,
+        )
+
+        transformed_results = []
+        for row in results:
+            transformed_row = []
+            for i, column_name in enumerate(columns):
+                transformed_item = self._transform_cell_to_marketing_analytics_item(row, i, column_name, has_comparison)
+                transformed_row.append(transformed_item)
+            transformed_results.append(transformed_row)
+        return transformed_results
+
+    def _transform_cell_to_marketing_analytics_item(
+        self, row: list, column_index: int, column_name: str, has_comparison: bool
+    ) -> MarketingAnalyticsItem:
+        """Transform a single cell value to a MarketingAnalyticsItem object."""
+        if column_index < len(row):
+            cell_value = row[column_index]
+
+            if has_comparison and isinstance(cell_value, list | tuple) and len(cell_value) >= 2:
+                # This is a tuple from compare query: (current, previous)
+                current_value, previous_value = cell_value[0], cell_value[1]
+                return to_marketing_analytics_data(
+                    key=str(column_name),
+                    value=current_value,
+                    previous=previous_value,
+                    has_comparison=has_comparison,
+                )
+            else:
+                # Single value, create object with no previous data
+                return to_marketing_analytics_data(
+                    key=str(column_name),
+                    value=cell_value,
+                    previous=None,
+                    has_comparison=has_comparison,
+                )
+        else:
+            # Missing column data
+            return to_marketing_analytics_data(
+                key=str(column_name),
+                value=None,
+                previous=None,
+                has_comparison=has_comparison,
+            )

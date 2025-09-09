@@ -1,6 +1,16 @@
 # Marketing Analytics Constants and Configuration
 
-from posthog.schema import MarketingAnalyticsBaseColumns, MarketingAnalyticsColumnsSchemaNames
+import math
+from typing import Optional, Union
+
+from posthog.schema import (
+    InfinityValue,
+    MarketingAnalyticsBaseColumns,
+    MarketingAnalyticsColumnsSchemaNames,
+    MarketingAnalyticsHelperForColumnNames,
+    MarketingAnalyticsItem,
+    WebAnalyticsItemKind,
+)
 
 from posthog.hogql import ast
 
@@ -41,8 +51,8 @@ BASE_COLUMN_MAPPING = {
         alias=MarketingAnalyticsBaseColumns.SOURCE,
         expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingAnalyticsColumnsSchemaNames.SOURCE]),
     ),
-    MarketingAnalyticsBaseColumns.TOTAL_COST: ast.Alias(
-        alias=MarketingAnalyticsBaseColumns.TOTAL_COST,
+    MarketingAnalyticsBaseColumns.COST: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.COST,
         expr=ast.Call(
             name="round",
             args=[
@@ -51,22 +61,22 @@ BASE_COLUMN_MAPPING = {
             ],
         ),
     ),
-    MarketingAnalyticsBaseColumns.TOTAL_CLICKS: ast.Alias(
-        alias=MarketingAnalyticsBaseColumns.TOTAL_CLICKS,
+    MarketingAnalyticsBaseColumns.CLICKS: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.CLICKS,
         expr=ast.Call(
             name="round",
             args=[ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_CLICKS_FIELD]), ast.Constant(value=0)],
         ),
     ),
-    MarketingAnalyticsBaseColumns.TOTAL_IMPRESSIONS: ast.Alias(
-        alias=MarketingAnalyticsBaseColumns.TOTAL_IMPRESSIONS,
+    MarketingAnalyticsBaseColumns.IMPRESSIONS: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.IMPRESSIONS,
         expr=ast.Call(
             name="round",
             args=[ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_IMPRESSIONS_FIELD]), ast.Constant(value=0)],
         ),
     ),
-    MarketingAnalyticsBaseColumns.COST_PER_CLICK: ast.Alias(
-        alias=MarketingAnalyticsBaseColumns.COST_PER_CLICK,
+    MarketingAnalyticsBaseColumns.CPC: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.CPC,
         expr=ast.Call(
             name="round",
             args=[
@@ -146,3 +156,130 @@ TABLE_PATTERNS = {
         "stats_table_keywords": ["campaign_stats"],
     },
 }
+
+# Column kind mapping for WebAnalyticsItemBase
+COLUMN_KIND_MAPPING = {
+    MarketingAnalyticsBaseColumns.CAMPAIGN: "unit",
+    MarketingAnalyticsBaseColumns.SOURCE: "unit",
+    MarketingAnalyticsBaseColumns.COST: "currency",
+    MarketingAnalyticsBaseColumns.CLICKS: "unit",
+    MarketingAnalyticsBaseColumns.IMPRESSIONS: "unit",
+    MarketingAnalyticsBaseColumns.CPC: "currency",
+    MarketingAnalyticsBaseColumns.CTR: "percentage",
+}
+
+# isIncreaseBad mapping for MarketingAnalyticsBaseColumns
+IS_INCREASE_BAD_MAPPING = {
+    MarketingAnalyticsBaseColumns.CAMPAIGN: False,
+    MarketingAnalyticsBaseColumns.SOURCE: False,
+    MarketingAnalyticsBaseColumns.COST: True,  # Higher cost is bad
+    MarketingAnalyticsBaseColumns.CLICKS: False,  # More clicks is good
+    MarketingAnalyticsBaseColumns.IMPRESSIONS: False,  # More impressions is good
+    MarketingAnalyticsBaseColumns.CPC: True,  # Higher CPC is bad
+    MarketingAnalyticsBaseColumns.CTR: False,  # Higher CTR is good
+}
+
+
+def to_marketing_analytics_data(
+    key: str,
+    value: Optional[Union[float, str, list[float], list[str]]],
+    previous: Optional[Union[float, str, list[float], list[str]]],
+    has_comparison: bool = False,
+) -> MarketingAnalyticsItem:
+    """
+    Transform tuple data to WebAnalyticsItemBase format.
+    Similar to web_overview.to_data() but for marketing analytics.
+    """
+    # Handle list values (from tuple queries)
+    if isinstance(value, list):
+        value = value[0] if len(value) > 0 else None
+    if isinstance(previous, list):
+        previous = previous[0] if len(previous) > 0 else None
+
+    # Handle NaN values (only for numeric types)
+    if value is not None and isinstance(value, int | float) and math.isnan(value):
+        value = None
+    if previous is not None and isinstance(previous, int | float) and math.isnan(previous):
+        previous = None
+
+    # Determine kind and isIncreaseBad based on column type
+    kind = "unit"  # Default
+    is_increase_bad = False  # Default
+
+    # Check if it's a base column
+    for base_column in MarketingAnalyticsBaseColumns:
+        if key == base_column.value:
+            kind = COLUMN_KIND_MAPPING.get(base_column, "unit")
+            is_increase_bad = IS_INCREASE_BAD_MAPPING.get(base_column, False)
+            break
+    else:
+        # Check if it's a conversion goal or cost per conversion
+        if key.startswith(MarketingAnalyticsHelperForColumnNames.COST_PER):
+            kind = "currency"
+            is_increase_bad = True  # Cost per conversion - higher is bad
+        else:
+            # Regular conversion goal
+            kind = "unit"
+            is_increase_bad = False  # More conversions is good
+
+    # For string columns (Campaign, Source), preserve the string values
+    if kind == "unit" and key in [
+        MarketingAnalyticsBaseColumns.CAMPAIGN.value,
+        MarketingAnalyticsBaseColumns.SOURCE.value,
+    ]:
+        # String columns - no numeric processing needed
+        pass
+    else:
+        # For numeric columns, try to convert strings to numbers
+        if isinstance(value, str):
+            try:
+                value = float(value) if "." in value else int(value)
+            except (ValueError, TypeError):
+                value = None
+        if isinstance(previous, str):
+            try:
+                previous = float(previous) if "." in previous else int(previous)
+            except (ValueError, TypeError):
+                previous = None
+
+    # Handle percentage conversion for CTR
+    if kind == "percentage":
+        # CTR is already calculated as percentage in the query (multiplied by 100)
+        # No additional conversion needed
+        pass
+
+    # Calculate change percentage (only for numeric values)
+    change_from_previous_pct = None
+    if (
+        value is not None
+        and previous is not None
+        and isinstance(value, int | float)
+        and isinstance(previous, int | float)
+    ):
+        try:
+            if previous == 0:
+                # Handle special cases when previous is 0
+                if value == 0:
+                    # Both are 0: no change
+                    change_from_previous_pct = 0
+                elif value > 0:
+                    # From 0 to positive: use special large number to represent infinite growth
+                    change_from_previous_pct = int(InfinityValue.NUMBER_999999)
+                else:
+                    # From 0 to negative: use special large negative number to represent infinite decrease
+                    change_from_previous_pct = int(InfinityValue.NUMBER__999999)
+            else:
+                # Normal case: previous != 0
+                change_from_previous_pct = round(100 * (value - previous) / previous)
+        except (ValueError, ZeroDivisionError):
+            pass
+
+    return MarketingAnalyticsItem(
+        key=key,
+        kind=WebAnalyticsItemKind(kind),
+        isIncreaseBad=is_increase_bad,
+        value=value,
+        previous=previous,
+        changeFromPreviousPct=change_from_previous_pct,
+        hasComparison=has_comparison,
+    )

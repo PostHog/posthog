@@ -150,7 +150,7 @@ export class EmailTrackingService {
             hogFlow ? 'hog_flow' : 'hog_function'
         )
 
-        await this.hogFunctionMonitoringService.produceQueuedMessages()
+        await this.hogFunctionMonitoringService.flush()
 
         trackingEventsCounter.inc({ event_type: metricName, source })
         logger.debug('[EmailTrackingService] trackMetric: Email tracking event', {

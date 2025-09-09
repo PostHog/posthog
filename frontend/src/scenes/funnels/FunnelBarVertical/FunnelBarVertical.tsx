@@ -26,7 +26,8 @@ export function FunnelBarVertical({ showPersonsModal: showPersonsModalProp = tru
     const { visibleStepsWithConversionMetrics } = useValues(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const showPersonsModal = canOpenPersonModal && showPersonsModalProp
-    const vizRef = useFunnelTooltip(showPersonsModal)
+    const chartId = useRef(`funnel-vertical-${Math.random().toString(36).substring(2, 11)}`)
+    const vizRef = useFunnelTooltip(showPersonsModal, chartId.current)
 
     const { height: availableHeight } = useResizeObserver({ ref: vizRef })
     const [scrollbarHeightPx, setScrollbarHeightPx] = useState(0)

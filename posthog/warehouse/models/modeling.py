@@ -135,7 +135,12 @@ def get_parents_from_model_query(model_query: str) -> set[str]:
                 queries.extend(list(extract_select_queries(join.table)))
                 break
 
-            parent_name = join.table.chain[0]  # type: ignore
+            if isinstance(join.table, ast.Placeholder):
+                parent_name = join.table.field
+            elif isinstance(join.table, ast.Field):
+                parent_name = ".".join(str(s) for s in join.table.chain)
+            else:
+                raise ValueError(f"No handler for {join.table.__class__.__name__} in get_parents_from_model_query")
 
             if parent_name not in ctes and isinstance(parent_name, str):
                 parents.add(parent_name)
@@ -373,7 +378,15 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                 if not isinstance(table, S3Table):
                     raise ObjectDoesNotExist()
 
-                parent_table = DataWarehouseTable.objects.exclude(deleted=True).filter(team=team, name=table.name).get()
+                if table.table_id:
+                    parent_table = (
+                        DataWarehouseTable.objects.exclude(deleted=True).filter(team=team, id=table.table_id).get()
+                    )
+                else:
+                    parent_table = (
+                        DataWarehouseTable.objects.exclude(deleted=True).filter(team=team, name=table.name).get()
+                    )
+
             except (ObjectDoesNotExist, QueryError):
                 pass
             else:

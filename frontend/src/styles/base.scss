@@ -326,7 +326,7 @@
     --color-product-error-tracking-dark: rgb(247 165 1);
     --color-product-surveys-light: rgb(243 84 84);
     --color-product-data-warehouse-light: rgb(133 103 255);
-    --color-product-max-ai-light: rgb(182 42 217);
+    --color-product-llm-analytics-light: rgb(182 42 217);
     --color-product-links-light: rgb(143 7 255);
     --color-product-revenue-analytics-light: rgb(52 175 102);
     --color-product-revenue-analytics-dark: rgb(54 196 111);
@@ -334,8 +334,6 @@
     --color-product-dashboards-light: rgb(255 139 7);
     --color-product-early-access-features-light: rgb(39 171 151);
     --color-product-early-access-features-dark: rgb(53 213 189);
-    --color-product-mcp-server-light: rgb(48 171 198);
-    --color-product-mcp-server-dark: rgb(48 171 198);
 
     // Insight colors
     --color-insight-funnel-light: rgb(47 128 250);
@@ -609,12 +607,12 @@
     --data-color-15: #30d5c8;
 
     // Lifecycle series (compiled)
-    --color-lifecycle-new: #388600;
-    --color-lifecycle-returning: #1d4aff;
+    --color-lifecycle-new: #1d4aff;
+    --color-lifecycle-returning: #388600;
     --color-lifecycle-resurrecting: #a56eff;
     --color-lifecycle-dormant: #db3707;
-    --color-lifecycle-new-hover: #254d08;
-    --color-lifecycle-returning-hover: #0024b6;
+    --color-lifecycle-new-hover: #0024b6;
+    --color-lifecycle-returning-hover: #254d08;
     --color-lifecycle-resurrecting-hover: #6608ff;
     --color-lifecycle-dormant-hover: #781e04;
 
@@ -648,6 +646,8 @@
     --z-annotation-popover: 100;
     --z-drawer: 900;
     --z-notifications-popover: 800; // below the TZ aware popover but over the main-nav
+    --z-scene-layout-content-panel: 770;
+    --z-scene-layout-content-panel-under: 769;
     --z-layout-panel: 760;
     --z-layout-panel-under: 759;
     --z-layout-navbar-over: 757;
@@ -1221,27 +1221,6 @@
                 }
             }
         }
-    }
-
-    .page-title-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem 1rem;
-        align-items: center;
-        min-height: 2.5rem;
-        margin: 1rem 0 0.25rem;
-
-        @include screen($md) {
-            flex-wrap: nowrap;
-        }
-    }
-
-    .page-title {
-        min-width: 0;
-        margin: 0;
-        font-size: 28px;
-        font-weight: 600;
-        line-height: 34px;
     }
 
     .page-caption {

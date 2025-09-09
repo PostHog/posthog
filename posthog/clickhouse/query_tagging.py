@@ -77,6 +77,8 @@ class QueryTags(BaseModel):
     team_id: Optional[int] = None
     user_id: Optional[int] = None
     access_method: Optional[AccessMethod] = None
+    api_key_mask: Optional[str] = None
+    api_key_label: Optional[str] = None
     org_id: Optional[uuid.UUID] = None
     product: Optional[Product] = None
 
@@ -100,6 +102,7 @@ class QueryTags(BaseModel):
     dashboard_id: Optional[int] = None
     insight_id: Optional[int] = None
     chargeable: Optional[int] = None
+    request_name: Optional[str] = None
     name: Optional[str] = None
 
     http_referer: Optional[str] = None

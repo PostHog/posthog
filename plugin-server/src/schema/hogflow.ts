@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { CyclotronInputSchema } from './cyclotron'
+
 const _commonActionFields = {
     id: z.string(),
     name: z.string(),
@@ -10,15 +12,29 @@ const _commonActionFields = {
     filters: z.any(), // TODO: Correct to the right type
 }
 
+const HogFlowTriggerSchema = z.discriminatedUnion('type', [
+    z.object({
+        type: z.literal('event'),
+        filters: z.object({
+            events: z.array(z.any()).optional(),
+            properties: z.array(z.any()).optional(),
+            actions: z.array(z.any()).optional(),
+        }),
+    }),
+    z.object({
+        type: z.literal('webhook'),
+        template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+        template_id: z.string(),
+        inputs: z.record(CyclotronInputSchema),
+    }),
+])
+
 const HogFlowActionSchema = z.discriminatedUnion('type', [
     // Trigger
     z.object({
         ..._commonActionFields,
         type: z.literal('trigger'),
-        config: z.object({
-            type: z.literal('event'),
-            filters: z.any(),
-        }),
+        config: HogFlowTriggerSchema,
         // A trigger's event filters are stored on the top-level Hogflow object
     }),
     // Branching
@@ -91,9 +107,9 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         type: z.literal('function_email'),
         config: z.object({
             message_category_id: z.string().uuid().optional(),
-            template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+            template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
-            inputs: z.object({}),
+            inputs: z.record(CyclotronInputSchema),
         }),
     }),
 
@@ -104,7 +120,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
             template_id: z.string(),
-            inputs: z.object({}),
+            inputs: z.record(CyclotronInputSchema),
         }),
     }),
     z.object({
@@ -114,28 +130,9 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             message_category_id: z.string().uuid().optional(),
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-twilio'),
-            inputs: z.object({}),
+            inputs: z.record(CyclotronInputSchema),
         }),
     }),
-    z.object({
-        ..._commonActionFields,
-        type: z.literal('function_slack'),
-        config: z.object({
-            template_uuid: z.string().uuid().optional(),
-            template_id: z.literal('template-slack'),
-            inputs: z.object({}),
-        }),
-    }),
-    z.object({
-        ..._commonActionFields,
-        type: z.literal('function_webhook'),
-        config: z.object({
-            template_uuid: z.string().uuid().optional(),
-            template_id: z.literal('template-webhook'),
-            inputs: z.object({}),
-        }),
-    }),
-
     // Exit
     z.object({
         ..._commonActionFields,
@@ -159,17 +156,7 @@ export const HogFlowSchema = z.object({
     version: z.number(),
     name: z.string(),
     status: z.enum(['active', 'draft', 'archived']),
-    trigger: z.object({
-        type: z.literal('event'),
-        filters: z.any(),
-    }),
-    trigger_masking: z
-        .object({
-            ttl: z.number(),
-            hash: z.string(),
-            threshold: z.number(),
-        })
-        .optional(),
+    trigger: HogFlowTriggerSchema,
     conversion: z
         .object({
             window_minutes: z.number(),

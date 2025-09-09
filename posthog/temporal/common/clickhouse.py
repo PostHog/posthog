@@ -527,6 +527,7 @@ class ClickHouseClient:
                 SELECT type, exception
                 FROM clusterAllReplicas({{cluster_name:String}}, system.query_log)
                 WHERE query_id = {{query_id:String}}
+                    AND event_date >= yesterday() AND event_time >= now() - interval 24 hour
                     FORMAT JSONEachRow \
                 """
 

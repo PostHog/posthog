@@ -62,7 +62,6 @@ import {
     getShowValuesOnSeries,
     getYAxisScaleType,
     isActionsNode,
-    isCalendarHeatmapQuery,
     isDataWarehouseNode,
     isEventsNode,
     isFunnelsQuery,
@@ -154,7 +153,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         isTrends: [(s) => [s.querySource], (q) => isTrendsQuery(q)],
-        isCalendarHeatmap: [(s) => [s.querySource], (q) => isCalendarHeatmapQuery(q)],
         isFunnels: [(s) => [s.querySource], (q) => isFunnelsQuery(q)],
         isRetention: [(s) => [s.querySource], (q) => isRetentionQuery(q)],
         isPaths: [(s) => [s.querySource], (q) => isPathsQuery(q)],
@@ -167,15 +165,16 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (q, display, dateRange) =>
                 (isTrendsQuery(q) || isStickinessQuery(q)) &&
                 display !== ChartDisplayType.WorldMap &&
+                display !== ChartDisplayType.CalendarHeatmap &&
                 dateRange?.date_from !== 'all',
         ],
         supportsPercentStackView: [(s) => [s.querySource], (q) => supportsPercentStackView(q)],
         supportsValueOnSeries: [
-            (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.display],
-            (isTrends, isStickiness, isLifecycle, display) => {
+            (s) => [s.isTrends, s.isFunnels, s.isStickiness, s.isLifecycle, s.display],
+            (isTrends, isFunnels, isStickiness, isLifecycle, display) => {
                 if (isTrends || isStickiness) {
                     return !NON_VALUES_ON_SERIES_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)
-                } else if (isLifecycle) {
+                } else if (isLifecycle || isFunnels) {
                     return true
                 }
                 return false
@@ -747,6 +746,11 @@ const handleQuerySourceUpdateSideEffects = (
 
     // Remove breakdown filter if display type is BoldNumber because it is not supported
     if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.BoldNumber) {
+        mergedUpdate['breakdownFilter'] = null
+    }
+
+    // Remove breakdown filter if display type is Heatmap because it is not supported
+    if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.CalendarHeatmap) {
         mergedUpdate['breakdownFilter'] = null
     }
 

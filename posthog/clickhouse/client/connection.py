@@ -31,9 +31,13 @@ class Workload(StrEnum):
 
 
 class NodeRole(StrEnum):
-    ALL = "ALL"
-    COORDINATOR = "COORDINATOR"
-    DATA = "DATA"
+    # Roles of nodes for a particular NodeType. These are meant to
+    # match the CH macro hostClusterRole
+    ALL = "all"
+    COORDINATOR = "coordinator"
+    DATA = "data"
+    INGESTION_EVENTS = "events"
+    SHUFFLEHOG = "shufflehog"
 
 
 _default_workload = Workload.ONLINE

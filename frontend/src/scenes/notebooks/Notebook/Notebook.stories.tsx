@@ -180,6 +180,66 @@ const testCases: Record<string, NotebookType> = {
             ],
         },
     ]),
+    'api/projects/:team_id/notebooks/collapsed-headings': notebookTestTemplate('collapsible-headings', [
+        {
+            type: 'heading',
+            attrs: { level: 2, collapsed: true },
+            content: [
+                {
+                    type: 'text',
+                    text: 'Heading collapsed midway',
+                },
+            ],
+        },
+        {
+            type: 'heading',
+            attrs: { level: 3 },
+            content: [
+                {
+                    type: 'text',
+                    text: 'Nested heading',
+                },
+            ],
+        },
+        {
+            type: 'heading',
+            attrs: { level: 3, collapsed: true },
+            content: [
+                {
+                    type: 'text',
+                    text: 'Nested heading collapsed',
+                },
+            ],
+        },
+        {
+            type: 'paragraph',
+            content: [
+                {
+                    type: 'text',
+                    text: 'This is a paragraph',
+                },
+            ],
+        },
+        {
+            type: 'heading',
+            attrs: { level: 2, collapsed: true },
+            content: [
+                {
+                    type: 'text',
+                    text: 'Heading collapsed at the end',
+                },
+            ],
+        },
+        {
+            type: 'paragraph',
+            content: [
+                {
+                    type: 'text',
+                    text: 'This is a paragraph also',
+                },
+            ],
+        },
+    ]),
     'api/projects/:team_id/notebooks/recordings-playlist': notebookTestTemplate('recordings-playlist', [
         {
             type: 'ph-recording-playlist',
@@ -354,6 +414,7 @@ export default meta
 type Story = StoryObj<typeof meta>
 export const NotebooksList: Story = {}
 export const Headings: Story = { parameters: { pageUrl: urls.notebook('headings') } }
+export const CollapsedHeadings: Story = { parameters: { pageUrl: urls.notebook('collapsed-headings') } }
 export const TextFormats: Story = { parameters: { pageUrl: urls.notebook('text-formats') } }
 export const NumberedList: Story = { parameters: { pageUrl: urls.notebook('numbered-list') } }
 export const BulletList: Story = { parameters: { pageUrl: urls.notebook('bullet-list') } }

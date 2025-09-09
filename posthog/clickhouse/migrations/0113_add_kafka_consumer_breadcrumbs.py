@@ -38,7 +38,9 @@ operations = [
     # second, add missing columns to writable table
     run_sql_with_exceptions(ADD_BREADCRUMBS_COLUMNS_WRITABLE_EVENTS_TABLE_SQL()),
     # third,add missing columns to distributed table
-    run_sql_with_exceptions(ADD_BREADCRUMBS_COLUMNS_DISTRIBUTED_EVENTS_TABLE_SQL(), node_role=NodeRole.ALL),
+    run_sql_with_exceptions(
+        ADD_BREADCRUMBS_COLUMNS_DISTRIBUTED_EVENTS_TABLE_SQL(), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
+    ),
     # recreate the kafka table
     run_sql_with_exceptions(KAFKA_EVENTS_TABLE_JSON_SQL()),
     # recreate the materialized view

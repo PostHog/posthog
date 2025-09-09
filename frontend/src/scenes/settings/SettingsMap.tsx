@@ -46,6 +46,7 @@ import { HeatmapsSettings } from './environment/HeatmapsSettings'
 import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriendlyComparisonPeriodsSetting'
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
+import MCPServerSettings from './environment/MCPServerSettings'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
@@ -287,7 +288,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'marketing-settings',
                 title: 'Marketing settings',
-                component: <MarketingAnalyticsSettings />,
+                component: <MarketingAnalyticsSettings hideTitle />,
             },
         ],
     },
@@ -310,7 +311,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'cookieless-server-hash-mode',
                 title: 'Cookieless server hash mode',
                 component: <CookielessServerHashModeSetting />,
-                flag: 'COOKIELESS_SERVER_HASH_MODE_SETTING',
             },
             {
                 id: 'bounce-rate-duration',
@@ -544,6 +544,19 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'mcp-server',
+        // hideSelfHost: true,
+        title: 'MCP Server',
+        settings: [
+            {
+                id: 'mcp-server-configure',
+                title: 'Model Context Protocol (MCP) server',
+                component: <MCPServerSettings />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-danger-zone',
         title: 'Danger zone',
         settings: [
@@ -619,11 +632,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                     // Note: Sync the copy below with AIConsentPopoverWrapper.tsx
                     <>
                         PostHog AI features, such as our assistant Max, use{' '}
-                        <Tooltip
-                            title={`As of ${dayjs().format(
-                                'MMMM YYYY'
-                            )}: OpenAI for core analysis, Perplexity for fetching product information`}
-                        >
+                        <Tooltip title={`As of ${dayjs().format('MMMM YYYY')}: OpenAI`}>
                             <dfn>external AI services</dfn>
                         </Tooltip>{' '}
                         for data analysis.
