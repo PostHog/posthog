@@ -120,7 +120,10 @@ function LLMAnalyticsGenerations(): JSX.Element {
 
     return (
         <DataTable
-            query={generationsQuery}
+            query={{
+                ...generationsQuery,
+                showSavedFilters: true,
+            }}
             setQuery={(query) => {
                 if (!isEventsQuery(query.source)) {
                     throw new Error('Invalid query')
@@ -338,8 +341,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                     name="LLM Analytics"
                     description="Analyze and understand your LLM usage and performance."
                     resourceType={{
-                        type: 'ai',
-                        typePlural: 'LLM Analytics',
+                        type: 'llm_analytics',
                     }}
                 />
                 <SceneDivider />

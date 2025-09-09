@@ -335,13 +335,13 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         nonMaterializedViews: [
             (s) => [s.dataWarehouseSavedQueries],
             (views): DataWarehouseSavedQuery[] => {
-                return views.filter((view) => !view.status)
+                return views.filter((view) => !view.is_materialized)
             },
         ],
         materializedViews: [
             (s) => [s.dataWarehouseSavedQueries],
             (views): DataWarehouseSavedQuery[] => {
-                return views.filter((view) => view.status)
+                return views.filter((view) => view.is_materialized)
             },
         ],
         activeListItemKey: [

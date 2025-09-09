@@ -135,7 +135,6 @@ export function EventDefinitionsTable(): JSX.Element {
                 description="Event definitions are a way to define events that can be used in your app or website."
                 resourceType={{
                     type: 'event',
-                    typePlural: 'events',
                     forceIcon: <IconApps />,
                 }}
             />

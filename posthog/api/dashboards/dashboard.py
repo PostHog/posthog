@@ -5,6 +5,7 @@ from typing import Any, Optional, cast
 
 from django.conf import settings
 from django.db.models import Prefetch
+from django.dispatch import receiver
 from django.http import StreamingHttpResponse
 from django.utils.timezone import now
 
@@ -34,10 +35,12 @@ from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Text
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.alert import AlertConfiguration
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.insight_variable import InsightVariable
+from posthog.models.signals import model_activity_signal
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -167,6 +170,7 @@ class DashboardBasicSerializer(
             "user_access_level",
             "access_control_version",
             "last_refresh",
+            "team_id",
         ]
         read_only_fields = fields
 
@@ -283,6 +287,7 @@ class DashboardSerializer(DashboardBasicSerializer):
             "last_refresh",
             "persisted_filters",
             "persisted_variables",
+            "team_id",
         ]
         read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
 
@@ -873,3 +878,23 @@ class LegacyDashboardsViewSet(DashboardsViewSet):
 
 class LegacyInsightViewSet(InsightViewSet):
     param_derived_from_user_current_team = "project_id"
+
+
+@receiver(model_activity_signal, sender=Dashboard)
+def handle_dashboard_change(
+    sender, scope, before_update, after_update, activity, user=None, was_impersonated=False, **kwargs
+):
+    log_activity(
+        organization_id=after_update.team.organization_id,
+        team_id=after_update.team_id,
+        user=user if user else (after_update.created_by if activity == "created" else None),
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=after_update.name,
+            type="dashboard",
+        ),
+    )

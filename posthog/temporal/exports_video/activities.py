@@ -5,6 +5,8 @@ import datetime as dt
 import tempfile
 from typing import Any
 
+from django.db import close_old_connections
+
 from temporalio import activity
 
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
@@ -16,6 +18,7 @@ from posthog.utils import absolute_uri
 
 @activity.defn
 def build_export_context_activity(exported_asset_id: int) -> dict[str, Any]:
+    close_old_connections()
     asset = ExportedAsset.objects.select_related("team", "dashboard", "insight").get(pk=exported_asset_id)
     # recordings-only
     if not (asset.export_context and asset.export_context.get("session_recording_id")):
@@ -84,6 +87,7 @@ def record_replay_video_activity(build: dict[str, Any]) -> dict[str, Any]:
 
 @activity.defn
 def persist_exported_asset_activity(inputs: dict[str, Any]) -> None:
+    close_old_connections()
     asset = ExportedAsset.objects.select_related("team").get(pk=inputs["exported_asset_id"])
     tmp_path = inputs["tmp_path"]
 

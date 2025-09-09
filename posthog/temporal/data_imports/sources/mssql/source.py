@@ -89,7 +89,7 @@ class MSSQLSource(BaseSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabas
             ),
         )
 
-    def get_schemas(self, config: MSSQLSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: MSSQLSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         schemas = []
 
         with self.with_ssh_tunnel(config) as (host, port):
