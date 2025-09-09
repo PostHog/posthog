@@ -309,24 +309,27 @@ impl DeduplicationStore {
         let cleanup_timestamp = if let Some(Ok((first_key, _))) = iter.next() {
             let first_key_parsed: TimestampKey = first_key.as_ref().try_into()?;
             let first_timestamp = first_key_parsed.timestamp;
-            
+
             // Get current time in milliseconds
             let now = chrono::Utc::now().timestamp_millis() as u64;
-            
+
             // Calculate the time range of data we have
             let time_range = now.saturating_sub(first_timestamp);
-            
+
             // Calculate how much of the time range to clean up (percentage)
             let cleanup_duration = (time_range as f64 * cleanup_percentage) as u64;
-            
+
             // Calculate the cutoff timestamp
             let cleanup_timestamp = first_timestamp + cleanup_duration;
-            
+
             info!(
                 "Store {}:{} - Cleaning up {}% of time range. First: {}, Now: {}, Cutoff: {}",
-                self.topic, self.partition, 
+                self.topic,
+                self.partition,
                 (cleanup_percentage * 100.0) as u32,
-                first_timestamp, now, cleanup_timestamp
+                first_timestamp,
+                now,
+                cleanup_timestamp
             );
 
             let first_key_bytes: Vec<u8> = first_key_parsed.into();
