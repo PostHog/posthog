@@ -14,7 +14,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestEvents.test_event_property_values.1
@@ -33,7 +34,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestEvents.test_event_property_values.2
@@ -52,7 +54,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestEvents.test_event_property_values.3
@@ -71,7 +74,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestEvents.test_event_property_values.4
@@ -90,7 +94,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestEvents.test_event_property_values.5
@@ -109,7 +114,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestEvents.test_event_property_values.6
@@ -128,7 +134,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestEvents.test_event_property_values.7
@@ -161,7 +168,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestEvents.test_event_property_values_materialized.1
@@ -180,7 +188,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestEvents.test_event_property_values_materialized.2
@@ -199,7 +208,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestEvents.test_event_property_values_materialized.3
@@ -218,7 +228,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestEvents.test_event_property_values_materialized.4
@@ -237,7 +248,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestEvents.test_event_property_values_materialized.5
@@ -256,7 +268,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestEvents.test_event_property_values_materialized.6
@@ -275,7 +288,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestEvents.test_event_property_values_materialized.7
