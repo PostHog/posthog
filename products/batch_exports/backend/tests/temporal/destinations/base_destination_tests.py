@@ -8,6 +8,7 @@ import uuid
 import asyncio
 import datetime as dt
 from abc import ABC, abstractmethod
+from collections.abc import AsyncGenerator, Callable
 from typing import Any, Optional, Union
 
 import pytest
@@ -19,10 +20,13 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog import constants
-from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
-from posthog.temporal.tests.utils.models import afetch_batch_export_runs
+from posthog.batch_exports.models import BatchExport
+from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
+from posthog.models.team import Team
+from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
 
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
+from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
 from products.batch_exports.backend.tests.temporal.utils import mocked_start_batch_export_run
 
 
@@ -47,11 +51,16 @@ class BaseDestinationTest(ABC):
 
     @property
     @abstractmethod
+    def main_activity(self) -> Callable:
+        """Return the main 'insert_into_*' activity for this destination."""
+        pass
+
+    @property
+    @abstractmethod
     def batch_export_inputs_class(self) -> type:
         """Return the inputs dataclass for the batch export workflow."""
         pass
 
-    @abstractmethod
     def create_batch_export_inputs(
         self,
         team_id: int,
@@ -60,9 +69,24 @@ class BaseDestinationTest(ABC):
         interval: str,
         batch_export_model: Optional[BatchExportModel] = None,
         batch_export_schema: Optional[BatchExportSchema] = None,
+        backfill_details: Optional[BackfillDetails] = None,
         **config,
     ) -> Any:
         """Create workflow inputs for the destination."""
+        return self.batch_export_inputs_class(
+            team_id=team_id,
+            batch_export_id=batch_export_id,
+            data_interval_end=data_interval_end,
+            interval=interval,
+            batch_export_model=batch_export_model,
+            batch_export_schema=batch_export_schema,
+            backfill_details=backfill_details,
+            **config,
+        )
+
+    @abstractmethod
+    def get_destination_config(self, team_id: int) -> dict:
+        """Return the destination configuration."""
         pass
 
     @abstractmethod
@@ -83,6 +107,22 @@ class BaseDestinationTest(ABC):
         """Assert that no data was written to the destination."""
         pass
 
+    @abstractmethod
+    async def setup_destination_for_test(self) -> None:
+        """Setup the destination for the test.
+
+        For example, create any resources that are needed for the test (e.g. the database, S3 bucket, etc).
+        """
+        pass
+
+    @abstractmethod
+    async def teardown_destination_for_test(self) -> None:
+        """Teardown the destination for the test.
+
+        Cleanup any resources that were created for the test (e.g. the database, S3 bucket, etc).
+        """
+        pass
+
 
 class CommonDestinationTests:
     """Common test patterns for all batch export destinations.
@@ -97,7 +137,8 @@ class CommonDestinationTests:
             name="a-custom-model",
             schema={
                 "fields": [
-                    {"expression": "event", "alias": "event"},
+                    {"expression": "uuid", "alias": "uuid"},
+                    {"expression": "event", "alias": "my_event_name"},
                     {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_0)s), '')", "alias": "browser"},
                     {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_1)s), '')", "alias": "os"},
                     {"expression": "nullIf(properties, '')", "alias": "all_properties"},
@@ -118,7 +159,8 @@ class CommonDestinationTests:
         BatchExportModel(name="sessions", schema=None),
         {
             "fields": [
-                {"expression": "event", "alias": "event"},
+                {"expression": "uuid", "alias": "uuid"},
+                {"expression": "event", "alias": "my_event_name"},
                 {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_0)s), '')", "alias": "browser"},
                 {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_1)s), '')", "alias": "os"},
                 {"expression": "nullIf(properties, '')", "alias": "all_properties"},
@@ -128,45 +170,73 @@ class CommonDestinationTests:
         None,
     ]
 
-    @pytest.mark.parametrize("interval", ["hour", "day"])
-    @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]])
-    @pytest.mark.parametrize(
-        "model",
-        [
-            BatchExportModel(name="events", schema=None),
-            BatchExportModel(name="persons", schema=None),
-            None,
-        ],
-    )
-    async def test_workflow_completes_successfully(
+    @pytest.fixture
+    def destination_data(self, destination_test, ateam, exclude_events):
+        """Provide test configuration for destination."""
+        destination_config = destination_test.get_destination_config(ateam.pk)
+        destination_data = {
+            "type": destination_test.destination_type,
+            "config": {
+                **destination_config,
+                "exclude_events": exclude_events,
+            },
+        }
+        return destination_data
+
+    @pytest.fixture
+    async def batch_export_for_destination(self, ateam, destination_data, temporal_client, interval):
+        """Manage BatchExport model (and associated Temporal Schedule) for tests"""
+        batch_export_data = {
+            "name": "my-production-snowflake-export",
+            "destination": destination_data,
+            "interval": interval,
+        }
+
+        batch_export = await acreate_batch_export(
+            team_id=ateam.pk,
+            name=batch_export_data["name"],
+            destination_data=batch_export_data["destination"],
+            interval=batch_export_data["interval"],
+        )
+
+        yield batch_export
+
+        await adelete_batch_export(batch_export, temporal_client)
+
+    @pytest.fixture
+    async def setup_destination(self, destination_test: BaseDestinationTest) -> AsyncGenerator[None, None]:
+        """Setup the destination for the test."""
+        await destination_test.setup_destination_for_test()
+        yield
+        await destination_test.teardown_destination_for_test()
+
+    async def _run_workflow(
         self,
         destination_test: BaseDestinationTest,
+        batch_export_for_destination: BatchExport,
+        team: Team,
+        data_interval_end,
         interval: str,
-        exclude_events: Optional[list[str]],
-        model: Union[BatchExportModel, BatchExportSchema, None],
-        generate_test_data,
-        data_interval_start: dt.datetime,
-        data_interval_end: dt.datetime,
-        ateam,
-        batch_export_for_destination,  # This fixture needs to be provided by destination-specific tests
+        batch_export_model: BatchExportModel | None = None,
+        batch_export_schema: BatchExportSchema | None = None,
+        backfill_details=None,
     ):
-        """Test that the workflow completes successfully end-to-end."""
-        if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
-            pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
-
-        batch_export_model = model if isinstance(model, BatchExportModel) else None
-        batch_export_schema = model if isinstance(model, dict) else None
-
+        """Helper function to run SnowflakeBatchExportWorkflow and assert records in Snowflake"""
         workflow_id = str(uuid.uuid4())
         inputs = destination_test.create_batch_export_inputs(
-            team_id=ateam.pk,
+            team_id=team.pk,
             batch_export_id=str(batch_export_for_destination.id),
-            data_interval_end=data_interval_end,
+            data_interval_end=data_interval_end.isoformat(),
             interval=interval,
-            batch_export_model=batch_export_model,
             batch_export_schema=batch_export_schema,
+            batch_export_model=batch_export_model,
+            backfill_details=backfill_details,
             **batch_export_for_destination.destination.config,
         )
+
+        # settings_overrides = settings_overrides or {}
+        # if use_internal_stage:
+        #     settings_overrides["BATCH_EXPORT_SNOWFLAKE_USE_STAGE_TEAM_IDS"] = [team.pk]
 
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
@@ -175,6 +245,8 @@ class CommonDestinationTests:
                 workflows=[destination_test.workflow_class],
                 activities=[
                     start_batch_export_run,
+                    insert_into_internal_stage_activity,
+                    destination_test.main_activity,
                     finish_batch_export_run,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
@@ -188,11 +260,48 @@ class CommonDestinationTests:
                     execution_timeout=dt.timedelta(minutes=5),
                 )
 
-        # Verify the batch export run completed successfully
         runs = await afetch_batch_export_runs(batch_export_id=batch_export_for_destination.id)
         assert len(runs) == 1
 
         run = runs[0]
+        return run
+
+    @pytest.mark.parametrize("interval", ["hour"], indirect=True)
+    @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
+    @pytest.mark.parametrize("model", TEST_MODELS)
+    async def test_workflow_completes_successfully(
+        self,
+        destination_test: BaseDestinationTest,
+        interval: str,
+        exclude_events: Optional[list[str]],
+        model: Union[BatchExportModel, BatchExportSchema, None],
+        generate_test_data,
+        data_interval_start: dt.datetime,
+        data_interval_end: dt.datetime,
+        ateam,
+        batch_export_for_destination,  # This fixture needs to be provided by destination-specific tests
+    ):
+        """Test that the workflow completes successfully end-to-end.
+
+        We test this for all models using a single interval.
+        """
+        if isinstance(model, BatchExportModel) and model.name != "events" and exclude_events is not None:
+            pytest.skip(
+                f"Unnecessary test case as batch export model '{model.name}' is not affected by 'exclude_events'"
+            )
+
+        batch_export_model = model if isinstance(model, BatchExportModel) else None
+        batch_export_schema = model if isinstance(model, dict) else None
+
+        run = await self._run_workflow(
+            destination_test=destination_test,
+            batch_export_for_destination=batch_export_for_destination,
+            team=ateam,
+            data_interval_end=data_interval_end,
+            interval=interval,
+            batch_export_model=batch_export_model,
+            batch_export_schema=batch_export_schema,
+        )
         assert run.status == "Completed"
 
         events_to_export_created, persons_to_export_created = generate_test_data
