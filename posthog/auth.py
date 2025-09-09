@@ -1,4 +1,5 @@
 import re
+import logging
 import functools
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Optional, Union
@@ -27,6 +28,8 @@ from posthog.models.user import User
 
 if TYPE_CHECKING:
     from posthog.models.share_password import SharePassword
+
+logger = logging.getLogger(__name__)
 
 PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
     "api_auth_personal_api_key_query_param",
@@ -406,7 +409,18 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
             self.share_password = share_password
             return (AnonymousUser(), None)
 
-        except (jwt.InvalidTokenError, SharePassword.DoesNotExist, KeyError):
+        except jwt.InvalidTokenError:
+            # Expected: JWT decode failed (likely a personal API key was passed)
+            # Let the next authenticator (PersonalAPIKeyAuthentication) handle it
+            return None
+        except Exception as e:
+            # Unexpected: Database issues, programming errors, etc.
+            # Log for debugging but still fail gracefully
+            logger.info(
+                "SharingPasswordProtectedAuthentication failed with unexpected exception",
+                exc_info=True,
+                extra={"exception_type": type(e).__name__, "exception_message": str(e)},
+            )
             return None
 
 
