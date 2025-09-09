@@ -317,6 +317,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadRecordingMeta: true,
         setSimilarRecordings: (results: string[]) => ({ results }),
         setIsCommenting: (isCommenting: boolean) => ({ isCommenting }),
+        schedulePlayerTimeTracking: true,
         setQuickEmojiIsOpen: (quickEmojiIsOpen: boolean) => ({ quickEmojiIsOpen }),
         updatePlayerTimeTracking: true,
         exportRecordingToVideoFile: true,
@@ -1542,6 +1543,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
         },
+        schedulePlayerTimeTracking: () => {
+            const currentState = values.playingTimeTracking.state
+            const interval = currentState === 'playing' ? 5000 : 30000
+
+            cache.playerTimeTrackingTimer = setTimeout(() => {
+                actions.updatePlayerTimeTracking()
+                actions.schedulePlayerTimeTracking()
+            }, interval)
+        },
     })),
 
     subscriptions(({ actions, values }) => ({
@@ -1598,7 +1608,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         actions.setPlayer(null)
 
         if (cache.playerTimeTrackingTimer) {
-            clearInterval(cache.playerTimeTrackingTimer)
+            clearTimeout(cache.playerTimeTrackingTimer)
         }
         const playTimeMs = values.playingTimeTracking.watchTime || 0
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {
@@ -1651,9 +1661,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // we rely on actions hitting a reducer to update the timer
         // let's ping it once in a while so that if the user
         // is autoplaying and doesn't interact we get a more recent value
-        cache.playerTimeTrackingTimer = setInterval(() => {
-            actions.updatePlayerTimeTracking()
-        }, 5000)
+        actions.schedulePlayerTimeTracking()
     }),
 ])
 
