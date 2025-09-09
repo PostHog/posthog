@@ -95,8 +95,10 @@ export function InsightDisplayConfig(): JSX.Element {
     )
 
     const advancedOptions: LemonMenuItems = [
-        ...(((isTrends || isRetention || isTrendsFunnel || isStickiness) &&
-            display !== ChartDisplayType.CalendarHeatmap) ||
+        ...((isTrends && display !== ChartDisplayType.CalendarHeatmap) ||
+        isRetention ||
+        isTrendsFunnel ||
+        isStickiness ||
         isLifecycle
             ? [
                   {
