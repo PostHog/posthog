@@ -24,6 +24,7 @@ export function datasetToActorsQuery({ query, dataset, day, index }: DatasetToAc
         series: dataset.action?.order ?? 0,
         breakdown,
         compare,
+        formula: dataset.formula,
         includeRecordings: true,
     }
 }

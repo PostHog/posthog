@@ -463,6 +463,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         # Set the order based on the formula index
                         for result in formula_results:
                             result["order"] = formula_idx
+                            result["formula"] = formula_idx
 
                         final_result.extend(formula_results)
                 else:
@@ -472,6 +473,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         # Set the order based on the formula index
                         for result in formula_results:
                             result["order"] = formula_idx
+                            result["formula"] = formula_idx
 
                         # Create a new list for each formula's results
                         final_result.extend(formula_results)

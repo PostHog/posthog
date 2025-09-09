@@ -2733,6 +2733,7 @@ export interface InsightActorsQuery<S extends InsightsQueryBase<AnalyticsQueryRe
     series?: integer
     breakdown?: string | BreakdownValueInt | string[]
     compare?: 'current' | 'previous'
+    formula?: integer
 }
 
 export interface StickinessActorsQuery extends InsightActorsQueryBase {

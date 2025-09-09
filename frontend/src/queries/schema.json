@@ -14057,6 +14057,9 @@
                         }
                     ]
                 },
+                "formula": {
+                    "$ref": "#/definitions/integer"
+                },
                 "includeRecordings": {
                     "type": "boolean"
                 },
