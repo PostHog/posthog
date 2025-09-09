@@ -273,8 +273,11 @@ mod tests {
         assert_eq!(parse_domain(Some("example.com")), None);
 
         // Test with wildcard domains
-        assert_eq!(parse_domain(Some("https://*.example.com")), Some("*.example.com".to_string()));
-        assert_eq!(parse_domain(Some("*.example.com")), None); 
+        assert_eq!(
+            parse_domain(Some("https://*.example.com")),
+            Some("*.example.com".to_string())
+        );
+        assert_eq!(parse_domain(Some("*.example.com")), None);
 
         // Test with empty string and None
         assert_eq!(parse_domain(Some("")), None);
