@@ -29,7 +29,11 @@ class EvaluationContext(BaseModel):
     organization: Annotated[Organization, SkipValidation]
     user: Annotated[User, SkipValidation]
     experiment_name: str
-    dataset: list[DatasetInput]
+    dataset_inputs: list[DatasetInput]
+
+    def format_experiment_name(self, test_name: str) -> str:
+        """Generate a unique experiment name for the given test name."""
+        return f"max-ai-{self.experiment_name}-{test_name}"
 
 
 @pytest.fixture(scope="package", autouse=True)
@@ -54,7 +58,7 @@ def eval_ctx(
             organization=org,
             user=user,
             experiment_name=loader.config.experiment_name,
-            dataset=dataset,
+            dataset_inputs=dataset,
         )
 
         dagster_context.log.info(f"Cleaning up...")

@@ -86,7 +86,11 @@ async def sql_semantics_scorer(input: DatasetInput, expected: str, output: EvalO
 async def sql_syntax_scorer(input: DatasetInput, expected: str, output: EvalOutput, **kwargs) -> Score:
     metric = SQLSyntaxCorrectness()
     return await metric.eval_async(
-        input=input.input["query"], expected=expected, output=output.sql_query, database_schema=output.database_schema
+        input=input.input["query"],
+        expected=expected,
+        output=output.sql_query,
+        database_schema=output.database_schema,
+        team=Team.objects.get(id=input.team_id),
     )
 
 
@@ -99,7 +103,7 @@ def generate_test_cases(eval_ctx: EvaluationContext):
 @pytest.mark.django_db
 async def eval_offline_sql(eval_ctx: EvaluationContext, call_graph, pytestconfig):
     await MaxPrivateEval(
-        experiment_name=eval_ctx.experiment_name,
+        experiment_name=eval_ctx.format_experiment_name(eval_offline_sql.__name__),
         task=call_graph,
         scores=[sql_syntax_scorer, sql_semantics_scorer],
         data=generate_test_cases(eval_ctx),

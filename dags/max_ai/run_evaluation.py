@@ -9,7 +9,7 @@ import dagster
 from dagster._core.definitions.metadata import RawMetadataMapping
 from dagster_docker import PipesDockerClient
 from dagster_slack import SlackResource
-from pydantic import Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from posthog.models import Dataset, DatasetItem
@@ -43,12 +43,16 @@ class PrepareDatasetConfig(dagster.Config):
     """Dataset ID to run the evaluation for."""
 
 
+class PreparedDataset(BaseModel):
+    dataset_id: UUID
+    dataset_name: str
+    dataset_inputs: list[DatasetInput]
+
+
 @dagster.op(
     description="Pulls the dataset and dataset items and validates inputs, outputs, metadata, and team_id presence in metadata."
 )
-def prepare_dataset(
-    context: dagster.OpExecutionContext, config: PrepareDatasetConfig
-) -> tuple[UUID, str, list[DatasetInput]]:
+def prepare_dataset(context: dagster.OpExecutionContext, config: PrepareDatasetConfig) -> PreparedDataset:
     dataset = Dataset.objects.get(id=config.dataset_id)
     dataset_items = DatasetItem.objects.filter(dataset=dataset).iterator(500)
 
@@ -68,13 +72,13 @@ def prepare_dataset(
         context.log.exception(f"Validation error for dataset item {dataset_item.id}")
         raise
 
-    return dataset.id, dataset.name, dataset_inputs
+    return PreparedDataset(dataset_id=dataset.id, dataset_name=dataset.name, dataset_inputs=dataset_inputs)
 
 
 @dagster.op(out=dagster.DynamicOut(int))
-def prepare_evaluation(inputs: list[DatasetInput]):
+def prepare_evaluation(prepared_dataset: PreparedDataset):
     seen_teams = set()
-    for dataset_input in inputs:
+    for dataset_input in prepared_dataset.dataset_inputs:
         if dataset_input.team_id in seen_teams:
             continue
         seen_teams.add(dataset_input.team_id)
@@ -84,7 +88,6 @@ def prepare_evaluation(inputs: list[DatasetInput]):
 class EvaluationConfig(dagster.Config):
     image_name: str = Field(description="Name of the Docker image to run.")
     image_tag: str = Field(description="Tag of the Docker image to run.")
-    experiment_name: str = Field(description="Name of the experiment.")
     evaluation_module: str = Field(description="Python module containing the evaluation runner.")
 
     @property
@@ -121,7 +124,9 @@ def unpack_evaluation_results(metadata: RawMetadataMapping | None) -> Evaluation
         return None
     try:
         meta = metadata["evaluation_results"]
-        return cast(list[dict[Any, Any]], meta)
+        if isinstance(meta, dagster.JsonMetadataValue):
+            return cast(list[dict[Any, Any]], meta.value)
+        return None
     except KeyError:
         return None
 
@@ -192,6 +197,8 @@ def format_results(
             )
             cost = f"💵 ${metrics['estimated_cost']['metric']:.4f} in tokens" if metrics.get("estimated_cost") else None
             metrics_text = ", ".join(filter(None, [duration, total_tokens, cost]))
+        else:
+            metrics_text = "No metrics reported"
 
         summary_parts = [
             f"**Experiment**: {result.get('project_name', '')}",
@@ -220,14 +227,18 @@ def spawn_evaluation_container(
     config: EvaluationConfig,
     docker_pipes_client: PipesDockerClient,
     slack: SlackResource,
-    dataset_id: UUID,
-    dataset_name: str,
-    dataset_inputs: list[DatasetInput],
+    prepared_dataset: PreparedDataset,
     team_ids: list[int],
     postgres_snapshots: list[PostgresTeamDataSnapshot],
     clickhouse_snapshots: list[ClickhouseTeamDataSnapshot],
 ):
-    asset_key = dagster.AssetKey(["evaluation_dataset", str(dataset_id)])
+    # Validate the evaluation module
+    if not config.evaluation_module.endswith(".py"):
+        raise ValueError("Evaluation module must be a Python file")
+    if not config.evaluation_module.startswith("ee/hogai/eval/"):
+        raise ValueError(f"Evaluation module {config.evaluation_module} must start with 'ee/hogai/eval/'")
+
+    asset_key = dagster.AssetKey(["evaluation_dataset", str(prepared_dataset.dataset_id)])
     evaluation_config = EvalsDockerImageConfig(
         aws_endpoint_url=get_object_storage_endpoint(),
         aws_bucket_name=settings.OBJECT_STORAGE_BUCKET,
@@ -235,8 +246,8 @@ def spawn_evaluation_container(
             TeamEvaluationSnapshot(team_id=team_id, postgres=postgres, clickhouse=clickhouse).model_dump()
             for team_id, postgres, clickhouse in zip(team_ids, postgres_snapshots, clickhouse_snapshots)
         ],
-        experiment_name=config.experiment_name,
-        dataset_inputs=dataset_inputs,
+        experiment_name=f"dataset-{prepared_dataset.dataset_id}",
+        dataset_inputs=prepared_dataset.dataset_inputs,
     )
 
     context.log.info(f"Running evaluation for the image: {config.image}")
@@ -272,7 +283,9 @@ def spawn_evaluation_container(
         context.log.error("No new evaluation results returned")
         raise ValueError("No new evaluation results found")
 
-    blocks, formatted_markdown = format_results(dataset_id, dataset_name, new_results, previous_results)
+    blocks, formatted_markdown = format_results(
+        prepared_dataset.dataset_id, prepared_dataset.dataset_name, new_results, previous_results
+    )
     try:
         slack.get_client().chat_postMessage(channel="#evals-max-ai", blocks=blocks)
     except Exception as e:
@@ -282,8 +295,8 @@ def spawn_evaluation_container(
         dagster.AssetMaterialization(
             asset_key=asset_key,
             metadata={
-                "evaluation_results": new_results,
-                "report": formatted_markdown,
+                "evaluation_results": dagster.JsonMetadataValue(new_results),
+                "report": dagster.MarkdownMetadataValue(formatted_markdown),
             },
             tags={
                 "owner": JobOwners.TEAM_MAX_AI.value,
@@ -304,7 +317,6 @@ def spawn_evaluation_container(
             "prepare_dataset": PrepareDatasetConfig(dataset_id=""),
             "spawn_evaluation_container": EvaluationConfig(
                 evaluation_module="ee/hogai/eval/offline/",
-                experiment_name="offline_evaluation",
                 image_name="posthog-ai-evals",
                 image_tag="master",
             ),
@@ -312,14 +324,12 @@ def spawn_evaluation_container(
     ),
 )
 def run_evaluation():
-    dataset_id, dataset_name, dataset_inputs = prepare_dataset()
-    team_ids = prepare_evaluation(dataset_inputs)
+    prepared_dataset = prepare_dataset()
+    team_ids = prepare_evaluation(prepared_dataset)
     postgres_snapshots = team_ids.map(snapshot_postgres_team_data)
     clickhouse_snapshots = team_ids.map(snapshot_clickhouse_team_data)
     spawn_evaluation_container(
-        dataset_id,
-        dataset_name,
-        dataset_inputs,
+        prepared_dataset,
         team_ids.collect(),
         postgres_snapshots.collect(),
         clickhouse_snapshots.collect(),
