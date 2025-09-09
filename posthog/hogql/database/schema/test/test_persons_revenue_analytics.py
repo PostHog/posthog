@@ -192,8 +192,8 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 self.assertEqual(
                     response.results,
                     [
-                        (distinct_id_to_person_id["cus_1"], Decimal("429.7423999996")),
-                        (distinct_id_to_person_id["cus_2"], Decimal("477.2037499988")),
+                        (distinct_id_to_person_id["cus_1"], Decimal("297.0065541769")),
+                        (distinct_id_to_person_id["cus_2"], Decimal("482.2158673452")),
                         (distinct_id_to_person_id["cus_3"], Decimal("4171.09153")),
                         (distinct_id_to_person_id["cus_4"], Decimal("254.12345")),
                         (distinct_id_to_person_id["cus_5"], Decimal("1529.9212")),
@@ -233,13 +233,13 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 [
                     (
                         distinct_id_to_person_id["john.doe@example.com"],
-                        Decimal("429.7423999996"),
-                        Decimal("429.7423999996"),
+                        Decimal("297.0065541769"),
+                        Decimal("297.0065541769"),
                     ),
                     (
                         distinct_id_to_person_id["jane.doe@example.com"],
-                        Decimal("477.2037499988"),
-                        Decimal("477.2037499988"),
+                        Decimal("482.2158673452"),
+                        Decimal("482.2158673452"),
                     ),
                     (distinct_id_to_person_id["john.smith@example.com"], Decimal("4171.09153"), Decimal("4171.09153")),
                     (distinct_id_to_person_id["jane.smith@example.com"], Decimal("254.12345"), Decimal("254.12345")),
@@ -282,8 +282,8 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 response.results,
                 [
-                    (distinct_id_to_person_id["cus_1_metadata"], Decimal("429.7423999996"), Decimal("429.7423999996")),
-                    (distinct_id_to_person_id["cus_2_metadata"], Decimal("477.2037499988"), Decimal("477.2037499988")),
+                    (distinct_id_to_person_id["cus_1_metadata"], Decimal("297.0065541769"), Decimal("297.0065541769")),
+                    (distinct_id_to_person_id["cus_2_metadata"], Decimal("482.2158673452"), Decimal("482.2158673452")),
                     (distinct_id_to_person_id["cus_3_metadata"], Decimal("4171.09153"), Decimal("4171.09153")),
                     (distinct_id_to_person_id["cus_4_metadata"], Decimal("254.12345"), Decimal("254.12345")),
                     (distinct_id_to_person_id["cus_5_metadata"], Decimal("1529.9212"), Decimal("1529.9212")),
@@ -315,7 +315,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 response.results,
                 [
-                    (multiple_distinct_ids_person.uuid, Decimal("429.7423999996")),
+                    (multiple_distinct_ids_person.uuid, Decimal("297.0065541769")),
                     (dummy_person.uuid, None),
                 ],
             )
@@ -326,7 +326,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 modifiers=self.MODIFIERS,
             )
 
-            self.assertEqual(response.results, [(Decimal("429.7423999996"),), (None,)])
+            self.assertEqual(response.results, [(Decimal("297.0065541769"),), (None,)])
 
     def test_query_revenue_analytics_table(self):
         self.setup_schema_sources()

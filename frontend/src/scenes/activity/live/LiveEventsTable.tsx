@@ -11,6 +11,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -78,7 +79,7 @@ const columns: LemonTableColumns<LiveEvent> = [
 
 export function LiveEventsTable(): JSX.Element {
     const { events, stats, streamPaused, filters } = useValues(liveEventsTableLogic)
-    const { pauseStream, resumeStream, setFilters } = useActions(liveEventsTableLogic)
+    const { pauseStream, resumeStream, setFilters, clearEvents } = useActions(liveEventsTableLogic)
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     return (
@@ -105,7 +106,6 @@ export function LiveEventsTable(): JSX.Element {
                 description="Real-time events from your app or website."
                 resourceType={{
                     type: 'live events',
-                    typePlural: 'live events',
                     forceIcon: <IconLive />,
                 }}
             />
@@ -136,6 +136,13 @@ export function LiveEventsTable(): JSX.Element {
                 </div>
 
                 <div className="flex gap-2">
+                    <LemonButton
+                        icon={<IconRefresh className="w-4 h-4" />}
+                        type="secondary"
+                        onClick={clearEvents}
+                        size="small"
+                        tooltip="Clear events"
+                    />
                     <EventName
                         value={filters.eventType}
                         onChange={(value) => setFilters({ ...filters, eventType: value })}

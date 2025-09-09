@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 
 import { ConfirmUpgradeModal } from 'lib/components/ConfirmUpgradeModal/ConfirmUpgradeModal'
 import { ItemSelectModal } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
+import { LinkToModal } from 'lib/components/FileSystem/LinkTo/LinkTo'
 import { MoveToModal } from 'lib/components/FileSystem/MoveTo/MoveTo'
 import { HedgehogBuddyWithLogic } from 'lib/components/HedgehogBuddy/HedgehogBuddyWithLogic'
 import { TimeSensitiveAuthenticationModal } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
@@ -108,6 +109,7 @@ export function GlobalModals(): JSX.Element {
             <PaymentEntryModal />
             <GlobalCustomUnitModal />
             <MoveToModal />
+            <LinkToModal />
             <ItemSelectModal />
             {hasEnvironmentsRollbackFeature && <EnvironmentRollbackModal />}
         </>

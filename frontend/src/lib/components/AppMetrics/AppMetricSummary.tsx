@@ -12,6 +12,8 @@ import { AppMetricsTimeSeriesResponse } from './appMetricsLogic'
 export type AppMetricSummaryProps = {
     name: string
     description: string
+    color?: string
+    colorIfZero?: string
     timeSeries: AppMetricsTimeSeriesResponse | null
     previousPeriodTimeSeries?: AppMetricsTimeSeriesResponse | null
     loading?: boolean
@@ -22,6 +24,8 @@ export function AppMetricSummary({
     timeSeries,
     previousPeriodTimeSeries,
     description,
+    color,
+    colorIfZero,
     loading,
 }: AppMetricSummaryProps): JSX.Element {
     const total = useMemo(() => {
@@ -44,7 +48,7 @@ export function AppMetricSummary({
     const diff = (total - totalPreviousPeriod) / totalPreviousPeriod
 
     return (
-        <div className="flex flex-1 flex-col relative border rounded p-3 bg-surface-primary min-w-[16rem] max-w-[24rem]">
+        <div className="flex flex-1 flex-col relative border rounded p-3 bg-surface-primary min-w-[16rem]">
             <div className="flex flex-row justify-between items-start">
                 <LemonLabel info={description}>{name}</LemonLabel>
                 {loading ? (
@@ -91,6 +95,11 @@ export function AppMetricSummary({
                                     dataIndex: 0,
                                 },
                                 data: x.values,
+                                settings: {
+                                    display: {
+                                        color: total === 0 ? colorIfZero : color,
+                                    },
+                                },
                             }))}
                             visualizationType={ChartDisplayType.ActionsLineGraph}
                             chartSettings={{

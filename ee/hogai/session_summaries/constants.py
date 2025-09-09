@@ -11,6 +11,7 @@ SESSION_SUMMARIES_TEMPERATURE = 0.1  # Reduce hallucinations, but >0 to allow fo
 BASE_LLM_CALL_TIMEOUT_S = 600.0
 
 # Summarization
+MAX_SESSIONS_TO_SUMMARIZE = 100  # Maximum number of sessions to summarize at once
 HALLUCINATED_EVENTS_MIN_RATIO = 0.15  # If more than 15% of events in the summary hallucinated, fail the summarization
 # Minimum number of sessions to use group summary logic (find patterns) instead of summarizing them separately
 GROUP_SUMMARIES_MIN_SESSIONS = 5

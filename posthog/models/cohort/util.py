@@ -465,7 +465,21 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team, is_negated=F
 def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
     tag_queries(name="get_cohort_ids_by_person_uuid", feature=Feature.COHORT)
     res = sync_execute(GET_COHORTS_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
-    return [row[0] for row in res]
+    cohort_ids_from_cohortperson = [row[0] for row in res]
+    cohorts = Cohort.objects.filter(deleted=False, team_id=team_id, pk__in=cohort_ids_from_cohortperson)
+    values_list_result = cohorts.values_list("id", "version")
+    id_latest_version_map = dict(values_list_result)
+    cohort_ids = []
+    for row in res:
+        cohort_id_from_cohortperson = row[0]
+        version_from_cohortperson = row[1]
+        latest_version = id_latest_version_map.get(cohort_id_from_cohortperson)
+        if latest_version is None:
+            continue
+        if latest_version != version_from_cohortperson:
+            continue
+        cohort_ids.append(cohort_id_from_cohortperson)
+    return cohort_ids
 
 
 def _get_static_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:

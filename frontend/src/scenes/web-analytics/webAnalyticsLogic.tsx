@@ -10,12 +10,13 @@ import { errorTrackingQuery } from '@posthog/products-error-tracking/frontend/qu
 
 import api from 'lib/api'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { FEATURE_FLAGS, RETENTION_FIRST_TIME } from 'lib/constants'
+import { FEATURE_FLAGS, RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
+    UnexpectedNeverError,
     getDefaultInterval,
     isNotNil,
     isValidRelativeOrAbsoluteDate,
@@ -100,8 +101,11 @@ import {
     WebAnalyticsStatusCheck,
     WebAnalyticsTile,
     WebVitalsPercentile,
+    eventPropertiesToPathClean,
     getWebAnalyticsBreakdownFilter,
     loadPriorityMap,
+    personPropertiesToPathClean,
+    sessionPropertiesToPathClean,
 } from './common'
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import { marketingAnalyticsTilesLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
@@ -573,13 +577,32 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 // Translate exact path filters to cleaned path filters
                 if (isPathCleaningEnabled) {
-                    filters = filters.map((filter) => ({
-                        ...filter,
-                        operator:
-                            filter.operator === PropertyOperator.Exact
-                                ? PropertyOperator.IsCleanedPathExact
-                                : filter.operator,
-                    }))
+                    filters = filters.map((filter) => {
+                        if (filter.operator !== PropertyOperator.Exact) {
+                            return filter
+                        }
+                        let propertiesToPathClean: Set<string>
+                        switch (filter.type) {
+                            case PropertyFilterType.Event:
+                                propertiesToPathClean = eventPropertiesToPathClean
+                                break
+                            case PropertyFilterType.Person:
+                                propertiesToPathClean = personPropertiesToPathClean
+                                break
+                            case PropertyFilterType.Session:
+                                propertiesToPathClean = sessionPropertiesToPathClean
+                                break
+                            default:
+                                throw new UnexpectedNeverError(filter)
+                        }
+                        if (propertiesToPathClean.has(filter.key)) {
+                            return {
+                                ...filter,
+                                operator: PropertyOperator.IsCleanedPathExact,
+                            }
+                        }
+                        return filter
+                    })
                 }
 
                 return filters
@@ -1585,7 +1608,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       dateRange,
                                       filterTestAccounts,
                                       retentionFilter: {
-                                          retentionType: RETENTION_FIRST_TIME,
+                                          retentionType: RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
                                           retentionReference: 'total',
                                           totalIntervals: isGreaterThanMd ? 8 : 5,
                                           period: RetentionPeriod.Week,

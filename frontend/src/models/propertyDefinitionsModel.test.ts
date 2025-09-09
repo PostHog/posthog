@@ -242,6 +242,7 @@ describe('the property definitions model', () => {
                             name: 'timestamp',
                         }),
                         'resource/assignee': partial({ name: 'assignee' }),
+                        'resource/first_seen': partial({ name: 'first_seen' }),
                     },
                 })
         })

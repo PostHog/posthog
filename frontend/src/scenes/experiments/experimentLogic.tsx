@@ -89,6 +89,7 @@ import { addExposureToMetric, compose, getInsight, getQuery } from './metricQuer
 import { modalsLogic } from './modalsLogic'
 import {
     featureFlagEligibleForExperiment,
+    initializeMetricOrdering,
     isLegacyExperiment,
     percentageDistribution,
     transformFiltersForWinningVariant,
@@ -1376,34 +1377,10 @@ export const experimentLogic = kea<experimentLogicType>([
                             }
                         }
 
-                        // Initialize primary_metrics_ordered_uuids if it's null
-                        if (response.primary_metrics_ordered_uuids === null) {
-                            const primaryMetrics = response.metrics || []
-                            const sharedPrimaryMetrics = (response.saved_metrics || []).filter(
-                                (sharedMetric: any) => sharedMetric.metadata.type === 'primary'
-                            )
+                        const responseWithMetricsOrdering = initializeMetricOrdering(response)
 
-                            const allMetrics = [...primaryMetrics, ...sharedPrimaryMetrics]
-                            response.primary_metrics_ordered_uuids = allMetrics
-                                .map((metric: any) => metric.uuid || metric.query?.uuid)
-                                .filter(Boolean)
-                        }
-
-                        // Initialize secondary_metrics_ordered_uuids if it's null
-                        if (response.secondary_metrics_ordered_uuids === null) {
-                            const secondaryMetrics = response.metrics_secondary || []
-                            const sharedSecondaryMetrics = (response.saved_metrics || []).filter(
-                                (sharedMetric: any) => sharedMetric.metadata.type === 'secondary'
-                            )
-
-                            const allMetrics = [...secondaryMetrics, ...sharedSecondaryMetrics]
-                            response.secondary_metrics_ordered_uuids = allMetrics
-                                .map((metric: any) => metric.uuid || metric.query?.uuid)
-                                .filter(Boolean)
-                        }
-
-                        actions.setUnmodifiedExperiment(structuredClone(response))
-                        return response
+                        actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
+                        return responseWithMetricsOrdering
                     } catch (error: any) {
                         if (error.status === 404) {
                             actions.setExperimentMissing()
@@ -1419,9 +1396,10 @@ export const experimentLogic = kea<experimentLogicType>([
                     `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                     update
                 )
+                const responseWithMetricsOrdering = initializeMetricOrdering(response)
                 refreshTreeItem('experiment', String(values.experimentId))
-                actions.setUnmodifiedExperiment(structuredClone(response))
-                return response
+                actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
+                return responseWithMetricsOrdering
             },
         },
         exposureCohort: [

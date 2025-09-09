@@ -154,7 +154,6 @@ export function Annotations(): JSX.Element {
                 description="Annotations allow you to mark when certain changes happened so you can easily see how they impacted your metrics."
                 resourceType={{
                     type: 'annotation',
-                    typePlural: 'annotations',
                     forceIcon: <IconNotification />,
                 }}
             />

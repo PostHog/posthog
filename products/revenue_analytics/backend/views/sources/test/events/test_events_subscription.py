@@ -1,4 +1,6 @@
-from products.revenue_analytics.backend.views.core import SourceHandle
+from typing import cast
+
+from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle
 from products.revenue_analytics.backend.views.schemas.subscription import SCHEMA as SUBSCRIPTION_SCHEMA
 from products.revenue_analytics.backend.views.sources.events.subscription import build
 from products.revenue_analytics.backend.views.sources.test.events.base import EventsSourceBaseTest
@@ -9,46 +11,34 @@ class TestSubscriptionEventsBuilder(EventsSourceBaseTest):
         super().setUp()
         self.setup_revenue_analytics_events()
 
-    def test_build_subscription_queries_only_for_events_with_subscription_property(self):
-        """Test building subscription queries only for events with subscriptionProperty configured."""
+    def test_build_subscription_queries_even_for_events_without_subscription_property(self):
+        """Test building subscription queries even for events without subscriptionProperty configured."""
         handle = SourceHandle(type="events", team=self.team)
 
         queries = list(build(handle))
 
-        # Should build one query per configured event that has subscriptionProperty
-        # Only subscription_charge has subscriptionProperty in our default config
-        self.assertEqual(len(queries), 1)
+        # Should build one query per configured event including the one without subscriptionProperty
+        self.assertEqual(len(queries), 2)
 
         # Test subscription_charge event (has subscriptionProperty)
-        subscription_query = queries[0]
+        key = self.SUBSCRIPTION_CHARGE_EVENT_NAME
+        subscription_charge_query = next(query for query in queries if query.key == key)
         self.assertBuiltQueryStructure(
-            subscription_query, "subscription_charge", "revenue_analytics.events.subscription_charge"
+            cast(BuiltQuery, subscription_charge_query),
+            key,
+            "revenue_analytics.events.subscription_charge",
         )
 
-        # Print and snapshot the generated HogQL AST query
-        query_sql = subscription_query.query.to_hogql()
+        query_sql = subscription_charge_query.query.to_hogql()
         self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
-    def test_build_with_no_subscription_property_events(self):
-        """Test that build skips events without subscriptionProperty."""
-        # Configure events without subscriptionProperty
-        self.configure_events(
-            [
-                {
-                    "eventName": "purchase",
-                    "revenueProperty": "amount",
-                    "currencyAwareDecimal": True,
-                    "revenueCurrencyProperty": {"static": "USD"},
-                    # No subscriptionProperty
-                }
-            ]
-        )
+        # Test purchase event (no subscriptionProperty)
+        key = f"{self.PURCHASE_EVENT_NAME}.no_property"
+        purchase_query = next(query for query in queries if query.key == key)
+        self.assertBuiltQueryStructure(purchase_query, key, "revenue_analytics.events.purchase")
 
-        handle = SourceHandle(type="events", team=self.team)
-        queries = list(build(handle))
-
-        # Should return empty since no events have subscriptionProperty
-        self.assertEqual(len(queries), 0)
+        query_sql = purchase_query.query.to_hogql()
+        self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     def test_build_with_no_events_configured(self):
         """Test that build returns empty list when no events are configured."""
@@ -65,7 +55,7 @@ class TestSubscriptionEventsBuilder(EventsSourceBaseTest):
         handle = SourceHandle(type="events", team=self.team)
 
         queries = list(build(handle))
-        subscription_query = queries[0]
+        subscription_query = sorted(queries, key=lambda x: x.key)[1]
 
         self.assertQueryContainsFields(subscription_query.query, SUBSCRIPTION_SCHEMA)
         self.assertQueryMatchesSnapshot(subscription_query.query.to_hogql(), replace_all_numbers=True)
@@ -75,7 +65,7 @@ class TestSubscriptionEventsBuilder(EventsSourceBaseTest):
         handle = SourceHandle(type="events", team=self.team)
 
         queries = list(build(handle))
-        subscription_query = queries[0]
+        subscription_query = sorted(queries, key=lambda x: x.key)[1]
         query_sql = subscription_query.query.to_hogql()
 
         # Should map subscription_id from events properties

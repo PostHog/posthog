@@ -24,6 +24,7 @@ import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperim
 import {
     ChartDisplayType,
     Experiment,
+    ExperimentMetricGoal,
     ExperimentMetricMathType,
     FeatureFlagFilters,
     FeatureFlagType,
@@ -386,6 +387,7 @@ export function getDefaultFunnelMetric(): ExperimentMetric {
         kind: NodeKind.ExperimentMetric,
         uuid: uuid(),
         metric_type: ExperimentMetricType.FUNNEL,
+        goal: ExperimentMetricGoal.Increase,
         series: [
             {
                 kind: NodeKind.EventsNode,
@@ -404,6 +406,7 @@ export function getDefaultCountMetric(): ExperimentMetric {
         kind: NodeKind.ExperimentMetric,
         uuid: uuid(),
         metric_type: ExperimentMetricType.MEAN,
+        goal: ExperimentMetricGoal.Increase,
         source: {
             kind: NodeKind.EventsNode,
             event: '$pageview',
@@ -417,6 +420,7 @@ export function getDefaultRatioMetric(): ExperimentMetric {
         kind: NodeKind.ExperimentMetric,
         uuid: uuid(),
         metric_type: ExperimentMetricType.RATIO,
+        goal: ExperimentMetricGoal.Increase,
         numerator: {
             kind: NodeKind.EventsNode,
             event: '$pageview',
@@ -455,6 +459,7 @@ export function getExperimentMetricFromInsight(insight: QueryBasedInsightModel |
             kind: NodeKind.ExperimentMetric,
             uuid: uuid(),
             metric_type: ExperimentMetricType.FUNNEL,
+            goal: ExperimentMetricGoal.Increase,
             name: metricName,
             series: insight.query.source.series.map((series) => ({
                 ...series,
@@ -482,6 +487,7 @@ export function getExperimentMetricFromInsight(insight: QueryBasedInsightModel |
             kind: NodeKind.ExperimentMetric,
             uuid: uuid(),
             metric_type: ExperimentMetricType.MEAN,
+            goal: ExperimentMetricGoal.Increase,
             name: metricName,
             source: {
                 ...firstSeries,
@@ -578,6 +584,7 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): Experimen
                 ExperimentMetricMathType.Sum,
                 ExperimentMetricMathType.UniqueUsers,
                 ExperimentMetricMathType.UniqueGroup,
+                ExperimentMetricMathType.UniqueSessions,
                 ExperimentMetricMathType.Avg,
                 ExperimentMetricMathType.Min,
                 ExperimentMetricMathType.Max,
@@ -763,4 +770,40 @@ export function insertMetricIntoOrderingArray(
     const newArray = [...orderingArray]
     newArray.splice(afterIndex + 1, 0, newUuid)
     return newArray
+}
+
+/**
+ * Initialize ordering arrays for metrics if they're null
+ * Returns a new experiment object with initialized ordering arrays
+ */
+export function initializeMetricOrdering(experiment: Experiment): Experiment {
+    const newExperiment = { ...experiment }
+
+    // Initialize primary_metrics_ordered_uuids if it's null
+    if (newExperiment.primary_metrics_ordered_uuids === null) {
+        const primaryMetrics = newExperiment.metrics || []
+        const sharedPrimaryMetrics = (newExperiment.saved_metrics || []).filter(
+            (sharedMetric: any) => sharedMetric.metadata.type === 'primary'
+        )
+
+        const allMetrics = [...primaryMetrics, ...sharedPrimaryMetrics]
+        newExperiment.primary_metrics_ordered_uuids = allMetrics
+            .map((metric: any) => metric.uuid || metric.query?.uuid)
+            .filter(Boolean)
+    }
+
+    // Initialize secondary_metrics_ordered_uuids if it's null
+    if (newExperiment.secondary_metrics_ordered_uuids === null) {
+        const secondaryMetrics = newExperiment.metrics_secondary || []
+        const sharedSecondaryMetrics = (newExperiment.saved_metrics || []).filter(
+            (sharedMetric: any) => sharedMetric.metadata.type === 'secondary'
+        )
+
+        const allMetrics = [...secondaryMetrics, ...sharedSecondaryMetrics]
+        newExperiment.secondary_metrics_ordered_uuids = allMetrics
+            .map((metric: any) => metric.uuid || metric.query?.uuid)
+            .filter(Boolean)
+    }
+
+    return newExperiment
 }
