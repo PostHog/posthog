@@ -58,6 +58,9 @@ export class FixtureHogFlowBuilder {
     }
 
     build(): HogFlow {
+        if (this.hogFlow.actions.length === 0) {
+            this.withSimpleWorkflow()
+        }
         const triggerAction = findActionByType(this.hogFlow, 'trigger')
         this.hogFlow.trigger = this.hogFlow.trigger ?? (triggerAction ? triggerAction.config : undefined)
 

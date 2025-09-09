@@ -231,7 +231,7 @@ export const campaignLogic = kea<campaignLogicType>([
         triggerAction: [
             (s) => [s.campaign],
             (campaign): TriggerAction | null => {
-                return campaign.actions.find((action) => action.type === 'trigger') ?? null
+                return (campaign.actions.find((action) => action.type === 'trigger') as TriggerAction) ?? null
             },
         ],
     }),
