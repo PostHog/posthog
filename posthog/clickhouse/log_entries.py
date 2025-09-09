@@ -115,6 +115,7 @@ SETTINGS index_granularity=1024, ttl_only_drop_parts = 1
 def LOG_ENTRIES_DISTRIBUTED_TABLE_SQL():
     return (LOG_ENTRIES_TABLE_BASE_SQL).format(
         table_name=LOG_ENTRIES_DISTRIBUTED_TABLE,
+        on_cluster=ON_CLUSTER_CLAUSE(False),
         extra_fields=KAFKA_COLUMNS,
         engine=Distributed(data_table=LOG_ENTRIES_SHARDED_TABLE, cluster=CLICKHOUSE_CLUSTER, sharding_key="rand()"),
     )
@@ -123,6 +124,7 @@ def LOG_ENTRIES_DISTRIBUTED_TABLE_SQL():
 def LOG_ENTRIES_WRITABLE_TABLE_SQL():
     return (LOG_ENTRIES_TABLE_BASE_SQL).format(
         table_name=LOG_ENTRIES_WRITABLE_TABLE,
+        on_cluster=ON_CLUSTER_CLAUSE(False),
         extra_fields=KAFKA_COLUMNS,
         engine=Distributed(data_table=LOG_ENTRIES_SHARDED_TABLE, cluster=CLICKHOUSE_CLUSTER, sharding_key="rand()"),
     )
@@ -136,6 +138,7 @@ def KAFKA_LOG_ENTRIES_V3_TABLE_SQL():
     """
     ).format(
         table_name=f"kafka_{LOG_ENTRIES_TABLE}_v3",
+        on_cluster=ON_CLUSTER_CLAUSE(False),
         engine=kafka_engine(topic=KAFKA_LOG_ENTRIES, group="clickhouse_log_entries"),
         extra_fields="",
     )
