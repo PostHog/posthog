@@ -16,7 +16,7 @@ use crate::{
     kafka::{stateful_consumer::StatefulKafkaConsumer, ConsumerConfigBuilder},
     processor_pool::ProcessorPool,
     processor_rebalance_handler::ProcessorRebalanceHandler,
-    rocksdb::deduplication_store::DeduplicationStoreConfig,
+    store::DeduplicationStoreConfig,
     store_manager::StoreManager,
 };
 

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use tracing::{debug, error, info, warn};
 
 use crate::kafka::types::Partition;
-use crate::rocksdb::deduplication_store::{DeduplicationStore, DeduplicationStoreConfig};
+use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
 
 /// Manages the lifecycle of deduplication stores, handling concurrent access
 /// and creation in a thread-safe manner.
