@@ -1,9 +1,10 @@
 import copy
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import Any, Union
 
 from django.conf import settings
+from django.contrib.auth import login
 from django.db import IntegrityError, transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
@@ -24,9 +25,15 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.utils import absolute_uri
 
-from ee.vercel.client import VercelAPIClient
+from ee.api.authentication import VercelAuthentication
+from ee.api.vercel.types import VercelClaims, VercelUserClaims
+from ee.vercel.client import SSOTokenResponse, VercelAPIClient
 
 logger = structlog.get_logger(__name__)
+
+
+class VercelSSOError(Exception):
+    pass
 
 
 @dataclass
@@ -73,7 +80,33 @@ class VercelSetupResult:
     resource_id: str
 
 
+@dataclass
+class SSOExperimentationConfig:
+    model: Union[type[FeatureFlag], type[Experiment]]
+    url_template: str
+
+
 class VercelIntegration:
+    SSO_PATH_REDIRECT_MAP = {
+        "billing": "/organization/billing/overview",
+        "usage": "/organization/billing/usage",
+        "support": "/#panel=support",
+    }
+    SSO_DEFAULT_REDIRECT = "/"
+
+    # If this grows too big, or we start doing SSO in multiple integrations,
+    # this could be handled in the frontend instead.
+    SSO_EXPERIMENTATION_CONFIG: dict[str, SSOExperimentationConfig] = {
+        "flag": SSOExperimentationConfig(
+            model=FeatureFlag,
+            url_template="/project/{team_id}/feature_flags/{item_pk}",
+        ),
+        "experiment": SSOExperimentationConfig(
+            model=Experiment,
+            url_template="/project/{team_id}/experiments/{item_pk}",
+        ),
+    }
+
     @staticmethod
     def _get_installation(installation_id: str) -> OrganizationIntegration:
         try:
@@ -157,10 +190,12 @@ class VercelIntegration:
         ]
 
     @staticmethod
-    def upsert_installation(installation_id: str, payload: dict[str, Any]) -> None:
+    def upsert_installation(installation_id: str, payload: dict[str, Any], user_claims: VercelUserClaims) -> None:
         account_data = payload.get("account", {})
         contact_data = account_data.get("contact", {})
         credentials_data = payload.get("credentials", {})
+
+        vercel_user_id = user_claims.user_id
 
         contact = InstallationContact(email=contact_data["email"], name=contact_data.get("name"))
 
@@ -196,32 +231,25 @@ class VercelIntegration:
             logger.info("Vercel installation updated", installation_id=installation_id, integration="vercel")
             return
 
-        # It's possible that there's already a user with this email signed up to PostHog,
-        # either due to a reinstallation of the integration, or manual signup through PostHog itself.
-        user = User.objects.filter(email=config.account.contact.email).first()
-        user_created = False
-
         with transaction.atomic():
+            # Through Vercel we can only create new organizations, not use existing ones.
+            # Note: We won't create a team here, that's done during Vercel resource creation.
+            organization = Organization.objects.create(
+                name=config.account.name or f"Vercel Installation {installation_id}"
+            )
+
+            # We can't look up by a mapped user_id here since we don't have a integration where the user is mapped.
+            # We have to use the email instead. This should be the only part that of the user authentication process
+            # that requires an email.
+            user, user_created = VercelIntegration._find_or_create_user_by_email(
+                email=config.account.contact.email,
+                name=config.account.contact.name,
+                organization=organization,
+                level=OrganizationMembership.Level.OWNER,  # User installing gets owner level
+            )
+
             try:
-                if not user:
-                    user = User.objects.create_user(
-                        email=config.account.contact.email,
-                        password=None,
-                        first_name=config.account.contact.name or "",
-                        is_staff=False,
-                        is_email_verified=False,
-                    )
-                    user_created = True
-
-                # Through Vercel we can only create new organizations, not use existing ones.
-                # Note: We won't create a team here, that's done during Vercel resource creation.
-                organization = Organization.objects.create(
-                    name=config.account.name or f"Vercel Installation {installation_id}"
-                )
-
-                user.join(organization=organization, level=OrganizationMembership.Level.OWNER)
-
-                OrganizationIntegration.objects.update_or_create(
+                org_integration, _ = OrganizationIntegration.objects.update_or_create(
                     organization=organization,
                     kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
                     integration_id=installation_id,
@@ -231,6 +259,7 @@ class VercelIntegration:
                     },
                 )
 
+                VercelIntegration._set_user_mapping(org_integration, vercel_user_id, user.pk)
                 logger.info("Created new Vercel installation", installation_id=installation_id, integration="vercel")
             except IntegrityError as e:
                 capture_exception(e)
@@ -669,6 +698,237 @@ class VercelIntegration:
             "isArchived": experiment.archived or experiment.deleted,
             "createdAt": experiment.created_at.timestamp(),
         }
+
+    @staticmethod
+    def _validate_client_credentials() -> tuple[str, str]:
+        if not getattr(settings, "VERCEL_CLIENT_INTEGRATION_ID", None):
+            raise exceptions.NotFound("Vercel integration not configured: missing VERCEL_CLIENT_INTEGRATION_ID")
+        if not getattr(settings, "VERCEL_CLIENT_INTEGRATION_SECRET", None):
+            raise exceptions.NotFound("Vercel integration not configured: missing VERCEL_CLIENT_INTEGRATION_SECRET")
+        return settings.VERCEL_CLIENT_INTEGRATION_ID, settings.VERCEL_CLIENT_INTEGRATION_SECRET
+
+    @staticmethod
+    def _get_sso_claims_from_code(code: str, state: str | None) -> VercelClaims:
+        client_id, client_secret = VercelIntegration._validate_client_credentials()
+
+        # Exchange code + state for token
+        token_response = VercelIntegration._exchange_sso_token(code, client_id, client_secret, state)
+
+        if not token_response.id_token:
+            raise exceptions.AuthenticationFailed("Vercel SSO response missing id_token")
+
+        # Then exchange token for claim
+        return VercelAuthentication()._validate_jwt_token(token_response.id_token, "user")
+
+    @staticmethod
+    def _authenticate_and_login_user(request, claims: VercelUserClaims, resource_id: str | None) -> User:
+        user = VercelIntegration._find_sso_user(claims)
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        if resource_id:
+            VercelIntegration.set_active_project(user, resource_id)
+        return user
+
+    @staticmethod
+    def authenticate_sso(
+        request,
+        code: str,
+        state: str | None,
+        resource_id: str | None = None,
+        path: str | None = None,
+        url: str | None = None,
+        experimentation_item_id: str | None = None,
+    ) -> str:
+        try:
+            claims = VercelIntegration._get_sso_claims_from_code(code, state)
+            if not isinstance(claims, VercelUserClaims):
+                raise NotImplementedError("SSO is only supported for user claims, not system claims")
+
+            user = VercelIntegration._authenticate_and_login_user(request, claims, resource_id)
+
+            redirect_url = VercelIntegration.determine_sso_redirect(
+                path=path,
+                url=url,
+                experimentation_item_id=experimentation_item_id,
+                user=user,
+            )
+
+            logger.info(
+                "Vercel SSO login successful",
+                user_id=user.pk,
+                resource_id=resource_id,
+                integration="vercel",
+            )
+            return redirect_url
+        except Exception as e:
+            logger.exception("Vercel SSO authentication failed", error=str(e), integration="vercel")
+            raise exceptions.AuthenticationFailed("Authentication failed")
+
+    @staticmethod
+    def _exchange_sso_token(code: str, client_id: str, client_secret: str, state: str | None) -> SSOTokenResponse:
+        client = VercelAPIClient(bearer_token=None)
+        response = client.sso_token_exchange(code=code, client_id=client_id, client_secret=client_secret, state=state)
+        if not response or response.error:
+            error_msg = response.error if response else "Token exchange failed"
+            raise exceptions.AuthenticationFailed(f"Vercel token exchange failed: {error_msg}")
+        return response
+
+    @staticmethod
+    def _get_user_mapping(installation: OrganizationIntegration, vercel_user_id: str) -> int | None:
+        user_mappings = installation.config.get("user_mappings", {})
+        return user_mappings.get(vercel_user_id)
+
+    @staticmethod
+    def _set_user_mapping(installation: OrganizationIntegration, vercel_user_id: str, user_pk: int) -> None:
+        """
+        We can't utilize user emails provided by Vercel for user mappings. Instead of that Vercel gives us a user id,
+        which is based on the Vercel account ID, the integration ID, and the installation ID.
+        We can store this on the OrganizationIntegration config since it's bound to an installation.
+        """
+        if "user_mappings" not in installation.config:
+            installation.config["user_mappings"] = {}
+        installation.config["user_mappings"][vercel_user_id] = user_pk
+        installation.save(update_fields=["config"])
+
+    @staticmethod
+    def _find_or_create_user_by_email(
+        email: str, name: str | None, organization: Organization, level: OrganizationMembership.Level
+    ) -> tuple[User, bool]:
+        user = User.objects.filter(email=email, is_active=True).first()
+        created = False
+
+        if not user:
+            first_name = ""
+            if name:
+                first_name = name.split()[0] if name.split() else name
+            elif email:
+                first_name = email.split("@")[0]
+
+            user = User.objects.create_user(
+                email=email,
+                password=None,
+                first_name=first_name,
+                is_staff=False,
+                is_email_verified=False,
+            )
+            created = True
+
+        membership, membership_created = OrganizationMembership.objects.get_or_create(
+            user=user, organization=organization, defaults={"level": level}
+        )
+
+        if not membership_created and membership.level < level:
+            membership.level = level
+            membership.save(update_fields=["level"])
+
+        return user, created
+
+    @staticmethod
+    def _find_sso_user(claims: VercelUserClaims) -> User:
+        if not claims.user_email:
+            raise ValueError("Email is required for user creation")
+
+        installation = VercelIntegration._get_installation(claims.installation_id)
+
+        # Try to find already mapped user
+        user_pk = VercelIntegration._get_user_mapping(installation, claims.user_id)
+        if user_pk:
+            user = User.objects.filter(pk=user_pk, is_active=True).first()
+            if user:
+                return user
+            # User was deleted, remove stale mapping
+            user_mappings = installation.config.get("user_mappings", {})
+            if claims.user_id in user_mappings:
+                del user_mappings[claims.user_id]
+                installation.save(update_fields=["config"])
+
+        # Find or create user by email (this already handles finding existing users)
+        user, _ = VercelIntegration._find_or_create_user_by_email(
+            email=claims.user_email,
+            name=claims.user_name,
+            organization=installation.organization,
+            level=OrganizationMembership.Level.MEMBER,  # SSO users get member level
+        )
+
+        # Set user mapping for future lookups
+        VercelIntegration._set_user_mapping(installation, claims.user_id, user.pk)
+        return user
+
+    @staticmethod
+    def determine_sso_redirect(
+        path: str | None, url: str | None, experimentation_item_id: str | None, user: User
+    ) -> str:
+        if url:
+            return url
+
+        if experimentation_item_id:
+            if item_url := VercelIntegration._get_sso_experimentation_url(experimentation_item_id, user):
+                return item_url
+            logger.warning(
+                "Invalid experimentation item",
+                experimentation_item_id=experimentation_item_id,
+                url=url,
+                user_id=user.pk,
+                integration="vercel",
+            )
+
+        if path in VercelIntegration.SSO_PATH_REDIRECT_MAP:
+            return VercelIntegration.SSO_PATH_REDIRECT_MAP[path]
+
+        return VercelIntegration.SSO_DEFAULT_REDIRECT
+
+    @staticmethod
+    def _get_sso_experimentation_url(item_id: str, user: User) -> str | None:
+        if not item_id:
+            return None
+
+        item_type, item_pk = VercelIntegration._parse_sso_item_id(item_id)
+        if not item_type or not item_pk:
+            return None
+
+        config = VercelIntegration.SSO_EXPERIMENTATION_CONFIG.get(item_type)
+        if not config:
+            return None
+
+        model_class = config.model
+        item = model_class.objects.filter(pk=item_pk).first()
+        if not item:
+            return None
+
+        # Sanity check to ensure the user has access to the item's team
+        if not user.teams.filter(pk=item.team.pk).exists():
+            return None
+
+        return config.url_template.format(team_id=item.team.id, item_pk=item.pk)
+
+    @staticmethod
+    def _parse_sso_item_id(item_id: str) -> tuple[str | None, int | None]:
+        for item_type in VercelIntegration.SSO_EXPERIMENTATION_CONFIG:
+            prefix = f"{item_type}_"
+            if not item_id.startswith(prefix):
+                continue
+
+            id_str = item_id[len(prefix) :]
+            if id_str.isdigit():
+                return item_type, int(id_str)
+
+        return None, None
+
+    @staticmethod
+    def set_active_project(user: User, resource_id: str):
+        resource = Integration.objects.filter(pk=resource_id, kind=Integration.IntegrationKind.VERCEL).first()
+        if not resource:
+            raise exceptions.NotFound(f"Vercel resource not found: {resource_id}")
+
+        team = resource.team
+        if not team:
+            raise exceptions.ValidationError(f"Resource has no associated team: {resource_id}")
+
+        if not user.teams.filter(pk=team.pk).exists():
+            raise exceptions.PermissionDenied(f"User not member of team for resource: {resource_id}")
+
+        user.current_team = team
+        user.save()
+        return resource, user, team
 
 
 def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_func: Callable[[], None]) -> None:
