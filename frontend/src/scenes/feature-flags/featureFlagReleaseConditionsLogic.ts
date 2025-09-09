@@ -45,6 +45,23 @@ function moveConditionSet<T>(groups: T[], index: number, newIndex: number): T[] 
     return updatedGroups
 }
 
+// Helper function to swap affected users between two indices
+function swapAffectedUsers(
+    affectedUsers: Record<number, number | undefined>,
+    actions: { setAffectedUsers: (index: number, count?: number) => void },
+    fromIndex: number,
+    toIndex: number
+): void {
+    if (!(fromIndex in affectedUsers) || !(toIndex in affectedUsers)) {
+        return
+    }
+
+    const fromCount = affectedUsers[fromIndex]
+    const toCount = affectedUsers[toIndex]
+    actions.setAffectedUsers(toIndex, fromCount)
+    actions.setAffectedUsers(fromIndex, toCount)
+}
+
 // TODO: Type onChange errors properly
 export interface FeatureFlagReleaseConditionsLogicProps {
     filters: FeatureFlagFilters
@@ -410,6 +427,12 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 // Clear loading state
                 actions.setFlagKeysLoading(false)
             }
+        },
+        moveConditionSetUp: ({ index }) => {
+            swapAffectedUsers(values.affectedUsers, actions, index, index - 1)
+        },
+        moveConditionSetDown: ({ index }) => {
+            swapAffectedUsers(values.affectedUsers, actions, index, index + 1)
         },
     })),
     selectors({

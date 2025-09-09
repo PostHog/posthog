@@ -17,6 +17,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -26,7 +27,6 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { RenderBatchExportIcon } from 'scenes/data-pipelines/batch-exports/BatchExportIcon'
-import { HogFunctionMetricSparkLine } from 'scenes/hog-functions/metrics/HogFunctionMetricsSparkline'
 import { urls } from 'scenes/urls'
 
 import { AvailableFeature, HogFunctionTypeType, PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
@@ -283,7 +283,17 @@ export function DestinationsTable({
                                               )}
                                           >
                                               {destination.backend === PipelineBackend.HogFunction ? (
-                                                  <HogFunctionMetricSparkLine id={destination.hog_function.id} />
+                                                  <AppMetricsSparkline
+                                                      logicKey={destination.hog_function.id}
+                                                      forceParams={{
+                                                          appSource: 'hog_function',
+                                                          appSourceId: destination.hog_function.id,
+                                                          metricKind: ['success', 'failure'],
+                                                          breakdownBy: 'metric_kind',
+                                                          interval: 'day',
+                                                          dateFrom: '-7d',
+                                                      }}
+                                                  />
                                               ) : (
                                                   <AppMetricSparkLine pipelineNode={destination} />
                                               )}

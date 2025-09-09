@@ -4,8 +4,7 @@ import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 import { HogFlowAction } from '~/schema/hogflow'
 
-import { findNextAction } from '../hogflow-utils'
-import { findContinueAction } from '../hogflow-utils'
+import { findContinueAction, findNextAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
 
@@ -54,7 +53,6 @@ export async function checkConditions(
             fn: invocation.hogFlow,
             filters: condition.filters,
             filterGlobals: invocation.filterGlobals,
-            eventUuid: invocation.state.event.uuid,
         })
 
         if (filterResults.match) {

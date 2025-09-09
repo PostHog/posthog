@@ -136,7 +136,10 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                     })
 
                                     if (toolOutput?.error || !toolOutput?.survey_id) {
-                                        return captureMaxAISurveyCreationException(toolOutput.error)
+                                        return captureMaxAISurveyCreationException(
+                                            toolOutput.error,
+                                            SURVEY_CREATED_SOURCE.SURVEY_EMPTY_STATE
+                                        )
                                     }
 
                                     router.actions.push(urls.survey(toolOutput.survey_id))

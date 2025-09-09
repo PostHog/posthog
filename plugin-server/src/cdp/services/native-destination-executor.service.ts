@@ -4,13 +4,12 @@ import { PluginsServerConfig } from '~/types'
 import { parseJSON } from '~/utils/json-parse'
 
 import { logger } from '../../utils/logger'
-import { FetchOptions, FetchResponse, fetch } from '../../utils/request'
-import { tryCatch } from '../../utils/try-catch'
+import { FetchOptions, FetchResponse } from '../../utils/request'
 import { NATIVE_HOG_FUNCTIONS_BY_ID } from '../templates'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, Response } from '../types'
 import { CDP_TEST_ID, createAddLogFunction, isNativeHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
-import { getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
+import { cdpTrackedFetch, getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
 
 const nativeDestinationExecutionDuration = new Histogram({
     name: 'cdp_native_execution_duration_ms',
@@ -48,10 +47,6 @@ const convertFetchResponse = (response: FetchResponse, text: string): Response =
 
 export class NativeDestinationExecutorService {
     constructor(private serverConfig: PluginsServerConfig) {}
-
-    public async fetch(...args: Parameters<typeof fetch>): Promise<FetchResponse> {
-        return fetch(...args)
-    }
 
     public async execute(
         invocation: CyclotronJobInvocationHogFunction
@@ -161,9 +156,13 @@ export class NativeDestinationExecutorService {
                         addLog('debug', 'fetchOptions', fetchOptions)
                     }
 
-                    const [fetchError, fetchResponse] = await tryCatch(() =>
-                        this.fetch(`${endpoint}${params.toString() ? '?' + params.toString() : ''}`, fetchOptions)
-                    )
+                    const url = `${endpoint}${params.toString() ? '?' + params.toString() : ''}`
+                    const { fetchError, fetchResponse } = await cdpTrackedFetch({
+                        url,
+                        fetchParams: fetchOptions,
+                        templateId: invocation.hogFunction.template_id ?? '',
+                    })
+
                     const fetchResponseText = (await fetchResponse?.text()) ?? 'unknown'
 
                     if (fetchError || !fetchResponse || fetchResponse.status >= 400) {

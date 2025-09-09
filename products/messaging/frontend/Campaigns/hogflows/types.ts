@@ -44,6 +44,8 @@ export const HogFlowSchema = z.object({
     actions: z.array(HogFlowActionSchema),
     abort_action: z.string().optional(),
     edges: z.array(HogFlowEdgeSchema),
+    updated_at: z.string(),
+    created_at: z.string(),
 })
 
 // NOTE: these are purposefully exported as interfaces to support kea typegen

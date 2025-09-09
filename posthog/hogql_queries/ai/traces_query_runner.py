@@ -122,7 +122,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 round(
                     sumIf(toFloat(properties.$ai_latency),
                         properties.$ai_parent_id IS NULL
-                        OR properties.$ai_parent_id = properties.$ai_trace_id
+                        OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
                     ), 2
                 ) AS total_latency,
                 sumIf(toFloat(properties.$ai_input_tokens),
@@ -158,7 +158,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                         arraySort(x -> x.3,
                             groupArrayIf(
                                 tuple(uuid, event, timestamp, properties),
-                                event IN ('$ai_metric', '$ai_feedback') OR properties.$ai_parent_id = properties.$ai_trace_id
+                                event IN ('$ai_metric', '$ai_feedback') OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
                             )
                         )
                     )
@@ -179,8 +179,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                         ifNull(properties.$ai_span_name, properties.$ai_trace_name),
                         timestamp,
                     )
-                ) AS trace_name,
-                argMin(properties.temporal_workflow_id, timestamp) AS temporal_workflow_id
+                ) AS trace_name
             FROM events
             WHERE event IN (
                 '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
@@ -237,7 +236,6 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             "total_cost": "totalCost",
             "events": "events",
             "trace_name": "traceName",
-            "temporal_workflow_id": "temporalWorkflowId",
         }
 
         generations = []

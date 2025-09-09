@@ -51,6 +51,7 @@ import type {
     ExperimentMetric,
     ExperimentTrendsQuery,
     ExternalDataSourceType,
+    FileSystemIconType,
     FileSystemImport,
     HogQLQuery,
     HogQLQueryModifiers,
@@ -3016,6 +3017,8 @@ export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     filtersOverride?: DashboardFilter | null
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
+    /** The tab of the scene if the insight is a full scene insight */
+    tabId?: string | null
 }
 
 export interface SetInsightOptions {
@@ -4346,6 +4349,7 @@ export interface SharingConfigurationType {
     enabled: boolean
     access_token: string
     created_at: string
+    password_required: boolean
     settings?: SharingConfigurationSettings
 }
 
@@ -4675,6 +4679,7 @@ export interface DataWarehouseSavedQuery {
     status?: string
     latest_error: string | null
     latest_history_id?: string
+    is_materialized?: boolean
 }
 
 export interface DataWarehouseSavedQueryDraft {
@@ -5594,15 +5599,17 @@ export interface CoreMemory {
 export type FileSystemIconColor = [string] | [string, string]
 
 export interface FileSystemType {
-    icon?: JSX.Element
     href?: (ref: string) => string
-    iconColor?: FileSystemIconColor
     // Visual name of the product
     name: string
     // Flag to determine if the product is enabled
     flag?: string
     // Used to filter the tree items by product
     filterKey?: string
+    // Icon type of the icon
+    iconType?: FileSystemIconType
+    // Color of the icon
+    iconColor?: FileSystemIconColor
 }
 
 export interface ProductManifest {

@@ -150,6 +150,8 @@ class BaseState(BaseModel):
         """Returns a new instance with all fields reset to their default values."""
         return cls(**{k: v.default for k, v in cls.model_fields.items()})
 
+
+class BaseStateWithMessages(BaseState):
     start_id: Optional[str] = Field(default=None)
     """
     The ID of the message from which the conversation started.
@@ -158,17 +160,24 @@ class BaseState(BaseModel):
     """
     Whether the graph was interrupted or resumed.
     """
-
-
-class _SharedAssistantState(BaseState):
+    messages: Sequence[AssistantMessageUnion] = Field(default=[])
     """
-    The state of the root node.
+    Messages exposed to the user.
     """
 
+
+class BaseStateWithIntermediateSteps(BaseState):
     intermediate_steps: Optional[list[IntermediateStep]] = Field(default=None)
     """
     Actions taken by the query planner agent.
     """
+
+
+class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateSteps):
+    """
+    The state of the root node.
+    """
+
     plan: Optional[str] = Field(default=None)
     """
     The insight generation plan.
@@ -232,6 +241,10 @@ class _SharedAssistantState(BaseState):
     """
     Whether to use current filters from user's UI to find relevant sessions.
     """
+    summary_title: Optional[str] = Field(default=None)
+    """
+    The name of the summary to generate, based on the user's query and/or current filters.
+    """
     notebook_short_id: Optional[str] = Field(default=None)
     """
     The short ID of the notebook being used.
@@ -246,10 +259,7 @@ class AssistantState(_SharedAssistantState):
 
 
 class PartialAssistantState(_SharedAssistantState):
-    messages: Sequence[AssistantMessageUnion] = Field(default=[])
-    """
-    Messages exposed to the user.
-    """
+    pass
 
 
 class AssistantNodeName(StrEnum):

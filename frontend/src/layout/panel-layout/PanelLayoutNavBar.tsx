@@ -44,6 +44,7 @@ import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
 import { AccountPopoverOverlay } from '../navigation/TopBar/AccountPopover'
 import { navigationLogic } from '../navigation/navigationLogic'
+import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
 import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
 import { ProjectDropdownMenu } from './ProjectDropdownMenu'
 
@@ -92,6 +93,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
+    const { sceneLayoutConfig } = useValues(sceneLayoutLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -292,9 +294,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     )}
                     ref={containerRef}
                 >
-                    <div className={`flex justify-between p-1 ${isLayoutNavCollapsed ? 'justify-center' : ''}`}>
+                    <div
+                        className={`flex justify-between p-1 pl-[5px] items-center ${isLayoutNavCollapsed ? 'justify-center' : 'h-[var(--scene-layout-header-height)]'}`}
+                    >
                         {newSceneLayout ? (
-                            <div className={cn('flex gap-1 rounded-md p-1 w-full', isLayoutNavCollapsed && 'flex-col')}>
+                            <div className={cn('flex gap-1 rounded-md w-full', isLayoutNavCollapsed && 'flex-col')}>
                                 <Tooltip title="Switch organization" closeDelayMs={0} placement="bottom">
                                     <div>
                                         <OrganizationDropdownMenu showName={false} buttonProps={{ variant: 'panel' }} />
@@ -303,7 +307,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 <Tooltip title="Switch project" closeDelayMs={0} placement="bottom">
                                     <div>
                                         <ProjectDropdownMenu
-                                            buttonProps={{ className: 'max-w-[170px]', variant: 'panel' }}
+                                            buttonProps={{ className: 'max-w-[175px]', variant: 'panel' }}
                                             iconOnly={isLayoutNavCollapsed}
                                         />
                                     </div>
@@ -343,7 +347,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                     <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
                         <ScrollableShadows
-                            className="flex-1"
+                            className={cn('flex-1', newSceneLayout && !isLayoutPanelVisible && 'rounded-tr-sm')}
                             innerClassName="overflow-y-auto"
                             direction="vertical"
                             styledScrollbars
@@ -563,7 +567,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             data-attr="tree-navbar-resizer"
                             className={cn({
                                 'top-[calc(var(--scene-layout-header-height)+4px)]': newSceneLayout,
-                                'top-0': newSceneLayout && isLayoutPanelVisible,
+                                'top-0':
+                                    (newSceneLayout && isLayoutPanelVisible) ||
+                                    sceneLayoutConfig?.layout === 'app-raw-no-header',
                             })}
                             offset={newSceneLayout ? -1 : 0}
                         />

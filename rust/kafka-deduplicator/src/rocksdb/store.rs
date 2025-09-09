@@ -212,17 +212,23 @@ impl RocksDbStore {
             .context("Failed to delete range")
     }
 
+    pub fn delete(&self, cf_name: &str, key: &[u8]) -> Result<()> {
+        let cf = self.get_cf_handle(cf_name)?;
+        self.db.delete_cf(&cf, key).context("Failed to delete key")
+    }
+
     pub fn get_cf_handle(&self, cf_name: &str) -> Result<Arc<BoundColumnFamily<'_>>> {
         self.db
             .cf_handle(cf_name)
             .context("Column family not found")
     }
 
-    pub fn get_db_size(&self) -> Result<u64> {
+    pub fn get_db_size(&self, cf_name: &str) -> Result<u64> {
+        let cf = self.get_cf_handle(cf_name)?;
         // Try to get SST files size
         let sst_size = self
             .db
-            .property_int_value("rocksdb.total-sst-files-size")?
+            .property_int_value_cf(&cf, "rocksdb.total-sst-files-size")?
             .unwrap_or(0);
 
         Ok(sst_size)
@@ -232,7 +238,7 @@ impl RocksDbStore {
     /// This should be called periodically to emit current database state
     pub fn update_db_metrics(&self, cf_name: &str) -> Result<()> {
         // Update database size metric
-        let db_size = self.get_db_size()?;
+        let db_size = self.get_db_size(cf_name)?;
         self.metrics
             .gauge(ROCKSDB_SIZE_BYTES_GAUGE)
             .set(db_size as f64);
