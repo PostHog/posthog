@@ -57,6 +57,7 @@ import { playerSettingsLogic } from './playerSettingsLogic'
 import { BuiltLogging, COMMON_REPLAYER_CONFIG, CorsPlugin, HLSPlayerPlugin, makeLogger, makeNoOpLogger } from './rrweb'
 import { CanvasReplayerPlugin } from './rrweb/canvas/canvas-plugin'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
+import { snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording } from './utils/playerUtils'
 import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionRecordingPlayerExplorer'
 
@@ -216,12 +217,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
+            snapshotDataLogic(props),
+            ['snapshotsLoaded', 'snapshotsLoading', 'isRealtimePolling'],
             sessionRecordingDataLogic(props),
             [
                 'urls',
-                'snapshotsLoaded',
-                'snapshotsLoading',
-                'isRealtimePolling',
                 'sessionPlayerData',
                 'sessionPlayerMetaData',
                 'sessionPlayerMetaDataLoading',
@@ -240,15 +240,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ['featureFlags'],
         ],
         actions: [
+            snapshotDataLogic(props),
+            ['loadSnapshots', 'loadSnapshotsForSourceFailure', 'loadSnapshotSourcesFailure'],
             sessionRecordingDataLogic(props),
-            [
-                'maybeLoadRecordingMeta',
-                'loadSnapshots',
-                'loadSnapshotsForSourceFailure',
-                'loadSnapshotSourcesFailure',
-                'loadRecordingMetaSuccess',
-                'maybePersistRecording',
-            ],
+            ['maybeLoadRecordingMeta', 'loadRecordingMetaSuccess', 'maybePersistRecording'],
             playerSettingsLogic,
             ['setSpeed', 'setSkipInactivitySetting'],
             sessionRecordingEventUsageLogic,
@@ -322,6 +317,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadRecordingMeta: true,
         setSimilarRecordings: (results: string[]) => ({ results }),
         setIsCommenting: (isCommenting: boolean) => ({ isCommenting }),
+        schedulePlayerTimeTracking: true,
         setQuickEmojiIsOpen: (quickEmojiIsOpen: boolean) => ({ quickEmojiIsOpen }),
         updatePlayerTimeTracking: true,
         exportRecordingToVideoFile: true,
@@ -1547,6 +1543,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
         },
+        schedulePlayerTimeTracking: () => {
+            const currentState = values.playingTimeTracking.state
+            const interval = currentState === 'playing' ? 5000 : 30000
+
+            cache.playerTimeTrackingTimer = setTimeout(() => {
+                actions.updatePlayerTimeTracking()
+                actions.schedulePlayerTimeTracking()
+            }, interval)
+        },
     })),
 
     subscriptions(({ actions, values }) => ({
@@ -1603,7 +1608,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         actions.setPlayer(null)
 
         if (cache.playerTimeTrackingTimer) {
-            clearInterval(cache.playerTimeTrackingTimer)
+            clearTimeout(cache.playerTimeTrackingTimer)
         }
         const playTimeMs = values.playingTimeTracking.watchTime || 0
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {
@@ -1656,9 +1661,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // we rely on actions hitting a reducer to update the timer
         // let's ping it once in a while so that if the user
         // is autoplaying and doesn't interact we get a more recent value
-        cache.playerTimeTrackingTimer = setInterval(() => {
-            actions.updatePlayerTimeTracking()
-        }, 5000)
+        actions.schedulePlayerTimeTracking()
     }),
 ])
 

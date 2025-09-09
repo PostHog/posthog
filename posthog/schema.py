@@ -14263,6 +14263,12 @@ class QueryRequest(BaseModel):
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
     )
     filters_override: Optional[DashboardFilter] = None
+    name: Optional[str] = Field(
+        default=None,
+        description=(
+            "Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name."
+        ),
+    )
     query: Union[
         EventsNode,
         ActionsNode,
