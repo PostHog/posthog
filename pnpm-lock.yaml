@@ -1666,7 +1666,7 @@ importers:
         specifier: '*'
         version: 18.2.0
 
-  products/embedded-analytics:
+  products/embedded_analytics:
     dependencies:
       '@posthog/icons':
         specifier: 0.28.1

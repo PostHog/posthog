@@ -340,7 +340,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.EmbeddedAnalytics]: {
         projectBased: true,
-        name: 'Embedded Analytics',
+        name: 'Embedded analytics',
         layout: 'app-container',
     },
     [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },

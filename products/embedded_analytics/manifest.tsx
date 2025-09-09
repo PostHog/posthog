@@ -4,13 +4,13 @@ import { urls } from 'scenes/urls'
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
-    name: 'Embedded Analytics',
+    name: 'Embedded analytics',
     urls: {
         embeddedAnalytics: (): string => `/embedded-analytics`,
     },
     fileSystemTypes: {
         embedded_analytics: {
-            name: 'Embedded Analytics',
+            name: 'Embedded analytics',
             iconType: 'embedded_analytics',
             href: () => urls.embeddedAnalytics(),
             iconColor: ['var(--color-product-embedded-analytics-light)'],
@@ -20,7 +20,7 @@ export const manifest: ProductManifest = {
     },
     treeItemsProducts: [
         {
-            path: 'Embedded Analytics',
+            path: 'Embedded analytics',
             category: 'Tools',
             href: urls.embeddedAnalytics(),
             type: 'embedded_analytics',

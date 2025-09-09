@@ -16,7 +16,7 @@ export function EmbeddedAnalyticsScene(): JSX.Element {
             <PageHeader />
             <SceneContent>
                 <SceneTitleSection
-                    name="Embedded Analytics"
+                    name="Embedded analytics"
                     description="Monitor API usage metrics and system performance through embedded analytics dashboard."
                     resourceType={{
                         type: 'embedded',
