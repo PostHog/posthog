@@ -2364,6 +2364,7 @@ export type FileSystemIconType =
     | 'llm_analytics'
     | 'product_analytics'
     | 'revenue_analytics'
+    | 'embedded_analytics'
     | 'sql_editor'
     | 'web_analytics'
     | 'error_tracking'

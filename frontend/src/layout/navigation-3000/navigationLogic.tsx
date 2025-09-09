@@ -473,6 +473,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   tooltipDocLink: 'https://posthog.com/docs/revenue-analytics/getting-started',
                               }
                             : null,
+                        featureFlags[FEATURE_FLAGS.EMBEDDED_ANALYTICS]
+                            ? {
+                                  identifier: Scene.EmbeddedAnalytics,
+                                  label: 'Embedded analytics',
+                                  icon: <IconPieChart />,
+                                  to: urls.embeddedAnalytics(),
+                                  tag: 'alpha' as const,
+                              }
+                            : null,
                         {
                             identifier: Scene.Replay,
                             label: 'Session replay',
