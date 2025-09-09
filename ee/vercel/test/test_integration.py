@@ -212,9 +212,8 @@ class TestVercelIntegration(TestCase):
 
         new_installation = OrganizationIntegration.objects.get(integration_id=new_installation_id)
 
-        # The config should contain the payload data plus user mappings
         expected_config = self.payload.copy()
-        expected_config["user_mappings"] = {"new_user_456": mock.ANY}  # We don't care about the exact user pk
+        expected_config["user_mappings"] = {"new_user_456": mock.ANY}
 
         # Check that user mapping was created
         assert "user_mappings" in new_installation.config
@@ -226,8 +225,8 @@ class TestVercelIntegration(TestCase):
             assert new_installation.config[key] == value
 
         new_user = User.objects.get(email=self.payload["account"]["contact"]["email"])
-        assert new_user.first_name == "John"  # first_name is set to first word of full name
-        assert not new_user.is_email_verified  # Email verification is False by default
+        assert new_user.first_name == "John"
+        assert not new_user.is_email_verified
 
         new_org = new_installation.organization
         assert new_org.name == self.payload["account"]["name"]
@@ -313,7 +312,6 @@ class TestVercelIntegration(TestCase):
         VercelIntegration.upsert_installation(new_installation_id, payload_without_name, no_name_user_claims)
 
         new_user = User.objects.get(email=payload_without_name["account"]["contact"]["email"])
-        # User first name should be extracted from email since no name is provided
         assert new_user.first_name == payload_without_name["account"]["contact"]["email"].split("@")[0]
 
     def test_get_resource_not_found(self):
