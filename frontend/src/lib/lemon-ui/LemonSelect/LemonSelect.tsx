@@ -85,9 +85,9 @@ export interface LemonSelectPropsBase<T>
     startVisible?: LemonDropdownProps['startVisible']
     /** Access control props for automatic permission checking */
     accessControl?: {
-        userLevel: AccessControlLevel
-        minLevel: AccessControlLevel
-        resource: AccessControlResourceType
+        resourceType: AccessControlResourceType
+        minAccessLevel: AccessControlLevel
+        userAccessLevel?: AccessControlLevel
     }
 }
 

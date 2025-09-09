@@ -13,6 +13,7 @@ import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToN
 
 import { SessionRecordingType } from '~/types'
 
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { playlistLogic } from './playlistLogic'
 
 const SCROLL_TRIGGER_OFFSET = 100
@@ -77,6 +78,7 @@ export function Playlist({
     filterContent,
 }: PlaylistProps): JSX.Element {
     const { isFiltersExpanded } = useValues(playlistLogic)
+    const { isCinemaMode } = useValues(playerSettingsLogic)
 
     const firstItem = sections
         .filter((s): s is PlaylistRecordingPreviewBlock => 'items' in s)
@@ -143,11 +145,34 @@ export function Playlist({
     return (
         <>
             <div
-                className={clsx('flex flex-col w-full gap-2 h-full', {
-                    'xl:flex-row': true,
+                className={clsx('w-full gap-2 h-full', {
+                    'flex flex-col xl:flex-row order-last': !isCinemaMode,
                 })}
             >
-                <div className="flex flex-col min-w-60 xl:max-w-80 xl:min-w-80">
+                <div
+                    className={clsx('Playlist w-full min-w-96', {
+                        'h-full min-h-96 lg:min-w-[560px] order-first xl:order-none': !isCinemaMode,
+                        'order-first mb-2': isCinemaMode,
+                        'Playlist--wide': size !== 'small',
+                        'Playlist--embedded': embedded,
+                    })}
+                >
+                    {!isFiltersExpanded && content && (
+                        <div className="Playlist__main h-full">
+                            {' '}
+                            {typeof content === 'function' ? content({ activeItem }) : content}
+                        </div>
+                    )}
+
+                    {isFiltersExpanded && filterContent && (
+                        <div className="bg-surface-primary p-2 w-full min-h-full">{filterContent}</div>
+                    )}
+                </div>
+                <div
+                    className={clsx('flex flex-col min-w-60', {
+                        'xl:max-w-80 xl:min-w-80 order-first mt-2': !isCinemaMode,
+                    })}
+                >
                     {filterActions && (
                         <DraggableToNotebook className="mb-2" href={notebooksHref}>
                             {filterActions}
@@ -156,7 +181,9 @@ export function Playlist({
                     <div
                         ref={playlistRef}
                         data-attr={dataAttr}
-                        className={clsx('Playlist w-full min-w-60 min-h-96', {
+                        className={clsx('Playlist w-full min-w-60', {
+                            'min-h-96': !isCinemaMode,
+                            'h-96': isCinemaMode,
                             'Playlist--wide': size !== 'small',
                             'Playlist--embedded': embedded,
                         })}
@@ -220,26 +247,6 @@ export function Playlist({
                             </div>
                         </div>
                     </div>
-                </div>
-                <div
-                    className={clsx(
-                        'Playlist h-full min-h-96 w-full min-w-96 lg:min-w-[560px] order-first xl:order-none',
-                        {
-                            'Playlist--wide': size !== 'small',
-                            'Playlist--embedded': embedded,
-                        }
-                    )}
-                >
-                    {!isFiltersExpanded && content && (
-                        <div className="Playlist__main h-full">
-                            {' '}
-                            {typeof content === 'function' ? content({ activeItem }) : content}
-                        </div>
-                    )}
-
-                    {isFiltersExpanded && filterContent && (
-                        <div className="bg-surface-primary p-2 w-full min-h-full">{filterContent}</div>
-                    )}
                 </div>
             </div>
         </>

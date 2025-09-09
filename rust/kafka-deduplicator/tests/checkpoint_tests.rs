@@ -7,9 +7,7 @@ use kafka_deduplicator::checkpoint::{
     export::CHECKPOINT_NAME_PREFIX, CheckpointConfig, CheckpointExporter, CheckpointUploader,
 };
 use kafka_deduplicator::kafka::types::Partition;
-use kafka_deduplicator::rocksdb::deduplication_store::{
-    DeduplicationStore, DeduplicationStoreConfig,
-};
+use kafka_deduplicator::store::{DeduplicationStore, DeduplicationStoreConfig};
 
 use anyhow::Result;
 use async_trait::async_trait;

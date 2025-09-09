@@ -1,4 +1,5 @@
 import json
+from typing import Optional, cast
 
 from django.db.models import QuerySet
 
@@ -23,11 +24,6 @@ from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test
 
 logger = structlog.get_logger(__name__)
-
-
-class HogFlowTriggerSerializer(serializers.Serializer):
-    filters = HogFunctionFiltersSerializer()
-    type = serializers.ChoiceField(choices=["event"], required=True)
 
 
 class HogFlowConfigFunctionInputsSerializer(serializers.Serializer):
@@ -59,14 +55,20 @@ class HogFlowActionSerializer(serializers.Serializer):
         return super().to_internal_value(data)
 
     def validate(self, data):
+        trigger_is_function = False
         if data.get("type") == "trigger":
-            filters = data.get("config", {}).get("filters", {})
-            if filters:
-                serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
-                serializer.is_valid(raise_exception=True)
-                data["config"]["filters"] = serializer.validated_data
+            if data.get("config", {}).get("type") == "webhook":
+                trigger_is_function = True
+            elif data.get("config", {}).get("type") == "event":
+                filters = data.get("config", {}).get("filters", {})
+                if filters:
+                    serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                    serializer.is_valid(raise_exception=True)
+                    data["config"]["filters"] = serializer.validated_data
+            else:
+                raise serializers.ValidationError({"config": "Invalid trigger type"})
 
-        if "function" in data.get("type", ""):
+        if "function" in data.get("type", "") or trigger_is_function:
             template_id = data.get("config", {}).get("template_id", "")
             template = HogFunctionTemplate.get_template(template_id)
             if not template:
@@ -105,7 +107,6 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
             "created_by",
             "updated_at",
             "trigger",
-            "trigger_masking",
             "conversion",
             "exit_condition",
             "edges",
@@ -116,7 +117,6 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
 
 
 class HogFlowSerializer(HogFlowMinimalSerializer):
-    trigger = HogFlowTriggerSerializer()
     actions = serializers.ListField(child=HogFlowActionSerializer(), required=True)
 
     class Meta:
@@ -131,7 +131,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "created_by",
             "updated_at",
             "trigger",
-            "trigger_masking",
             "conversion",
             "exit_condition",
             "edges",
@@ -143,9 +142,21 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "version",
             "created_at",
             "created_by",
-            "trigger_masking",
             "abort_action",
         ]
+
+    def validate(self, data):
+        instance = cast(Optional[HogFlow], self.instance)
+        actions = data.get("actions", instance.actions if instance else [])
+        # The trigger is derived from the actions. We can trust the action level validation and pull it out
+        trigger_actions = [action for action in actions if action.get("type") == "trigger"]
+
+        if len(trigger_actions) != 1:
+            raise serializers.ValidationError({"actions": "Exactly one trigger action is required"})
+
+        data["trigger"] = trigger_actions[0]["config"]
+
+        return data
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFlow:
         request = self.context["request"]
