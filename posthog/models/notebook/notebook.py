@@ -23,6 +23,7 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     title = models.CharField(max_length=256, blank=True, null=True)
     content: JSONField = JSONField(default=None, null=True, blank=True)
     text_content = models.TextField(blank=True, null=True)
+    tags = JSONField(default=list, blank=True)
     deleted = models.BooleanField(default=False)
     visibility = models.CharField(choices=Visibility.choices, default=Visibility.DEFAULT, max_length=20)
     version = models.IntegerField(default=0)

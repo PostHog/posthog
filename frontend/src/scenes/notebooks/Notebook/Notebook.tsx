@@ -4,6 +4,8 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { LemonTag } from '@posthog/lemon-ui'
+
 import { NotFound } from 'lib/components/NotFound'
 import { EditorFocusPosition, JSONContent } from 'lib/components/RichContentEditor/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -135,6 +137,16 @@ export function Notebook({
                             It's a great place to gather ideas before turning into a saved Notebook!
                         </LemonBanner>
                     ) : null}
+
+                    {notebook?.tags && notebook.tags.length > 0 && (
+                        <div className="flex items-center gap-2 mb-4 px-4">
+                            {notebook.tags.map((tag) => (
+                                <LemonTag key={tag} type="primary" size="small">
+                                    {tag}
+                                </LemonTag>
+                            ))}
+                        </div>
+                    )}
 
                     <div className="Notebook_content">
                         <NotebookColumnLeft />

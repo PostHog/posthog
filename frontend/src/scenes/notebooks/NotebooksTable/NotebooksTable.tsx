@@ -24,14 +24,21 @@ function titleColumn(): LemonTableColumn<NotebookListItemType, 'title'> {
         title: 'Title',
         dataIndex: 'title',
         width: '100%',
-        render: function Render(title, { short_id, is_template }) {
+        render: function Render(title, { short_id, is_template, tags }) {
             return (
                 <Link
                     data-attr="notebook-title"
                     to={urls.notebook(short_id)}
                     className="font-semibold flex items-center gap-2"
                 >
-                    {title || 'Untitled'}
+                    <div className="flex items-center gap-2">
+                        {title || 'Untitled'}
+                        {tags?.map((tag) => (
+                            <LemonTag key={tag} type="primary">
+                                {tag}
+                            </LemonTag>
+                        ))}
+                    </div>
                     {is_template && <LemonTag type="highlight">TEMPLATE</LemonTag>}
                 </Link>
             )

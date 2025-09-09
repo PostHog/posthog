@@ -83,6 +83,7 @@ class DeepResearchReportNode(DeepResearchNode):
             chain,
             config,
             DeepResearchNodeName.REPORT,
+            stage="Research Report",
             stream_parameters={
                 "intermediate_results": intermediate_results_text,
                 "artifacts": artifacts_text,

@@ -57,7 +57,9 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
         node_name: DeepResearchNodeName,
         stream_parameters: Optional[dict] = None,
         context: Optional[NotebookContext] = None,
+        stage: Optional[str] = None,
     ) -> NotebookUpdateMessage:
+        stage = stage or node_name.value
         notebook_update_message = None
         writer = get_stream_writer()
         chunk = AIMessageChunk(content="")
@@ -69,7 +71,7 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
                 continue
 
             chunk = merge_message_chunk(chunk, new_chunk)
-            notebook_update_message = await self._llm_chunk_to_notebook_update_message(chunk, context)
+            notebook_update_message = await self._llm_chunk_to_notebook_update_message(chunk, stage, context)
             custom_message = self._message_to_langgraph_update(notebook_update_message, node_name)
             writer(custom_message)
 
@@ -88,7 +90,7 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
         return self._notebook_serializer
 
     async def _llm_chunk_to_notebook_update_message(
-        self, response: AIMessageChunk, context: Optional[NotebookContext] = None
+        self, response: AIMessageChunk, stage: str, context: Optional[NotebookContext] = None
     ) -> NotebookUpdateMessage:
         if not self.notebook:
             self.notebook = await self._create_notebook()
@@ -108,6 +110,9 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
 
         self.notebook.title = title or "Deep Research Plan"
         self.notebook.content = json_content.model_dump(exclude_none=True)
+
+        if stage not in self.notebook.tags:
+            self.notebook.tags.append(stage)
         await self.notebook.asave()
         return NotebookUpdateMessage(  # doesn't have an id because it's a partial update
             notebook_id=str(self.notebook.short_id),

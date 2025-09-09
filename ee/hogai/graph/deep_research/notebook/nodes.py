@@ -27,7 +27,9 @@ class DeepResearchNotebookPlanningNode(DeepResearchNode):
 
         chain = prompt | self._get_model(instructions, state.previous_response_id)
 
-        notebook_update_message = await self._astream_notebook(chain, config, DeepResearchNodeName.NOTEBOOK_PLANNING)
+        notebook_update_message = await self._astream_notebook(
+            chain, config, DeepResearchNodeName.NOTEBOOK_PLANNING, stage="Research Plan"
+        )
 
         notebook_title = self.notebook.title if self.notebook else "Planning Notebook"
         notebook_info = DeepResearchNotebookInfo(
