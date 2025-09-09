@@ -408,7 +408,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         batchsize=DEFAULT_COHORT_INSERT_BATCH_SIZE,
         *,
         team_id: int,
-    ) -> None:
+    ) -> int:
         """
         Insert a list of users identified by their UUID into the cohort, for the given team.
 
@@ -417,10 +417,13 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             insert_in_clickhouse: Whether the data should also be inserted into ClickHouse.
             batchsize: Number of UUIDs to process in each batch.
             team_id: The ID of the team to which the cohort belongs.
+
+        Returns:
+            The number of batches processed.
         """
 
         batch_iterator = ArrayBatchIterator(items, batch_size=batchsize)
-        self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse, team_id=team_id)
+        return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse, team_id=team_id)
 
     def _insert_users_list_with_batching(
         self, batch_iterator: BatchIterator[str], insert_in_clickhouse: bool = False, *, team_id: int
