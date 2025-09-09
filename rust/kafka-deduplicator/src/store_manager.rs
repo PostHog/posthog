@@ -55,32 +55,29 @@ struct CleanupStatus {
 
 impl fmt::Display for CleanupStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "=== Cleanup Status ===")?;
+        // Format partitions as a compact list
+        let partitions: Vec<String> = self
+            .assigned_partitions
+            .iter()
+            .map(|p| p.to_string())
+            .collect();
 
-        // Assigned partitions
-        writeln!(
-            f,
-            "Assigned Partitions ({}):",
-            self.assigned_partitions.len()
-        )?;
-        for partition in &self.assigned_partitions {
-            writeln!(f, "  - {partition}")?;
-        }
+        // Format folder info as compact list with sizes
+        let folders: Vec<String> = self
+            .folder_info
+            .iter()
+            .map(|fi| format!("{}:{:.2}MB", fi.name, fi.size_mb()))
+            .collect();
 
-        // Folder sizes (all folders, sorted by size)
-        writeln!(
+        write!(
             f,
-            "\nStore Folders on Disk ({} folders):",
+            "CleanupStatus {{ partitions: [{}], folders: [{}], total_disk_mb: {:.2}, partition_count: {}, folder_count: {} }}",
+            partitions.join(", "),
+            folders.join(", "),
+            self.total_disk_usage_mb,
+            self.assigned_partitions.len(),
             self.folder_info.len()
-        )?;
-        for folder in &self.folder_info {
-            writeln!(f, "  - {folder}")?;
-        }
-
-        // Total usage
-        writeln!(f, "\nTotal Disk Usage: {:.2} MB", self.total_disk_usage_mb)?;
-
-        Ok(())
+        )
     }
 }
 
