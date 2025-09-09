@@ -65,7 +65,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                     })
                     actions.loadIntegrations()
                     actions.setIntegration(integration)
-                    actions.verifyDomain()
+                    actions.verifySender()
                     return config
                 } catch (error) {
                     console.error(error)
@@ -82,7 +82,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
             setIntegration: (integration?: IntegrationType) => integration,
         },
         verification: {
-            verifyDomain: async () => {
+            verifySender: async () => {
                 return api.integrations.verifyEmail(values.integration.id)
             },
         },
@@ -96,10 +96,10 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
     listeners(({ props, values, actions }) => ({
         submitEmailSenderSuccess: () => {
             // After creating the integration, verify the domain
-            actions.verifyDomain()
+            actions.verifySender()
         },
-        verifyDomainSuccess: ({ verification }) => {
-            if (verification.status === 'success') {
+        verifySender: ({ verification }) => {
+            if (verification.domain_verification.status === 'success') {
                 lemonToast.success('Domain verified successfully!')
                 actions.loadIntegrations()
                 props.onComplete(values.integration.id)
@@ -109,7 +109,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
     afterMount(({ props, actions }) => {
         if (props.integration) {
             actions.setIntegration(props.integration)
-            actions.verifyDomain()
+            actions.verifySender()
         }
     }),
 ])

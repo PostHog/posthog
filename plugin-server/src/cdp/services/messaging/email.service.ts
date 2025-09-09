@@ -86,6 +86,10 @@ export class EmailService {
             throw new Error('The selected email integration domain is not verified')
         }
 
+        if (!integration.config.mailjet_email_address_verified) {
+            throw new Error('The selected email address is not verified. Check your email for a verification link.')
+        }
+
         if (!integration.config.email || !integration.config.name) {
             throw new Error('The selected email integration is not configured correctly')
         }

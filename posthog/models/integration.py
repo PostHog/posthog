@@ -1018,7 +1018,7 @@ class EmailIntegration:
         mailjet = MailjetProvider()
 
         # TODO: Look for integration belonging to the team with the same domain
-        mailjet.create_email_domain(domain, team_id=team_id)
+        mailjet.create_email_sender(email_address, team_id=team_id)
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
@@ -1069,10 +1069,12 @@ class EmailIntegration:
 
     def verify(self):
         domain = self.integration.config.get("domain")
+        email_address = self.integration.config.get("email")
 
-        verification_result = self.mailjet_provider.verify_email_domain(domain, team_id=self.integration.team_id)
+        domain_verification_result = self.mailjet_provider.verify_email_domain(domain)
+        email_address_verification_result = self.mailjet_provider.verify_email_address(email_address)
 
-        if verification_result.get("status") == "success":
+        if domain_verification_result.get("status") == "success":
             # We can validate all other integrations with the same domain
             other_integrations = Integration.objects.filter(
                 team_id=self.integration.team_id,
@@ -1083,7 +1085,22 @@ class EmailIntegration:
                 integration.config["mailjet_verified"] = True
                 integration.save()
 
-        return verification_result
+        if email_address_verification_result.get("status") == "success":
+            self.integration.config["mailjet_email_address_verified"] = True
+            self.integration.save()
+
+        overall_status = (
+            "success"
+            if domain_verification_result.get("status") == "success"
+            and email_address_verification_result.get("status") == "success"
+            else "failed"
+        )
+
+        return {
+            "overall_status": overall_status,
+            "domain_verification": domain_verification_result,
+            "email_address_verification": email_address_verification_result,
+        }
 
 
 class LinearIntegration:

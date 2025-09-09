@@ -119,26 +119,44 @@ class MailjetProvider:
             logger.exception(f"Mailjet API error checking DNS records: {e}")
             raise
 
-    def create_email_domain(self, domain: str, team_id: int):
+    def _check_email_address(self, email: str):
+        """
+        Check validation status of a sender email address via Mailjet API.
+        Reference: https://dev.mailjet.com/email/reference/sender-addresses-and-domains/sender/#v3_post_sender_validate
+        """
+        url = f"{MailjetConfig.API_BASE_URL_V3}{MailjetConfig.SENDER_ENDPOINT}/{email}/validate"
+
+        try:
+            response = requests.post(url, auth=(self.api_key, self.api_secret), headers=MailjetConfig.DEFAULT_HEADERS)
+
+            if response.status_code == 400 and "The sender is already active" in response.text:
+                # If the sender address already exists, we can return without raising exception
+                return
+
+            response.raise_for_status()
+            return MailjetResponse(**response.json()).get_first_item()
+        except requests.exceptions.RequestException as e:
+            logger.exception(f"Mailjet API error creating sender email: {e}")
+            raise
+
+    def create_email_sender(self, sender: str, team_id: int):
         """
         Create a new sender domain in Mailjet
 
         Reference: https://dev.mailjet.com/email/reference/sender-addresses-and-domains/sender/#v3_post_sender
         """
-        # Validate the domain contains valid characters for a domain name
-        DOMAIN_REGEX = r"(?i)^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
-        if not re.match(DOMAIN_REGEX, domain):
-            raise exceptions.ValidationError("Please enter a valid domain or subdomain name.")
-
-        sender_domain = f"*@{domain}"
+        # Validate the domain contains valid characters for an email address
+        EMAIL_REGEX = r"(?i)^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+        if not re.match(EMAIL_REGEX, sender):
+            raise exceptions.ValidationError("Please enter a valid email address.")
 
         url = f"{MailjetConfig.API_BASE_URL_V3}{MailjetConfig.SENDER_ENDPOINT}"
 
         # Use the team ID and domain to create a unique sender name on Mailjet side.
         # This isn't used by PostHog, but can be helpful when looking at senders in the Mailjet console.
-        delimited_sender_name = f"{team_id}|{domain}"
+        delimited_sender_name = f"{team_id}|{sender}"
         # EmailType = "unknown" as both transactional and campaign emails may be sent from this domain
-        payload = {"EmailType": "unknown", "Email": sender_domain, "Name": delimited_sender_name}
+        payload = {"EmailType": "unknown", "Email": sender, "Name": delimited_sender_name}
 
         try:
             response = requests.post(
@@ -147,7 +165,8 @@ class MailjetProvider:
 
             if (
                 response.status_code == 400
-                and "There is an already existing inactive sender with the same email" in response.text
+                and "There is an already existing" in response.text
+                and "sender with the same email" in response.text
             ):
                 # If the domain already exists, we can return without raising exception
                 return
@@ -157,7 +176,7 @@ class MailjetProvider:
             logger.exception(f"Mailjet API error creating sender domain: {e}")
             raise
 
-    def verify_email_domain(self, domain: str, team_id: int):
+    def verify_email_domain(self, domain: str):
         """
         Verify the email domain by checking DNS records status.
         """
@@ -165,3 +184,18 @@ class MailjetProvider:
         dns_status_response = self._check_domain_dns_records(domain)
         overall_status, formatted_dns_records = self._format_dns_records(required_dns_records, dns_status_response)
         return {"status": overall_status, "dnsRecords": formatted_dns_records}
+
+    def verify_email_address(self, email: str):
+        """
+        With Mailjet, verification emails are sent to email addresses when they are added as senders.
+        This function checks the verification status of the individual email address apart from domain DNS validation.
+        """
+        email_address_status = self._check_email_address(email)
+        if (
+            not email_address_status
+            or email_address_status.get("Emails", False)
+            or email_address_status.get("GlobalError", False)
+        ):
+            return {"status": "pending"}
+
+        return {"status": "success"}

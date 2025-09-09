@@ -232,7 +232,7 @@ class TestEmailIntegration:
         assert integration.sensitive_config == {}
         assert integration.created_by == self.user
 
-        mock_client.create_email_domain.assert_called_once_with("posthog.com", team_id=self.team.id)
+        mock_client.create_email_sender.assert_called_once_with("posthog.com", team_id=self.team.id)
 
     @patch("posthog.models.integration.MailjetProvider")
     def test_email_verify_returns_mailjet_result(self, mock_mailjet_provider_class):

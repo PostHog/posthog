@@ -13,10 +13,19 @@ const isVerificationRequired = (integration: IntegrationType): boolean => {
     return ['email'].includes(integration.kind)
 }
 
-const isVerified = (integration: IntegrationType): boolean => {
+const isGroupVerified = (integration: IntegrationType): boolean => {
     switch (integration.kind) {
         case 'email':
             return integration.config.mailjet_verified === true
+        default:
+            return true
+    }
+}
+
+const isSenderVerified = (integration: IntegrationType): boolean => {
+    switch (integration.kind) {
+        case 'email':
+            return integration.config.mailjet_email_address_verified === true
         default:
             return true
     }
@@ -29,7 +38,7 @@ export function IntegrationEmailDomainView({
 }): JSX.Element {
     const { openSetupModal, deleteIntegration } = useActions(integrationsLogic)
     const { domain, integrations } = integration
-    const verified = integrations.every(isVerified)
+    const groupVerified = integrations.every(isGroupVerified)
     const verificationRequired = integrations.some(isVerificationRequired)
 
     return (
@@ -45,19 +54,19 @@ export function IntegrationEmailDomainView({
                             {verificationRequired && (
                                 <Tooltip
                                     title={
-                                        verified
+                                        groupVerified
                                             ? 'This channel is ready to use'
-                                            : 'You cannot send messages from this channel until it has been verified'
+                                            : 'You cannot send messages from this domain until it has been verified'
                                     }
                                 >
-                                    <LemonTag type={verified ? 'success' : 'warning'}>
-                                        {verified ? 'Verified' : 'Unverified'}
+                                    <LemonTag type={groupVerified ? 'success' : 'warning'}>
+                                        {groupVerified ? 'Verified' : 'Unverified'}
                                     </LemonTag>
                                 </Tooltip>
                             )}
                         </div>
                     </div>
-                    {verificationRequired && !verified && (
+                    {verificationRequired && !groupVerified && (
                         <LemonButton
                             type="primary"
                             size="small"
@@ -75,9 +84,22 @@ export function IntegrationEmailDomainView({
             <div className="flex flex-col">
                 {integrations.map((integration) => (
                     <div key={integration.id} className="flex items-center px-4 py-2 border-t">
-                        <span className="flex-1">
-                            {integration.config.name} &lt;{integration.config.email}&gt;
-                        </span>
+                        <div className=" flex gap-2 flex-1">
+                            <span>
+                                {integration.config.name} &lt;{integration.config.email}&gt;
+                            </span>
+                            <Tooltip
+                                title={
+                                    isSenderVerified(integration)
+                                        ? 'This sender is ready to use'
+                                        : 'You cannot send messages from this address until it has been verified. Check your email for a verification link.'
+                                }
+                            >
+                                <LemonTag type={isSenderVerified(integration) ? 'success' : 'warning'}>
+                                    {isSenderVerified(integration) ? 'Verified' : 'Unverified'}
+                                </LemonTag>
+                            </Tooltip>
+                        </div>
                         <LemonButton
                             size="small"
                             status="danger"

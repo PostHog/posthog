@@ -5646,23 +5646,29 @@ export type OAuthApplicationPublicMetadata = {
     client_id: string
 }
 export interface EmailSenderDomainStatus {
-    status: 'pending' | 'success'
-    dnsRecords: (
-        | {
-              type: 'dkim'
-              recordType: 'TXT'
-              recordHostname: string
-              recordValue: string
-              status: 'pending' | 'success'
-          }
-        | {
-              type: 'spf'
-              recordType: 'TXT'
-              recordHostname: '@'
-              recordValue: string
-              status: 'pending' | 'success'
-          }
-    )[]
+    domain_verification: {
+        status: 'pending' | 'success'
+        dnsRecords: (
+            | {
+                  type: 'dkim'
+                  recordType: 'TXT'
+                  recordHostname: string
+                  recordValue: string
+                  status: 'pending' | 'success'
+              }
+            | {
+                  type: 'spf'
+                  recordType: 'TXT'
+                  recordHostname: '@'
+                  recordValue: string
+                  status: 'pending' | 'success'
+              }
+        )[]
+    }
+    email_address_verification: {
+        status: 'pending' | 'success'
+    }
+    overall_status: 'pending' | 'success'
 }
 
 // Representation of a `Link` model in our backend
