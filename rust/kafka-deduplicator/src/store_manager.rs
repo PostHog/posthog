@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use dashmap::DashMap;
+use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -10,6 +11,77 @@ use crate::kafka::types::Partition;
 use crate::metrics::MetricsHelper;
 use crate::rocksdb::metrics_consts::*;
 use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
+
+/// Information about folder sizes on disk
+#[derive(Debug, Clone)]
+struct FolderInfo {
+    name: String,
+    size_bytes: u64,
+}
+
+impl FolderInfo {
+    fn size_mb(&self) -> f64 {
+        self.size_bytes as f64 / (1024.0 * 1024.0)
+    }
+}
+
+impl fmt::Display for FolderInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {:.2} MB", self.name, self.size_mb())
+    }
+}
+
+/// Information about assigned partitions
+#[derive(Debug, Clone)]
+struct AssignedPartition {
+    topic: String,
+    partition: i32,
+}
+
+impl fmt::Display for AssignedPartition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.topic, self.partition)
+    }
+}
+
+/// Combined cleanup status information
+#[derive(Debug)]
+struct CleanupStatus {
+    assigned_partitions: Vec<AssignedPartition>,
+    folder_info: Vec<FolderInfo>,
+    total_disk_usage_mb: f64,
+}
+
+impl fmt::Display for CleanupStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "=== Cleanup Status ===")?;
+
+        // Assigned partitions
+        writeln!(
+            f,
+            "Assigned Partitions ({}):",
+            self.assigned_partitions.len()
+        )?;
+        for partition in &self.assigned_partitions {
+            writeln!(f, "  - {partition}")?;
+        }
+
+        // Folder sizes (all folders, sorted by size)
+        writeln!(
+            f,
+            "\nStore Folders on Disk ({} folders):",
+            self.folder_info.len()
+        )?;
+        for folder in &self.folder_info {
+            writeln!(f, "  - {folder}")?;
+        }
+
+        // Total usage
+        writeln!(f, "\nTotal Disk Usage: {:.2} MB", self.total_disk_usage_mb)?;
+
+        Ok(())
+    }
+}
 
 /// Manages the lifecycle of deduplication stores, handling concurrent access
 /// and creation in a thread-safe manner.
@@ -225,6 +297,9 @@ impl StoreManager {
             total_size, self.store_config.max_capacity
         );
 
+        // Log folder sizes and assigned partitions
+        self.log_folder_sizes_and_partitions();
+
         // We need to clean up - target 80% of max capacity
         let target_size = (self.store_config.max_capacity as f64 * 0.8) as u64;
         let bytes_to_free = total_size.saturating_sub(target_size);
@@ -401,6 +476,78 @@ impl StoreManager {
         }
 
         Ok(())
+    }
+
+    /// Log folder sizes and assigned partitions for debugging
+    fn log_folder_sizes_and_partitions(&self) {
+        let status = self.get_cleanup_status();
+        info!("{}", status);
+    }
+
+    /// Get cleanup status information
+    fn get_cleanup_status(&self) -> CleanupStatus {
+        // Get assigned partitions
+        let mut assigned_partitions = Vec::new();
+        for entry in self.stores.iter() {
+            let partition = entry.key();
+            assigned_partitions.push(AssignedPartition {
+                topic: partition.topic().to_string(),
+                partition: partition.partition_number(),
+            });
+        }
+
+        // Sort partitions for consistent output
+        assigned_partitions
+            .sort_by(|a, b| a.topic.cmp(&b.topic).then(a.partition.cmp(&b.partition)));
+
+        // Get folder sizes from filesystem
+        let mut folder_info = Vec::new();
+        let mut total_disk_usage_bytes = 0u64;
+
+        if let Ok(entries) = std::fs::read_dir(&self.store_config.path) {
+            for entry in entries.flatten() {
+                if let Ok(metadata) = entry.metadata() {
+                    if metadata.is_dir() {
+                        let folder_name = entry.file_name().to_string_lossy().to_string();
+                        let folder_size =
+                            StoreManager::get_directory_size(&entry.path()).unwrap_or(0);
+                        total_disk_usage_bytes += folder_size;
+                        folder_info.push(FolderInfo {
+                            name: folder_name,
+                            size_bytes: folder_size,
+                        });
+                    }
+                }
+            }
+
+            // Sort by size descending
+            folder_info.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes));
+        }
+
+        CleanupStatus {
+            assigned_partitions,
+            folder_info,
+            total_disk_usage_mb: total_disk_usage_bytes as f64 / (1024.0 * 1024.0),
+        }
+    }
+
+    /// Calculate the size of a directory recursively
+    fn get_directory_size(path: &std::path::Path) -> Result<u64> {
+        let mut size = 0u64;
+
+        if let Ok(entries) = std::fs::read_dir(path) {
+            for entry in entries.flatten() {
+                if let Ok(metadata) = entry.metadata() {
+                    if metadata.is_file() {
+                        size += metadata.len();
+                    } else if metadata.is_dir() {
+                        size += StoreManager::get_directory_size(&entry.path()).unwrap_or(0);
+                    }
+                }
+            }
+        }
+
+        Ok(size)
     }
 }
 
