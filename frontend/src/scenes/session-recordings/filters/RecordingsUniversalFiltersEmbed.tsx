@@ -6,7 +6,6 @@ import { useState } from 'react'
 import { IconArrowRight, IconClock, IconEye, IconFilter, IconHide, IconPlus, IconRevert, IconX } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonInput, LemonModal, LemonTab, LemonTabs, Popover } from '@posthog/lemon-ui'
 
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
@@ -478,22 +477,23 @@ export const RecordingsUniversalFiltersEmbed = ({
                                     Update "{appliedSavedFilter.name || 'Unnamed'}"
                                 </LemonButton>
                             ) : (
-                                <AccessControlledLemonButton
+                                <LemonButton
                                     type="secondary"
                                     size="small"
                                     onClick={() => setIsSaveFiltersModalOpen(true)}
                                     disabledReason={(totalFiltersCount ?? 0) === 0 ? 'No filters applied' : undefined}
                                     tooltip="Save filters for later"
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    resourceType={AccessControlResourceType.SessionRecording}
-                                    userAccessLevel={
-                                        getAppContext()?.resource_access_control?.[
-                                            AccessControlResourceType.SessionRecording
-                                        ]
-                                    }
+                                    accessControl={{
+                                        resourceType: AccessControlResourceType.SessionRecording,
+                                        minAccessLevel: AccessControlLevel.Editor,
+                                        userAccessLevel:
+                                            getAppContext()?.resource_access_control?.[
+                                                AccessControlResourceType.SessionRecording
+                                            ],
+                                    }}
                                 >
                                     Add to "Saved filters"
-                                </AccessControlledLemonButton>
+                                </LemonButton>
                             )}
                         </div>
                         <LemonButton

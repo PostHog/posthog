@@ -4,7 +4,6 @@ import { useActions, useValues } from 'kea'
 import { IconCalendar, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonDivider, LemonInput, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -162,15 +161,16 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
             dataIndex: 'pinned',
             render: function Render(pinned, { short_id }) {
                 return (
-                    <AccessControlledLemonButton
+                    <LemonButton
                         size="small"
                         onClick={() => updatePlaylist(short_id, { pinned: !pinned })}
                         icon={pinned ? <IconPinFilled /> : <IconPin />}
-                        minAccessLevel={AccessControlLevel.Editor}
-                        resourceType={AccessControlResourceType.SessionRecording}
-                        userAccessLevel={
-                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
-                        }
+                        accessControl={{
+                            resourceType: AccessControlResourceType.SessionRecording,
+                            minAccessLevel: AccessControlLevel.Editor,
+                            userAccessLevel:
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                        }}
                     />
                 )
             },
@@ -210,38 +210,40 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     <More
                         overlay={
                             <>
-                                <AccessControlledLemonButton
+                                <LemonButton
                                     onClick={() => duplicatePlaylist(playlist)}
                                     fullWidth
                                     data-attr="duplicate-playlist"
                                     loading={playlistsLoading}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    resourceType={AccessControlResourceType.SessionRecording}
-                                    userAccessLevel={
-                                        getAppContext()?.resource_access_control?.[
-                                            AccessControlResourceType.SessionRecording
-                                        ]
-                                    }
+                                    accessControl={{
+                                        resourceType: AccessControlResourceType.SessionRecording,
+                                        minAccessLevel: AccessControlLevel.Editor,
+                                        userAccessLevel:
+                                            getAppContext()?.resource_access_control?.[
+                                                AccessControlResourceType.SessionRecording
+                                            ],
+                                    }}
                                 >
                                     Duplicate
-                                </AccessControlledLemonButton>
+                                </LemonButton>
                                 <LemonDivider />
 
-                                <AccessControlledLemonButton
+                                <LemonButton
                                     status="danger"
                                     onClick={() => deletePlaylist(playlist)}
                                     fullWidth
                                     loading={playlistsLoading}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    resourceType={AccessControlResourceType.SessionRecording}
-                                    userAccessLevel={
-                                        getAppContext()?.resource_access_control?.[
-                                            AccessControlResourceType.SessionRecording
-                                        ]
-                                    }
+                                    accessControl={{
+                                        resourceType: AccessControlResourceType.SessionRecording,
+                                        minAccessLevel: AccessControlLevel.Editor,
+                                        userAccessLevel:
+                                            getAppContext()?.resource_access_control?.[
+                                                AccessControlResourceType.SessionRecording
+                                            ],
+                                    }}
                                 >
                                     Delete collection
-                                </AccessControlledLemonButton>
+                                </LemonButton>
                             </>
                         }
                     />

@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 import { IconEllipsis, IconGear, IconOpenSidebar } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import {
     AuthorizedUrlListType,
     authorizedUrlListLogic,
@@ -82,21 +81,22 @@ function Header(): JSX.Element {
                         )}
 
                         {tab === ReplayTabs.Playlists && (
-                            <AccessControlledLemonButton
+                            <LemonButton
                                 type="primary"
                                 onClick={(e) => newPlaylistHandler.onEvent?.(e)}
                                 data-attr="save-recordings-playlist-button"
                                 loading={newPlaylistHandler.loading}
-                                minAccessLevel={AccessControlLevel.Editor}
-                                resourceType={AccessControlResourceType.SessionRecording}
-                                userAccessLevel={
-                                    getAppContext()?.resource_access_control?.[
-                                        AccessControlResourceType.SessionRecording
-                                    ]
-                                }
+                                accessControl={{
+                                    resourceType: AccessControlResourceType.SessionRecording,
+                                    minAccessLevel: AccessControlLevel.Editor,
+                                    userAccessLevel:
+                                        getAppContext()?.resource_access_control?.[
+                                            AccessControlResourceType.SessionRecording
+                                        ],
+                                }}
                             >
                                 New collection
-                            </AccessControlledLemonButton>
+                            </LemonButton>
                         )}
                     </>
                 }
