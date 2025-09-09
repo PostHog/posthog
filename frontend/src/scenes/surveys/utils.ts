@@ -3,6 +3,7 @@ import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
+import { dateStringToDayJs } from 'lib/utils'
 import { NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
@@ -595,18 +596,20 @@ export function buildSurveyTimestampFilter(
     // ----- Handle FROM date -----
     if (dateRange.date_from) {
         // Parse user-provided date and ensure it's not before survey creation
-        const userFromDate = dayjs.utc(dateRange.date_from).startOf('day')
-        const surveyStartDate = dayjs.utc(fromDate)
+        const userFromDate = dateStringToDayJs(dateRange.date_from)?.startOf('day')
 
-        if (userFromDate.isAfter(surveyStartDate)) {
+        if (userFromDate && userFromDate.isAfter(fromDate)) {
             fromDate = userFromDate.format(DATE_FORMAT)
         }
     }
 
     // ----- Handle TO date -----
     if (dateRange.date_to) {
-        const userToDate = dayjs.utc(dateRange.date_to).endOf('day')
-        toDate = userToDate.format(DATE_FORMAT)
+        const userToDate = dateStringToDayJs(dateRange.date_to)?.endOf('day')
+
+        if (userToDate && userToDate.isBefore(toDate)) {
+            toDate = userToDate.format(DATE_FORMAT)
+        }
     }
 
     return `AND timestamp >= '${fromDate}'

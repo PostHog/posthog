@@ -545,6 +545,7 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         end_at,
                         model,
                         filters,
+                        json_config_file,
                         ...config
                     } = formdata
                     const destinationObj = {

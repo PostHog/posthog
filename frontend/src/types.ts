@@ -51,6 +51,7 @@ import type {
     ExperimentMetric,
     ExperimentTrendsQuery,
     ExternalDataSourceType,
+    FileSystemIconType,
     FileSystemImport,
     HogQLQuery,
     HogQLQueryModifiers,
@@ -298,6 +299,7 @@ export enum AccessControlResourceType {
     Insight = 'insight',
     Dashboard = 'dashboard',
     Notebook = 'notebook',
+    SessionRecording = 'session_recording',
 }
 
 interface UserBaseType {
@@ -4348,6 +4350,7 @@ export interface SharingConfigurationType {
     enabled: boolean
     access_token: string
     created_at: string
+    password_required: boolean
     settings?: SharingConfigurationSettings
 }
 
@@ -5597,15 +5600,17 @@ export interface CoreMemory {
 export type FileSystemIconColor = [string] | [string, string]
 
 export interface FileSystemType {
-    icon?: JSX.Element
     href?: (ref: string) => string
-    iconColor?: FileSystemIconColor
     // Visual name of the product
     name: string
     // Flag to determine if the product is enabled
     flag?: string
     // Used to filter the tree items by product
     filterKey?: string
+    // Icon type of the icon
+    iconType?: FileSystemIconType
+    // Color of the icon
+    iconColor?: FileSystemIconColor
 }
 
 export interface ProductManifest {

@@ -1,8 +1,9 @@
 import Chance from 'chance'
 import merge from 'deepmerge'
-import { DateTime, Settings } from 'luxon'
+import { Settings } from 'luxon'
 
 import { NativeDestinationExecutorService } from '~/cdp/services/native-destination-executor.service'
+import { isNativeHogFunction } from '~/cdp/utils'
 import { defaultConfig } from '~/config/config'
 import { CyclotronInputType } from '~/schema/cyclotron'
 import { GeoIPService, GeoIp } from '~/utils/geoip'
@@ -10,7 +11,6 @@ import { GeoIPService, GeoIp } from '~/utils/geoip'
 import { Hub } from '../../../types'
 import { cleanNullValues } from '../../hog-transformations/transformation-functions'
 import { HogExecutorService } from '../../services/hog-executor.service'
-import { HogInputsService } from '../../services/hog-inputs.service'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -20,6 +20,7 @@ import {
     HogFunctionTemplate,
     HogFunctionTemplateCompiled,
     HogFunctionType,
+    MinimalLogEntry,
     NativeTemplate,
 } from '../../types'
 import { cloneInvocation, createInvocation } from '../../utils/invocation-utils'
@@ -121,7 +122,8 @@ const createGlobals = (
 
 export class TemplateTester {
     public template: HogFunctionTemplateCompiled
-    private executor: HogExecutorService
+    private hogExecutor: HogExecutorService
+    private nativeExecutor: NativeDestinationExecutorService
     private mockHub: Hub
 
     private geoipService?: GeoIPService
@@ -137,7 +139,12 @@ export class TemplateTester {
 
         this.mockHub = { ...defaultConfig } as any
 
-        this.executor = new HogExecutorService(this.mockHub)
+        this.hogExecutor = new HogExecutorService(this.mockHub)
+        this.nativeExecutor = new NativeDestinationExecutorService(defaultConfig)
+    }
+
+    private getExecutor(): HogExecutorService | NativeDestinationExecutorService {
+        return isNativeHogFunction({ template_id: this.template.id }) ? this.nativeExecutor : this.hogExecutor
     }
 
     /*
@@ -159,7 +166,8 @@ export class TemplateTester {
             bytecode: await compileHog(this._template.code),
         }
 
-        this.executor = new HogExecutorService(this.mockHub)
+        this.hogExecutor = new HogExecutorService(this.mockHub)
+        this.nativeExecutor = new NativeDestinationExecutorService(this.mockHub)
     }
 
     afterEach() {
@@ -193,9 +201,10 @@ export class TemplateTester {
             created_at: '2024-01-01T00:00:00Z',
             updated_at: '2024-01-01T00:00:00Z',
             deleted: false,
+            template_id: this.template.id,
         }
 
-        const globalsWithInputs = await this.executor.buildInputsWithGlobals(hogFunction, globals)
+        const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
         const invocation = createInvocation(globalsWithInputs, hogFunction)
 
         const transformationFunctions = {
@@ -207,7 +216,7 @@ export class TemplateTester {
 
         const extraFunctions = invocation.hogFunction.type === 'transformation' ? transformationFunctions : {}
 
-        return this.executor.execute(invocation, { functions: extraFunctions })
+        return this.getExecutor().execute(invocation, { functions: extraFunctions })
     }
 
     async invokeMapping(
@@ -270,7 +279,7 @@ export class TemplateTester {
             mappings: [compiledMappingInputs],
         }
 
-        const globalsWithInputs = await this.executor.buildInputsWithGlobals(
+        const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(
             hogFunction,
             this.createGlobals(_globals),
             compiledMappingInputs.inputs
@@ -278,7 +287,7 @@ export class TemplateTester {
 
         const invocation = createInvocation(globalsWithInputs, hogFunction)
 
-        return this.executor.execute(invocation)
+        return this.getExecutor().execute(invocation)
     }
 
     async invokeFetchResponse(
@@ -292,103 +301,19 @@ export class TemplateTester {
             body: response.body,
         })
 
-        const result = await this.executor.execute(modifiedInvocation)
-
-        result.logs.forEach((x) => {
-            if (typeof x.message === 'string' && x.message.includes('Function completed in')) {
-                x.message = 'Function completed in [REPLACED]'
-            }
-        })
+        const result = await this.hogExecutor.execute(modifiedInvocation)
+        result.logs = this.logsForSnapshot(result.logs)
 
         return result
     }
-}
 
-export class DestinationTester {
-    private executor: NativeDestinationExecutorService
-    private inputsService: HogInputsService
-    private mockFetch = jest.fn()
-
-    constructor(private template: NativeTemplate) {
-        this.template = template
-        this.executor = new NativeDestinationExecutorService(defaultConfig)
-        this.inputsService = new HogInputsService(defaultConfig as Hub)
-
-        this.executor.fetch = this.mockFetch
-
-        this.mockFetch.mockResolvedValue({
-            status: 200,
-            json: () => Promise.resolve({ status: 'OK' }),
-            text: () => Promise.resolve(JSON.stringify({ status: 'OK' })),
-            headers: { 'content-type': 'application/json' },
-        })
-    }
-
-    createGlobals(globals: DeepPartialHogFunctionInvocationGlobals = {}): HogFunctionInvocationGlobalsWithInputs {
-        return createGlobals(globals)
-    }
-
-    mockFetchResponse(response?: { status?: number; body?: Record<string, any>; headers?: Record<string, string> }) {
-        const defaultResponse = {
-            status: 200,
-            body: { status: 'OK' },
-            headers: { 'content-type': 'application/json' },
-        }
-
-        const finalResponse = { ...defaultResponse, ...response }
-
-        this.mockFetch.mockResolvedValue({
-            status: finalResponse.status,
-            json: () => Promise.resolve(finalResponse.body),
-            text: () => Promise.resolve(JSON.stringify(finalResponse.body)),
-            headers: finalResponse.headers,
-        })
-    }
-
-    beforeEach() {
-        Settings.defaultZone = 'UTC'
-        const fixedTime = DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate()
-        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.getTime())
-    }
-
-    afterEach() {
-        Settings.defaultZone = 'system'
-        jest.useRealTimers()
-    }
-
-    async invoke(globals: HogFunctionInvocationGlobals, inputs: Record<string, any>) {
-        const compiledInputs = await compileInputs(this.template, inputs)
-
-        const globalsWithInputs = await this.inputsService.buildInputsWithGlobals(
-            {
-                ...this.template,
-                inputs: compiledInputs,
-            } as unknown as HogFunctionType,
-            this.createGlobals(globals)
-        )
-        const invocation = createInvocation(globalsWithInputs, {
-            ...this.template,
-            template_id: this.template.id,
-            hog: 'return event',
-            bytecode: [],
-            team_id: 1,
-            enabled: true,
-            created_at: '2024-01-01T00:00:00Z',
-            updated_at: '2024-01-01T00:00:00Z',
-            deleted: false,
-            inputs: compiledInputs,
-        })
-
-        const result = await this.executor.execute(invocation)
-
-        result.logs.forEach((x) => {
+    logsForSnapshot(logs: MinimalLogEntry[]): MinimalLogEntry[] {
+        return logs.map((x) => {
             if (typeof x.message === 'string' && x.message.includes('Function completed in')) {
                 x.message = 'Function completed in [REPLACED]'
             }
+            return x
         })
-        result.invocation.id = 'invocation-id'
-
-        return result
     }
 }
 

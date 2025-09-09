@@ -24,7 +24,6 @@ export function MarketingAnalyticsSettings({ hideTitle = false }: { hideTitle?: 
                     description={null}
                     resourceType={{
                         type: 'marketing',
-                        typePlural: 'marketing',
                         forceIcon: <IconApps />,
                     }}
                 />
