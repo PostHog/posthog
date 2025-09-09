@@ -8,7 +8,7 @@ use rdkafka::{ClientConfig, Message};
 use serde_json;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
 use crate::kafka::message::{AckableMessage, MessageProcessor};
 use crate::store::{DeduplicationStore, DeduplicationStoreConfig};

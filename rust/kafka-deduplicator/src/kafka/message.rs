@@ -2,7 +2,7 @@ use anyhow::Result;
 use rdkafka::message::OwnedMessage;
 use rdkafka::Message;
 use tokio::sync::OwnedSemaphorePermit;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
 use crate::kafka::metrics_consts::MESSAGES_AUTO_NACKED;
 use crate::kafka::tracker::{MessageCompletion, MessageHandle};
