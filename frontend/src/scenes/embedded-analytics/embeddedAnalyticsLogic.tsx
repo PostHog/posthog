@@ -36,12 +36,12 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                             yAxis: [
                                 {
                                     column: 'number_of_queries',
-                                    settings: { formatting: { prefix: '', suffix: '' } }
-                                }
+                                    settings: { formatting: { prefix: '', suffix: '' } },
+                                },
                             ],
                             showLegend: true,
                             seriesBreakdownColumn: null,
-                        }
+                        },
                     },
                     insightProps: {
                         dashboardItemId: 'embedded_analytics_api_queries',
@@ -77,12 +77,12 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                             yAxis: [
                                 {
                                     column: 'read_tb',
-                                    settings: { formatting: { prefix: '', suffix: '' } }
-                                }
+                                    settings: { formatting: { prefix: '', suffix: '' } },
+                                },
                             ],
                             showLegend: true,
                             seriesBreakdownColumn: null,
-                        }
+                        },
                     },
                     insightProps: {
                         dashboardItemId: 'embedded_analytics_read_tb',
@@ -119,12 +119,12 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                             yAxis: [
                                 {
                                     column: 'cpu_sec',
-                                    settings: { formatting: { prefix: '', suffix: '' } }
-                                }
+                                    settings: { formatting: { prefix: '', suffix: '' } },
+                                },
                             ],
                             showLegend: true,
                             seriesBreakdownColumn: null,
-                        }
+                        },
                     },
                     insightProps: {
                         dashboardItemId: 'embedded_analytics_cpu_sec',
@@ -157,12 +157,12 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                             yAxis: [
                                 {
                                     column: 'total_queries',
-                                    settings: { formatting: { prefix: '', suffix: '' } }
-                                }
+                                    settings: { formatting: { prefix: '', suffix: '' } },
+                                },
                             ],
                             showLegend: true,
                             seriesBreakdownColumn: 'api_key_label',
-                        }
+                        },
                     },
                     insightProps: {
                         dashboardItemId: 'embedded_analytics_queries_per_key',
@@ -195,36 +195,36 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                             yAxis: [
                                 {
                                     column: 'query_duration_ms',
-                                    settings: { formatting: { prefix: '', suffix: '' } }
+                                    settings: { formatting: { prefix: '', suffix: '' } },
                                 },
                                 {
                                     column: 'created_by',
-                                    settings: { formatting: { prefix: '', suffix: '' } }
-                                }
+                                    settings: { formatting: { prefix: '', suffix: '' } },
+                                },
                             ],
-                            seriesBreakdownColumn: null
+                            seriesBreakdownColumn: null,
                         },
                         tableSettings: {
                             columns: [
                                 {
                                     column: 'finished_at',
-                                    settings: { formatting: { prefix: '', suffix: '' } }
+                                    settings: { formatting: { prefix: '', suffix: '' } },
                                 },
                                 {
                                     column: 'query_duration_ms',
-                                    settings: { formatting: { prefix: '', suffix: '' } }
+                                    settings: { formatting: { prefix: '', suffix: '' } },
                                 },
                                 {
                                     column: 'query',
-                                    settings: { formatting: { prefix: '', suffix: '' } }
+                                    settings: { formatting: { prefix: '', suffix: '' } },
                                 },
                                 {
                                     column: 'created_by',
-                                    settings: { formatting: { prefix: '', suffix: '' } }
-                                }
+                                    settings: { formatting: { prefix: '', suffix: '' } },
+                                },
                             ],
-                            conditionalFormatting: []
-                        }
+                            conditionalFormatting: [],
+                        },
                     },
                     insightProps: {
                         dashboardItemId: 'embedded_analytics_last_20_queries',
@@ -264,44 +264,44 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                             yAxis: [
                                 {
                                     column: 'read_tb',
-                                    settings: { formatting: { prefix: '', suffix: '' } }
+                                    settings: { formatting: { prefix: '', suffix: '' } },
                                 },
                                 {
                                     column: 'cpu_sec',
-                                    settings: { formatting: { prefix: '', suffix: '' } }
-                                }
+                                    settings: { formatting: { prefix: '', suffix: '' } },
+                                },
                             ],
-                            seriesBreakdownColumn: null
+                            seriesBreakdownColumn: null,
                         },
                         tableSettings: {
                             columns: [
                                 {
                                     column: 'query_start_time',
-                                    settings: { formatting: { prefix: '', suffix: '' } }
+                                    settings: { formatting: { prefix: '', suffix: '' } },
                                 },
                                 {
                                     column: 'query',
-                                    settings: { formatting: { prefix: '', suffix: '' } }
+                                    settings: { formatting: { prefix: '', suffix: '' } },
                                 },
                                 {
                                     column: 'query_duration_ms',
-                                    settings: { formatting: { prefix: '', suffix: '' } }
+                                    settings: { formatting: { prefix: '', suffix: '' } },
                                 },
                                 {
                                     column: 'read_tb',
-                                    settings: { formatting: { prefix: '', suffix: '' } }
+                                    settings: { formatting: { prefix: '', suffix: '' } },
                                 },
                                 {
                                     column: 'cpu_sec',
-                                    settings: { formatting: { prefix: '', suffix: '' } }
+                                    settings: { formatting: { prefix: '', suffix: '' } },
                                 },
                                 {
                                     column: 'created_by',
-                                    settings: { formatting: { prefix: '', suffix: '' } }
-                                }
+                                    settings: { formatting: { prefix: '', suffix: '' } },
+                                },
                             ],
-                            conditionalFormatting: []
-                        }
+                            conditionalFormatting: [],
+                        },
                     },
                     insightProps: {
                         dashboardItemId: 'embedded_analytics_expensive_queries',
