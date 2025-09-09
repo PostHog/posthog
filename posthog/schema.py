@@ -1504,6 +1504,7 @@ class HedgehogActorSkinOption(StrEnum):
     DEFAULT = "default"
     SPIDERHOG = "spiderhog"
     ROBOHOG = "robohog"
+    GHOST = "ghost"
 
 
 class HogCompileResponse(BaseModel):
