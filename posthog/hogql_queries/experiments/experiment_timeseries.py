@@ -19,7 +19,6 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.experiments.base_query_utils import (
     get_experiment_date_range,
     get_experiment_exposure_query,
-    get_exposure_time_window_constraints,
     get_metric_aggregation_expr,
     get_metric_events_query,
     get_winsorized_metric_values_query,
@@ -117,13 +116,18 @@ class ExperimentTimeseries:
         )
 
     def _get_daily_entity_metrics_from_exposed_users_query(
-        self, exposure_query: ast.SelectQuery, metric_events_query: ast.SelectQuery
+        self, metric_events_query: ast.SelectQuery
     ) -> ast.SelectQuery:
         """
         Aggregates each user's metric events by day (for users who were exposed to the experiment).
 
-        INPUT (metric_events_query): One row per metric event
-        INPUT (exposure_query): One row per exposed user with variant
+        INPUT (metric_events_query): One row per metric event from exposed users
+        | variant | entity_id | timestamp           | value |
+        |---------|-----------|---------------------|-------|
+        | control | user_1    | 2025-05-27 14:35:00 | 1     |
+        | control | user_1    | 2025-05-27 18:20:00 | 1     |
+        | control | user_2    | 2025-05-28 10:15:00 | 1     |
+        | test-1  | user_3    | 2025-05-27 12:30:00 | 1     |
 
         OUTPUT: One row per user per day (aggregated metric values)
         | variant | entity_id | date       | value |
@@ -134,8 +138,10 @@ class ExperimentTimeseries:
         """
         return ast.SelectQuery(
             select=[
-                ast.Field(chain=["exposures", "variant"]),
-                ast.Field(chain=["exposures", "entity_id"]),
+                ast.Field(chain=["metric_events", "variant"]),
+                ast.Field(chain=["metric_events", "entity_id"])
+                if not self.is_data_warehouse_query
+                else ast.Field(chain=["metric_events", "entity_identifier"]),
                 ast.Alias(
                     alias="date",
                     expr=ast.Call(
@@ -148,45 +154,12 @@ class ExperimentTimeseries:
                     alias="value",
                 ),
             ],
-            select_from=ast.JoinExpr(
-                table=exposure_query,
-                alias="exposures",
-                next_join=ast.JoinExpr(
-                    table=metric_events_query,
-                    join_type="INNER JOIN",
-                    alias="metric_events",
-                    constraint=ast.JoinConstraint(
-                        expr=ast.And(
-                            exprs=[
-                                ast.CompareOperation(
-                                    left=ast.Field(
-                                        chain=[
-                                            "exposures",
-                                            "exposure_identifier" if self.is_data_warehouse_query else "entity_id",
-                                        ]
-                                    ),
-                                    right=ast.Field(
-                                        chain=[
-                                            "metric_events",
-                                            "entity_identifier" if self.is_data_warehouse_query else "entity_id",
-                                        ]
-                                    ),
-                                    op=ast.CompareOperationOp.Eq,
-                                ),
-                                *get_exposure_time_window_constraints(
-                                    self.metric,
-                                    ast.Field(chain=["metric_events", "timestamp"]),
-                                    ast.Field(chain=["exposures", "first_exposure_time"]),
-                                ),
-                            ]
-                        ),
-                        constraint_type="ON",
-                    ),
-                ),
-            ),
+            select_from=ast.JoinExpr(table=metric_events_query, alias="metric_events"),
             group_by=[
-                ast.Field(chain=["exposures", "variant"]),
-                ast.Field(chain=["exposures", "entity_id"]),
+                ast.Field(chain=["metric_events", "variant"]),
+                ast.Field(chain=["metric_events", "entity_id"])
+                if not self.is_data_warehouse_query
+                else ast.Field(chain=["metric_events", "entity_identifier"]),
                 ast.Call(
                     name="toStartOfDay",
                     args=[ast.Field(chain=["metric_events", "timestamp"])],
@@ -500,6 +473,7 @@ class ExperimentTimeseries:
 
         metric_events_query = get_metric_events_query(
             self.metric,
+            exposure_query,
             self.team,
             self.entity_key,
             self.experiment,
@@ -510,9 +484,7 @@ class ExperimentTimeseries:
         daily_exposure_counts_query = self._get_daily_exposure_counts_query(exposure_query)
 
         # Stream B: Get daily metric aggregations from exposed users
-        daily_entity_metrics_query = self._get_daily_entity_metrics_from_exposed_users_query(
-            exposure_query, metric_events_query
-        )
+        daily_entity_metrics_query = self._get_daily_entity_metrics_from_exposed_users_query(metric_events_query)
 
         # Winsorize if needed
         if isinstance(self.metric, ExperimentMeanMetric) and (
