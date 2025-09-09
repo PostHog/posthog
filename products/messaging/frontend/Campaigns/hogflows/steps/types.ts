@@ -34,16 +34,29 @@ const CyclotronInputSchema = z.object({
 
 export type CyclotronInputType = z.infer<typeof CyclotronInputSchema>
 
+export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
+    z.object({
+        type: z.literal('event'),
+        filters: z.object({
+            events: z.array(z.any()).optional(),
+            properties: z.array(z.any()).optional(),
+            actions: z.array(z.any()).optional(),
+        }),
+    }),
+    z.object({
+        type: z.literal('webhook'),
+        template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+        template_id: z.string(),
+        inputs: z.record(CyclotronInputSchema),
+    }),
+])
+
 export const HogFlowActionSchema = z.discriminatedUnion('type', [
     // Trigger
     z.object({
         ..._commonActionFields,
         type: z.literal('trigger'),
-        config: z.object({
-            type: z.literal('event'),
-            filters: z.any(),
-        }),
-        // A trigger's event filters are stored on the top-level Hogflow object
+        config: HogFlowTriggerSchema,
     }),
     // Branching
     z.object({
