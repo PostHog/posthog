@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use dashmap::DashMap;
 use std::fmt;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
@@ -100,6 +101,9 @@ pub struct StoreManager {
 
     /// Metrics helper for global metrics
     metrics: MetricsHelper,
+
+    /// Flag to prevent concurrent cleanup operations
+    cleanup_running: AtomicBool,
 }
 
 impl StoreManager {
@@ -111,6 +115,7 @@ impl StoreManager {
             stores: DashMap::new(),
             store_config,
             metrics,
+            cleanup_running: AtomicBool::new(false),
         }
     }
 
@@ -270,7 +275,19 @@ impl StoreManager {
     /// on individual stores if the global capacity is exceeded. Cleanup is distributed
     /// across all stores by removing a percentage of each store's time range.
     pub fn cleanup_old_entries_if_needed(&self) -> Result<u64> {
+        // Try to acquire cleanup lock - if another cleanup is running, skip this one
+        if self.cleanup_running.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
+            debug!("Cleanup already running, skipping this cycle");
+            return Ok(0);
+        }
+        
+        // Ensure we release the lock when we're done
+        let _guard = CleanupGuard { flag: &self.cleanup_running };
+        
         let start_time = Instant::now();
+        
+        // Log folder sizes and assigned partitions
+        self.log_folder_sizes_and_partitions();
 
         // If max_capacity is 0, no cleanup needed (unlimited)
         if self.store_config.max_capacity == 0 {
@@ -287,8 +304,6 @@ impl StoreManager {
             }
         }
 
-        // Log folder sizes and assigned partitions
-        self.log_folder_sizes_and_partitions();
 
         // Check if we're under capacity
         if total_size <= self.store_config.max_capacity {
@@ -405,10 +420,11 @@ impl StoreManager {
                         if manager.needs_cleanup() {
                             info!("Global capacity exceeded, triggering cleanup");
                             match manager.cleanup_old_entries_if_needed() {
+                                Ok(0) => {
+                                    debug!("Cleanup skipped (may be already running or no data to clean)");
+                                }
                                 Ok(bytes_freed) => {
-                                    if bytes_freed > 0 {
-                                        info!("Periodic cleanup freed {} bytes", bytes_freed);
-                                    }
+                                    info!("Periodic cleanup freed {} bytes", bytes_freed);
                                 }
                                 Err(e) => {
                                     error!("Periodic cleanup failed: {}", e);
@@ -548,6 +564,17 @@ impl StoreManager {
         }
 
         Ok(size)
+    }
+}
+
+/// Guard to ensure cleanup flag is released when dropped
+struct CleanupGuard<'a> {
+    flag: &'a AtomicBool,
+}
+
+impl<'a> Drop for CleanupGuard<'a> {
+    fn drop(&mut self) {
+        self.flag.store(false, Ordering::Release);
     }
 }
 
