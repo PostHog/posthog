@@ -1693,12 +1693,12 @@
                   "table": null,
                   "type": "integer"
               },
-              "hogql_name": {
+              "name": {
                   "chain": null,
                   "fields": null,
-                  "hogql_value": "hogql_name",
+                  "hogql_value": "name",
                   "id": null,
-                  "name": "hogql_name",
+                  "name": "name",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -3165,12 +3165,12 @@
                   "table": null,
                   "type": "integer"
               },
-              "hogql_name": {
+              "name": {
                   "chain": null,
                   "fields": null,
-                  "hogql_value": "hogql_name",
+                  "hogql_value": "name",
                   "id": null,
-                  "name": "hogql_name",
+                  "name": "name",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
