@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconEllipsis, IconHourglass, IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
-import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, Link } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -25,7 +26,7 @@ import {
 
 import { playerMetaLogic } from './playerMetaLogic'
 
-const TTL_WARNING_THRESHOLD_DAYS = 10
+const TTL_WARNING_THRESHOLD_DAYS = 360 // TODO
 
 function SetPlaybackSpeed(): JSX.Element {
     const { speed, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
@@ -90,13 +91,15 @@ function InspectDOM(): JSX.Element {
     )
 }
 
-function TTLWarning(): JSX.Element {
+function TTLWarning(): JSX.Element | null {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
     const { sessionTTLDays } = useValues(playerMetaLogic(logicProps))
 
     if (sessionTTLDays === null || sessionTTLDays > TTL_WARNING_THRESHOLD_DAYS) {
-        return <></>
+        return null
     }
+    posthog.capture('recording viewed with very low TTL', sessionPlayerMetaData)
 
     return (
         <div className="font-medium">
@@ -108,7 +111,23 @@ function TTLWarning(): JSX.Element {
                 onClick={() => {
                     LemonDialog.open({
                         title: 'Recording about to expire',
-                        description: `This recording will expire in ${sessionTTLDays} days. If you wish to keep it around, you should add it to a collection.`,
+                        description: (
+                            <span>
+                                This recording will expire in <strong>{sessionTTLDays} days</strong>. If you wish to
+                                keep it around, you should add it to a collection.
+                                <br />
+                                Refer to{' '}
+                                <Link
+                                    to="https://posthog.com/docs/session-replay/data-retention"
+                                    disableClientSideRouting
+                                    disableDocsPanel
+                                    target="_blank"
+                                >
+                                    this page
+                                </Link>{' '}
+                                for more information about data retention in Session Replay.
+                            </span>
+                        ),
                     })
                 }}
                 noPadding

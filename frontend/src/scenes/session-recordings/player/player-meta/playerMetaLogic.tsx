@@ -240,6 +240,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                         label: 'Retention Period',
                         value: `${sessionPlayerMetaData.retention_period_days}d`,
                         type: 'text',
+                        keyTooltip: 'The total number of days this recording will be retained',
                     })
                 }
                 if (sessionTTLDays !== null) {
@@ -248,6 +249,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                         label: 'TTL',
                         value: `${sessionTTLDays}d`,
                         type: 'text',
+                        keyTooltip: 'The number of days left before this recording expires',
                     })
                 }
 
