@@ -78,7 +78,7 @@ export const replayActiveUsersTableLogic = kea<replayActiveUsersTableLogicType>(
                         person: {
                             id: row[0] as string,
                             properties: JSON.parse(row[1]) as Record<string, any>,
-                            distinct_id: row[2] as string,
+                            distinct_ids: [row[2] as string],
                         },
                         count: row[3] as number,
                     }
