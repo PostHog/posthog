@@ -16,6 +16,7 @@ import {
     HealthCheckResult,
     HealthCheckResultError,
     Hub,
+    IncomingEvent,
     IncomingEventWithTeam,
     KafkaConsumerBreadcrumb,
     KafkaConsumerBreadcrumbSchema,
@@ -46,6 +47,7 @@ import {
     createResolveTeamStep,
     createValidateEventUuidStep,
 } from './event-preprocessing'
+import { AsyncPreprocessingStep, SyncPreprocessingStep } from './processing-pipeline'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
 const ingestionEventOverflowed = new Counter({
@@ -109,6 +111,26 @@ export class IngestionConsumer {
     private deduplicationRedis: DeduplicationRedis
     public readonly promiseScheduler = new PromiseScheduler()
 
+    // Pipeline steps - constructed once in constructor
+    private parseHeadersStep: SyncPreprocessingStep<Message, { message: Message; headers: EventHeaders }>
+    private applyDropRestrictionsStep: SyncPreprocessingStep<
+        { message: Message; headers: EventHeaders },
+        { message: Message; headers: EventHeaders }
+    >
+    private parseKafkaMessageStep: SyncPreprocessingStep<
+        { message: Message; headers: EventHeaders },
+        { message: Message; headers: EventHeaders; event: IncomingEvent }
+    >
+    private resolveTeamStep: AsyncPreprocessingStep<
+        { message: Message; headers: EventHeaders; event: IncomingEvent },
+        { message: Message; headers: EventHeaders; eventWithTeam: IncomingEventWithTeam }
+    >
+    private applyPersonProcessingRestrictionsStep: SyncPreprocessingStep<
+        { message: Message; headers: EventHeaders; eventWithTeam: IncomingEventWithTeam },
+        IncomingEventWithTeam
+    >
+    private validateEventUuidStep: AsyncPreprocessingStep<IncomingEventWithTeam, IncomingEventWithTeam>
+
     constructor(
         private hub: Hub,
         overrides: Partial<
@@ -168,6 +190,16 @@ export class IngestionConsumer {
             groupId: this.groupId,
             topic: this.topic,
         })
+
+        // Initialize pipeline steps
+        this.parseHeadersStep = createParseHeadersStep()
+        this.applyDropRestrictionsStep = createApplyDropRestrictionsStep(this.eventIngestionRestrictionManager)
+        this.parseKafkaMessageStep = createParseKafkaMessageStep()
+        this.resolveTeamStep = createResolveTeamStep(this.hub)
+        this.applyPersonProcessingRestrictionsStep = createApplyPersonProcessingRestrictionsStep(
+            this.eventIngestionRestrictionManager
+        )
+        this.validateEventUuidStep = createValidateEventUuidStep(this.hub)
     }
 
     public get service(): PluginServerService {
@@ -626,36 +658,28 @@ export class IngestionConsumer {
         const preprocessedEvents: IncomingEventWithTeam[] = []
         const pendingOverflowMessages: Array<{ message: Message; preservePartitionLocality?: boolean }> = []
 
-        const parseHeadersStep = createParseHeadersStep()
-        const applyDropRestrictionsStep = createApplyDropRestrictionsStep(this.eventIngestionRestrictionManager)
+        // Create a new force overflow step for this batch with the pendingOverflowMessages array
         const applyForceOverflowRestrictionsStep = createApplyForceOverflowRestrictionsStep(
             this.eventIngestionRestrictionManager,
             this.overflowEnabled(),
             forcedOverflowEventsCounter,
             pendingOverflowMessages
         )
-        const parseKafkaMessageStep = createParseKafkaMessageStep()
-        const resolveTeamStep = createResolveTeamStep(this.hub)
-        const applyPersonProcessingRestrictionsStep = createApplyPersonProcessingRestrictionsStep(
-            this.eventIngestionRestrictionManager
-        )
-        const validateEventUuidStep = createValidateEventUuidStep(this.hub)
 
         for (const message of messages) {
             try {
                 const pipeline = ResultHandlingPipeline.of(message, this.kafkaProducer!, message, this.dlqTopic)
-                    .pipe(parseHeadersStep)
-                    .pipe(applyDropRestrictionsStep)
+                    .pipe(this.parseHeadersStep)
+                    .pipe(this.applyDropRestrictionsStep)
                     .pipe(applyForceOverflowRestrictionsStep)
-                    .pipe(parseKafkaMessageStep)
-                    .pipeAsync(resolveTeamStep)
-                    .pipe(applyPersonProcessingRestrictionsStep)
-                    .pipeAsync(validateEventUuidStep)
+                    .pipe(this.parseKafkaMessageStep)
+                    .pipeAsync(this.resolveTeamStep)
+                    .pipe(this.applyPersonProcessingRestrictionsStep)
+                    .pipeAsync(this.validateEventUuidStep)
 
                 const result = await pipeline.unwrap()
-
                 if (result) {
-                    preprocessedEvents.push(result as IncomingEventWithTeam)
+                    preprocessedEvents.push(result)
                 }
             } catch (error) {
                 console.error('Error processing message in pipeline:', error)
