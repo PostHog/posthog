@@ -1,5 +1,8 @@
+import ssl
+import json
 import uuid
 import typing
+import asyncio
 import datetime as dt
 import operator
 import dataclasses
@@ -8,6 +11,7 @@ import collections.abc
 from django.conf import settings
 
 import pyarrow as pa
+import aiokafka
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
@@ -26,6 +30,7 @@ from posthog.batch_exports.service import (
     update_batch_export_backfill_status,
     update_batch_export_run,
 )
+from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseClient
@@ -533,6 +538,94 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
             inputs.records_completed if inputs.records_completed is not None else "no",
         )
 
+    await try_produce_app_metrics(
+        batch_export_run.status, inputs.team_id, inputs.batch_export_id, inputs.id, inputs.records_completed or 0
+    )
+
+
+async def try_produce_app_metrics(
+    status: BatchExportRun.Status | str,
+    team_id: int,
+    batch_export_id: str,
+    batch_export_run_id: str,
+    rows_exported: int,
+):
+    """Attempt to produce batch export run status to app_metrics2.
+
+    The metric name and kind will depend on the reported status.
+    """
+    producer = aiokafka.AIOKafkaProducer(
+        bootstrap_servers=settings.KAFKA_HOSTS,
+        security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
+        acks="all",
+        api_version="2.5.0",
+        ssl_context=configure_default_ssl_context() if settings.KAFKA_SECURITY_PROTOCOL == "SSL" else None,
+    )
+
+    match status:
+        case BatchExportRun.Status.COMPLETED:
+            metric_kind = "success"
+            metric_name = "succeeded"
+        case BatchExportRun.Status.CANCELLED:
+            metric_kind = "cancellation"
+            metric_name = "canceled"
+        case _:
+            metric_kind = "failure"
+            metric_name = "failed"
+
+    run_metric = json.dumps(
+        {
+            "team_id": team_id,
+            "app_source": "batch_export",
+            "app_source_id": batch_export_id,
+            "count": 1,
+            "metric_kind": metric_kind,
+            "metric_name": metric_name,
+            "timestamp": dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S"),
+        }
+    ).encode("utf-8")
+    rows_metric = json.dumps(
+        {
+            "team_id": team_id,
+            "app_source": "batch_export",
+            "app_source_id": batch_export_id,
+            "instance_id": batch_export_run_id,
+            "count": rows_exported,
+            "metric_kind": "rows",
+            "metric_name": "rows_exported",
+            "timestamp": dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S"),
+        }
+    ).encode("utf-8")
+
+    async with producer:
+
+        async def send(message: bytes):
+            try:
+                fut = await producer.send(KAFKA_APP_METRICS2, message)
+                await fut
+                await producer.flush()
+            except Exception:
+                LOGGER.exception(
+                    "Metrics production failed",
+                    team_id=team_id,
+                    batch_export_id=batch_export_id,
+                    metric_kind=metric_kind,
+                )
+
+        async with asyncio.TaskGroup() as tg:
+            for metric in (run_metric, rows_metric):
+                _ = tg.create_task(send(metric))
+
+
+def configure_default_ssl_context():
+    """Setup a default SSL context for Kafka."""
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.options |= ssl.OP_NO_SSLv2
+    context.options |= ssl.OP_NO_SSLv3
+    context.verify_mode = ssl.CERT_REQUIRED
+    context.load_default_certs()
+    return context
+
 
 async def check_if_over_failure_threshold(batch_export_id: str, check_window: int, failure_threshold: int):
     """Check if a given batch export is over failure threshold.
@@ -739,7 +832,7 @@ async def execute_batch_export_insert_activity(
         heartbeat_timeout_seconds = settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS
 
     if interval == "hour":
-        start_to_close_timeout = dt.timedelta(hours=6)
+        start_to_close_timeout = dt.timedelta(hours=1)
     elif interval == "day":
         start_to_close_timeout = dt.timedelta(days=1)
     elif interval.startswith("every"):

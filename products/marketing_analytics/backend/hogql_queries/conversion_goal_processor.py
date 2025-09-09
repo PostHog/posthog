@@ -804,10 +804,14 @@ class ConversionGoalProcessor:
         math_type = self.goal.math
 
         if math_type in [BaseMathType.DAU, "dau"]:
+            # uniq() already returns 0 for no rows, no need for COALESCE
             return ast.Call(name="uniq", args=[ast.Field(chain=["person_id"])])
         elif math_type in ["sum", PropertyMathType.SUM] or str(math_type).endswith("_sum"):
-            return ast.Call(name="sum", args=[ast.Field(chain=["conversion_value"])])
+            # sum() returns NULL for no rows, wrap with COALESCE to return 0
+            sum_expr = ast.Call(name="sum", args=[ast.Field(chain=["conversion_value"])])
+            return ast.Call(name="coalesce", args=[sum_expr, ast.Constant(value=0)])
         else:
+            # count() already returns 0 for no rows, no need for COALESCE
             return ast.Call(name="count", args=[])
 
     def _generate_direct_query(self, additional_conditions: list[ast.Expr]) -> ast.SelectQuery:

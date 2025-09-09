@@ -34,6 +34,11 @@ export interface SessionRecordingPreviewProps {
     recording: SessionRecordingType
     isActive?: boolean
     onClick?: () => void
+    /**
+     * Whether to show a sessionRecordingPlaylistLogic selection checkbox on this preview.
+     * @default false
+     */
+    selectable?: boolean
 }
 
 function RecordingDuration({ recordingDuration }: { recordingDuration: number | undefined }): JSX.Element {
@@ -221,7 +226,12 @@ function ItemCheckbox({ recording }: { recording: SessionRecordingType }): JSX.E
     )
 }
 
-export function SessionRecordingPreview({ recording, isActive, onClick }: SessionRecordingPreviewProps): JSX.Element {
+export function SessionRecordingPreview({
+    recording,
+    isActive,
+    onClick,
+    selectable = false,
+}: SessionRecordingPreviewProps): JSX.Element {
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
 
     const { filters } = useValues(sessionRecordingsPlaylistLogic)
@@ -243,7 +253,7 @@ export function SessionRecordingPreview({ recording, isActive, onClick }: Sessio
                 )}
                 onClick={() => onClick?.()}
             >
-                <ItemCheckbox recording={recording} />
+                {selectable && <ItemCheckbox recording={recording} />}
                 <div className="grow overflow-hidden deprecated-space-y-1 ml-1">
                     <div className="flex items-center justify-between gap-x-0.5">
                         <div className="flex overflow-hidden font-medium ph-no-capture">

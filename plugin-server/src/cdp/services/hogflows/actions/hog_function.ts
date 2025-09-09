@@ -13,10 +13,10 @@ import {
 import { HogExecutorService } from '../../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
-import { findContinueAction } from '../hogflow-utils'
+import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerResult } from './action.interface'
 
-type FunctionActionType = 'function' | 'function_email' | 'function_sms' | 'function_slack' | 'function_webhook'
+type FunctionActionType = 'function' | 'function_email' | 'function_sms'
 
 type Action = Extract<HogFlowAction, { type: FunctionActionType }>
 
@@ -40,7 +40,7 @@ export class HogFunctionHandler implements ActionHandler {
             result.logs.push({
                 level: log.level,
                 timestamp: log.timestamp,
-                message: `[Action:${action.id}] ${log.message}`,
+                message: `${actionIdForLogging(action)} ${log.message}`,
             })
         })
 

@@ -52,7 +52,7 @@ async def deliver_subscription_report_async(
     # Fetch subscription asynchronously
     logger.info("deliver_subscription_report_async.loading_subscription", subscription_id=subscription_id)
     subscription = await database_sync_to_async(
-        Subscription.objects.select_related("created_by", "insight", "dashboard").get,
+        Subscription.objects.select_related("created_by", "insight", "dashboard", "team").get,
         thread_sensitive=False,
     )(pk=subscription_id)
 

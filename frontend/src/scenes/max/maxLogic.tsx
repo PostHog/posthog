@@ -48,13 +48,23 @@ const HEADLINES = [
     'What do you want to know today?',
 ]
 
+function handleCommandString(options: string, actions: maxLogicType['actions']): void {
+    if (options.startsWith('!')) {
+        actions.setAutoRun(true)
+    }
+    const cleanedQuestion = options.replace(/^!/, '')
+    if (cleanedQuestion.trim() !== '') {
+        actions.setQuestion(cleanedQuestion)
+    }
+}
+
 export const maxLogic = kea<maxLogicType>([
     path(['scenes', 'max', 'maxLogic']),
 
     connect(() => ({
         values: [
             maxGlobalLogic,
-            ['dataProcessingAccepted', 'tools'],
+            ['dataProcessingAccepted', 'tools', 'toolSuggestions'],
             maxSettingsLogic,
             ['coreMemory'],
             // Actions are lazy-loaded. In order to display their names in the UI, we're loading them here.
@@ -290,6 +300,12 @@ export const maxLogic = kea<maxLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        // Listen for when the side panel state changes and check for initial prompt
+        [sidePanelStateLogic.actionTypes.openSidePanel]: ({ tab, options }) => {
+            if (tab === SidePanelTab.Max && options && typeof options === 'string') {
+                handleCommandString(options, actions)
+            }
+        },
         scrollThreadToBottom: ({ behavior }) => {
             requestAnimationFrame(() => {
                 // On next frame so that the message has been rendered
@@ -400,13 +416,10 @@ export const maxLogic = kea<maxLogicType>([
             !values.question &&
             sidePanelStateLogic.isMounted() &&
             sidePanelStateLogic.values.selectedTab === SidePanelTab.Max &&
-            sidePanelStateLogic.values.selectedTabOptions
+            sidePanelStateLogic.values.selectedTabOptions &&
+            typeof sidePanelStateLogic.values.selectedTabOptions === 'string'
         ) {
-            const cleanedQuestion = sidePanelStateLogic.values.selectedTabOptions.replace(/^!/, '')
-            actions.setQuestion(cleanedQuestion)
-            if (sidePanelStateLogic.values.selectedTabOptions.startsWith('!')) {
-                actions.setAutoRun(true)
-            }
+            handleCommandString(sidePanelStateLogic.values.selectedTabOptions, actions)
         }
 
         // Load conversation history on mount
@@ -471,14 +484,7 @@ export function getScrollableContainer(element?: Element | null): HTMLElement | 
     if (!element) {
         return null
     }
-
     const scrollableEl = element.parentElement // .Navigation3000__scene or .SidePanel3000__content
-
-    // Check if the parent element has overflow-y-auto (for floating input case)
-    if (scrollableEl && scrollableEl.classList.contains('overflow-y-auto')) {
-        return scrollableEl
-    }
-
     if (scrollableEl && !scrollableEl.classList.contains('SidePanel3000__content')) {
         // In this case we need to go up to <main>, since .Navigation3000__scene is not scrollable
         return scrollableEl.parentElement

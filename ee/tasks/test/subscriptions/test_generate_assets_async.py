@@ -11,6 +11,7 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from ee.tasks.subscriptions import deliver_subscription_report_async
 from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT, generate_assets_async
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
@@ -180,3 +181,22 @@ async def test_generate_assets_async_concurrent_asset_creation(team, user, dashb
         lambda: list(ExportedAsset.objects.filter(id__in=asset_ids)), thread_sensitive=False
     )()
     assert len(saved_assets) == DEFAULT_MAX_ASSET_COUNT
+
+
+async def test_async_foreign_key_access_with_real_subscription(team, user, dashboard_with_tiles):
+    """
+    Test that reproduces the exact Django SynchronousOnlyOperation error from temporal workflow.
+    """
+    from django.core.exceptions import SynchronousOnlyOperation
+
+    dashboard, tiles = dashboard_with_tiles
+
+    subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
+
+    # This should NOT raise SyanchronousOnlyOperation - if it does, the test fails
+    try:
+        await deliver_subscription_report_async(subscription.id)
+    except SynchronousOnlyOperation:
+        pytest.fail(
+            "deliver_subscription_report_async raised SynchronousOnlyOperation - foreign key access not properly handled in async context"
+        )

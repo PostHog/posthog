@@ -6,6 +6,7 @@ type SeriesCheckColumnTitleProps = {
     canCheckUncheckSeries: boolean
     getTrendsHidden: (dataset: IndexedTrendResult) => boolean
     toggleAllResultsHidden: (datasets: IndexedTrendResult[], hidden: boolean) => void
+    disabledReason?: string | null
 }
 
 export function SeriesCheckColumnTitle({
@@ -13,6 +14,7 @@ export function SeriesCheckColumnTitle({
     canCheckUncheckSeries,
     getTrendsHidden,
     toggleAllResultsHidden,
+    disabledReason,
 }: SeriesCheckColumnTitleProps): JSX.Element {
     const isAnySeriesChecked = indexedResults.some((dataset) => !getTrendsHidden(dataset))
     const areAllSeriesChecked = indexedResults.every((dataset) => !getTrendsHidden(dataset))
@@ -28,6 +30,7 @@ export function SeriesCheckColumnTitle({
                 }
             }}
             disabled={!canCheckUncheckSeries}
+            disabledReason={disabledReason}
         />
     )
 }
@@ -38,6 +41,7 @@ type SeriesCheckColumnItemProps = {
     isHidden: boolean
     toggleResultHidden: (dataset: IndexedTrendResult) => void
     label?: JSX.Element
+    disabledReason?: string | null
 }
 
 export function SeriesCheckColumnItem({
@@ -46,12 +50,14 @@ export function SeriesCheckColumnItem({
     isHidden,
     toggleResultHidden,
     label,
+    disabledReason,
 }: SeriesCheckColumnItemProps): JSX.Element {
     return (
         <LemonCheckbox
             checked={!isHidden}
             onChange={() => toggleResultHidden(item)}
             disabled={!canCheckUncheckSeries}
+            disabledReason={disabledReason}
             label={label}
         />
     )

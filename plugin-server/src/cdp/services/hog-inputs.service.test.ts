@@ -1,3 +1,5 @@
+import '~/tests/helpers/mocks/date.mock'
+
 import { DateTime } from 'luxon'
 
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
@@ -17,6 +19,7 @@ describe('Hog Inputs', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
+        hub.SITE_URL = 'http://localhost:8000'
         team = await getFirstTeam(hub)
 
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
@@ -126,11 +129,11 @@ describe('Hog Inputs', () => {
                         value: 'event: "{{ event.event }}"',
                         templating: 'liquid',
                     },
-                    slack: { value: 1 },
+                    oauth: { value: 1 },
                 },
                 inputs_schema: [
                     { key: 'hog_templated', type: 'string', required: true },
-                    { key: 'slack', type: 'integration', required: true },
+                    { key: 'oauth', type: 'integration', required: true },
                 ],
             })
 
@@ -150,9 +153,10 @@ describe('Hog Inputs', () => {
         it('should loads inputs with integration inputs', async () => {
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
 
-            expect(inputs.slack).toMatchInlineSnapshot(`
+            expect(inputs.oauth).toMatchInlineSnapshot(`
                 {
-                  "access_token": "token",
+                  "access_token": "$$_access_token_placeholder_1",
+                  "access_token_raw": "token",
                   "not_encrypted": "not-encrypted",
                   "team": "foobar",
                 }
@@ -164,7 +168,27 @@ describe('Hog Inputs', () => {
 
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
 
-            expect(inputs.slack).toMatchInlineSnapshot(`null`)
+            expect(inputs.oauth).toMatchInlineSnapshot(`null`)
+        })
+
+        it('should add unsubscribe url if email input is present', async () => {
+            hogFunction.inputs = {
+                email: {
+                    templating: 'liquid',
+                    value: {
+                        to: { email: '{{person.properties.email}}' },
+                        html: '<div>Unsubscribe here <a href="{{unsubscribe_url}}">here</a></div>',
+                    },
+                },
+            }
+
+            hogFunction.inputs_schema = [{ key: 'email', type: 'native_email', required: true, templating: true }]
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+            expect(inputs.email.to.email).toEqual('test@posthog.com')
+            expect(inputs.email.html).toEqual(
+                `<div>Unsubscribe here <a href="http://localhost:8000/messaging-preferences/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoyLCJpZGVudGlmaWVyIjoidGVzdEBwb3N0aG9nLmNvbSIsImlhdCI6MTczNTY4OTYwMCwiZXhwIjoxNzM2Mjk0NDAwLCJhdWQiOiJwb3N0aG9nOm1lc3NhZ2luZzpzdWJzY3JpcHRpb25fcHJlZmVyZW5jZXMifQ.pBh-COzTEyApuxe8J5sViPanp1lV1IClepOTVFZNhIs/">here</a></div>`
+            )
         })
     })
 })

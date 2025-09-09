@@ -48,7 +48,6 @@ export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                 description="A catalog of all user interactions with your app or website."
                 resourceType={{
                     type: RESOURCE_TYPE,
-                    typePlural: 'events',
                     forceIcon: <IconApps />,
                 }}
             />
@@ -61,6 +60,7 @@ export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                 context={{
                     showOpenEditorButton: true,
                     extraDataTableQueryFeatures: [QueryFeature.highlightExceptionEventRows],
+                    dataTableMaxPaginationLimit: 200,
                 }}
             />
         </SceneContent>

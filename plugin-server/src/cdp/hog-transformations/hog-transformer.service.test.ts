@@ -4,8 +4,6 @@ import { DateTime } from 'luxon'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { parseJSON } from '~/utils/json-parse'
-
 import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
 import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
@@ -272,6 +270,9 @@ describe('HogTransformer', () => {
             messages.forEach((x) => {
                 if (typeof x.value.message === 'string' && x.value.message.includes('Function completed in')) {
                     x.value.message = 'Function completed in [REPLACED]'
+                }
+                if (typeof x.value.message === 'string' && x.value.message.includes('geoip location data for ip')) {
+                    x.value.message = 'geoip location data for ip: [REPLACED]'
                 }
             })
             expect(forSnapshot(messages)).toMatchSnapshot()
@@ -727,6 +728,7 @@ describe('HogTransformer', () => {
                     bytecode: await compileHog(`
                         return event = 'match-me'
                     `),
+                    events: [{ id: 'match-me', name: 'match-me', type: 'events', order: 0 }],
                 },
             })
 
@@ -810,6 +812,7 @@ describe('HogTransformer', () => {
                     bytecode: await compileHog(`
                         return event = 'match-me'
                     `),
+                    events: [{ id: 'match-me', name: 'match-me', type: 'events', order: 0 }],
                 },
             })
 
@@ -1034,6 +1037,7 @@ describe('HogTransformer', () => {
                     bytecode: await compileHog(`
                         return event = 'match-me'
                     `),
+                    events: [{ id: 'match-me', name: 'match-me', type: 'events', order: 0 }],
                 },
             })
 
@@ -1080,6 +1084,7 @@ describe('HogTransformer', () => {
                         // Filter that matches events with event name 'match-me'
                         return event = 'match-me'
                     `),
+                    events: [{ id: 'match-me', name: 'match-me', type: 'events', order: 0 }],
                 },
             })
 
@@ -1192,6 +1197,7 @@ describe('HogTransformer', () => {
                         // Invalid filter that will throw an error
                         lol
                     `),
+                    events: [{ id: 'test-event', name: 'test-event', type: 'events', order: 0 }],
                 },
             })
 
@@ -1259,6 +1265,10 @@ describe('HogTransformer', () => {
                         // Only transform if at least one filter matches
                         return filter1 or filter2
                     `),
+                    events: [
+                        { id: 'match-me-1', name: 'match-me-1', type: 'events', order: 0 },
+                        { id: 'match-me-2', name: 'match-me-2', type: 'events', order: 1 },
+                    ],
                 },
             })
 
@@ -1664,7 +1674,7 @@ describe('HogTransformer', () => {
             executeHogFunctionSpy.mockRestore()
         })
 
-        it('should capture events with correct Kafka headers', async () => {
+        it('should throw when trying to capture events in transformations', async () => {
             // Create a transformation function that captures an event
             const captureTemplate: HogFunctionTemplate = {
                 free: true,
@@ -1709,44 +1719,9 @@ describe('HogTransformer', () => {
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
             const event = createPluginEvent({ event: 'original-event', distinct_id: 'original_user' }, teamId)
-            await hogTransformer.transformEventAndProduceMessages(event)
-            await hogTransformer.processInvocationResults()
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
 
-            const messages = mockProducerObserver.getProducedKafkaMessages()
-
-            // Find the captured event message
-            const capturedEventMessage = messages.find((msg) => {
-                try {
-                    const data = parseJSON(msg.value.data as string)
-                    return data.event === 'captured_event' && data.distinct_id === 'captured_user'
-                } catch {
-                    return false
-                }
-            })
-
-            expect(capturedEventMessage).toBeDefined()
-
-            const capturedEventData = parseJSON(capturedEventMessage!.value.data as string)
-
-            expect(capturedEventData).toMatchObject({
-                event: 'captured_event',
-                distinct_id: 'captured_user',
-                properties: {
-                    source: 'hog_function',
-                    original_event: 'original-event',
-                    original_distinct_id: 'original_user',
-                    captured_at: '2024-01-01T00:00:00Z',
-                    $hog_function_execution_count: 1,
-                },
-                timestamp: '2025-01-01T00:00:00.000Z',
-            })
-
-            // Check that the Kafka headers are correct
-            expect(capturedEventMessage?.headers).toBeDefined()
-            expect(capturedEventMessage?.headers).toMatchObject({
-                distinct_id: 'captured_user',
-                token: 'THIS IS NOT A TOKEN FOR TEAM 2',
-            })
+            expect(result.invocationResults[0].error).toContain('posthogCapture is not supported in transformations')
         })
     })
 })

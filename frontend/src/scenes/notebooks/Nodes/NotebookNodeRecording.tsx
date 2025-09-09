@@ -2,11 +2,13 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconComment, IconPerson } from '@posthog/icons'
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { colonDelimitedDuration } from 'lib/utils'
+import { parseTimestampToMs } from 'lib/utils/timestamps'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { asDisplay } from 'scenes/persons/person-utils'
 import {
@@ -35,7 +37,7 @@ const HEIGHT = 500
 const MIN_HEIGHT = '20rem'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttributes>): JSX.Element => {
-    const { id, noInspector } = attributes
+    const { id, noInspector, timestampMs } = attributes
 
     const recordingLogicProps: SessionRecordingPlayerProps = {
         ...sessionRecordingPlayerProps(id),
@@ -55,11 +57,13 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
         scrollIntoView,
     } = useActions(notebookNodeLogic)
 
-    const { sessionPlayerMetaData, sessionPlayerMetaDataLoading } = useValues(
+    const { sessionPlayerMetaData, sessionPlayerMetaDataLoading, sessionPlayerData } = useValues(
         sessionRecordingDataLogic(recordingLogicProps)
     )
-    const { loadRecordingMeta } = useActions(sessionRecordingDataLogic(recordingLogicProps))
-    const { seekToTime, setPlay } = useActions(sessionRecordingPlayerLogic(recordingLogicProps))
+    const { loadRecordingMeta, loadSnapshots } = useActions(sessionRecordingDataLogic(recordingLogicProps))
+    const { seekToTimestamp, seekToTime, setPlay, setPause } = useActions(
+        sessionRecordingPlayerLogic(recordingLogicProps)
+    )
 
     // TODO Only load data when in view...
     useOnMountEffect(loadRecordingMeta)
@@ -100,12 +104,20 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
                     setExpanded(true)
                 }
                 setPlay()
-
-                seekToTime(time)
+                seekToTimestamp(time)
                 scrollIntoView()
             },
         })
     })
+
+    // Seek to timestamp when widget is expanded and has a timestamp
+    useEffect(() => {
+        if (expanded && timestampMs && sessionPlayerData?.start) {
+            setPause()
+            loadSnapshots()
+            seekToTime(timestampMs) // seekToTime only works when sessionPlayerData.start is available
+        }
+    }, [expanded, timestampMs, sessionPlayerData?.start]) // oxlint-disable-line exhaustive-deps
 
     if (!sessionPlayerMetaData && !sessionPlayerMetaDataLoading) {
         return <NotFound object="replay" />
@@ -136,6 +148,16 @@ export const Settings = ({
                 checked={attributes.noInspector}
                 fullWidth={true}
             />
+            <div className="mt-3">
+                <label className="block text-muted mb-1">Start at timestamp</label>
+                <LemonInput
+                    type="text"
+                    fullWidth
+                    value={attributes.timestampMs ? colonDelimitedDuration(attributes.timestampMs / 1000) : ''}
+                    onBlur={(e) => updateAttributes({ timestampMs: parseTimestampToMs(e.currentTarget.value) })}
+                    placeholder="e.g. 00:13:37"
+                />
+            </div>
         </div>
     )
 }
@@ -143,6 +165,7 @@ export const Settings = ({
 type NotebookNodeRecordingAttributes = {
     id: string
     noInspector: boolean
+    timestampMs?: number
 }
 
 export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordingAttributes>({
@@ -151,7 +174,10 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
     Component,
     heightEstimate: HEIGHT,
     minHeight: MIN_HEIGHT,
-    href: (attrs) => urls.replaySingle(attrs.id),
+    href: (attrs) =>
+        attrs.timestampMs
+            ? `${urls.replaySingle(attrs.id)}?t=${Math.floor(attrs.timestampMs / 1000)}`
+            : urls.replaySingle(attrs.id),
     resizeable: true,
     attributes: {
         id: {
@@ -160,11 +186,18 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
         noInspector: {
             default: false,
         },
+        timestampMs: {
+            default: undefined,
+        },
     },
     pasteOptions: {
         find: urls.replaySingle(UUID_REGEX_MATCH_GROUPS),
         getAttributes: async (match) => {
-            return { id: match[1], noInspector: false }
+            const id = match[1]
+            const remainder = match[2] || ''
+            const tMatch = /[?&#]t=(\d+)/.exec(remainder)
+            const timestampMs = tMatch ? Number(tMatch[1]) * 1000 : undefined
+            return { id, noInspector: false, timestampMs }
         },
     },
     Settings,

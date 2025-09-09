@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Callable
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from stripe import ListObject, StripeClient
 from structlog.types import FilteringBoundLogger
@@ -11,6 +11,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME,
+    CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     DISPUTE_RESOURCE_NAME,
     INVOICE_ITEM_RESOURCE_NAME,
@@ -34,6 +35,15 @@ class StripeResource:
     params: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
+@dataclasses.dataclass
+class StripeNestedResource:
+    method: Callable[..., ListObject[Any]]
+    nested_parent_param: str
+    parent_id: str
+    parent: StripeResource
+    params: dict[str, Any] = dataclasses.field(default_factory=dict)
+
+
 def stripe_source(
     api_key: str,
     account_id: Optional[str],
@@ -48,7 +58,7 @@ def stripe_source(
             api_key, stripe_account=account_id, stripe_version="2024-09-30.acacia", max_network_retries=5
         )
         default_params = {"limit": DEFAULT_LIMIT}
-        resources: dict[str, StripeResource] = {
+        resources: dict[str, Union[StripeResource, StripeNestedResource]] = {
             ACCOUNT_RESOURCE_NAME: StripeResource(method=client.accounts.list),
             BALANCE_TRANSACTION_RESOURCE_NAME: StripeResource(method=client.balance_transactions.list),
             CHARGE_RESOURCE_NAME: StripeResource(method=client.charges.list),
@@ -64,6 +74,12 @@ def stripe_source(
             REFUND_RESOURCE_NAME: StripeResource(method=client.refunds.list),
             SUBSCRIPTION_RESOURCE_NAME: StripeResource(method=client.subscriptions.list, params={"status": "all"}),
             CREDIT_NOTE_RESOURCE_NAME: StripeResource(method=client.credit_notes.list),
+            CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: StripeNestedResource(
+                method=client.customers.balance_transactions.list,
+                nested_parent_param="customer",
+                parent_id="id",
+                parent=StripeResource(method=client.customers.list),
+            ),
         }
 
         resource = resources.get(endpoint, None)
@@ -76,13 +92,29 @@ def stripe_source(
         incremental_field_config = INCREMENTAL_FIELDS.get(endpoint, [])
         incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "created"
 
-        if not should_use_incremental_field or (
-            db_incremental_field_last_value is None and db_incremental_field_earliest_value is None
+        if (
+            not should_use_incremental_field
+            or (db_incremental_field_last_value is None and db_incremental_field_earliest_value is None)
+            or isinstance(resource, StripeNestedResource)
         ):
             logger.debug(f"Stripe: iterating all objects from resource")
 
-            stripe_objects = resource.method(params={**default_params, **resource.params})
-            yield from stripe_objects.auto_paging_iter()
+            if isinstance(resource, StripeNestedResource):
+                stripe_parent_objects = resource.parent.method(params={**default_params, **resource.parent.params})
+                for obj in stripe_parent_objects.auto_paging_iter():
+                    stripe_nested_objects = resource.method(
+                        **{resource.nested_parent_param: obj[resource.parent_id]},
+                        params={**default_params, **resource.params},
+                    )
+                    for nested_obj in stripe_nested_objects.auto_paging_iter():  # noqa: UP028
+                        yield {
+                            **nested_obj,
+                            **{resource.nested_parent_param: obj[resource.parent_id]},
+                        }
+            else:
+                stripe_objects = resource.method(params={**default_params, **resource.params})
+
+                yield from stripe_objects.auto_paging_iter()
             return
 
         # check for any objects less than the minimum object we already have

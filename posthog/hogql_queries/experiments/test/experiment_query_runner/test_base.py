@@ -1929,3 +1929,163 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         # Test: sum(60, 80, 100) = 240
         self.assertEqual(test_variant.sum, 240)
         self.assertEqual(test_variant.number_of_samples, 3)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_with_unique_users_metric(self):
+        """Test that unique users metric correctly counts unique users, not total events."""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 10)
+        )
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.DAU,
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # Create test data with multiple events per user to verify unique counting
+        # Control: 3 users, but user_0 has 3 events, user_1 has 2 events, user_2 has 1 event
+        for i in range(3):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            # Create exposure event
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "control",
+                    "$feature_flag_response": "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            # Create multiple purchase events for some users
+            num_purchases = 2 - i  # user_0: 2 events, user_1: 1 events, user_2: 0 event
+            for j in range(num_purchases):
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp=f"2020-01-0{2+j}T12:01:00Z",  # Different timestamps
+                    properties={
+                        feature_flag_property: "control",
+                        "price": 50 + (i * 10) + j,
+                    },
+                )
+
+        # Test: 4 users, with varying numbers of events
+        for i in range(4):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            # Create exposure event
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "test",
+                    "$feature_flag_response": "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            # Create multiple purchase events: user_0: 4 events, user_1: 3 events, user_2: 2 events, user_3: 1 event
+            num_purchases = 4 - i
+            for j in range(num_purchases):
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_test_{i}",
+                    timestamp=f"2020-01-0{2+j}T12:01:00Z",  # Different timestamps
+                    properties={
+                        feature_flag_property: "test",
+                        "price": 60 + (i * 10) + j,
+                    },
+                )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+        assert result.variant_results is not None
+
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
+
+        # should count unique users, not total events
+        # Control: 2 unique users (even though total events = 2+1 = 3)
+        self.assertEqual(control_variant.sum, 2)
+        self.assertEqual(control_variant.number_of_samples, 3)
+
+        # Test: 4 unique users (even though total events = 4+3+2+1 = 10)
+        self.assertEqual(test_variant.sum, 4)
+        self.assertEqual(test_variant.number_of_samples, 4)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_with_unique_group_metric(self):
+        """Test unique group metric counts unique groups that performed the target event."""
+        feature_flag = self.create_feature_flag()
+        feature_flag.filters["aggregation_group_type_index"] = 0
+        feature_flag.save()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 10)
+        )
+        experiment.save()
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math="unique_group",
+                math_group_type_index=0,
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        create_standard_group_test_events(self.team, feature_flag)
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+        assert result.variant_results is not None
+
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
+
+        # Control: groups 0 and 1 have purchase events (first 6 users: 0→0, 1→1, 2→0, 3→1, 4→0, 5→1)
+        # Test: groups 2, 3, and 4 have purchase events (first 8 users: 0→2, 1→3, 2→4, 3→2, 4→3, 5→4, 6→2, 7→3)
+        self.assertEqual(control_variant.sum, 2)  # 2 unique groups with purchase events
+        self.assertEqual(control_variant.number_of_samples, 2)  # 2 unique groups exposed to control
+        self.assertEqual(test_variant.sum, 3)  # 3 unique groups with purchase events
+        self.assertEqual(test_variant.number_of_samples, 3)  # 3 unique groups exposed to test

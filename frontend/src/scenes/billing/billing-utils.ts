@@ -5,7 +5,7 @@ import Papa from 'papaparse'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils'
+import { compactNumber, dateStringToDayJs } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
 import { OrganizationType } from '~/types'
@@ -17,13 +17,8 @@ import type { BillingFilters, BillingSeriesForCsv, BillingUsageInteractionProps,
 export const summarizeUsage = (usage: number | null): string => {
     if (usage === null) {
         return ''
-    } else if (usage < 1000) {
-        return `${usage}`
-    } else if (Math.round(usage / 1000) < 1000) {
-        const thousands = usage / 1000
-        return `${Number.isInteger(thousands) ? thousands : thousands.toFixed(1)} thousand`
     }
-    return `${Math.round(usage / 1000000)} million`
+    return compactNumber(usage)
 }
 
 export const projectUsage = (usage: number | undefined, period: BillingType['billing_period']): number | undefined => {

@@ -4,6 +4,7 @@ from typing import Any, Optional, cast
 
 from posthog.schema import (
     Breakdown,
+    BreakdownType,
     CachedRetentionQueryResponse,
     EntityType,
     HogQLQueryModifiers,
@@ -30,7 +31,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-from posthog.constants import TREND_FILTER_TYPE_EVENTS, RetentionQueryType
+from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithIntervals
@@ -165,7 +166,9 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             return action.get_step_events()
         return [entity.id] if isinstance(entity.id, str) else [None]
 
-    def events_where_clause(self, event_query_type: RetentionQueryType):
+    def events_where_clause(
+        self, is_first_ever_occurrence_matching_filters: bool, is_first_ever_occurrence: bool = False
+    ):
         """
         Event filters to apply to both start and return events
         """
@@ -182,22 +185,24 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             for prop in self.team.test_account_filters:
                 events_where.append(property_to_expr(prop, self.team))
 
-        if event_query_type == RetentionQueryType.TARGET:
+        if not is_first_ever_occurrence_matching_filters and not is_first_ever_occurrence:
             # when it's recurring, we only have to grab events for the period, rather than events for all time
             events_where.append(self.events_timestamp_filter)
 
-        # Pre filter event
-        events = self.get_events_for_entity(self.start_event) + self.get_events_for_entity(self.return_event)
-        # Don't pre-filter if any of them is "All events"
-        if None not in events:
-            events_where.append(
-                ast.CompareOperation(
-                    left=ast.Field(chain=["event"]),
-                    # Sorting for consistent snapshots in tests
-                    right=ast.Tuple(exprs=[ast.Constant(value=event) for event in sorted(events)]),  # type: ignore
-                    op=ast.CompareOperationOp.In,
+        if not is_first_ever_occurrence:
+            # Pre filter event
+            events = self.get_events_for_entity(self.start_event) + self.get_events_for_entity(self.return_event)
+            unique_events = set(events)
+            # Don't pre-filter if any of them is "All events"
+            if None not in unique_events:
+                events_where.append(
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["event"]),
+                        # Sorting for consistent snapshots in tests
+                        right=ast.Tuple(exprs=[ast.Constant(value=event) for event in sorted(unique_events)]),  # type: ignore
+                        op=ast.CompareOperationOp.In,
+                    )
                 )
-            )
 
         return events_where
 
@@ -233,7 +238,11 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             else:
                 properties_chain = ["person", "properties", property_name]
         elif breakdown_type == "group":
-            properties_chain = [f"groups_{group_type_index}", "properties", property_name]
+            if property_name.startswith("$virt_"):
+                # Virtual properties exist as expression fields on the groups table
+                properties_chain = [f"groups_{group_type_index}", property_name]
+            else:
+                properties_chain = [f"groups_{group_type_index}", "properties", property_name]
         else:
             # Default to event properties
             properties_chain = ["events", "properties", property_name]
@@ -255,15 +264,18 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             source=ast.Field(chain=["events", "timestamp"])
         )
 
-        event_query_type = (
-            RetentionQueryType.TARGET_FIRST_TIME
-            if self.query.retentionFilter.retentionType == RetentionType.RETENTION_FIRST_TIME
-            else RetentionQueryType.TARGET
+        is_first_ever_occurrence_matching_filters = (
+            self.query.retentionFilter.retentionType == RetentionType.RETENTION_FIRST_TIME
+        )
+        is_first_ever_occurrence = (
+            self.query.retentionFilter.retentionType == RetentionType.RETENTION_FIRST_EVER_OCCURRENCE
         )
 
         start_entity_expr = entity_to_expr(self.start_event, self.team)
         return_entity_expr = entity_to_expr(self.return_event, self.team)
-        global_event_filters = self.events_where_clause(event_query_type)
+        global_event_filters = self.events_where_clause(
+            is_first_ever_occurrence_matching_filters, is_first_ever_occurrence
+        )
 
         if (
             self.query.breakdownFilter
@@ -284,7 +296,8 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
         # Pre-filter events to only those we care about
         is_relevant_event = ast.Or(exprs=[start_entity_expr, return_entity_expr])
-        global_event_filters.append(is_relevant_event)
+        if not is_first_ever_occurrence:
+            global_event_filters.append(is_relevant_event)
 
         start_event_timestamps = parse_expr(
             """
@@ -315,7 +328,33 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             return_entity_expr=return_entity_expr,
         )
 
-        if event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
+        if is_first_ever_occurrence_matching_filters or is_first_ever_occurrence:
+            start_entity_with_properties_expr = entity_to_expr(self.start_event, self.team)
+
+            if is_first_ever_occurrence:
+                # Create a clean entity without properties to find the true first-ever event
+                clean_start_event = self.start_event.model_copy(deep=True)
+                clean_start_event.properties = []
+                start_entity_expr_no_props = entity_to_expr(clean_start_event, self.team)
+
+                # First-ever occurrence of the target event, then check filters.
+                # We find the timestamp of the first event of this type, and the first event of this type that also matches properties.
+                # If they are the same, this is the user's cohorting event.
+                min_ts_expr = parse_expr("minIf(events.timestamp, {expr})", {"expr": start_entity_expr_no_props})
+                min_ts_with_props_expr = parse_expr(
+                    "minIf(events.timestamp, {expr})", {"expr": start_entity_with_properties_expr}
+                )
+
+                min_timestamp_inner_expr = parse_expr(
+                    "if({min_ts} = {min_ts_with_props}, {min_ts}, NULL)",
+                    {"min_ts": min_ts_expr, "min_ts_with_props": min_ts_with_props_expr},
+                )
+            else:  # is_first_ever_occurrence_matching_filters
+                # First occurrence of the target event that matches filters.
+                min_timestamp_inner_expr = parse_expr(
+                    "minIf(events.timestamp, {expr})", {"expr": start_entity_with_properties_expr}
+                )
+
             start_event_timestamps = parse_expr(
                 """
                     if(
@@ -330,14 +369,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 {
                     "start_event_timestamps": start_event_timestamps,
                     # cast this to start of interval as well so we can compare with the timestamps fetched above
-                    "min_timestamp": self.query_date_range.date_to_start_of_interval_hogql(
-                        parse_expr(
-                            "minIf(events.timestamp, {start_entity_expr})",
-                            {
-                                "start_entity_expr": start_entity_expr,
-                            },
-                        )
-                    ),
+                    "min_timestamp": self.query_date_range.date_to_start_of_interval_hogql(min_timestamp_inner_expr),
                 },
             )
             # interval must be same as first interval of in which start event happened
@@ -783,20 +815,47 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
     def to_actors_query(
         self, interval: Optional[int] = None, breakdown_values: str | list[str] | int | None = None
     ) -> ast.SelectQuery:
-        selected_breakdown_value = None
-
-        if breakdown_values:
-            if not isinstance(breakdown_values, list):
-                raise ValueError(
-                    "Single breakdowns are not supported, ensure multiple-breakdowns feature flag is enabled"
-                )
-
-            selected_breakdown_value = "::".join(breakdown_values)
-
         with self.timings.measure("retention_actors_query"):
-            actor_query = self.actor_query(
-                start_interval_index_filter=interval, selected_breakdown_value=selected_breakdown_value
+            # Cohort breakdowns require special handling as cohort breakdowns unlike say event breakdowns
+            # run the original retention query for each cohort value separately and then combine the results
+            # so while breaking down by cohort, we need to change the base query to only keep the cohort
+            # for which we want to see the actors
+            is_cohort_breakdown = (
+                self.query.breakdownFilter is not None
+                and self.query.breakdownFilter.breakdowns is not None
+                and any(b.type == "cohort" for b in self.query.breakdownFilter.breakdowns)
             )
+
+            actor_query: ast.SelectQuery | ast.SelectSetQuery
+            if is_cohort_breakdown:
+                if not breakdown_values or not isinstance(breakdown_values, list) or len(breakdown_values) == 0:
+                    raise ValueError("A cohort breakdown value is required for actors query with cohort breakdowns.")
+
+                cohort_id = breakdown_values[0]
+                temp_query = self.query.model_copy(deep=True)
+                if temp_query.breakdownFilter:
+                    temp_query.breakdownFilter.breakdowns = [Breakdown(type="cohort", property=int(cohort_id))]
+                    # these are passed to the new runner to correctly construct the query
+                    temp_query.breakdownFilter.breakdown = cohort_id
+                    temp_query.breakdownFilter.breakdown_type = BreakdownType.COHORT
+
+                runner = RetentionQueryRunner(
+                    query=temp_query, team=self.team, timings=self.timings, modifiers=self.modifiers
+                )
+                actor_query = runner.actor_query(start_interval_index_filter=interval)
+
+            else:
+                selected_breakdown_value = None
+                if breakdown_values:
+                    if not isinstance(breakdown_values, list):
+                        raise ValueError(
+                            "Single breakdowns are not supported, ensure multiple-breakdowns feature flag is enabled"
+                        )
+                    selected_breakdown_value = "::".join(breakdown_values)
+
+                actor_query = self.actor_query(
+                    start_interval_index_filter=interval, selected_breakdown_value=selected_breakdown_value
+                )
 
             # Build the retention actors query
             retention_query = parse_select(
@@ -913,14 +972,17 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             actor_subquery.where = ast.And(exprs=where_clauses)
 
             # Create query that gets all relevant events for the matching actors
-            event_query_type = (
-                RetentionQueryType.TARGET_FIRST_TIME
-                if self.query.retentionFilter.retentionType == RetentionType.RETENTION_FIRST_TIME
-                else RetentionQueryType.TARGET
+            is_first_ever_occurrence_matching_filters = (
+                self.query.retentionFilter.retentionType == RetentionType.RETENTION_FIRST_TIME
+            )
+            is_first_ever_occurrence = (
+                self.query.retentionFilter.retentionType == RetentionType.RETENTION_FIRST_EVER_OCCURRENCE
             )
 
             # Common conditions from events_where_clause
-            event_filters = self.events_where_clause(event_query_type)
+            event_filters = self.events_where_clause(
+                is_first_ever_occurrence_matching_filters, is_first_ever_occurrence
+            )
 
             # The event query will join actors with their events
             events_query = cast(

@@ -33,10 +33,12 @@ function useBoldNumberTooltip({
     showPersonsModal,
     isTooltipShown,
     groupTypeLabel,
+    chartId,
 }: {
     showPersonsModal: boolean
     isTooltipShown: boolean
     groupTypeLabel?: string
+    chartId: string
 }): React.RefObject<HTMLDivElement> {
     const { insightProps } = useValues(insightLogic)
     const { series, insightData, trendsFilter, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
@@ -45,7 +47,7 @@ function useBoldNumberTooltip({
     const divRef = useRef<HTMLDivElement>(null)
 
     const divRect = divRef.current?.getBoundingClientRect()
-    const [tooltipRoot, tooltipEl] = ensureTooltip()
+    const [tooltipRoot, tooltipEl] = ensureTooltip(chartId)
 
     useLayoutEffect(() => {
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
@@ -95,7 +97,13 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
     )
 
     const [isTooltipShown, setIsTooltipShown] = useState(false)
-    const valueRef = useBoldNumberTooltip({ showPersonsModal, isTooltipShown, groupTypeLabel: context?.groupTypeLabel })
+    const chartId = useRef(`boldnumber-${Math.random().toString(36).substring(2, 11)}`)
+    const valueRef = useBoldNumberTooltip({
+        showPersonsModal,
+        isTooltipShown,
+        groupTypeLabel: context?.groupTypeLabel,
+        chartId: chartId.current,
+    })
 
     const showComparison = !!compareFilter?.compare && insightData?.result?.length > 1
     const resultSeries = insightData?.result?.[0] as TrendResult | undefined

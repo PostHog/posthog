@@ -46,7 +46,9 @@ export function MetricSourceModal({
                         setExperiment({
                             [metricsField]: newMetrics,
                         })
-                        openMetricModal(newMetrics.length - 1)
+                        if (defaultMetric.uuid) {
+                            openMetricModal(defaultMetric.uuid)
+                        }
                     }}
                 >
                     <div className="font-semibold">

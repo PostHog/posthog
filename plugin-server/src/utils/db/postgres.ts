@@ -1,12 +1,14 @@
 // Postgres
-import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
+import { Client, DatabaseError, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
+
+import { withSpan } from '~/common/tracing/tracing-utils'
 
 import { PluginsServerConfig } from '../../types'
-import { instrumentQuery } from '../../utils/metrics'
 import { logger } from '../logger'
 import { createPostgresPool } from '../utils'
 import { POSTGRES_UNAVAILABLE_ERROR_MESSAGES } from './db'
 import { DependencyUnavailableError } from './error'
+import { postgresErrorCounter } from './metrics'
 import { timeoutGuard } from './utils'
 
 export enum PostgresUse {
@@ -101,18 +103,6 @@ export class PostgresRouter {
             this.pools.set(PostgresUse.PERSONS_READ, this.pools.get(PostgresUse.PERSONS_WRITE)!)
             logger.info('👍', `Using persons write pool for read-only`)
         }
-        if (serverConfig.COUNTERS_DATABASE_URL) {
-            logger.info('🤔', `Connecting to counters Postgresql...`)
-            this.pools.set(
-                PostgresUse.COUNTERS_RW,
-                createPostgresPool(
-                    serverConfig.COUNTERS_DATABASE_URL,
-                    serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
-                    app_name
-                )
-            )
-            logger.info('👍', `Counters Postgresql ready`)
-        }
     }
 
     public async query<R extends QueryResultRow = any, I extends any[] = any[]>(
@@ -124,10 +114,10 @@ export class PostgresRouter {
     ): Promise<QueryResult<R>> {
         if (target instanceof TransactionClient) {
             const wrappedTag = `${PostgresUse[target.target]}:Tx<${tag}>`
-            return postgresQuery(target.client, queryString, values, wrappedTag, queryFailureLogLevel)
+            return postgresQuery(target.client, queryString, values, wrappedTag, queryFailureLogLevel, target.target)
         } else {
             const wrappedTag = `${PostgresUse[target]}<${tag}>`
-            return postgresQuery(this.pools.get(target)!, queryString, values, wrappedTag, queryFailureLogLevel)
+            return postgresQuery(this.pools.get(target)!, queryString, values, wrappedTag, queryFailureLogLevel, target)
         }
     }
 
@@ -138,7 +128,7 @@ export class PostgresRouter {
     ): Promise<ReturnType> {
         const wrappedTag = `${PostgresUse[usage]}:Tx<${tag}>`
 
-        return instrumentQuery('query.postgres_transaction', wrappedTag, async () => {
+        return withSpan('postgres', 'query.postgres_transaction', { tag: wrappedTag }, async () => {
             const timeout = timeoutGuard(`Postgres slow transaction warning after 30 sec!`)
             const client = await this.pools.get(usage)!.connect()
             try {
@@ -151,7 +141,7 @@ export class PostgresRouter {
 
                 // if Postgres is down the ROLLBACK above won't work, but the transaction shouldn't be committed either
                 if (e.message && POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((message) => e.message.includes(message))) {
-                    throw new DependencyUnavailableError(e.message, 'Postgres', e)
+                    handlePostgresUnavailableError(e, usage)
                 }
 
                 throw e
@@ -181,9 +171,10 @@ function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
     queryString: string | QueryConfig<I>,
     values: I | undefined,
     tag: string,
-    queryFailureLogLevel: 'error' | 'warn' = 'error'
+    queryFailureLogLevel: 'error' | 'warn' = 'error',
+    databaseUse: PostgresUse
 ): Promise<QueryResult<R>> {
-    return instrumentQuery('query.postgres', tag, async () => {
+    return withSpan('postgres', 'query.postgres', { tag: tag ?? 'unknown' }, async () => {
         const queryConfig =
             typeof queryString === 'string'
                 ? {
@@ -200,7 +191,7 @@ function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
                 error.message &&
                 POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((message) => error.message.includes(message))
             ) {
-                throw new DependencyUnavailableError(error.message, 'Postgres', error)
+                handlePostgresUnavailableError(error, databaseUse)
             }
 
             logger[queryFailureLogLevel]('🔴', 'Postgres query error', {
@@ -211,4 +202,19 @@ function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
             throw error
         }
     })
+}
+
+function handlePostgresUnavailableError(error: DatabaseError, databaseUse: PostgresUse) {
+    const databaseUseLabel = PostgresUse[databaseUse]
+    let errorType = 'other'
+
+    const matchedError = POSTGRES_UNAVAILABLE_ERROR_MESSAGES.find((message) => error.message.includes(message))
+    if (matchedError) {
+        errorType = matchedError
+    } else if (error.code) {
+        errorType = error.code
+    }
+
+    postgresErrorCounter.inc({ error_type: errorType, database_use: databaseUseLabel })
+    throw new DependencyUnavailableError(error.message, 'Postgres', error)
 }

@@ -5681,3 +5681,511 @@ async fn test_nested_cohort_targeting_with_days_since_paid_plan() -> Result<()> 
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_empty_distinct_id_flag_matching() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    // Create multiple flags with different matching conditions
+    let flags_json = json!([
+        {
+            "id": 1,
+            "key": "always-on-flag",
+            "name": "Always On Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [{
+                    "properties": [],
+                    "rollout_percentage": 100
+                }]
+            }
+        },
+        {
+            "id": 2,
+            "key": "property-match-flag",
+            "name": "Property Match Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [{
+                    "properties": [{
+                        "key": "country",
+                        "type": "person",
+                        "value": "US",
+                        "operator": "exact"
+                    }],
+                    "rollout_percentage": 100
+                }]
+            }
+        },
+        {
+            "id": 3,
+            "key": "email-regex-flag",
+            "name": "Email Regex Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [{
+                    "properties": [{
+                        "key": "email",
+                        "type": "person",
+                        "value": "@example.com",
+                        "operator": "regex"
+                    }],
+                    "rollout_percentage": 100
+                }]
+            }
+        },
+        {
+            "id": 4,
+            "key": "premium-user-flag",
+            "name": "Premium User Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [{
+                    "properties": [{
+                        "key": "premium_user",
+                        "type": "person",
+                        "value": true,
+                        "operator": "exact"
+                    }],
+                    "rollout_percentage": 100
+                }]
+            }
+        },
+        {
+            "id": 5,
+            "key": "rollout-percentage-flag",
+            "name": "50% Rollout Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [{
+                    "properties": [],
+                    "rollout_percentage": 50
+                }]
+            }
+        },
+        {
+            "id": 6,
+            "key": "multivariate-flag",
+            "name": "Multivariate Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [{
+                    "properties": [],
+                    "rollout_percentage": 100
+                }],
+                "multivariate": {
+                    "variants": [
+                        {
+                            "key": "control",
+                            "name": "Control",
+                            "rollout_percentage": 33
+                        },
+                        {
+                            "key": "test",
+                            "name": "Test",
+                            "rollout_percentage": 33
+                        },
+                        {
+                            "key": "other",
+                            "name": "Other",
+                            "rollout_percentage": 34
+                        }
+                    ]
+                }
+            }
+        }
+    ]);
+
+    insert_flags_for_team_in_redis(
+        client.clone(),
+        team.id,
+        team.project_id,
+        Some(flags_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test with empty string distinct ID
+    let payload = json!({
+        "token": token,
+        "distinct_id": "",  // Empty distinct ID in the request
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let json_data = res.json::<Value>().await?;
+
+    // Verify that flags are actually evaluated, not just all returning false
+    // For empty distinct IDs with no person properties, only non-property-based flags should match
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                // Always-on flag should be true for everyone, even empty distinct IDs
+                "always-on-flag": {
+                    "key": "always-on-flag",
+                    "enabled": true
+                },
+                // Property match flags should be false (no person properties)
+                "property-match-flag": {
+                    "key": "property-match-flag",
+                    "enabled": false  // No person properties
+                },
+                "email-regex-flag": {
+                    "key": "email-regex-flag",
+                    "enabled": false  // No email property
+                },
+                "premium-user-flag": {
+                    "key": "premium-user-flag",
+                    "enabled": false  // No premium_user property
+                }
+            }
+        })
+    );
+
+    // Check that rollout percentage flag returns a consistent result
+    // (should be deterministic based on the empty distinct ID hash)
+    let rollout_flag = json_data["flags"]["rollout-percentage-flag"]["enabled"].as_bool();
+    assert!(
+        rollout_flag.is_some(),
+        "Rollout flag should have a boolean value"
+    );
+
+    // Check that multivariate flag returns a variant
+    let multivariate_flag = &json_data["flags"]["multivariate-flag"];
+    assert!(
+        multivariate_flag["enabled"].as_bool().unwrap_or(false),
+        "Multivariate flag should be enabled"
+    );
+    assert!(
+        multivariate_flag["variant"].is_string(),
+        "Multivariate flag should return a variant for empty distinct ID"
+    );
+
+    // Test consistency: Make the same request again and verify we get the same results
+    let res2 = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(res2.status(), StatusCode::OK);
+    let json_data2 = res2.json::<Value>().await?;
+
+    // Rollout percentage should be consistent
+    assert_eq!(
+        json_data["flags"]["rollout-percentage-flag"]["enabled"],
+        json_data2["flags"]["rollout-percentage-flag"]["enabled"],
+        "Rollout percentage should be consistent for the same (empty) distinct ID"
+    );
+
+    // Multivariate variant should be consistent
+    assert_eq!(
+        json_data["flags"]["multivariate-flag"]["variant"],
+        json_data2["flags"]["multivariate-flag"]["variant"],
+        "Multivariate variant should be consistent for the same (empty) distinct ID"
+    );
+
+    // Test with empty distinct ID but with person properties provided in the request
+    let payload_with_props = json!({
+        "token": token,
+        "distinct_id": "",  // Still empty distinct ID
+        // Include some person properties in the request
+        "person_properties": {
+            "country": "US",
+            "email": "user@test.org",
+            "premium_user": false
+        }
+    });
+
+    let res3 = server
+        .send_flags_request(payload_with_props.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(res3.status(), StatusCode::OK);
+    let json_data3 = res3.json::<Value>().await?;
+
+    // Always-on flag should still work
+    assert_json_include!(
+        actual: json_data3,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "always-on-flag": {
+                    "key": "always-on-flag",
+                    "enabled": true
+                },
+                // Property flags should evaluate based on provided properties
+                "property-match-flag": {
+                    "key": "property-match-flag",
+                    "enabled": true
+                },
+                "premium-user-flag": {
+                    "key": "premium-user-flag",
+                    "enabled": false  // premium_user is false
+                }
+            }
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_cohort_with_and_negated_cohort_condition() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "test_user_and_cohort".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    // Insert person with email matching our target pattern
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        distinct_id.clone(),
+        Some(json!({
+            "email": "engineer@posthog.com"
+        })),
+    )
+    .await
+    .unwrap();
+
+    let mut conn = pg_client.get_connection().await.unwrap();
+
+    // Create cohort 1001: matches "admin@posthog.com" (for exclusion)
+    let excluded_cohort_filters = json!({
+        "properties": {
+            "type": "OR",
+            "values": [{
+                "type": "OR",
+                "values": [{
+                    "key": "email",
+                    "type": "person",
+                    "value": "admin@posthog.com",
+                    "negation": false,
+                    "operator": "exact"
+                }]
+            }]
+        }
+    });
+
+    let excluded_cohort_id: i32 = sqlx::query_scalar(
+        r#"INSERT INTO posthog_cohort 
+           (name, description, team_id, deleted, filters, is_calculating, created_by_id, created_at, is_static, last_calculation, errors_calculating, groups, version)
+           VALUES ($1, $2, $3, false, $4, false, NULL, NOW(), false, NOW(), 0, '[]', NULL)
+           RETURNING id"#,
+    )
+    .bind("Admin Users")
+    .bind("Matches admin@posthog.com")
+    .bind(team.id)
+    .bind(excluded_cohort_filters)
+    .fetch_one(&mut *conn)
+    .await?;
+
+    // Create cohort 1002: matches "@posthog.com" AND NOT in excluded cohort
+    let main_cohort_filters = json!({
+        "properties": {
+            "type": "OR",
+            "values": [{
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "email",
+                        "type": "person",
+                        "value": "@posthog.com",
+                        "negation": false,
+                        "operator": "regex"
+                    },
+                    {
+                        "key": "id",
+                        "type": "cohort",
+                        "value": excluded_cohort_id,
+                        "negation": true
+                    }
+                ]
+            }]
+        }
+    });
+
+    let main_cohort_id: i32 = sqlx::query_scalar(
+        r#"INSERT INTO posthog_cohort 
+           (name, description, team_id, deleted, filters, is_calculating, created_by_id, created_at, is_static, last_calculation, errors_calculating, groups, version)
+           VALUES ($1, $2, $3, false, $4, false, NULL, NOW(), false, NOW(), 0, '[]', NULL)
+           RETURNING id"#,
+    )
+    .bind("Non-Admin PostHog Users")
+    .bind("Matches @posthog.com but NOT admin")
+    .bind(team.id)
+    .bind(main_cohort_filters)
+    .fetch_one(&mut *conn)
+    .await?;
+
+    // Create flag that matches the main cohort
+    let flag_json = json!([{
+        "id": 1,
+        "key": "non-admin-flag",
+        "name": "Non-Admin Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{
+                "properties": [{
+                    "key": "id",
+                    "type": "cohort",
+                    "value": main_cohort_id,
+                    "operator": "in"
+                }],
+                "rollout_percentage": 100
+            }]
+        }
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client.clone(),
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test 1: User with engineer@posthog.com should match
+    // (matches @posthog.com regex AND is NOT in admin cohort)
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let json_data = res.json::<Value>().await?;
+
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "non-admin-flag": {
+                    "key": "non-admin-flag",
+                    "enabled": true
+                }
+            }
+        })
+    );
+
+    // Test 2: User with admin@posthog.com should NOT match
+    // (matches @posthog.com regex BUT is in admin cohort)
+    let admin_distinct_id = "admin_user".to_string();
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        admin_distinct_id.clone(),
+        Some(json!({
+            "email": "admin@posthog.com"
+        })),
+    )
+    .await
+    .unwrap();
+
+    let admin_payload = json!({
+        "token": token,
+        "distinct_id": admin_distinct_id,
+    });
+
+    let admin_res = server
+        .send_flags_request(admin_payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(admin_res.status(), StatusCode::OK);
+    let admin_json = admin_res.json::<Value>().await?;
+
+    assert_json_include!(
+        actual: admin_json,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "non-admin-flag": {
+                    "key": "non-admin-flag",
+                    "enabled": false
+                }
+            }
+        })
+    );
+
+    // Test 3: User without @posthog.com should NOT match
+    // (doesn't match regex, regardless of admin status)
+    let external_distinct_id = "external_user".to_string();
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        external_distinct_id.clone(),
+        Some(json!({
+            "email": "user@example.com"
+        })),
+    )
+    .await
+    .unwrap();
+
+    let external_payload = json!({
+        "token": token,
+        "distinct_id": external_distinct_id,
+    });
+
+    let external_res = server
+        .send_flags_request(external_payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(external_res.status(), StatusCode::OK);
+    let external_json = external_res.json::<Value>().await?;
+
+    assert_json_include!(
+        actual: external_json,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "non-admin-flag": {
+                    "key": "non-admin-flag",
+                    "enabled": false
+                }
+            }
+        })
+    );
+
+    Ok(())
+}

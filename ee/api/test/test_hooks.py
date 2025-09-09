@@ -74,7 +74,7 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
         assert hog_function.filters == {
             "source": "events",
             "actions": [{"id": str(self.action.id), "name": "", "type": "actions", "order": 0}],
-            "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11, 3, 1, 4, 1],
+            "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11],
         }
 
         assert hog_function.hog == snapshot(

@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, key, path, props } from 'kea'
+import { actions, connect, events, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -15,7 +15,6 @@ export const relatedGroupsLogic = kea<relatedGroupsLogicType>([
             groupTypeIndex: number | null
             id: string
             type?: 'person' | 'group'
-            limit?: number
         }
     ),
     key((props) => `${props.groupTypeIndex ?? 'person'}-${props.id}`),
@@ -33,17 +32,16 @@ export const relatedGroupsLogic = kea<relatedGroupsLogicType>([
                         group_type_index: props.groupTypeIndex,
                         id: props.id,
                     })}`
-                    let response = await api.get(url)
-                    if (props.type) {
-                        response = response.filter((actor: ActorType) => actor.type === props.type)
-                    }
-                    if (props.limit) {
-                        response = response.slice(0, props.limit)
-                    }
-                    return response
+                    return await api.get(url)
                 },
                 setGroup: () => [],
             },
+        ],
+    })),
+    selectors(({ selectors }) => ({
+        relatedPeople: [
+            () => [selectors.relatedActors],
+            (relatedActors: ActorType[]) => relatedActors.filter((actor) => actor.type === 'person'),
         ],
     })),
     events(({ actions }) => ({

@@ -32,6 +32,7 @@ pub trait RebalanceHandler: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kafka::types::Partition;
     use rdkafka::Offset;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -43,8 +44,8 @@ mod tests {
         revoked_count: AtomicUsize,
         pre_rebalance_count: AtomicUsize,
         post_rebalance_count: AtomicUsize,
-        assigned_partitions: std::sync::Mutex<Vec<(String, i32)>>,
-        revoked_partitions: std::sync::Mutex<Vec<(String, i32)>>,
+        assigned_partitions: std::sync::Mutex<Vec<Partition>>,
+        revoked_partitions: std::sync::Mutex<Vec<Partition>>,
     }
 
     #[async_trait]
@@ -54,7 +55,7 @@ mod tests {
 
             let mut assigned = self.assigned_partitions.lock().unwrap();
             for elem in partitions.elements() {
-                assigned.push((elem.topic().to_string(), elem.partition()));
+                assigned.push(Partition::from(elem));
             }
 
             Ok(())
@@ -65,7 +66,7 @@ mod tests {
 
             let mut revoked = self.revoked_partitions.lock().unwrap();
             for elem in partitions.elements() {
-                revoked.push((elem.topic().to_string(), elem.partition()));
+                revoked.push(Partition::from(elem));
             }
 
             Ok(())
@@ -106,9 +107,9 @@ mod tests {
 
         let assigned = handler.assigned_partitions.lock().unwrap();
         assert_eq!(assigned.len(), 3);
-        assert!(assigned.contains(&("test-topic-1".to_string(), 0)));
-        assert!(assigned.contains(&("test-topic-1".to_string(), 1)));
-        assert!(assigned.contains(&("test-topic-2".to_string(), 0)));
+        assert!(assigned.contains(&Partition::new("test-topic-1".to_string(), 0)));
+        assert!(assigned.contains(&Partition::new("test-topic-1".to_string(), 1)));
+        assert!(assigned.contains(&Partition::new("test-topic-2".to_string(), 0)));
     }
 
     #[tokio::test]
@@ -124,9 +125,9 @@ mod tests {
 
         let revoked = handler.revoked_partitions.lock().unwrap();
         assert_eq!(revoked.len(), 3);
-        assert!(revoked.contains(&("test-topic-1".to_string(), 0)));
-        assert!(revoked.contains(&("test-topic-1".to_string(), 1)));
-        assert!(revoked.contains(&("test-topic-2".to_string(), 0)));
+        assert!(revoked.contains(&Partition::new("test-topic-1".to_string(), 0)));
+        assert!(revoked.contains(&Partition::new("test-topic-1".to_string(), 1)));
+        assert!(revoked.contains(&Partition::new("test-topic-2".to_string(), 0)));
     }
 
     #[tokio::test]
