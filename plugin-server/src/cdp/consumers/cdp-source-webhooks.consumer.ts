@@ -9,6 +9,7 @@ import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { UUID, UUIDT } from '../../utils/utils'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
+import { actionIdForLogging } from '../services/hogflows/hogflow-utils'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { HogWatcherFunctionState, HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import {
@@ -152,6 +153,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         hogFlow: HogFlow,
         hogFunction: HogFunctionType
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        const triggerActionId = hogFlow.actions.find((action) => action.type === 'trigger')?.id ?? 'trigger_node'
         try {
             const globals: HogFunctionInvocationGlobals = this.buildRequestGlobals(hogFunction, req)
             const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
@@ -229,8 +231,41 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             return functionResult
         } catch (error) {
             logger.error('Error triggering hog flow', { error })
-            // TODO: Add logs and metrics for the flow
-            throw error
+            this.hogFunctionMonitoringService.queueAppMetric(
+                {
+                    team_id: hogFlow.team_id,
+                    app_source_id: hogFlow.id,
+                    metric_kind: 'failure',
+                    metric_name: 'trigger_failed',
+                    count: 1,
+                },
+                'hog_flow'
+            )
+            this.hogFunctionMonitoringService.queueLogs(
+                [
+                    {
+                        team_id: hogFlow.team_id,
+                        log_source: 'hog_flow',
+                        log_source_id: hogFlow.id,
+                        instance_id: new UUIDT().toString(),
+                        ...logEntry(
+                            'error',
+                            `${actionIdForLogging({ id: triggerActionId })} Error triggering flow: ${error.message}`
+                        ),
+                    },
+                ],
+                'hog_flow'
+            )
+
+            // NOTE: We only return a hog function result. We track out own logs and errors here
+            return createInvocationResult(
+                createInvocation({} as any, hogFunction),
+                {},
+                {
+                    finished: true,
+                    error: error.message,
+                }
+            )
         }
     }
 
@@ -239,54 +274,67 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         hogFunction: HogFunctionType,
         hogFunctionState: HogWatcherFunctionState | null
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        const globals: HogFunctionInvocationGlobals = this.buildRequestGlobals(hogFunction, req)
-        const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
-        const invocation = createInvocation(globalsWithInputs, hogFunction)
+        try {
+            const globals: HogFunctionInvocationGlobals = this.buildRequestGlobals(hogFunction, req)
+            const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
+            const invocation = createInvocation(globalsWithInputs, hogFunction)
 
-        if (hogFunctionState?.state === HogWatcherState.degraded) {
-            // Degraded functions are not executed immediately
-            invocation.queue = 'hog_overflow'
-            await this.cyclotronJobQueue.queueInvocations([invocation])
+            if (hogFunctionState?.state === HogWatcherState.degraded) {
+                // Degraded functions are not executed immediately
+                invocation.queue = 'hog_overflow'
+                await this.cyclotronJobQueue.queueInvocations([invocation])
 
-            const result = createInvocationResult<CyclotronJobInvocationHogFunction>(
-                invocation,
+                const result = createInvocationResult<CyclotronJobInvocationHogFunction>(
+                    invocation,
+                    {},
+                    {
+                        finished: false,
+                        logs: [
+                            {
+                                level: 'warn',
+                                message: 'Function scheduled for future execution due to degraded state',
+                                timestamp: DateTime.now(),
+                            },
+                        ],
+                    }
+                )
+
+                result.execResult = {
+                    // TODO: Add support for a default response as an input
+                    httpResponse: {
+                        status: 200,
+                        body: '',
+                    },
+                }
+                return result
+            }
+            // Run the initial step - this allows functions not using fetches to respond immediately
+            const result = await this.hogExecutor.execute(invocation)
+
+            // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
+            if (!result.finished) {
+                await this.cyclotronJobQueue.queueInvocationResults([result])
+            }
+
+            const customHttpResponse = getCustomHttpResponse(result)
+            if (customHttpResponse) {
+                const level = customHttpResponse.status >= 400 ? 'warn' : 'info'
+                result.logs.push(logEntry(level, `Responded with response status - ${customHttpResponse.status}`))
+            }
+
+            return result
+        } catch (error) {
+            logger.error('Error executing hog function', { error })
+            return createInvocationResult(
+                createInvocation({} as any, hogFunction),
                 {},
                 {
-                    finished: false,
-                    logs: [
-                        {
-                            level: 'warn',
-                            message: 'Function scheduled for future execution due to degraded state',
-                            timestamp: DateTime.now(),
-                        },
-                    ],
+                    finished: true,
+                    error: error.message,
+                    logs: [{ level: 'error', message: error.message, timestamp: DateTime.now() }],
                 }
             )
-
-            result.execResult = {
-                // TODO: Add support for a default response as an input
-                httpResponse: {
-                    status: 200,
-                    body: '',
-                },
-            }
-            return result
         }
-        // Run the initial step - this allows functions not using fetches to respond immediately
-        const result = await this.hogExecutor.execute(invocation)
-
-        // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
-        if (!result.finished) {
-            await this.cyclotronJobQueue.queueInvocationResults([result])
-        }
-
-        const customHttpResponse = getCustomHttpResponse(result)
-        if (customHttpResponse) {
-            const level = customHttpResponse.status >= 400 ? 'warn' : 'info'
-            result.logs.push(logEntry(level, `Responded with response status - ${customHttpResponse.status}`))
-        }
-
-        return result
     }
 
     @instrumented('cdpSourceWebhooksConsumer.processWebhook')
@@ -319,27 +367,9 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             throw new SourceWebhookError(429, 'Disabled')
         }
 
-        let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
-
-        try {
-            // TODO: Add error handling and logging
-            if (hogFlow) {
-                result = await this.executeHogFlow(req, hogFlow, hogFunction)
-            } else {
-                result = await this.executeHogFunction(req, hogFunction, hogFunctionState)
-            }
-        } catch (error) {
-            logger.error('Error executing hog function', { error })
-            result = createInvocationResult(
-                createInvocation({} as any, hogFunction),
-                {},
-                {
-                    finished: true,
-                    error: error.message,
-                    logs: [{ level: 'error', message: error.message, timestamp: DateTime.now() }],
-                }
-            )
-        }
+        const result = hogFlow
+            ? await this.executeHogFlow(req, hogFlow, hogFunction)
+            : await this.executeHogFunction(req, hogFunction, hogFunctionState)
 
         void this.promiseScheduler.schedule(
             Promise.all([
