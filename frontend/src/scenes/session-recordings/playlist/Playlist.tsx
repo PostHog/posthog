@@ -13,6 +13,7 @@ import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToN
 
 import { SessionRecordingType } from '~/types'
 
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { playlistLogic } from './playlistLogic'
 
 const SCROLL_TRIGGER_OFFSET = 100
@@ -77,6 +78,7 @@ export function Playlist({
     filterContent,
 }: PlaylistProps): JSX.Element {
     const { isFiltersExpanded } = useValues(playlistLogic)
+    const { isCinemaMode } = useValues(playerSettingsLogic)
 
     const firstItem = sections
         .filter((s): s is PlaylistRecordingPreviewBlock => 'items' in s)
@@ -148,7 +150,7 @@ export function Playlist({
                 })}
             >
                 <div className="flex flex-col min-w-60 xl:max-w-80 xl:min-w-80">
-                    {filterActions && (
+                    {filterActions && !isCinemaMode && (
                         <DraggableToNotebook className="mb-2" href={notebooksHref}>
                             {filterActions}
                         </DraggableToNotebook>
