@@ -276,16 +276,22 @@ impl StoreManager {
     /// across all stores by removing a percentage of each store's time range.
     pub fn cleanup_old_entries_if_needed(&self) -> Result<u64> {
         // Try to acquire cleanup lock - if another cleanup is running, skip this one
-        if self.cleanup_running.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
+        if self
+            .cleanup_running
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
             debug!("Cleanup already running, skipping this cycle");
             return Ok(0);
         }
-        
+
         // Ensure we release the lock when we're done
-        let _guard = CleanupGuard { flag: &self.cleanup_running };
-        
+        let _guard = CleanupGuard {
+            flag: &self.cleanup_running,
+        };
+
         let start_time = Instant::now();
-        
+
         // Log folder sizes and assigned partitions
         self.log_folder_sizes_and_partitions();
 
@@ -303,7 +309,6 @@ impl StoreManager {
                 total_size += size;
             }
         }
-
 
         // Check if we're under capacity
         if total_size <= self.store_config.max_capacity {

@@ -56,7 +56,9 @@ impl KafkaDeduplicatorService {
         // Start periodic cleanup task if max_capacity is configured
         let cleanup_task_handle = if store_config.max_capacity > 0 {
             let cleanup_interval = config.cleanup_interval();
-            let handle = store_manager.clone().start_periodic_cleanup(cleanup_interval);
+            let handle = store_manager
+                .clone()
+                .start_periodic_cleanup(cleanup_interval);
             info!(
                 "Started periodic cleanup task with interval: {:?} for max capacity: {} bytes",
                 cleanup_interval, store_config.max_capacity

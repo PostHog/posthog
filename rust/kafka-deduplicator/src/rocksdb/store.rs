@@ -28,7 +28,7 @@ static SHARED_BLOCK_CACHE: Lazy<Arc<Cache>> = Lazy::new(|| {
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(2048 * 1024 * 1024); // 2GB default
-    
+
     Arc::new(Cache::new_lru_cache(cache_size))
 });
 
@@ -38,9 +38,12 @@ static SHARED_WRITE_BUFFER_MANAGER: Lazy<Arc<WriteBufferManager>> = Lazy::new(||
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(2048 * 1024 * 1024); // 2GB total for ALL stores
-    
+
     // false = don't allow stall (we'll handle backpressure at Kafka level)
-    Arc::new(WriteBufferManager::new_write_buffer_manager(total_write_buffer_size, false))
+    Arc::new(WriteBufferManager::new_write_buffer_manager(
+        total_write_buffer_size,
+        false,
+    ))
 });
 
 fn rocksdb_options() -> Options {
@@ -62,12 +65,12 @@ fn rocksdb_options() -> Options {
     block_opts.set_bloom_filter(10.0, false);
     block_opts.set_cache_index_and_filter_blocks(true);
     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
-    
+
     // CRITICAL: Use shared block cache across all stores
     block_opts.set_block_cache(&SHARED_BLOCK_CACHE);
 
     opts.set_block_based_table_factory(&block_opts);
-    
+
     // CRITICAL: Use shared write buffer manager to limit total memory
     opts.set_write_buffer_manager(&SHARED_WRITE_BUFFER_MANAGER);
 
