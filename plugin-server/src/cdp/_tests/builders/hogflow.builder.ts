@@ -109,7 +109,7 @@ export class FixtureHogFlowBuilder {
         return this
     }
 
-    withSimpleWorkflow({ trigger }: { trigger?: HogFlow['trigger'] }): this {
+    withSimpleWorkflow({ trigger }: { trigger?: HogFlow['trigger'] } = {}): this {
         return this.withWorkflow({
             actions: {
                 trigger: {
