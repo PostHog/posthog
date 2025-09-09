@@ -224,7 +224,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                     {} as HogFunctionFilterGlobals
                 )
 
-                // TODO: Abstract this out somewhere
                 addMetric({
                     metric_kind: 'other',
                     metric_name: 'triggered',
