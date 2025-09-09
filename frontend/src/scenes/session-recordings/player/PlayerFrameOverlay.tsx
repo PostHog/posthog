@@ -11,12 +11,32 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { SessionPlayerState } from '~/types'
 
+import { CommentOnRecordingButton } from './commenting/CommentOnRecordingButton'
+import { ClipRecording } from './controller/ClipRecording'
+import { Screenshot } from './controller/PlayerController'
+import { playerSettingsLogic } from './playerSettingsLogic'
+import { SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
+
+const PlayerFrameOverlayActions = (): JSX.Element | null => {
+    return (
+        <div className="flex gap-1 mt-4">
+            <CommentOnRecordingButton className="text-2xl text-white" />
+            <Screenshot className="text-2xl text-white" />
+            <ClipRecording className="text-2xl text-white" />
+        </div>
+    )
+}
+
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
-    const { currentPlayerState, endReached } = useValues(sessionRecordingPlayerLogic)
+    const { currentPlayerState, endReached, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { isCinemaMode } = useValues(playerSettingsLogic)
+
     let content = null
     const pausedState =
         currentPlayerState === SessionPlayerState.PAUSE || currentPlayerState === SessionPlayerState.READY
     const isInExportContext = !!getCurrentExporterData()
+    const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
+    const showActionsOnOverlay = !isCinemaMode && playerMode === SessionRecordingPlayerMode.Standard && pausedState
 
     if (currentPlayerState === SessionPlayerState.ERROR) {
         content = (
@@ -58,7 +78,10 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
         content = endReached ? (
             <IconRewindPlay className="text-6xl text-white" />
         ) : (
-            <IconPlay className="text-6xl text-white" />
+            <div className="flex flex-col items-center justify-center">
+                <IconPlay className="text-6xl text-white" />
+                {showActionsOnOverlay && <PlayerFrameOverlayActions />}
+            </div>
         )
     }
     if (currentPlayerState === SessionPlayerState.SKIP) {

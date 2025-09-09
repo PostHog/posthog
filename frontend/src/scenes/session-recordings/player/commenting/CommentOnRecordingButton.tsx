@@ -6,6 +6,7 @@ import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
+import { cn } from 'lib/utils/css-classes'
 import { playerCommentOverlayLogic } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -40,7 +41,7 @@ export function EmojiCommentRow({ onSelectEmoji }: { onSelectEmoji?: () => void 
     )
 }
 
-export function CommentOnRecordingButton(): JSX.Element {
+export function CommentOnRecordingButton({ className }: { className?: string }): JSX.Element {
     const { setIsCommenting, setQuickEmojiIsOpen } = useActions(sessionRecordingPlayerLogic)
     const { isCommenting, quickEmojiIsOpen } = useValues(sessionRecordingPlayerLogic)
 
@@ -55,7 +56,10 @@ export function CommentOnRecordingButton(): JSX.Element {
         <>
             <LemonButton
                 size="xsmall"
-                onClick={() => setIsCommenting(!isCommenting)}
+                onClick={(e) => {
+                    e.stopPropagation()
+                    setIsCommenting(!isCommenting)
+                }}
                 tooltip={
                     isCommenting ? (
                         <>
@@ -69,7 +73,7 @@ export function CommentOnRecordingButton(): JSX.Element {
                 }
                 data-attr={isCommenting ? 'stop-annotating-recording' : 'annotate-recording'}
                 active={isCommenting}
-                icon={<IconComment className="text-lg" />}
+                icon={<IconComment className={cn('text-lg', className)} />}
             />
             <LemonDropdown
                 overlay={
@@ -91,7 +95,10 @@ export function CommentOnRecordingButton(): JSX.Element {
             >
                 <LemonButton
                     size="xsmall"
-                    onClick={() => setQuickEmojiIsOpen(!quickEmojiIsOpen)}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        setQuickEmojiIsOpen(!quickEmojiIsOpen)
+                    }}
                     tooltip={
                         quickEmojiIsOpen ? (
                             <>
@@ -106,7 +113,7 @@ export function CommentOnRecordingButton(): JSX.Element {
                     data-attr={quickEmojiIsOpen ? 'close-emoji-picker' : 'emoji-comment-dropdown'}
                     active={quickEmojiIsOpen}
                     disabledReason={isLoading ? 'Loading...' : undefined}
-                    icon={<IconEmoji className="text-lg" />}
+                    icon={<IconEmoji className={cn('text-lg', className)} />}
                 />
             </LemonDropdown>
         </>
