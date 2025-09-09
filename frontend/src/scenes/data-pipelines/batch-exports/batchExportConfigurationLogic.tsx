@@ -545,6 +545,7 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         end_at,
                         model,
                         filters,
+                        json_config_file,
                         ...config
                     } = formdata
                     const destinationObj = {
@@ -626,6 +627,7 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         end_at,
                         model,
                         filters,
+                        json_config_file,
                         ...config
                     } = values.configuration
                     const destinationObj = {
@@ -858,8 +860,10 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         filereader.readAsText(value[0])
                     })
                     const jsonConfig = JSON.parse(loadedFile)
+                    const { json_config_file, ...remainingConfig } = values.configuration
+
                     actions.setConfigurationValues({
-                        ...values.configuration,
+                        ...remainingConfig,
                         project_id: jsonConfig.project_id,
                         private_key: jsonConfig.private_key,
                         private_key_id: jsonConfig.private_key_id,

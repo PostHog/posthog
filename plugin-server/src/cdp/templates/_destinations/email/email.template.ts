@@ -28,14 +28,20 @@ export const template: HogFunctionTemplate = {
             default: {
                 to: {
                     email: '{person.properties.email}',
+                    name: '',
                 },
-                from: null,
-                subject: 'PostHog Notification',
-                text: '',
-                html: '',
+                from: {
+                    email: '',
+                    name: '',
+                },
+                subject: '',
+                preheader: '',
+                text: 'Hello from PostHog!',
+                html: '<div>Hello from PostHog!</div>',
             },
             secret: false,
             description: 'The email message to send. Configure the recipient, sender, subject, and content.',
+            templating: true,
         },
     ],
 }

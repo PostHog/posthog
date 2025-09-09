@@ -14,6 +14,7 @@ import {
 import { KafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import {
+    HealthCheckResult,
     PluginServerService,
     PluginsServerConfig,
     RedisPool,
@@ -479,7 +480,7 @@ export class SessionRecordingIngester {
             logger.info('🔁', 'blob_ingester_consumer - rebalancing', {
                 err,
                 topicPartitions,
-                connected: this.kafkaConsumer.isHealthy(),
+                connected: !this.kafkaConsumer.isHealthy().isError(),
             })
             /**
              * see https://github.com/Blizzard/node-rdkafka#rebalancing
@@ -541,7 +542,7 @@ export class SessionRecordingIngester {
         return promiseResults
     }
 
-    public isHealthy() {
+    public isHealthy(): HealthCheckResult {
         // TODO: Maybe extend this to check if we are shutting down so we don't get killed early.
         return this.kafkaConsumer.isHealthy()
     }

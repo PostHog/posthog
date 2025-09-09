@@ -27,7 +27,7 @@ def _build_event_filter_expr(filter: dict) -> ast.Expr:
     """Build expression for a single event filter."""
     event_name = filter.get("id")
     if event_name is None:
-        return ast.Constant(value=1)  # Match all events
+        return ast.Constant(value=True)  # Match all events
     return parse_expr("event = {event}", {"event": ast.Constant(value=event_name)})
 
 

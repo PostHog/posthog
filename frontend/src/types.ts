@@ -51,6 +51,7 @@ import type {
     ExperimentMetric,
     ExperimentTrendsQuery,
     ExternalDataSourceType,
+    FileSystemIconType,
     FileSystemImport,
     HogQLQuery,
     HogQLQueryModifiers,
@@ -68,6 +69,7 @@ import type {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import { CyclotronInputType } from 'products/messaging/frontend/Campaigns/hogflows/steps/types'
 import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
 
 // Type alias for number to be reflected as integer in json-schema.
@@ -2433,6 +2435,7 @@ export type BreakdownType =
     | 'hogql'
     | 'data_warehouse'
     | 'data_warehouse_person_property'
+    | 'revenue_analytics'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 export type SimpleIntervalType = 'day' | 'month'
 export type SmoothingType = number
@@ -3014,6 +3017,8 @@ export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     filtersOverride?: DashboardFilter | null
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
+    /** The tab of the scene if the insight is a full scene insight */
+    tabId?: string | null
 }
 
 export interface SetInsightOptions {
@@ -4344,6 +4349,7 @@ export interface SharingConfigurationType {
     enabled: boolean
     access_token: string
     created_at: string
+    password_required: boolean
     settings?: SharingConfigurationSettings
 }
 
@@ -4673,6 +4679,7 @@ export interface DataWarehouseSavedQuery {
     status?: string
     latest_error: string | null
     latest_history_id?: string
+    is_materialized?: boolean
 }
 
 export interface DataWarehouseSavedQueryDraft {
@@ -4716,6 +4723,11 @@ export const manualLinkSources = ['aws', 'google-cloud', 'cloudflare-r2', 'azure
 
 export type ManualLinkSourceType = (typeof manualLinkSources)[number]
 
+export interface ExternalDataSourceRevenueAnalyticsConfig {
+    enabled: boolean
+    include_invoiceless_charges: boolean
+}
+
 export interface ExternalDataSourceCreatePayload {
     source_type: ExternalDataSourceType
     prefix: string
@@ -4730,10 +4742,10 @@ export interface ExternalDataSource {
     prefix: string
     latest_error: string | null
     last_run_at?: Dayjs
-    revenue_analytics_enabled: boolean
     schemas: ExternalDataSourceSchema[]
     sync_frequency: DataWarehouseSyncInterval
     job_inputs: Record<string, any>
+    revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig
 }
 
 export interface DataModelingJob {
@@ -5247,13 +5259,6 @@ export type CyclotronJobInputSchemaType = {
     requiredScopes?: string
 }
 
-export type CyclotronJobInputType = {
-    value: any
-    templating?: 'hog' | 'liquid'
-    secret?: boolean
-    bytecode?: any
-}
-
 export type CyclotronJobMasking = {
     ttl: number | null
     threshold?: number | null
@@ -5296,11 +5301,13 @@ export interface CyclotronJobFiltersType {
     bytecode_error?: string
 }
 
+export type CyclotronJobInputType = CyclotronInputType
+
 export interface HogFunctionMappingType {
     name: string
     disabled?: boolean
     inputs_schema?: CyclotronJobInputSchemaType[]
-    inputs?: Record<string, CyclotronJobInputType> | null
+    inputs?: Record<string, CyclotronInputType> | null
     filters?: CyclotronJobFiltersType | null
 }
 export interface HogFunctionMappingTemplateType extends HogFunctionMappingType {
@@ -5330,7 +5337,7 @@ export type HogFunctionType = {
     hog: string
     execution_order?: number
     inputs_schema?: CyclotronJobInputSchemaType[]
-    inputs?: Record<string, CyclotronJobInputType> | null
+    inputs?: Record<string, CyclotronInputType> | null
     mappings?: HogFunctionMappingType[] | null
     masking?: CyclotronJobMasking | null
     filters?: CyclotronJobFiltersType | null
@@ -5554,12 +5561,19 @@ export enum ConversationStatus {
     Canceling = 'canceling',
 }
 
+export enum ConversationType {
+    Assistant = 'assistant',
+    ToolCall = 'tool_call',
+    DeepResearch = 'deep_research',
+}
+
 export interface Conversation {
     id: string
     status: ConversationStatus
     title: string | null
     created_at: string | null
     updated_at: string | null
+    type: ConversationType
 }
 
 export interface ConversationDetail extends Conversation {
@@ -5585,15 +5599,17 @@ export interface CoreMemory {
 export type FileSystemIconColor = [string] | [string, string]
 
 export interface FileSystemType {
-    icon?: JSX.Element
     href?: (ref: string) => string
-    iconColor?: FileSystemIconColor
     // Visual name of the product
     name: string
     // Flag to determine if the product is enabled
     flag?: string
     // Used to filter the tree items by product
     filterKey?: string
+    // Icon type of the icon
+    iconType?: FileSystemIconType
+    // Color of the icon
+    iconColor?: FileSystemIconColor
 }
 
 export interface ProductManifest {
@@ -5727,4 +5743,32 @@ export enum OnboardingStepKey {
     AUTHORIZED_DOMAINS = 'authorized_domains',
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
+}
+
+export interface Dataset {
+    id: string
+    name: string
+    description: string | null
+    metadata: Record<string, any> | null
+    team: number
+    created_at: string
+    updated_at: string
+    created_by: UserBasicType
+    deleted: boolean
+}
+
+export interface DatasetItem {
+    id: string
+    dataset: string
+    team: number
+    input: Record<string, any> | null
+    output: Record<string, any> | null
+    metadata: Record<string, any> | null
+    ref_trace_id: string | null
+    ref_timestamp: string | null
+    ref_source_id: string | null
+    created_by: UserBasicType
+    updated_at: string
+    created_at: string
+    deleted: boolean
 }

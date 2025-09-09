@@ -84,7 +84,6 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 description="Properties are additional fields you can configure to be sent along with an event capture."
                 resourceType={{
                     type: 'property',
-                    typePlural: 'properties',
                     forceIcon: <IconApps />,
                 }}
             />

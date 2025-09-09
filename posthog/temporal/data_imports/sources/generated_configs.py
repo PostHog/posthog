@@ -93,7 +93,8 @@ class KlaviyoSourceConfig(config.Config):
 
 @config.config
 class LinkedinAdsSourceConfig(config.Config):
-    pass
+    account_id: str
+    linkedin_ads_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -155,6 +156,11 @@ class PostgresSourceConfig(config.Config):
     port: int = config.value(converter=int)
     connection_string: str | None = None
     ssh_tunnel: SSHTunnelConfig | None = None
+
+
+@config.config
+class RedditAdsSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -231,6 +237,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.MYSQL: MySQLSourceConfig,
         ExternalDataSourceType.POLAR: PolarSourceConfig,
         ExternalDataSourceType.POSTGRES: PostgresSourceConfig,
+        ExternalDataSourceType.REDDITADS: RedditAdsSourceConfig,
         ExternalDataSourceType.REDSHIFT: RedshiftSourceConfig,
         ExternalDataSourceType.REVENUECAT: RevenueCatSourceConfig,
         ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,

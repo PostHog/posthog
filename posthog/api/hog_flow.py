@@ -49,7 +49,7 @@ class HogFlowActionSerializer(serializers.Serializer):
     )
     created_at = serializers.IntegerField(required=False)
     updated_at = serializers.IntegerField(required=False)
-    filters = HogFunctionFiltersSerializer(required=False, default=dict, allow_null=True)
+    filters = HogFunctionFiltersSerializer(required=False, default=None, allow_null=True)
     type = serializers.CharField(max_length=100)
     config = serializers.JSONField()
 
@@ -59,6 +59,13 @@ class HogFlowActionSerializer(serializers.Serializer):
         return super().to_internal_value(data)
 
     def validate(self, data):
+        if data.get("type") == "trigger":
+            filters = data.get("config", {}).get("filters", {})
+            if filters:
+                serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                serializer.is_valid(raise_exception=True)
+                data["config"]["filters"] = serializer.validated_data
+
         if "function" in data.get("type", ""):
             template_id = data.get("config", {}).get("template_id", "")
             template = HogFunctionTemplate.get_template(template_id)
@@ -96,6 +103,7 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
             "status",
             "created_at",
             "created_by",
+            "updated_at",
             "trigger",
             "trigger_masking",
             "conversion",
@@ -121,6 +129,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "status",
             "created_at",
             "created_by",
+            "updated_at",
             "trigger",
             "trigger_masking",
             "conversion",
@@ -148,6 +157,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
     def update(self, instance, validated_data):
         return super().update(instance, validated_data)
+
+
+class HogFlowInvocationSerializer(serializers.Serializer):
+    configuration = HogFlowSerializer(write_only=True, required=False)
+    globals = serializers.DictField(write_only=True, required=False)
+    mock_async_functions = serializers.BooleanField(default=True, write_only=True)
+    current_action_id = serializers.CharField(write_only=True, required=False)
 
 
 class CommaSeparatedListFilter(BaseInFilter, CharFilter):
@@ -234,10 +250,16 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         except Exception:
             hog_flow = None
 
+        serializer = HogFlowInvocationSerializer(
+            data=request.data, context={**self.get_serializer_context(), "instance": hog_flow}
+        )
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=400)
+
         res = create_hog_flow_invocation_test(
             team_id=self.team_id,
             hog_flow_id=str(hog_flow.id) if hog_flow else "new",
-            payload=request.data,
+            payload=serializer.validated_data,
         )
 
         if res.status_code != 200:

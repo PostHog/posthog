@@ -31,6 +31,7 @@ import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
+import { LLMAnalyticsDatasetsScene } from './datasets/LLMAnalyticsDatasetsScene'
 import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsLogic } from './llmAnalyticsLogic'
 import { CompatMessage } from './types'
 import { normalizeMessages, truncateValue } from './utils'
@@ -119,7 +120,10 @@ function LLMAnalyticsGenerations(): JSX.Element {
 
     return (
         <DataTable
-            query={generationsQuery}
+            query={{
+                ...generationsQuery,
+                showSavedFilters: true,
+            }}
             setQuery={(query) => {
                 if (!isEventsQuery(query.source)) {
                     throw new Error('Invalid query')
@@ -298,6 +302,23 @@ export function LLMAnalyticsScene(): JSX.Element {
         })
     }
 
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]) {
+        tabs.push({
+            key: 'datasets',
+            label: (
+                <>
+                    Datasets{' '}
+                    <LemonTag className="ml-1" type="warning">
+                        Beta
+                    </LemonTag>
+                </>
+            ),
+            content: <LLMAnalyticsDatasetsScene />,
+            link: combineUrl(urls.llmAnalyticsDatasets(), searchParams).url,
+            'data-attr': 'datasets-tab',
+        })
+    }
+
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
             <PageHeader
@@ -320,8 +341,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                     name="LLM Analytics"
                     description="Analyze and understand your LLM usage and performance."
                     resourceType={{
-                        type: 'ai',
-                        typePlural: 'LLM Analytics',
+                        type: 'llm_analytics',
                     }}
                 />
                 <SceneDivider />

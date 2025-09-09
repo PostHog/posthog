@@ -2,21 +2,20 @@ use anyhow::Result;
 use async_trait::async_trait;
 use rdkafka::TopicPartitionList;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{error, info};
 
-use crate::deduplication_processor::DeduplicationProcessor;
 use crate::kafka::rebalance_handler::RebalanceHandler;
 use crate::kafka::types::Partition;
+use crate::store_manager::StoreManager;
 
-/// Rebalance handler that coordinates with DeduplicationProcessor
-/// This handler cleans up stores for revoked partitions
+/// Rebalance handler that coordinates store cleanup on partition revocation
 pub struct ProcessorRebalanceHandler {
-    processor: Arc<DeduplicationProcessor>,
+    store_manager: Arc<StoreManager>,
 }
 
 impl ProcessorRebalanceHandler {
-    pub fn new(processor: Arc<DeduplicationProcessor>) -> Self {
-        Self { processor }
+    pub fn new(store_manager: Arc<StoreManager>) -> Self {
+        Self { store_manager }
     }
 }
 
@@ -41,7 +40,25 @@ impl RebalanceHandler for ProcessorRebalanceHandler {
             .collect();
 
         // Clean up stores for revoked partitions
-        self.processor.cleanup_stores(&partition_infos).await;
+        for partition in &partition_infos {
+            if let Err(e) = self
+                .store_manager
+                .remove(partition.topic(), partition.partition_number())
+            {
+                error!(
+                    "Failed to remove store for revoked partition {}:{}: {}",
+                    partition.topic(),
+                    partition.partition_number(),
+                    e
+                );
+            } else {
+                info!(
+                    "Cleaned up deduplication store and files for revoked partition {}:{}",
+                    partition.topic(),
+                    partition.partition_number()
+                );
+            }
+        }
 
         Ok(())
     }
@@ -55,7 +72,7 @@ impl RebalanceHandler for ProcessorRebalanceHandler {
         info!("Post-rebalance: Partition changes complete");
 
         // Log current stats
-        let store_count = self.processor.get_active_store_count().await;
+        let store_count = self.store_manager.stores().len();
         info!("Active deduplication stores: {}", store_count);
 
         Ok(())
@@ -72,7 +89,7 @@ mod tests {
 
     fn create_test_config() -> (DeduplicationConfig, TempDir) {
         let temp_dir = TempDir::new().unwrap();
-        let store_config = crate::rocksdb::deduplication_store::DeduplicationStoreConfig {
+        let store_config = crate::store::DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };

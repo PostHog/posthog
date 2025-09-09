@@ -7,6 +7,7 @@ import { buildIntegerMatcher } from '../../../config/config'
 import { KafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import {
+    HealthCheckResult,
     PluginServerService,
     PluginsServerConfig,
     RedisPool,
@@ -316,7 +317,7 @@ export class SessionRecordingIngester {
         return promiseResults
     }
 
-    public isHealthy(): boolean {
+    public isHealthy(): HealthCheckResult {
         // TODO: Maybe extend this to check if we are shutting down so we don't get killed early.
         return this.kafkaConsumer.isHealthy()
     }

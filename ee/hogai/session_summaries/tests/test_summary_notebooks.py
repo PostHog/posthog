@@ -113,8 +113,10 @@ class TestNotebookCreation(APIBaseTest):
         session_ids: list[str] = ["session_1", "session_2"]
 
         # Generate content first
-        content = generate_notebook_content_from_summary(summary_data, session_ids, self.team.name, self.team.id)
-        notebook = await create_notebook_from_summary_content(self.user, self.team, content)
+        content = generate_notebook_content_from_summary(
+            summary_data, session_ids, self.team.name, self.team.id, "test summary"
+        )
+        notebook = await create_notebook_from_summary_content(self.user, self.team, content, "test summary")
 
         # Verify the notebook was created
         assert notebook is not None
@@ -122,7 +124,7 @@ class TestNotebookCreation(APIBaseTest):
         assert notebook.created_by == self.user
         assert notebook.last_modified_by == self.user
         assert notebook.title is not None
-        assert f"Session Summaries Report - {self.team.name}" in notebook.title
+        assert f"Session summaries report - {self.team.name}" in notebook.title
 
         # Check content structure
         assert content["type"] == "doc"
@@ -130,7 +132,7 @@ class TestNotebookCreation(APIBaseTest):
 
         # Check that it has the expected structure
         assert content["content"][0]["type"] == "heading"
-        assert f"Session Summaries Report - {self.team.name}" in content["content"][0]["content"][0]["text"]
+        assert f"Session summaries report - {self.team.name}" in content["content"][0]["content"][0]["text"]
 
         # Check that pattern content is included
         content_text: str = json.dumps(content)
@@ -143,7 +145,7 @@ class TestNotebookCreation(APIBaseTest):
         session_ids: list[str] = ["session_1", "session_2"]
 
         content: dict[str, Any] = generate_notebook_content_from_summary(
-            summary_data, session_ids, self.team.name, self.team.id
+            summary_data, session_ids, self.team.name, self.team.id, "test summary"
         )
 
         # Check basic structure
@@ -165,7 +167,7 @@ class TestNotebookCreation(APIBaseTest):
         empty_summary = EnrichedSessionGroupSummaryPatternsList(patterns=[])
 
         content: dict[str, Any] = generate_notebook_content_from_summary(
-            empty_summary, session_ids, self.team.name, self.team.id
+            empty_summary, session_ids, self.team.name, self.team.id, "test summary"
         )
 
         # Should still create valid content
@@ -212,7 +214,7 @@ class TestNotebookCreation(APIBaseTest):
         summary_data.patterns[0].events.append(segment_context_2)
 
         content: dict[str, Any] = generate_notebook_content_from_summary(
-            summary_data, session_ids, self.team.name, self.team.id
+            summary_data, session_ids, self.team.name, self.team.id, "test summary"
         )
 
         # Should contain both examples
@@ -326,7 +328,7 @@ class TestNotebookCreation(APIBaseTest):
 
         summary_data = EnrichedSessionGroupSummaryPatternsList(patterns=[pattern])
         content: dict[str, Any] = generate_notebook_content_from_summary(
-            summary_data, ["test_session"], self.team.name, self.team.id
+            summary_data, ["test_session"], self.team.name, self.team.id, "test summary"
         )
 
         # Find the outcome section in the content
@@ -416,7 +418,7 @@ class TestNotebookCreation(APIBaseTest):
 
         summary_data = EnrichedSessionGroupSummaryPatternsList(patterns=[pattern])
         content: dict[str, Any] = generate_notebook_content_from_summary(
-            summary_data, ["test_session_id"], self.team.name, self.team.id
+            summary_data, ["test_session_id"], self.team.name, self.team.id, "test summary"
         )
 
         # Convert content to JSON string to search for the replay link
@@ -468,7 +470,7 @@ class TestNotebookCreation(APIBaseTest):
 
             pattern.events = [segment_context_case]
             content = generate_notebook_content_from_summary(
-                summary_data, ["test_session_id"], self.team.name, self.team.id
+                summary_data, ["test_session_id"], self.team.name, self.team.id, "test summary"
             )
             content_text = json.dumps(content)
 
@@ -687,7 +689,9 @@ class TestNotebookCreation(APIBaseTest):
         summary_data = self.create_summary_data()
         session_ids = ["session_1", "session_2"]
 
-        content = generate_notebook_content_from_summary(summary_data, session_ids, self.team.name, self.team.id)
+        content = generate_notebook_content_from_summary(
+            summary_data, session_ids, self.team.name, self.team.id, "test summary"
+        )
 
         content_text = json.dumps(content)
 
@@ -707,7 +711,9 @@ class TestNotebookCreation(APIBaseTest):
         summary_data = self.create_summary_data()
         session_ids = ["session_1"]
 
-        content = generate_notebook_content_from_summary(summary_data, session_ids, self.team.name, self.team.id)
+        content = generate_notebook_content_from_summary(
+            summary_data, session_ids, self.team.name, self.team.id, "test summary"
+        )
 
         content_text = json.dumps(content)
 
@@ -786,7 +792,7 @@ class TestTaskListUtilities(APIBaseTest):
 
 class TestSummaryNotebookIntermediateState(APIBaseTest):
     def test_initialization(self) -> None:
-        state = SummaryNotebookIntermediateState(team_name="Test Team")
+        state = SummaryNotebookIntermediateState(team_name="Test Team", summary_title="test summary")
 
         assert state.team_name == "Test Team"
         assert len(state.plan_items) == 3
@@ -800,7 +806,7 @@ class TestSummaryNotebookIntermediateState(APIBaseTest):
 
     def test_race_condition_late_arriving_updates(self) -> None:
         """Test that late-arriving updates for previous steps are handled correctly."""
-        state = SummaryNotebookIntermediateState(team_name="Test Team")
+        state = SummaryNotebookIntermediateState(team_name="Test Team", summary_title="test summary")
 
         # Simulate UI moving to FINDING_PATTERNS step
         ui_content: dict[str, Any] = {
@@ -834,7 +840,7 @@ class TestSummaryNotebookIntermediateState(APIBaseTest):
 
     def test_update_step_progress_same_step(self) -> None:
         """Test updating content for the current step."""
-        state = SummaryNotebookIntermediateState(team_name="Test Team")
+        state = SummaryNotebookIntermediateState(team_name="Test Team", summary_title="test summary")
 
         test_content: dict[str, Any] = {
             "type": "doc",
@@ -847,7 +853,7 @@ class TestSummaryNotebookIntermediateState(APIBaseTest):
 
     def test_step_transition(self) -> None:
         """Test that transitioning to a new step marks the previous step as completed."""
-        state = SummaryNotebookIntermediateState(team_name="Test Team")
+        state = SummaryNotebookIntermediateState(team_name="Test Team", summary_title="test summary")
 
         # Add content for the first step
         content_step_one: dict[str, Any] = {
@@ -884,7 +890,7 @@ class TestSummaryNotebookIntermediateState(APIBaseTest):
         assert completed["Watch sessions"] == content_step_one
 
     def test_complete_multiple_steps(self) -> None:
-        state = SummaryNotebookIntermediateState(team_name="Test Team")
+        state = SummaryNotebookIntermediateState(team_name="Test Team", summary_title="test summary")
 
         # Complete first step
         content_step_one: dict[str, Any] = {"type": "doc", "content": [{"type": "text", "text": "Sessions watched"}]}
@@ -908,7 +914,7 @@ class TestSummaryNotebookIntermediateState(APIBaseTest):
         assert completed["Find initial patterns"] == content_step_two
 
     def test_format_initial_state(self) -> None:
-        state = SummaryNotebookIntermediateState(team_name="Test Team")
+        state = SummaryNotebookIntermediateState(team_name="Test Team", summary_title="test summary")
 
         formatted: dict[str, Any] = state.format_intermediate_state()
 
@@ -917,7 +923,7 @@ class TestSummaryNotebookIntermediateState(APIBaseTest):
 
         # Check main title
         assert content[0]["type"] == "heading"
-        assert "Session Summaries Report - Test Team" in content[0]["content"][0]["text"]
+        assert "Session summaries report - Test Team" in content[0]["content"][0]["text"]
 
         # Check plan section
         assert content[2]["type"] == "heading"
@@ -934,7 +940,7 @@ class TestSummaryNotebookIntermediateState(APIBaseTest):
             assert text.startswith("[ ]")
 
     def test_format_state_with_current_progress(self) -> None:
-        state = SummaryNotebookIntermediateState(team_name="Test Team")
+        state = SummaryNotebookIntermediateState(team_name="Test Team", summary_title="test summary")
 
         # Add progress to current step
         progress_content: dict[str, Any] = {
@@ -957,7 +963,7 @@ class TestSummaryNotebookIntermediateState(APIBaseTest):
         assert "Step: Watch sessions (In progress)" in formatted_str
 
     def test_format_state_with_completed_steps(self) -> None:
-        state = SummaryNotebookIntermediateState(team_name="Test Team")
+        state = SummaryNotebookIntermediateState(team_name="Test Team", summary_title="test summary")
 
         # Complete first step
         content_step_one: dict[str, Any] = {
@@ -994,12 +1000,12 @@ class TestSummaryNotebookIntermediateState(APIBaseTest):
         assert "Analyzing behaviors" in content_str
 
     def test_e2e_workflow(self) -> None:
-        state = SummaryNotebookIntermediateState(team_name="PostHog")
+        state = SummaryNotebookIntermediateState(team_name="PostHog", summary_title="test summary")
 
         # Initial state - just the plan
         initial_formatted: dict[str, Any] = state.format_intermediate_state()
         initial_str: str = json.dumps(initial_formatted)
-        assert "Session Summaries Report - PostHog" in initial_str
+        assert "Session summaries report - PostHog" in initial_str
         assert "[ ] Watch sessions" in initial_str
         assert "[ ] Find initial patterns" in initial_str
         assert "[ ] Generate final report" in initial_str
