@@ -45,7 +45,6 @@ pub struct DeduplicationStoreConfig {
 #[derive(Debug, Clone)]
 pub struct DeduplicationStore {
     store: Arc<RocksDbStore>,
-    config: DeduplicationStoreConfig,
     topic: String,
     partition: i32,
     metrics: MetricsHelper,
@@ -76,7 +75,6 @@ impl DeduplicationStore {
             store: Arc::new(store),
             topic,
             partition,
-            config,
             metrics,
         })
     }
@@ -294,31 +292,15 @@ impl DeduplicationStore {
     }
 
     pub fn cleanup_old_entries(&self) -> Result<u64> {
+        // Default to 10% cleanup if no percentage specified
+        self.cleanup_old_entries_with_percentage(0.10)
+    }
+
+    pub fn cleanup_old_entries_with_percentage(&self, cleanup_percentage: f64) -> Result<u64> {
         let start_time = Instant::now();
 
-        self.metrics
-            .counter(CLEANUP_OPERATIONS_COUNTER)
-            .increment(1);
-
-        if self.config.max_capacity == 0 {
-            return Ok(0); // No cleanup needed if max_capacity is 0 (unlimited)
-        }
-
-        // Calculate total size across both column families
-        let timestamp_size = self.store.get_db_size(Self::TIMESTAMP_CF)?;
-        let uuid_size = self.store.get_db_size(Self::UUID_CF)?;
-        let current_size = timestamp_size + uuid_size;
-
-        if current_size <= self.config.max_capacity {
-            return Ok(0); // Under capacity, no cleanup needed
-        }
-
-        let target_size = (self.config.max_capacity as f64 * 0.8) as u64;
-        let bytes_to_free = current_size.saturating_sub(target_size);
-
-        if bytes_to_free == 0 {
-            return Ok(0);
-        }
+        // Get initial size for metrics
+        let initial_size = self.get_total_size()?;
 
         // Clean up old entries from timestamp CF (they're timestamp-prefixed so easy to clean)
         let cf = self.store.get_cf_handle(Self::TIMESTAMP_CF)?;
@@ -326,8 +308,29 @@ impl DeduplicationStore {
 
         let cleanup_timestamp = if let Some(Ok((first_key, _))) = iter.next() {
             let first_key_parsed: TimestampKey = first_key.as_ref().try_into()?;
-            let first_key_timestamp = first_key_parsed.timestamp;
-            let cleanup_timestamp = first_key_timestamp + (24 * 60 * 60 * 1000); // +1 day in ms
+            let first_timestamp = first_key_parsed.timestamp;
+
+            // Get current time in milliseconds
+            let now = chrono::Utc::now().timestamp_millis() as u64;
+
+            // Calculate the time range of data we have
+            let time_range = now.saturating_sub(first_timestamp);
+
+            // Calculate how much of the time range to clean up (percentage)
+            let cleanup_duration = (time_range as f64 * cleanup_percentage) as u64;
+
+            // Calculate the cutoff timestamp
+            let cleanup_timestamp = first_timestamp + cleanup_duration;
+
+            info!(
+                "Store {}:{} - Cleaning up {}% of time range. First: {}, Now: {}, Cutoff: {}",
+                self.topic,
+                self.partition,
+                (cleanup_percentage * 100.0) as u32,
+                first_timestamp,
+                now,
+                cleanup_timestamp
+            );
 
             let first_key_bytes: Vec<u8> = first_key_parsed.into();
             let last_key_bytes: Vec<u8> = format!("{cleanup_timestamp}:").as_bytes().to_vec();
@@ -377,19 +380,20 @@ impl DeduplicationStore {
             index_end.as_ref(),
         )?;
 
-        let new_timestamp_size = self.store.get_db_size(Self::TIMESTAMP_CF)?;
-        let new_uuid_size = self.store.get_db_size(Self::UUID_CF)?;
-        let new_size = new_timestamp_size + new_uuid_size;
-        let bytes_freed = current_size.saturating_sub(new_size);
+        // Calculate bytes freed
+        let final_size = self.get_total_size()?;
+        let bytes_freed = initial_size.saturating_sub(final_size);
 
-        // Emit cleanup metrics
-        let duration = start_time.elapsed();
-        self.metrics
-            .histogram(CLEANUP_DURATION_HISTOGRAM)
-            .record(duration.as_secs_f64());
-        self.metrics
-            .histogram(CLEANUP_BYTES_FREED_HISTOGRAM)
-            .record(bytes_freed as f64);
+        // Log cleanup results for this store
+        if bytes_freed > 0 {
+            info!(
+                "Store {}:{} cleanup freed {} bytes in {:?}",
+                self.topic,
+                self.partition,
+                bytes_freed,
+                start_time.elapsed()
+            );
+        }
 
         Ok(bytes_freed)
     }
@@ -427,6 +431,14 @@ impl DeduplicationStore {
     /// Get the partition this store is responsible for
     pub fn get_partition(&self) -> i32 {
         self.partition
+    }
+
+    /// Get the total size of all column families in this store
+    pub fn get_total_size(&self) -> Result<u64> {
+        let timestamp_size = self.store.get_db_size(Self::TIMESTAMP_CF)?;
+        let uuid_size = self.store.get_db_size(Self::UUID_CF)?;
+        let index_size = self.store.get_db_size(Self::UUID_TIMESTAMP_INDEX_CF)?;
+        Ok(timestamp_size + uuid_size + index_size)
     }
 
     /// Flush the store to disk
@@ -669,9 +681,10 @@ mod tests {
     fn test_cleanup_with_uuid_records() {
         let (store, _temp_dir) = create_test_store(Some(1000)); // Small capacity to force cleanup
 
-        // Create events with old timestamps
-        let old_timestamp = "2021-01-01T00:00:00Z";
-        let new_timestamp = "2021-01-02T00:00:00Z"; // 1 day later
+        // Use timestamps relative to now for predictable cleanup behavior
+        let now = chrono::Utc::now();
+        let old_timestamp = (now - chrono::Duration::days(10)).to_rfc3339();
+        let new_timestamp = (now - chrono::Duration::days(5)).to_rfc3339();
 
         // Add many old events to ensure database has measurable size
         let old_uuids: Vec<uuid::Uuid> = (0..1000).map(|_| uuid::Uuid::new_v4()).collect();
@@ -685,7 +698,7 @@ mod tests {
                     ("key1".to_string(), serde_json::json!("value1")),
                     ("key2".to_string(), serde_json::json!("value2")),
                 ]),
-                timestamp: Some(old_timestamp.to_string()),
+                timestamp: Some(old_timestamp.clone()),
                 ..Default::default()
             };
             store.handle_event_with_raw(&event).unwrap();
@@ -703,7 +716,7 @@ mod tests {
                     ("key1".to_string(), serde_json::json!("value1")),
                     ("key2".to_string(), serde_json::json!("value2")),
                 ]),
-                timestamp: Some(new_timestamp.to_string()),
+                timestamp: Some(new_timestamp.clone()),
                 ..Default::default()
             };
             store.handle_event_with_raw(&event).unwrap();
@@ -721,8 +734,10 @@ mod tests {
             .unwrap();
         store.flush().unwrap();
 
-        // Force cleanup
-        store.cleanup_old_entries().unwrap();
+        // Force cleanup with 40% to clean up events older than 6 days
+        // With 10 days of data, 40% means we clean up to 6 days ago
+        // Since new events are 5 days old, they should be kept
+        store.cleanup_old_entries_with_percentage(0.40).unwrap();
 
         // Verify some old UUID records can be added again (were cleaned)
         for i in 0..5 {
@@ -733,7 +748,7 @@ mod tests {
                 distinct_id: Some(serde_json::Value::String(format!("old_user_{i}"))),
                 token: Some("token1".to_string()),
                 properties: std::collections::HashMap::new(),
-                timestamp: Some(old_timestamp.to_string()),
+                timestamp: Some(old_timestamp.clone()),
                 ..Default::default()
             };
 
@@ -749,7 +764,7 @@ mod tests {
                 distinct_id: Some(serde_json::Value::String(format!("new_user_{i}"))),
                 token: Some("token1".to_string()),
                 properties: std::collections::HashMap::new(),
-                timestamp: Some(new_timestamp.to_string()),
+                timestamp: Some(new_timestamp.clone()),
                 ..Default::default()
             };
 
@@ -762,9 +777,10 @@ mod tests {
     fn test_batch_deletion_boundaries() {
         let (store, _temp_dir) = create_test_store(Some(1000)); // Small capacity to force cleanup
 
-        // Create many events to test batch processing
-        let base_timestamp = "2021-01-01T00:00:00Z";
-        let base_ms = crate::utils::timestamp::parse_timestamp(base_timestamp).unwrap();
+        // Use timestamps relative to now for predictable cleanup behavior
+        let now = chrono::Utc::now();
+        let base_timestamp = now - chrono::Duration::days(10);
+        let base_ms = base_timestamp.timestamp_millis() as u64;
 
         // Create 2500 events (more than BATCH_SIZE of 1000) with sequential timestamps
         for i in 0..2500 {
@@ -789,7 +805,8 @@ mod tests {
         }
 
         // Add some newer events that shouldn't be cleaned
-        let new_base_ms = base_ms + (25 * 60 * 60 * 1000); // 25 hours later
+        let new_base_timestamp = now - chrono::Duration::days(5); // 5 days ago
+        let new_base_ms = new_base_timestamp.timestamp_millis() as u64;
         for i in 0..100 {
             let timestamp_ms = new_base_ms + i;
             let timestamp = chrono::DateTime::from_timestamp_millis(timestamp_ms as i64)
@@ -835,8 +852,10 @@ mod tests {
         }
         assert_eq!(count_before, 2600); // 2500 old + 100 new
 
-        // Trigger cleanup (should process old events in multiple batches)
-        store.cleanup_old_entries().unwrap();
+        // Trigger cleanup with 40% to clean up events older than 6 days
+        // With 10 days of data, 40% means we clean up to 6 days ago
+        // This should remove the 10-day-old events but keep the 5-day-old events
+        store.cleanup_old_entries_with_percentage(0.40).unwrap();
 
         // Count remaining UUID records
         let mut count_after = 0;
@@ -848,8 +867,8 @@ mod tests {
             count_after += 1;
         }
 
-        // Should have cleaned up old records (approximately 2500 removed)
-        // We can't be exact due to the 1-day boundary, but should have significantly fewer
+        // Should have cleaned up old records
+        // With percentage-based cleanup, we expect approximately the new 100 to remain
         assert!(count_after < count_before);
         assert!(count_after <= 200); // Should have at most the new 100 + some boundary cases
     }
