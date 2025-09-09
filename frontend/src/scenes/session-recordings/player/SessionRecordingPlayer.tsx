@@ -22,6 +22,7 @@ import { PlayerFrame } from './PlayerFrame'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { PlayerSidebar } from './PlayerSidebar'
 import { SessionRecordingNextConfirmation } from './SessionRecordingNextConfirmation'
+import { ClipOverlay } from './controller/ClipRecording'
 import { PlayerController } from './controller/PlayerController'
 import { PlayerMeta } from './player-meta/PlayerMeta'
 import { playerSettingsLogic } from './playerSettingsLogic'
@@ -99,10 +100,19 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     } = useActions(sessionRecordingPlayerLogic(logicProps))
     const { isNotFound, isRecentAndInvalid, isLikelyPastTTL } = useValues(sessionRecordingDataLogic(logicProps))
     const { loadSnapshots } = useActions(sessionRecordingDataLogic(logicProps))
-    const { isFullScreen, explorerMode, isBuffering, isCommenting } = useValues(sessionRecordingPlayerLogic(logicProps))
-    const { setPlayNextAnimationInterrupted, setIsCommenting } = useActions(sessionRecordingPlayerLogic(logicProps))
+    const { isFullScreen, explorerMode, isBuffering, isCommenting, quickEmojiIsOpen, showingClipParams } = useValues(
+        sessionRecordingPlayerLogic(logicProps)
+    )
+    const {
+        setPlayNextAnimationInterrupted,
+        setIsCommenting,
+        takeScreenshot,
+        setQuickEmojiIsOpen,
+        setShowingClipParams,
+    } = useActions(sessionRecordingPlayerLogic(logicProps))
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
-    const { isVerticallyStacked, sidebarOpen } = useValues(playerSettingsLogic)
+    const { isVerticallyStacked, sidebarOpen, isCinemaMode } = useValues(playerSettingsLogic)
+    const { setIsCinemaMode } = useActions(playerSettingsLogic)
 
     // For export modes, we don't want to show the player elements
     const hidePlayerElements =
@@ -156,6 +166,18 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             },
             c: {
                 action: () => setIsCommenting(!isCommenting),
+            },
+            e: {
+                action: () => setQuickEmojiIsOpen(!quickEmojiIsOpen),
+            },
+            s: {
+                action: () => takeScreenshot(),
+            },
+            x: {
+                action: () => setShowingClipParams(!showingClipParams),
+            },
+            t: {
+                action: () => setIsCinemaMode(!isCinemaMode),
             },
             space: {
                 action: () => togglePlayPause(),
@@ -288,6 +310,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                                     <>
                                                         <PlayerFrameOverlay />
                                                         <PlayerFrameCommentOverlay />
+                                                        <ClipOverlay />
                                                     </>
                                                 ) : null}
                                             </div>

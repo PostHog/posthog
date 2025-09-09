@@ -180,8 +180,7 @@ const Header = (): JSX.Element => {
                 name="Error tracking"
                 description="Track and analyze errors in your website or application to understand and fix issues."
                 resourceType={{
-                    type: 'errorTracking',
-                    typePlural: 'Error Tracking',
+                    type: 'error_tracking',
                 }}
             />
             <SceneDivider />

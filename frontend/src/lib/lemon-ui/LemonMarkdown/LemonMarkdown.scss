@@ -74,4 +74,61 @@
     img {
         max-width: 100%;
     }
+
+    // Table styling - minimal approach
+    table {
+        margin: 1em 0;
+        overflow: auto;
+        border-spacing: 0;
+        border-collapse: separate;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+    }
+
+    th,
+    td {
+        padding: 0.375rem 0.75rem;
+        color: var(--default);
+        text-align: left;
+        vertical-align: top;
+        border-right: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+
+        &:last-child {
+            border-right: none;
+        }
+    }
+
+    th {
+        font-weight: 600;
+    }
+
+    tbody tr:last-child td {
+        border-bottom: none;
+    }
+
+    .LemonMarkdown__task {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        list-style: none;
+
+        .LemonCheckbox {
+            flex-shrink: 0;
+            margin-top: 0.125rem; // Slight adjustment to align with text
+        }
+    }
+
+    .LemonMarkdown__task-content {
+        flex: 1;
+        min-width: 0; // Allow text to wrap
+        // Remove edge paragraph margins in task items for better spacing
+        p:first-child {
+            margin-top: 0;
+        }
+
+        p:last-child {
+            margin-bottom: 0;
+        }
+    }
 }

@@ -135,6 +135,8 @@ export function OperatorValueSelect({
             propertyType = PropertyType.Flag
         } else if (propertyKey === 'assignee' && type === PropertyFilterType.ErrorTrackingIssue) {
             propertyType = PropertyType.Assignee
+        } else if (propertyKey === 'first_seen' && type === PropertyFilterType.ErrorTrackingIssue) {
+            propertyType = PropertyType.DateTime
         } else if (
             type === PropertyFilterType.Event &&
             propertyKey &&
@@ -150,6 +152,7 @@ export function OperatorValueSelect({
         const operators = (Object.keys(operatorMapping) as Array<PropertyOperator>).filter((op) => {
             return !operatorAllowlist || operatorAllowlist.includes(op)
         })
+
         setOperators(operators)
         if ((currentOperator !== operator && operators.includes(startingOperator)) || !propertyDefinition) {
             setCurrentOperator(startingOperator)

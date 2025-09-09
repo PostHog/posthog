@@ -310,7 +310,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         database = create_hogql_database(team=self.team)
 
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(4):
             serialize_database(HogQLContext(team_id=self.team.pk, database=database))
 
         for i in range(5):
@@ -344,7 +344,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         database = create_hogql_database(team=self.team)
 
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(4):
             serialize_database(HogQLContext(team_id=self.team.pk, database=database))
 
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))

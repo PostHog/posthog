@@ -1,16 +1,17 @@
 import { useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
-import { IconChevronDown, IconEllipsis, IconGear, IconPencil, IconX } from '@posthog/icons'
+import { IconChevronDown, IconEllipsis, IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { TopBarSettingsButton } from 'lib/components/TopBarSettingsButton/TopBarSettingsButton'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconMenu, IconSlash } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -22,6 +23,7 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { Breadcrumb as IBreadcrumb } from '~/types'
 
 import { ProjectDropdownMenu } from '../panel-layout/ProjectDropdownMenu'
+import { SceneTabs } from './SceneTabs'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
 
 export function SceneHeader({ className }: { className?: string }): JSX.Element | null {
@@ -39,79 +41,121 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
         forceScenePanelClosedWhenRelative,
     } = useValues(sceneLayoutLogic)
     const { setScenePanelOpen, setForceScenePanelClosedWhenRelative } = useActions(sceneLayoutLogic)
-
+    const { currentTeam } = useValues(teamLogic)
     const effectiveBreadcrumbs = useSceneTabs ? breadcrumbs.slice(1) : breadcrumbs
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     return effectiveBreadcrumbs.length || projectTreeRefEntry ? (
         <>
-            <div
-                className={cn(
-                    'flex items-center gap-1 w-full py-1 px-4 sticky top-0 bg-surface-secondary z-[var(--z-top-navigation)] border-b border-primary h-[var(--scene-layout-header-height)]',
-                    className
-                )}
-            >
-                {mobileLayout && (
-                    <LemonButton
-                        size="small"
-                        onClick={() => showLayoutNavBar(!isLayoutNavbarVisibleForMobile)}
-                        icon={isLayoutNavbarVisibleForMobile ? <IconX /> : <IconMenu />}
-                        className="-ml-2"
-                    />
-                )}
-                <div className="flex gap-1 justify-between w-full items-center overflow-x-hidden py-1">
-                    {effectiveBreadcrumbs.length > 0 && (
+            <div className="flex flex-col items-center z-[var(--z-top-navigation)]">
+                {useSceneTabs ? <SceneTabs /> : null}
+                <div
+                    className={cn(
+                        'flex items-center gap-1 w-full py-1 px-4 h-[var(--scene-layout-header-height)]',
+                        className
+                    )}
+                >
+                    {mobileLayout && (
+                        <LemonButton
+                            size="small"
+                            onClick={() => showLayoutNavBar(!isLayoutNavbarVisibleForMobile)}
+                            icon={isLayoutNavbarVisibleForMobile ? <IconX /> : <IconMenu />}
+                            className="-ml-2"
+                        />
+                    )}
+                    <div className="flex gap-1 justify-between w-full items-center overflow-hidden">
                         <ScrollableShadows
                             direction="horizontal"
                             styledScrollbars
                             className="h-[var(--scene-layout-header-height)] pr-2 flex-1"
                             innerClassName="flex gap-0 flex-1 items-center overflow-x-auto show-scrollbar-on-hover h-full"
                         >
-                            {effectiveBreadcrumbs.map((breadcrumb, index) => (
-                                <React.Fragment key={joinBreadcrumbKey(breadcrumb.key)}>
-                                    <Breadcrumb
-                                        breadcrumb={breadcrumb}
-                                        here={index === effectiveBreadcrumbs.length - 1}
-                                    />
-                                    {index < breadcrumbs.length - 1 && (
-                                        <span className="flex items-center shrink-0 opacity-50">
-                                            <IconSlash fontSize="1rem" />
-                                        </span>
+                            {!newSceneLayout && effectiveBreadcrumbs.length > 0 ? (
+                                <>
+                                    {effectiveBreadcrumbs.map((breadcrumb, index) => (
+                                        <React.Fragment key={joinBreadcrumbKey(breadcrumb.key)}>
+                                            <Breadcrumb
+                                                breadcrumb={breadcrumb}
+                                                here={index === effectiveBreadcrumbs.length - 1}
+                                            />
+                                            {index < effectiveBreadcrumbs.length - 1 && (
+                                                <span className="flex items-center shrink-0 opacity-50">
+                                                    <IconSlash fontSize="1rem" />
+                                                </span>
+                                            )}
+                                        </React.Fragment>
+                                    ))}
+                                </>
+                            ) : (
+                                <>
+                                    {isAuthenticatedTeam(currentTeam) && (
+                                        <>
+                                            <ProjectDropdownMenu
+                                                buttonProps={{
+                                                    size: 'xxs',
+                                                    className: 'text-primary font-normal p-0 hover:text-primary gap-1',
+                                                }}
+                                            />
+                                            <span className="flex items-center shrink-0 opacity-50">
+                                                <IconSlash fontSize="1rem" />
+                                            </span>
+                                        </>
                                     )}
-                                </React.Fragment>
-                            ))}
+                                    {effectiveBreadcrumbs.length > 0 && (
+                                        <>
+                                            {effectiveBreadcrumbs.map((breadcrumb, index) => {
+                                                const isLast = index === effectiveBreadcrumbs.length - 1
+                                                const isOnlyBreadcrumb = effectiveBreadcrumbs.length === 1
+                                                const shouldShowBreadcrumb = !isLast && !isOnlyBreadcrumb
+
+                                                return (
+                                                    <React.Fragment key={joinBreadcrumbKey(breadcrumb.key)}>
+                                                        {shouldShowBreadcrumb && (
+                                                            <Breadcrumb breadcrumb={breadcrumb} here={isLast} />
+                                                        )}
+                                                        {index < effectiveBreadcrumbs.length - 1 && (
+                                                            <span className="flex items-center shrink-0 opacity-50">
+                                                                <IconSlash fontSize="1rem" />
+                                                            </span>
+                                                        )}
+                                                    </React.Fragment>
+                                                )
+                                            })}
+                                        </>
+                                    )}
+                                </>
+                            )}
                         </ScrollableShadows>
-                    )}
 
-                    <div className="flex gap-1 items-center shrink-0 pr-px">
-                        <div className="contents" ref={setActionsContainer} />
+                        <div className="flex gap-1 items-center shrink-0 pr-px">
+                            <div className="contents" ref={setActionsContainer} />
 
-                        <TopBarSettingsButton buttonProps={{ size: 'small', icon: <IconGear /> }} />
-
-                        {scenePanelIsPresent && (
-                            <LemonButton
-                                onClick={() =>
-                                    scenePanelIsRelative
-                                        ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
-                                        : setScenePanelOpen(!scenePanelOpen)
-                                }
-                                icon={<IconEllipsis className="text-primary" />}
-                                tooltip={
-                                    !scenePanelOpen
-                                        ? 'Open Info & actions panel'
-                                        : scenePanelIsRelative
-                                          ? 'Force close Info & actions panel'
-                                          : 'Close Info & actions panel'
-                                }
-                                aria-label={
-                                    !scenePanelOpen
-                                        ? 'Open Info & actions panel'
-                                        : scenePanelIsRelative
-                                          ? 'Force close Info & actions panel'
-                                          : 'Close Info & actions panel'
-                                }
-                                active={scenePanelOpen}
-                                size="small"
-                            />
-                        )}
+                            {scenePanelIsPresent && (
+                                <LemonButton
+                                    onClick={() =>
+                                        scenePanelIsRelative
+                                            ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
+                                            : setScenePanelOpen(!scenePanelOpen)
+                                    }
+                                    icon={<IconEllipsis className="text-primary" />}
+                                    tooltip={
+                                        !scenePanelOpen
+                                            ? 'Open Info & actions panel'
+                                            : scenePanelIsRelative
+                                              ? 'Force close Info & actions panel'
+                                              : 'Close Info & actions panel'
+                                    }
+                                    aria-label={
+                                        !scenePanelOpen
+                                            ? 'Open Info & actions panel'
+                                            : scenePanelIsRelative
+                                              ? 'Force close Info & actions panel'
+                                              : 'Close Info & actions panel'
+                                    }
+                                    active={scenePanelOpen}
+                                    size="small"
+                                />
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>

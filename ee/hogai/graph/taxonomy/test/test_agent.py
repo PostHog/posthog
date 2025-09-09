@@ -1,3 +1,5 @@
+from typing import cast
+
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
@@ -5,6 +7,7 @@ from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState, TaxonomyNodeName
+from ee.hogai.utils.types.composed import MaxNodeName
 
 
 class MockTaxonomyAgentNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState]):
@@ -79,18 +82,18 @@ class TestTaxonomyAgent(BaseTest):
         self.assertIn("Could not determine state type", str(context.exception))
 
     def test_add_edge(self):
-        result = self.agent.add_edge(TaxonomyNodeName.START, "test_node")
+        result = self.agent.add_edge(TaxonomyNodeName.START, cast(MaxNodeName, "test_node"))
         self.assertEqual(result, self.agent)
         self.assertTrue(self.agent._has_start_node)
 
     def test_add_edge_non_start(self):
-        result = self.agent.add_edge("node1", "node2")
+        result = self.agent.add_edge(cast(MaxNodeName, "node1"), cast(MaxNodeName, "node2"))
         self.assertEqual(result, self.agent)
         self.assertFalse(self.agent._has_start_node)
 
     def test_add_node(self):
         mock_action = Mock()
-        result = self.agent.add_node("test_node", mock_action)
+        result = self.agent.add_node(cast(MaxNodeName, "test_node"), mock_action)
         self.assertEqual(result, self.agent)
 
     def test_compile_without_start_node(self):
@@ -104,38 +107,38 @@ class TestTaxonomyAgent(BaseTest):
         _ = self.agent.compile()
 
         # When no checkpointer is passed, it should use the global checkpointer
-        self.agent._graph.compile.assert_called_once()
-        call_args = self.agent._graph.compile.call_args
+        self.agent._graph.compile.assert_called_once()  # type: ignore
+        call_args = self.agent._graph.compile.call_args  # type: ignore
         self.assertIsNotNone(call_args[1]["checkpointer"])
 
     def test_compile_full_graph(self):
         _ = self.agent.compile_full_graph()
 
         # When no checkpointer is passed, it should use the global checkpointer
-        self.agent._graph.compile.assert_called_once()
-        call_args = self.agent._graph.compile.call_args
+        self.agent._graph.compile.assert_called_once()  # type: ignore
+        call_args = self.agent._graph.compile.call_args  # type: ignore
         self.assertIsNotNone(call_args[1]["checkpointer"])
 
     def test_compile_full_graph_with_checkpointer(self):
         mock_checkpointer = Mock()
         _ = self.agent.compile_full_graph(checkpointer=mock_checkpointer)
 
-        self.agent._graph.compile.assert_called_once_with(checkpointer=mock_checkpointer)
+        self.agent._graph.compile.assert_called_once_with(checkpointer=mock_checkpointer)  # type: ignore
 
     def test_add_taxonomy_generator(self):
         _ = self.agent.add_taxonomy_generator()
 
-        self.assertEqual(len(self.agent._graph.add_node.call_args_list), 2)
+        self.assertEqual(len(self.agent._graph.add_node.call_args_list), 2)  # type: ignore
 
-        self.assertEqual(len(self.agent._graph.add_edge.call_args_list), 2)
+        self.assertEqual(len(self.agent._graph.add_edge.call_args_list), 2)  # type: ignore
 
-        self.agent._graph.add_conditional_edges.assert_called_once()
+        self.agent._graph.add_conditional_edges.assert_called_once()  # type: ignore
 
     def test_add_taxonomy_generator_custom_next_node(self):
         custom_next = "custom_end"
-        _ = self.agent.add_taxonomy_generator(next_node=custom_next)
+        _ = self.agent.add_taxonomy_generator(next_node=cast(TaxonomyNodeName, custom_next))
 
-        conditional_call = self.agent._graph.add_conditional_edges.call_args
+        conditional_call = self.agent._graph.add_conditional_edges.call_args  # type: ignore
         self.assertEqual(conditional_call[0][0], TaxonomyNodeName.TOOLS_NODE)
         self.assertEqual(conditional_call[0][2]["end"], custom_next)
 

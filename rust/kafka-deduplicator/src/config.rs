@@ -16,7 +16,7 @@ pub struct Config {
     #[envconfig(default = "events")]
     pub kafka_consumer_topic: String,
 
-    #[envconfig(default = "earliest")]
+    #[envconfig(default = "latest")]
     pub kafka_consumer_offset_reset: String,
 
     // Kafka Producer configuration

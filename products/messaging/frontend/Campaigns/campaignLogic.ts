@@ -1,28 +1,35 @@
 import { actions, afterMount, kea, key, listeners, path, props, selectors } from 'kea'
-import { forms } from 'kea-forms'
-import { loaders } from 'kea-loaders'
+import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
+import { lazyLoaders, loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'
 
+import { HogFunctionTemplateType } from '~/types'
+
 import type { campaignLogicType } from './campaignLogicType'
 import { campaignSceneLogic } from './campaignSceneLogic'
-import { type HogFlow, type HogFlowAction, type HogFlowEdge } from './hogflows/types'
+import { HogFlowActionSchema, isFunctionAction } from './hogflows/steps/types'
+import { type HogFlow, type HogFlowAction, HogFlowActionValidationResult, type HogFlowEdge } from './hogflows/types'
 
 export interface CampaignLogicProps {
     id?: string
 }
+
+export const TRIGGER_NODE_ID = 'trigger_node'
+export const EXIT_NODE_ID = 'exit_node'
 
 const NEW_CAMPAIGN: HogFlow = {
     id: 'new',
     name: '',
     actions: [
         {
-            id: 'trigger_node',
+            id: TRIGGER_NODE_ID,
             type: 'trigger',
             name: 'Trigger',
             description: 'User performs an action to start the campaign',
@@ -34,7 +41,7 @@ const NEW_CAMPAIGN: HogFlow = {
             },
         },
         {
-            id: 'exit_node',
+            id: EXIT_NODE_ID,
             type: 'exit',
             name: 'Exit',
             description: 'User moved through the campaign without errors',
@@ -47,8 +54,8 @@ const NEW_CAMPAIGN: HogFlow = {
     ],
     edges: [
         {
-            from: 'trigger_node',
-            to: 'exit_node',
+            from: TRIGGER_NODE_ID,
+            to: EXIT_NODE_ID,
             type: 'continue',
         },
     ],
@@ -65,6 +72,8 @@ const NEW_CAMPAIGN: HogFlow = {
     version: 1,
     status: 'draft',
     team_id: -1,
+    created_at: '',
+    updated_at: '',
 }
 
 export const campaignLogic = kea<campaignLogicType>([
@@ -100,12 +109,32 @@ export const campaignLogic = kea<campaignLogicType>([
             },
         ],
     })),
-    forms(({ actions }) => ({
+    lazyLoaders(() => ({
+        hogFunctionTemplatesById: [
+            {} as Record<string, HogFunctionTemplateType>,
+            {
+                loadHogFunctionTemplatesById: async () => {
+                    const allTemplates = await api.hogFunctions.listTemplates({ types: ['destination'] })
+
+                    const allTemplatesById = allTemplates.results.reduce(
+                        (acc, template) => {
+                            acc[template.id] = template
+                            return acc
+                        },
+                        {} as Record<string, HogFunctionTemplateType>
+                    )
+
+                    return allTemplatesById
+                },
+            },
+        ],
+    })),
+    forms(({ actions, values }) => ({
         campaign: {
             defaults: NEW_CAMPAIGN,
-            errors: ({ name, trigger }) => {
-                return {
-                    name: name.length === 0 ? 'Name is required' : undefined,
+            errors: ({ name, trigger, actions }) => {
+                const errors = {
+                    name: !name ? 'Name is required' : undefined,
                     trigger: {
                         type: trigger.type === 'event' ? undefined : 'Invalid trigger type',
                         filters:
@@ -113,7 +142,12 @@ export const campaignLogic = kea<campaignLogicType>([
                                 ? 'At least one event or action is required'
                                 : undefined,
                     },
-                }
+                    actions: actions.some((action) => !(values.actionValidationErrorsById[action.id]?.valid ?? true))
+                        ? 'Some fields need work'
+                        : undefined,
+                } as DeepPartialMap<HogFlow, ValidationErrorType>
+
+                return errors
             },
             submit: async (values) => {
                 if (!values) {
@@ -122,11 +156,9 @@ export const campaignLogic = kea<campaignLogicType>([
 
                 actions.saveCampaign(values)
             },
-            options: {
-                showErrorsOnTouch: true,
-            },
         },
     })),
+
     selectors({
         logicProps: [() => [(_, props) => props], (props): CampaignLogicProps => props],
         campaignLoading: [(s) => [s.originalCampaignLoading], (originalCampaignLoading) => originalCampaignLoading],
@@ -151,17 +183,60 @@ export const campaignLogic = kea<campaignLogicType>([
                 )
             },
         ],
+
+        actionValidationErrorsById: [
+            (s) => [s.campaign, s.hogFunctionTemplatesById],
+            (campaign, hogFunctionTemplatesById): Record<string, HogFlowActionValidationResult | null> => {
+                return campaign.actions.reduce(
+                    (acc, action) => {
+                        const result: HogFlowActionValidationResult = {
+                            valid: true,
+                            schema: null,
+                            errors: {},
+                        }
+                        const schemaValidation = HogFlowActionSchema.safeParse(action)
+
+                        if (!schemaValidation.success) {
+                            result.valid = false
+                            result.schema = schemaValidation.error
+                        } else if (isFunctionAction(action)) {
+                            const template = hogFunctionTemplatesById[action.config.template_id]
+                            if (!template) {
+                                result.valid = false
+                                result.errors = {
+                                    // This is a special case for the template_id field which might need to go to a generic error message
+                                    _template_id: 'Template not found',
+                                }
+                            } else {
+                                const configValidation = CyclotronJobInputsValidation.validate(
+                                    action.config.inputs,
+                                    template.inputs_schema ?? []
+                                )
+                                result.valid = configValidation.valid
+                                result.errors = configValidation.errors
+                            }
+                        }
+
+                        acc[action.id] = result
+                        return acc
+                    },
+                    {} as Record<string, HogFlowActionValidationResult>
+                )
+            },
+        ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         loadCampaignSuccess: async ({ originalCampaign }) => {
             actions.resetCampaign(originalCampaign)
         },
         saveCampaignSuccess: async ({ originalCampaign }) => {
             lemonToast.success('Campaign saved')
-            originalCampaign.id &&
+            if (props.id === 'new' && originalCampaign.id) {
                 router.actions.replace(
                     urls.messagingCampaign(originalCampaign.id, campaignSceneLogic.findMounted()?.values.currentTab)
                 )
+            }
+
             actions.resetCampaign(originalCampaign)
         },
         discardChanges: () => {
@@ -205,9 +280,7 @@ export const campaignLogic = kea<campaignLogicType>([
             actions.setCampaignValues({ edges: [...newEdges, ...edges] })
         },
     })),
-    afterMount(({ actions, props }) => {
-        if (props.id && props.id !== 'new') {
-            actions.loadCampaign()
-        }
+    afterMount(({ actions }) => {
+        actions.loadCampaign()
     }),
 ])

@@ -7,6 +7,7 @@ from .google_ads.source import GoogleAdsSource
 from .google_sheets.source import GoogleSheetsSource
 from .hubspot.source import HubspotSource
 from .klaviyo.source import KlaviyoSource
+from .linkedin_ads.source import LinkedInAdsSource
 from .mailchimp.source import MailchimpSource
 from .mailjet.source import MailJetSource
 from .meta_ads.source import MetaAdsSource
@@ -15,6 +16,7 @@ from .mssql.source import MSSQLSource
 from .mysql.source import MySQLSource
 from .polar.source import PolarSource
 from .postgres.source import PostgresSource
+from .reddit_ads.source import RedditAdsSource
 from .redshift.source import RedshiftSource
 from .revenuecat.source import RevenueCatSource
 from .salesforce.source import SalesforceSource
@@ -34,6 +36,7 @@ __all__ = [
     "GoogleSheetsSource",
     "HubspotSource",
     "KlaviyoSource",
+    "LinkedInAdsSource",
     "MailchimpSource",
     "MailJetSource",
     "MetaAdsSource",
@@ -42,6 +45,7 @@ __all__ = [
     "MySQLSource",
     "PolarSource",
     "PostgresSource",
+    "RedditAdsSource",
     "RedshiftSource",
     "RevenueCatSource",
     "SalesforceSource",
