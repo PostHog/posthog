@@ -11,6 +11,7 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { Params } from 'scenes/sceneTypes'
 
@@ -76,7 +77,14 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     props({} as BillingUsageLogicProps),
     key(({ dashboardItemId }) => dashboardItemId || 'global'),
     connect({
-        values: [organizationLogic, ['currentOrganization'], billingLogic, ['billing', 'billingPeriodUTC']],
+        values: [
+            organizationLogic,
+            ['currentOrganization'],
+            billingLogic,
+            ['billing', 'billingPeriodUTC'],
+            preflightLogic,
+            ['isCloudOrDev'],
+        ],
         actions: [eventUsageLogic, ['reportBillingUsageInteraction']],
     }),
     actions({
@@ -100,7 +108,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             null as BillingUsageResponse | null,
             {
                 loadBillingUsage: async () => {
-                    if (!canAccessBilling(values.currentOrganization)) {
+                    if (!canAccessBilling(values.currentOrganization) || !values.isCloudOrDev) {
                         return null
                     }
                     const { usage_types, team_ids, breakdowns, interval } = values.filters
