@@ -9,7 +9,7 @@ operations = [
         is_alter_on_replicated_table=True,
     ),
     run_sql_with_exceptions(
-        QUERY_LOG_ARCHIVE_MV_V4_SQL,
+        QUERY_LOG_ARCHIVE_MV_V4_SQL(),
         node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
     ),
 ]
