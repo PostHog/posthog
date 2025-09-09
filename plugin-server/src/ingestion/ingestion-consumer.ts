@@ -668,9 +668,6 @@ export class IngestionConsumer {
     }
 
     private async preprocessEvents(messages: Message[]): Promise<IncomingEventWithTeam[]> {
-        const preprocessedEvents: IncomingEventWithTeam[] = []
-
-        // Create pipeline config
         const pipelineConfig: PipelineConfig = {
             kafkaProducer: this.kafkaProducer!,
             dlqTopic: this.dlqTopic,
@@ -678,7 +675,7 @@ export class IngestionConsumer {
             promiseScheduler: this.promiseScheduler,
         }
 
-        for (const message of messages) {
+        const pipelinePromises = messages.map(async (message) => {
             try {
                 const pipeline = ResultHandlingPipeline.of(message, message, pipelineConfig)
                     .pipe(this.parseHeadersStep)
@@ -689,17 +686,15 @@ export class IngestionConsumer {
                     .pipe(this.applyPersonProcessingRestrictionsStep)
                     .pipeAsync(this.validateEventUuidStep)
 
-                const result = await pipeline.unwrap()
-                if (result) {
-                    preprocessedEvents.push(result)
-                }
+                return await pipeline.unwrap()
             } catch (error) {
                 console.error('Error processing message in pipeline:', error)
                 throw error
             }
-        }
+        })
 
-        return preprocessedEvents
+        const results = await Promise.all(pipelinePromises)
+        return results.filter((result) => result !== null)
     }
 
     private groupEventsByDistinctId(messages: IncomingEventWithTeam[]): IncomingEventsByDistinctId {
