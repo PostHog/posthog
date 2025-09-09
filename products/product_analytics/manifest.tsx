@@ -1,7 +1,5 @@
 import { combineUrl } from 'kea-router'
 
-import { IconGraph } from '@posthog/icons'
-
 import { AlertType } from 'lib/components/Alerts/types'
 import { INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
@@ -9,7 +7,13 @@ import { urls } from 'scenes/urls'
 import { DashboardFilter, HogQLFilters, HogQLVariable, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 
-import { DashboardType, InsightShortId, InsightType, ProductManifest } from '../../frontend/src/types'
+import {
+    DashboardType,
+    FileSystemIconColor,
+    InsightShortId,
+    InsightType,
+    ProductManifest,
+} from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Product Analytics',
@@ -77,7 +81,7 @@ export const manifest: ProductManifest = {
     fileSystemTypes: {
         insight: {
             name: 'Insight',
-            icon: <IconGraph />,
+            iconType: 'product_analytics',
             href: (ref: string) => urls.insightView(ref as InsightShortId),
             iconColor: ['var(--color-product-product-analytics-light)'],
             filterKey: 'insight',
@@ -88,42 +92,48 @@ export const manifest: ProductManifest = {
             path: `Insight/Trends`,
             type: 'insight',
             href: urls.insightNew({ type: InsightType.TRENDS }),
-            iconType: 'insightTrends',
+            iconType: 'insight_trend',
+            iconColor: ['var(--color-insight-trends-light)'] as FileSystemIconColor,
             visualOrder: INSIGHT_VISUAL_ORDER.trends,
         },
         {
             path: `Insight/Funnel`,
             type: 'insight',
             href: urls.insightNew({ type: InsightType.FUNNELS }),
-            iconType: 'insightFunnel',
+            iconType: 'insight_funnel',
+            iconColor: ['var(--color-insight-funnel-light)'] as FileSystemIconColor,
             visualOrder: INSIGHT_VISUAL_ORDER.funnel,
         },
         {
             path: `Insight/Retention`,
             type: 'insight',
             href: urls.insightNew({ type: InsightType.RETENTION }),
-            iconType: 'insightRetention',
+            iconType: 'insight_retention',
+            iconColor: ['var(--color-insight-retention-light)'] as FileSystemIconColor,
             visualOrder: INSIGHT_VISUAL_ORDER.retention,
         },
         {
             path: `Insight/User paths`,
             type: 'insight',
             href: urls.insightNew({ type: InsightType.PATHS }),
-            iconType: 'insightUserPaths',
+            iconType: 'insight_user_path',
+            iconColor: ['var(--color-insight-user-paths-light)', 'var(--color-user-paths-dark)'] as FileSystemIconColor,
             visualOrder: INSIGHT_VISUAL_ORDER.paths,
         },
         {
             path: `Insight/Stickiness`,
             type: 'insight',
             href: urls.insightNew({ type: InsightType.STICKINESS }),
-            iconType: 'insightStickiness',
+            iconType: 'insight_stickiness',
+            iconColor: ['var(--color-insight-stickiness-light)'] as FileSystemIconColor,
             visualOrder: INSIGHT_VISUAL_ORDER.stickiness,
         },
         {
             path: `Insight/Lifecycle`,
             type: 'insight',
             href: urls.insightNew({ type: InsightType.LIFECYCLE }),
-            iconType: 'insightLifecycle',
+            iconType: 'insight_lifecycle',
+            iconColor: ['var(--color-insight-lifecycle-light)'] as FileSystemIconColor,
             visualOrder: INSIGHT_VISUAL_ORDER.lifecycle,
         },
     ],
@@ -133,6 +143,8 @@ export const manifest: ProductManifest = {
             category: 'Analytics',
             type: 'insight',
             href: urls.insights(),
+            iconType: 'product_analytics',
+            iconColor: ['var(--color-product-product-analytics-light)'] as FileSystemIconColor,
         },
     ],
 }

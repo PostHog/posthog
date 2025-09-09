@@ -162,6 +162,45 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(response.json(), self.unauthenticated_response())
 
+    def test_non_admin_filter_users_by_email(self):
+        org = Organization.objects.create()
+        user = User.objects.create(
+            email="foo@bar.com",
+            password="<PASSWORD>",
+            organization=org,
+            current_team=Team.objects.create(organization=org, name="Another team"),
+        )
+
+        response = self.client.get(f"/api/users/?email={user.email}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0, "Should not return users from another orgs")
+
+    def test_admin_filter_users_by_email(self):
+        admin = User.objects.create(
+            email="admin@admin.com",
+            password="pw",
+            organization=self.organization,
+            current_team=self.team,
+            is_staff=True,
+        )
+        self.client.force_authenticate(admin)
+        org = Organization.objects.create()
+        user = User.objects.create(
+            email="foo@bar.com",
+            password="<PASSWORD>",
+            organization=org,
+            current_team=Team.objects.create(organization=org, name="Another team"),
+        )
+
+        response = self.client.get(f"/api/users/?email={user.email}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1, "Admin users should be able to list users from other orgs")
+        response_user = response.json()["results"][0]
+        self.assertEqual(response_user["email"], user.email)
+        self.assertEqual(response_user["id"], user.id, "User id should be returned")
+
     # CREATING USERS
 
     def test_creating_users_on_this_endpoint_is_not_supported(self):

@@ -40,6 +40,7 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
                         return values.stackFrameRecords
                     }
                     const { results } = await api.errorTracking.stackFrames(rawIds)
+
                     return mapStackFrameRecords(results, values.stackFrameRecords)
                 },
                 loadForSymbolSet: async ({ symbolSetId }) => {

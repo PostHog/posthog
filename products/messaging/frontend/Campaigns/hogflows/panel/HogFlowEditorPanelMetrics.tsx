@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
 
@@ -11,13 +11,27 @@ import { urls } from 'scenes/urls'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { ChartDisplayType } from '~/types'
 
+import { CAMPAIGN_METRICS_INFO } from '../../CampaignMetrics'
+import { EXIT_NODE_ID, TRIGGER_NODE_ID } from '../../campaignLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 
 export function HogFlowEditorPanelMetrics(): JSX.Element | null {
     const { selectedNode, campaign } = useValues(hogFlowEditorLogic)
-    const id = selectedNode?.data.id
+    const { loadActionMetricsById } = useActions(hogFlowEditorLogic)
+    const actionId = selectedNode?.data.id
+    const id = useMemo(() => {
+        return actionId ? ([TRIGGER_NODE_ID, EXIT_NODE_ID].includes(actionId) ? '' : actionId) : undefined
+    }, [actionId])
 
-    const logicKey = `hog-flow-metrics-${id || 'all'}`
+    const logicKey = `hog-flow-metrics-${campaign.id}`
+
+    const metricName = useMemo(() => {
+        return actionId === TRIGGER_NODE_ID
+            ? ['triggered', 'rate_limited', 'disabled_permanently', 'filtered']
+            : actionId === EXIT_NODE_ID
+              ? ['succeeded', 'failed']
+              : undefined
+    }, [actionId])
 
     const logic = appMetricsLogic({
         logicKey,
@@ -26,17 +40,33 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
             appSource: 'hog_flow',
             appSourceId: campaign.id,
             instanceId: id,
-            // metricName: ['succeeded', 'failed', 'filtered', 'disabled_permanently'],
             breakdownBy: 'metric_name',
+            metricName,
         },
     })
 
-    const { appMetricsTrendsLoading, appMetricsTrends } = useValues(logic)
-    const { loadAppMetricsTrends } = useActions(logic)
+    const { appMetricsTrendsLoading, appMetricsTrends, params, currentTeam, getDateRangeAbsolute } = useValues(logic)
 
     useEffect(() => {
-        loadAppMetricsTrends()
-    }, [loadAppMetricsTrends])
+        // Bit hacky - we load the values here from the logic as connecting the logics together was weirdly tricky
+        loadActionMetricsById(
+            {
+                appSource: params.appSource,
+                appSourceId: params.appSourceId,
+                dateFrom: getDateRangeAbsolute().dateFrom.toISOString(),
+                dateTo: getDateRangeAbsolute().dateTo.toISOString(),
+            },
+            currentTeam?.timezone ?? 'UTC'
+        )
+    }, [
+        params.appSource,
+        params.appSourceId,
+        params.dateFrom,
+        params.dateTo,
+        currentTeam?.timezone,
+        loadActionMetricsById,
+        getDateRangeAbsolute,
+    ])
 
     return (
         <>
@@ -85,12 +115,17 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
                                     label: x.name,
                                     dataIndex: 0,
                                 },
+                                settings: {
+                                    display: {
+                                        color: CAMPAIGN_METRICS_INFO[x.name]?.color,
+                                    },
+                                },
                                 data: x.values,
                             }))}
                             visualizationType={ChartDisplayType.ActionsLineGraph}
                             chartSettings={{
                                 showLegend: true,
-                                showTotalRow: true,
+                                showTotalRow: false,
                             }}
                         />
                     )}

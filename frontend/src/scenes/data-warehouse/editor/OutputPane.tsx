@@ -23,9 +23,11 @@ import { LemonButton, LemonDivider, LemonModal, LemonTable, Tooltip } from '@pos
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { IconTableChart } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
@@ -35,6 +37,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
+import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
@@ -259,6 +262,7 @@ export function OutputPane(): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
     const { editingView } = useValues(multitabEditorLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const {
         sourceQuery,
@@ -619,7 +623,10 @@ export function OutputPane(): JSX.Element {
                 <div>
                     {response && !responseError ? <LoadPreviewText localResponse={localStorageResponse} /> : <></>}
                 </div>
-                <ElapsedTime />
+                <div className="flex items-center gap-4">
+                    {featureFlags[FEATURE_FLAGS.QUERY_EXECUTION_DETAILS] ? <QueryExecutionDetails /> : <></>}
+                    <ElapsedTime />
+                </div>
             </div>
             <RowDetailsModal
                 isOpen={!!selectedRow}
@@ -875,6 +882,7 @@ const Content = ({
                     cachedResults={undefined}
                     exportContext={exportContext}
                     onSaveInsight={saveAsInsight}
+                    editMode
                 />
             </div>
         )

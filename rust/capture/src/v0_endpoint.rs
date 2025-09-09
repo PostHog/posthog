@@ -16,10 +16,6 @@ use tracing::{debug, error, instrument, warn, Span};
 
 use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
-    limiters::{
-        check_billing_quota_and_filter, check_llm_events_quota_and_filter,
-        check_survey_quota_and_filter,
-    },
     prometheus::{report_dropped_events, report_internal_error_metrics},
     router, sinks,
     utils::{
@@ -221,18 +217,13 @@ async fn handle_event_payload(
         user_agent: Some(user_agent.to_string()),
     };
 
-    debug!(context=?context, "handle_event_payload: evaluating quota limits");
-
-    // Apply survey quota limiting
-    events = check_survey_quota_and_filter(state, &context, events).await?;
-
-    // Apply LLM events quota limiting
-    events = check_llm_events_quota_and_filter(state, &context, events).await?;
-
-    // add more quota limiters here (e.g. error tracking!)
-
-    // Apply billing quota limiting (IMPORTANT: this should ALWAYS be evaluated last!)
-    events = check_billing_quota_and_filter(state, &context, events).await?;
+    // Apply all billing limit quotas and drop partial or whole
+    // payload if any are exceeded for this token (team)
+    debug!(context=?context, event_count=?events.len(), "handle_event_payload: evaluating quota limits");
+    events = state
+        .quota_limiter
+        .check_and_filter(&context, events)
+        .await?;
 
     debug!(context=?context,
         event_count=?events.len(),
@@ -430,6 +421,13 @@ pub fn process_single_event(
         .as_ref()
         .and_then(|ts| DateTime::parse_from_rfc3339(ts).ok());
 
+    // redact the IP address of internally-generated events when tagged as such
+    let resolved_ip = if event.properties.contains_key("capture_internal") {
+        "127.0.0.1".to_string()
+    } else {
+        context.client_ip.clone()
+    };
+
     let data = serde_json::to_string(&event).map_err(|e| {
         error!("failed to encode data field: {}", e);
         CaptureError::NonRetryableSinkError
@@ -445,7 +443,7 @@ pub fn process_single_event(
         distinct_id: event
             .extract_distinct_id()
             .ok_or(CaptureError::MissingDistinctId)?,
-        ip: context.client_ip.clone(),
+        ip: resolved_ip,
         data,
         now: context.now.clone(),
         sent_at: context.sent_at,

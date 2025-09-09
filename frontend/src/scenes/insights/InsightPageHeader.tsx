@@ -856,8 +856,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 name={defaultInsightName || ''}
                 description={insight?.description || ''}
                 resourceType={{
-                    type: 'insight',
-                    typePlural: 'insights',
+                    type: 'product_analytics',
                 }}
                 onNameChange={(name) => {
                     setInsightMetadata({ name })
@@ -866,7 +865,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     setInsightMetadata({ description })
                 }}
                 canEdit={canEditInsight}
-                isLoading={insightLoading}
+                isLoading={insightLoading && !insight?.id}
                 forceEdit={insightMode === ItemMode.Edit}
                 // Renaming insights is too fast, so we need to debounce it
                 renameDebounceMs={1000}

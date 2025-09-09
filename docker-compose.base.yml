@@ -113,7 +113,7 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:25.7.4.11}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:25.6.9.98}
         restart: on-failure
         environment:
             CLICKHOUSE_SKIP_USER_SETUP: 1
@@ -371,10 +371,13 @@ services:
         stdin_open: true
         tty: true
     temporal-ui:
+        depends_on:
+            - temporal
         environment:
             - TEMPORAL_ADDRESS=temporal:7233
             - TEMPORAL_CORS_ORIGINS=http://localhost:3000
             - TEMPORAL_CSRF_COOKIE_INSECURE=true
+            - TEMPORAL_CODEC_ENDPOINT=http://localhost:8000
         image: temporalio/ui:2.31.2
         ports:
             - 8081:8080

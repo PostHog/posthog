@@ -6,7 +6,7 @@ import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { convertToHogFunctionInvocationGlobals } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
-import { Hub, RawClickHouseEvent } from '../../types'
+import { HealthCheckResult, Hub, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
@@ -84,7 +84,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             // This is all IO so we can set them off in the background and start processing the next batch
             backgroundTask: Promise.all([
                 this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued),
-                this.hogFunctionMonitoringService.produceQueuedMessages().catch((err) => {
+                this.hogFunctionMonitoringService.flush().catch((err) => {
                     captureException(err)
                     logger.error('🔴', 'Error producing queued messages for monitoring', { err })
                 }),
@@ -249,19 +249,29 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             'hog_function'
         )
 
-        const billingMetrics = Object.values(notMaskedInvocations)
-            .filter((inv) => inv.hogFunction.type === 'destination')
-            .map((inv): MinimalAppMetric => {
-                return {
-                    metric_kind: 'billing',
-                    metric_name: 'billable_invocation',
-                    team_id: inv.teamId,
-                    app_source_id: inv.hogFunction.id,
-                    count: 1,
-                }
+        const triggeredInvocationsMetrics: MinimalAppMetric[] = []
+
+        notMaskedInvocations.forEach((item) => {
+            triggeredInvocationsMetrics.push({
+                team_id: item.teamId,
+                app_source_id: item.functionId,
+                metric_kind: 'other',
+                metric_name: 'triggered',
+                count: 1,
             })
 
-        this.hogFunctionMonitoringService.queueAppMetrics(billingMetrics, 'hog_function')
+            if (item.hogFunction.type === 'destination') {
+                triggeredInvocationsMetrics.push({
+                    team_id: item.teamId,
+                    app_source_id: item.functionId,
+                    metric_kind: 'billing',
+                    metric_name: 'billable_invocation',
+                    count: 1,
+                })
+            }
+        })
+
+        this.hogFunctionMonitoringService.queueAppMetrics(triggeredInvocationsMetrics, 'hog_function')
 
         return notMaskedInvocations
     }
@@ -313,6 +323,16 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 const rateLimit = rateLimits[index][1]
                 if (rateLimit.isRateLimited) {
                     counterRateLimited.labels({ kind: 'hog_flow' }).inc()
+                    this.hogFunctionMonitoringService.queueAppMetric(
+                        {
+                            team_id: item.teamId,
+                            app_source_id: item.functionId,
+                            metric_kind: 'failure',
+                            metric_name: 'rate_limited',
+                            count: 1,
+                        },
+                        'hog_flow'
+                    )
                     return
                 }
             } catch (e) {
@@ -341,6 +361,28 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
             validInvocations.push(item)
         })
+
+        const triggeredInvocationsMetrics: MinimalAppMetric[] = []
+
+        validInvocations.forEach((item) => {
+            triggeredInvocationsMetrics.push({
+                team_id: item.teamId,
+                app_source_id: item.functionId,
+                metric_kind: 'other',
+                metric_name: 'triggered',
+                count: 1,
+            })
+
+            triggeredInvocationsMetrics.push({
+                team_id: item.teamId,
+                app_source_id: item.functionId,
+                metric_kind: 'billing',
+                metric_name: 'billable_invocation',
+                count: 1,
+            })
+        })
+
+        this.hogFunctionMonitoringService.queueAppMetrics(triggeredInvocationsMetrics, 'hog_flow')
 
         // TODO: Add back in Masking options
 
@@ -407,7 +449,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
         logger.info('💤', 'Consumer stopped!')
     }
 
-    public isHealthy() {
+    public isHealthy(): HealthCheckResult {
         return this.kafkaConsumer.isHealthy()
     }
 

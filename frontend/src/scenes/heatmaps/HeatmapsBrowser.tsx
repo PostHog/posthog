@@ -310,7 +310,6 @@ export function HeatmapsBrowser(): JSX.Element {
                     description="See where users are clicking on your website."
                     resourceType={{
                         type: 'heatmap',
-                        typePlural: 'Heatmaps',
                     }}
                 />
                 <SceneDivider />

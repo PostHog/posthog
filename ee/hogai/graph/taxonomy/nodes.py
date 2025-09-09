@@ -21,7 +21,7 @@ from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import format_events_yaml
 
 from ..base import BaseAssistantNode
-from ..mixins import StateClassMixin
+from ..mixins import StateClassMixin, TaxonomyReasoningNodeMixin
 from .prompts import (
     HUMAN_IN_THE_LOOP_PROMPT,
     ITERATION_LIMIT_PROMPT,
@@ -38,7 +38,13 @@ TaxonomyPartialStateType = TypeVar("TaxonomyPartialStateType", bound=TaxonomyAge
 TaxonomyNodeBound = BaseAssistantNode[TaxonomyStateType, TaxonomyPartialStateType]
 
 
-class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyNodeBound, StateClassMixin, ABC):
+class TaxonomyAgentNode(
+    Generic[TaxonomyStateType, TaxonomyPartialStateType],
+    TaxonomyNodeBound,
+    StateClassMixin,
+    TaxonomyReasoningNodeMixin,
+    ABC,
+):
     """Base node for taxonomy agents."""
 
     def __init__(self, team: Team, user: User, toolkit_class: type["TaxonomyAgentToolkit"]):
@@ -136,7 +142,9 @@ class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], Ta
         )
 
 
-class TaxonomyAgentToolsNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyNodeBound, StateClassMixin):
+class TaxonomyAgentToolsNode(
+    Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyNodeBound, StateClassMixin, TaxonomyReasoningNodeMixin
+):
     """Base tools node for taxonomy agents."""
 
     MAX_ITERATIONS = 10

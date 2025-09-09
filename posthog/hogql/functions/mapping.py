@@ -1997,14 +1997,10 @@ if is_cloud() or is_ci():
 
 HOGQL_CLICKHOUSE_FUNCTIONS.update(UDFS)
 
+
 ALL_EXPOSED_FUNCTION_NAMES = [
     name for name in chain(HOGQL_CLICKHOUSE_FUNCTIONS.keys(), HOGQL_AGGREGATIONS.keys()) if not name.startswith("_")
 ]
-
-CASE_INSENSITIVE_FUNCTION_NAME_TO_NAME = {
-    name.lower(): name
-    for name in chain(HOGQL_CLICKHOUSE_FUNCTIONS.keys(), HOGQL_AGGREGATIONS.keys(), HOGQL_POSTHOG_FUNCTIONS.keys())
-}
 
 # TODO: Make the below details part of function meta
 # Functions where we use a -OrNull variant by default
@@ -2053,15 +2049,6 @@ def find_hogql_function(name: str) -> Optional[HogQLFunctionMeta]:
 
 def find_hogql_posthog_function(name: str) -> Optional[HogQLFunctionMeta]:
     return _find_function(name, HOGQL_POSTHOG_FUNCTIONS)
-
-
-def find_function_name_case_insensitive(name: str) -> str:
-    """Get the correct casing for a HogQL function name."""
-    # Check if it's already correctly cased first (fast path)
-    if HOGQL_CLICKHOUSE_FUNCTIONS.get(name) or HOGQL_AGGREGATIONS.get(name) or HOGQL_POSTHOG_FUNCTIONS.get(name):
-        return name
-
-    return CASE_INSENSITIVE_FUNCTION_NAME_TO_NAME.get(name.lower(), name)
 
 
 def is_allowed_parametric_function(name: str) -> bool:

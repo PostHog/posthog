@@ -402,6 +402,7 @@ export function filterToMetricConfig(
                         ({
                             kind: NodeKind.EventsNode,
                             event: event.id,
+                            custom_name: event.custom_name,
                             properties: event.properties,
                             order: event.order,
                         }) as EventsNode & { order: number }
@@ -505,11 +506,12 @@ export const getExposureConfigEventsNode = (
     exposureConfig: ExperimentEventExposureConfig,
     options: { featureFlagKey: string; featureFlagVariants: MultivariateFlagVariant[] }
 ): EventsNode => {
+    const exposure_step_name = 'Experiment exposure'
     if (exposureConfig && exposureConfig.event !== '$feature_flag_called') {
         const { featureFlagKey, featureFlagVariants } = options
         return {
             kind: NodeKind.EventsNode,
-            custom_name: exposureConfig.event,
+            custom_name: exposure_step_name,
             event: exposureConfig.event,
             properties: [
                 ...(exposureConfig.properties || []),
@@ -525,7 +527,7 @@ export const getExposureConfigEventsNode = (
 
     return {
         kind: NodeKind.EventsNode,
-        custom_name: '$feature_flag_called',
+        custom_name: exposure_step_name,
         event: '$feature_flag_called',
         properties: [
             {
