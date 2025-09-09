@@ -3890,6 +3890,22 @@
                     },
                     "type": "array"
                 },
+                "formula": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "label": {
+                                "type": "string"
+                            },
+                            "value": {
+                                "$ref": "#/definitions/integer"
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
                 "interval": {
                     "items": {
                         "additionalProperties": false,
@@ -14197,6 +14213,22 @@
                     },
                     "type": "array"
                 },
+                "formula": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "label": {
+                                "type": "string"
+                            },
+                            "value": {
+                                "$ref": "#/definitions/integer"
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
                 "interval": {
                     "items": {
                         "additionalProperties": false,
@@ -17361,6 +17393,22 @@
                                                 "$ref": "#/definitions/Day"
                                             }
                                         ]
+                                    }
+                                },
+                                "required": ["label", "value"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "formula": {
+                            "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "label": {
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "$ref": "#/definitions/integer"
                                     }
                                 },
                                 "required": ["label", "value"],

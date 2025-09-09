@@ -3412,6 +3412,14 @@ class BreakdownFilter(BaseModel):
     breakdowns: Optional[list[Breakdown]] = Field(default=None, max_length=3)
 
 
+class FormulaItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: int
+
+
 class IntervalItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9122,6 +9130,7 @@ class QueryResponseAlternative4(BaseModel):
     breakdowns: Optional[list[MultipleBreakdownOptions]] = None
     compare: Optional[list[CompareItem]] = None
     day: Optional[list[DayItem]] = None
+    formula: Optional[list[FormulaItem]] = None
     interval: Optional[list[IntervalItem]] = None
     series: Optional[list[Series]] = None
     status: Optional[list[StatusItem]] = None
@@ -11230,6 +11239,7 @@ class CachedInsightActorsQueryOptionsResponse(BaseModel):
     )
     compare: Optional[list[CompareItem]] = None
     day: Optional[list[DayItem]] = None
+    formula: Optional[list[FormulaItem]] = None
     interval: Optional[list[IntervalItem]] = None
     is_cached: bool
     last_refresh: datetime
@@ -11617,6 +11627,7 @@ class InsightActorsQueryOptionsResponse(BaseModel):
     breakdowns: Optional[list[MultipleBreakdownOptions]] = None
     compare: Optional[list[CompareItem]] = None
     day: Optional[list[DayItem]] = None
+    formula: Optional[list[FormulaItem]] = None
     interval: Optional[list[IntervalItem]] = None
     series: Optional[list[Series]] = None
     status: Optional[list[StatusItem]] = None

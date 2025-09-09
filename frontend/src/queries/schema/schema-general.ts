@@ -2853,6 +2853,10 @@ export interface InsightActorsQueryOptionsResponse {
         label: string
         value: string
     }[]
+    formula?: {
+        label: string
+        value: integer
+    }[]
 }
 export const insightActorsQueryOptionsResponseKeys: string[] = [
     'day',
@@ -2862,6 +2866,7 @@ export const insightActorsQueryOptionsResponseKeys: string[] = [
     'breakdowns',
     'series',
     'compare',
+    'formula',
 ]
 
 export type CachedInsightActorsQueryOptionsResponse = CachedQueryResponse<InsightActorsQueryOptionsResponse>
