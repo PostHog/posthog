@@ -19,11 +19,11 @@ import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/
 
 type ResourceType = {
     to?: string
-    /** example: 'action' */
+    /** pass in a value from the FileSystemIconType enum, or a string if not available */
     type: FileSystemIconType | string
     /** If your resource type matches a product in fileSystemTypes, you can use this to override the icon */
     forceIcon?: JSX.Element
-    /** If your resource type matches a product in fileSystemTypes, you can use this to override the product's icon color */
+    /** If your resource type matches a product in fileSystemTypes and has a color defined, you can use this to override the product's icon color */
     forceIconColorOverride?: FileSystemIconColor
 }
 
