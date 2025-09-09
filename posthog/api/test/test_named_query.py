@@ -1,0 +1,211 @@
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
+from rest_framework import status
+
+from posthog.models.named_query import NamedQuery
+from posthog.models.team import Team
+from posthog.models.user import User
+
+
+class TestNamedQuery(ClickhouseTestMixin, APIBaseTest):
+    ENDPOINT = "named_query"
+
+    def setUp(self):
+        super().setUp()
+        self.sample_query = {"kind": "HogQLQuery", "query": "SELECT count(1) FROM query_log"}
+
+    def test_create_named_query(self):
+        """Test creating a named query successfully."""
+        data = {
+            "name": "test_query",
+            "query": self.sample_query,
+            "description": "Test query description",
+            "is_active": True,
+        }
+
+        response = self.client.post(f"/api/environments/{self.team.id}/named_query", data, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response_data = response.json()
+
+        self.assertEqual(response_data["name"], "test_query")
+        self.assertEqual(response_data["query"], self.sample_query)
+        self.assertEqual(response_data["description"], "Test query description")
+        self.assertTrue(response_data["is_active"])
+        self.assertIn("id", response_data)
+        self.assertIn("endpoint_path", response_data)
+        self.assertIn("created_at", response_data)
+        self.assertIn("updated_at", response_data)
+
+        # Verify it was saved to database
+        named_query = NamedQuery.objects.get(name="test_query", team=self.team)
+        self.assertEqual(named_query.query, self.sample_query)
+        self.assertEqual(named_query.created_by, self.user)
+
+    def test_update_named_query(self):
+        """Test updating an existing named query."""
+        # Create initial query
+        named_query = NamedQuery.objects.create(
+            name="update_test",
+            team=self.team,
+            query=self.sample_query,
+            description="Original description",
+            created_by=self.user,
+        )
+
+        # Update it
+        updated_data = {
+            "description": "Updated description",
+            "is_active": False,
+            "query": {"kind": "HogQLQuery", "query": "SELECT 1"},
+        }
+
+        response = self.client.put(
+            f"/api/environments/{self.team.id}/named_query/d/update_test", updated_data, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        self.assertEqual(response_data["name"], "update_test")
+        self.assertEqual(response_data["description"], "Updated description")
+        self.assertFalse(response_data["is_active"])
+        self.assertEqual(response_data["query"], {"kind": "HogQLQuery", "query": "SELECT 1"})
+
+        # Verify database was updated
+        named_query.refresh_from_db()
+        self.assertEqual(named_query.description, "Updated description")
+        self.assertFalse(named_query.is_active)
+
+    def test_delete_named_query(self):
+        """Test deleting a named query."""
+
+        # Create query to delete
+        NamedQuery.objects.create(
+            name="delete_test",
+            team=self.team,
+            query=self.sample_query,
+            created_by=self.user,
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/named_query/d/delete_test")
+
+        self.assertIn(response.status_code, [status.HTTP_204_NO_CONTENT, status.HTTP_200_OK])
+
+    def test_execute_named_query(self):
+        """Test executing a named query successfully."""
+        # Create a simple query
+        NamedQuery.objects.create(
+            name="execute_test",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1 as result"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/named_query/d/execute_test/run")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        # Verify response structure (should match query response format)
+        self.assertIn("results", response_data)
+        self.assertIsInstance(response_data["results"], list)
+
+    def test_execute_inactive_query(self):
+        """Test that inactive queries cannot be executed."""
+        # Create an inactive query
+        NamedQuery.objects.create(
+            name="inactive_test",
+            team=self.team,
+            query=self.sample_query,
+            created_by=self.user,
+            is_active=False,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/named_query/d/inactive_test/run")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_invalid_query_name_validation(self):
+        """Test validation of invalid query names."""
+        # Test invalid characters
+        data = {
+            "name": "invalid@name!",
+            "query": self.sample_query,
+        }
+
+        response = self.client.post(f"/api/environments/{self.team.id}/named_query/", data, format="json")
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+
+    def test_missing_required_fields(self):
+        """Test validation when required fields are missing."""
+        # Missing name
+        data = {"query": self.sample_query}
+
+        response = self.client.post(f"/api/environments/{self.team.id}/named_query/", data, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Missing query
+        data = {"name": "test_query"}
+
+        response = self.client.post(f"/api/environments/{self.team.id}/named_query/", data, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_duplicate_name_in_team(self):
+        """Test that duplicate names within the same team are not allowed."""
+        # Create first query
+        NamedQuery.objects.create(
+            name="duplicate_test",
+            team=self.team,
+            query=self.sample_query,
+            created_by=self.user,
+        )
+
+        # Try to create another with same name
+        data = {
+            "name": "duplicate_test",
+            "query": {"kind": "HogQLQuery", "query": "SELECT 2"},
+        }
+
+        response = self.client.post(f"/api/environments/{self.team.id}/named_query/", data, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_team_isolation(self):
+        """Test that queries are properly isolated between teams."""
+        # Create another team and user
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_user = User.objects.create_and_join(self.organization, "other@test.com", None)
+
+        # Create query in other team
+        NamedQuery.objects.create(
+            name="other_team_query",
+            team=other_team,
+            query=self.sample_query,
+            created_by=other_user,
+        )
+
+        # Try to access it from current team - should return 404
+        response = self.client.get(f"/api/environments/{self.team.id}/named_query/d/other_team_query/run")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_execute_query_with_invalid_sql(self):
+        """Test error handling when executing query with invalid SQL."""
+        # Create query with invalid SQL
+        NamedQuery.objects.create(
+            name="invalid_sql_test",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT FROM invalid_syntax"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/named_query/d/invalid_sql_test/run")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("detail", response.json())
