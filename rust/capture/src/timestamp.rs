@@ -256,16 +256,14 @@ mod tests {
         for date_str in valid_cases {
             assert!(
                 parse_date(date_str).is_some(),
-                "Failed to parse: {}",
-                date_str
+                "Failed to parse: {date_str}"
             );
         }
 
         for date_str in invalid_cases {
             assert!(
                 parse_date(date_str).is_none(),
-                "Unexpectedly parsed: {}",
-                date_str
+                "Unexpectedly parsed: {date_str}"
             );
         }
     }
@@ -434,8 +432,8 @@ mod tests {
 
         // The large offset creates an underflow, resulting in a very old timestamp
         // Our implementation actually does generate a warning for out-of-bounds results!
-        println!("Result timestamp: {}", result);
-        println!("Expected (now): {}", now);
+        println!("Result timestamp: {result}");
+        println!("Expected (now): {now}");
 
         // The result should be epoch time due to underflow
         assert_eq!(result.year(), 1970); // Epoch time
@@ -526,8 +524,7 @@ mod tests {
             let result = parse_date(timestamp_str);
             assert!(
                 result.is_some(),
-                "Failed to parse ISO 8601 variant: {}",
-                timestamp_str
+                "Failed to parse ISO 8601 variant: {timestamp_str}"
             );
 
             let dt = result.unwrap();
@@ -538,8 +535,8 @@ mod tests {
                 dt.month(),
                 dt.day()
             );
-            assert_eq!(dt.year(), 2021, "Wrong year for: {}", timestamp_str);
-            assert_eq!(dt.month(), 10, "Wrong month for: {}", timestamp_str);
+            assert_eq!(dt.year(), 2021, "Wrong year for: {timestamp_str}");
+            assert_eq!(dt.month(), 10, "Wrong month for: {timestamp_str}");
             // Some formats might be interpreted differently by dateparser
             // Let's be more flexible and just ensure we get a valid October 2021 date
             assert!(
@@ -564,12 +561,10 @@ mod tests {
             let result = parse_date(timestamp_str);
             assert!(
                 result.is_none(),
-                "Expected advanced ISO format to be rejected: {}",
-                timestamp_str
+                "Expected advanced ISO format to be rejected: {timestamp_str}"
             );
             println!(
-                "✅ Advanced ISO format '{}' correctly rejected by Rust implementation",
-                timestamp_str
+                "✅ Advanced ISO format '{timestamp_str}' correctly rejected by Rust implementation"
             );
         }
     }

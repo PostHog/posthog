@@ -61,8 +61,7 @@ async fn it_adds_timestamp_header_to_kafka_messages() -> Result<()> {
 
     assert_eq!(
         header_datetime, expected_datetime,
-        "Timestamp header {} should match event timestamp {}",
-        header_datetime, expected_datetime
+        "Timestamp header {header_datetime} should match event timestamp {expected_datetime}"
     );
 
     // Verify other expected headers are present
@@ -127,8 +126,7 @@ async fn it_adds_timestamp_header_for_events_without_timestamp() -> Result<()> {
     let diff = (now - header_datetime).num_seconds().abs();
     assert!(
         diff < 10,
-        "Timestamp should be very recent (diff: {} seconds)",
-        diff
+        "Timestamp should be very recent (diff: {diff} seconds)"
     );
 
     Ok(())
@@ -199,8 +197,7 @@ async fn it_adds_timestamp_header_with_clock_skew_correction() -> Result<()> {
     let diff = (current_time - header_datetime).num_seconds().abs();
     assert!(
         diff < 300,
-        "Timestamp should be within 5 minutes of now (diff: {} seconds)",
-        diff
+        "Timestamp should be within 5 minutes of now (diff: {diff} seconds)"
     );
 
     Ok(())
