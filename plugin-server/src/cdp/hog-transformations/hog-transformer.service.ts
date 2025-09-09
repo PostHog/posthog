@@ -195,7 +195,6 @@ export class HogTransformerService {
                         fn: hogFunction,
                         filters: hogFunction.filters,
                         filterGlobals,
-                        eventUuid: globals.event?.uuid,
                     })
 
                     // If filter didn't pass skip the actual transformation and add logs and errors from the filterResult

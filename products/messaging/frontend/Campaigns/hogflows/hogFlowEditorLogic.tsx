@@ -11,10 +11,10 @@ import {
     getOutgoers,
 } from '@xyflow/react'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { lazyLoaders } from 'kea-loaders'
+import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import type { DragEvent } from 'react'
+import type { DragEvent, RefObject } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -23,7 +23,7 @@ import { uuid } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
-import { CampaignLogicProps, campaignLogic } from '../campaignLogic'
+import { CampaignLogicProps, EXIT_NODE_ID, TRIGGER_NODE_ID, campaignLogic } from '../campaignLogic'
 import { getFormattedNodes } from './autolayout'
 import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './constants'
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
@@ -60,7 +60,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ],
         actions: [
             campaignLogic(props),
-            ['setCampaignInfo', 'setCampaignActionConfig', 'setCampaignAction', 'setCampaignActionEdges'],
+            [
+                'setCampaignInfo',
+                'setCampaignActionConfig',
+                'setCampaignAction',
+                'setCampaignActionEdges',
+                'loadCampaignSuccess',
+            ],
             optOutCategoriesLogic(),
             ['loadCategories'],
         ],
@@ -78,13 +84,18 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setReactFlowInstance: (reactFlowInstance: ReactFlowInstance<Node, Edge>) => ({
             reactFlowInstance,
         }),
+        setReactFlowWrapper: (reactFlowWrapper: RefObject<HTMLDivElement>) => ({ reactFlowWrapper }),
         onDragStart: true,
         onDragOver: (event: DragEvent) => ({ event }),
         onDrop: (event: DragEvent) => ({ event }),
         setNewDraggingNode: (newDraggingNode: CreateActionType | null) => ({ newDraggingNode }),
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
-        loadActionMetricsById: (params: AppMetricsTotalsRequest, timezone: string) => ({ params, timezone }),
+        loadActionMetricsById: (
+            params: Pick<AppMetricsTotalsRequest, 'appSource' | 'appSourceId' | 'dateFrom' | 'dateTo'>,
+            timezone: string
+        ) => ({ params, timezone }),
+        fitView: (options: { duration?: number; noZoom?: boolean } = {}) => options,
     }),
     reducers(() => ({
         mode: [
@@ -137,6 +148,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 setReactFlowInstance: (_, { reactFlowInstance }) => reactFlowInstance,
             },
         ],
+        reactFlowWrapper: [
+            null as RefObject<HTMLDivElement> | null,
+            {
+                setReactFlowWrapper: (_, { reactFlowWrapper }) => reactFlowWrapper,
+            },
+        ],
     })),
 
     selectors({
@@ -174,21 +191,52 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
     }),
-    lazyLoaders(() => ({
+    loaders(() => ({
         actionMetricsById: [
             null as Record<string, HogFlowEditorActionMetrics> | null,
             {
                 loadActionMetricsById: async ({ params, timezone }, breakpoint) => {
                     await breakpoint(10)
-                    const response = await loadAppMetricsTotals(params, timezone)
+                    const _params: AppMetricsTotalsRequest = {
+                        ...params,
+                        breakdownBy: ['instance_id', 'metric_name'],
+                        metricName: [
+                            'succeeded',
+                            'failed',
+                            'filtered',
+                            'disabled_permanently',
+                            'rate_limited',
+                            'triggered',
+                        ],
+                    }
+                    const response = await loadAppMetricsTotals(_params, timezone)
                     await breakpoint(10)
 
                     const res: Record<string, HogFlowEditorActionMetrics> = {}
                     Object.values(response).forEach((value) => {
-                        const [instanceId, metricName] = value.breakdowns
-                        if (!instanceId || !metricName) {
+                        let [instanceId, metricName] = value.breakdowns
+
+                        if (!metricName) {
                             return
                         }
+
+                        if (!instanceId) {
+                            // TRICKY: Trigger and exit dont get their own metrics so we pull from the overall metrics
+                            if (['succeeded', 'failed'].includes(metricName)) {
+                                instanceId = EXIT_NODE_ID
+                            } else if (
+                                ['filtered', 'disabled_permanently', 'rate_limited', 'triggered'].includes(metricName)
+                            ) {
+                                instanceId = TRIGGER_NODE_ID
+                                if (['disabled_permanently', 'rate_limited'].includes(metricName)) {
+                                    metricName = 'failed'
+                                }
+                                if (['triggered'].includes(metricName)) {
+                                    metricName = 'succeeded'
+                                }
+                            }
+                        }
+
                         res[instanceId] = res[instanceId] || {
                             actionId: instanceId,
                             succeeded: 0,
@@ -290,7 +338,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         position: { x: 0, y: 0 },
                         handles: Object.values(handlesByIdByNodeId[action.id] ?? {}),
                         deletable: !['trigger', 'exit'].includes(action.type),
-                        selectable: !['exit'].includes(action.type),
+                        selectable: true,
                         draggable: false,
                         connectable: false,
                     }
@@ -468,6 +516,45 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             // We can clear the dropzones now
             actions.setDropzoneNodes([])
         },
+        setReactFlowInstance: () => {
+            // TRICKY: Slight race condition here where the react flow instance is not set yet
+            setTimeout(() => {
+                actions.fitView({ duration: 0 })
+            }, 100)
+        },
+        setSelectedNodeId: ({ selectedNodeId }) => {
+            if (selectedNodeId) {
+                actions.fitView({ noZoom: true })
+            }
+        },
+        fitView: ({ duration, noZoom }) => {
+            const { reactFlowWrapper, reactFlowInstance } = values
+            if (!reactFlowWrapper?.current || !reactFlowInstance) {
+                return
+            }
+            // This is a rough estimate which we could improve by getting from the actual panel
+            const PANEL_WIDTH = 580
+            // Get the width of the wrapper
+            const wrapperWidth = reactFlowWrapper.current.getBoundingClientRect()?.width ?? 0
+            // Get the width of the thing we are going to fit to the view
+            const nodesWidth =
+                reactFlowInstance.getNodesBounds(values.selectedNode ? [values.selectedNode] : values.nodes)?.width ?? 0
+            // Adjust the width for the zoom factor to be relative to the wrapper width
+            const nodesWidthAdjusted = nodesWidth * reactFlowInstance.getZoom()
+            // Calculate the padding right to fit the panel width to the wrapper width
+            // Looks complicated but its basically the difference between the wrapper width and the nodes width adjusted for the zoom factor
+            const paddingRight = wrapperWidth - nodesWidthAdjusted / 2 - (wrapperWidth - PANEL_WIDTH) / 2
+
+            reactFlowInstance.fitView({
+                padding: {
+                    right: `${paddingRight}px`,
+                },
+                maxZoom: noZoom ? reactFlowInstance.getZoom() : undefined,
+                minZoom: noZoom ? reactFlowInstance.getZoom() : undefined,
+                nodes: values.selectedNode ? [values.selectedNode] : values.nodes,
+                duration: duration ?? 100,
+            })
+        },
     })),
 
     subscriptions(({ actions }) => ({
@@ -498,11 +585,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             setMode: () => syncProperty('mode', values.mode),
         }
     }),
-    urlToAction(({ actions }) => {
+    urlToAction(({ actions, values }) => {
         const reactToTabChange = (_: any, search: Record<string, string>): void => {
-            const { node, mode } = search
-            actions.setSelectedNodeId(node ?? null)
-            if (mode && HOG_FLOW_EDITOR_MODES.includes(mode as HogFlowEditorMode)) {
+            const { node = null, mode } = search
+            if (node !== values.selectedNodeId) {
+                actions.setSelectedNodeId(node ?? null)
+            }
+            if (mode && HOG_FLOW_EDITOR_MODES.includes(mode as HogFlowEditorMode) && mode !== values.mode) {
                 actions.setMode(mode as HogFlowEditorMode)
             }
         }

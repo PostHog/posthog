@@ -159,12 +159,26 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
             {
               "due_date": "2020-12-31",
               "goal": 1000000,
+              "mrr_or_gross": "gross",
               "name": "2020 Q4",
             },
             {
               "due_date": "2035-12-31",
               "goal": 1500000,
+              "mrr_or_gross": "gross",
               "name": "2035 Q4",
+            },
+            {
+              "due_date": "2035-12-31",
+              "goal": 1200000,
+              "mrr_or_gross": "mrr",
+              "name": "2035 Q4 MRR",
+            },
+            {
+              "due_date": "2040-12-31",
+              "goal": 1800000,
+              "mrr_or_gross": "gross",
+              "name": "2040 Q4",
             },
           ],
         },

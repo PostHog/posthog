@@ -25,7 +25,9 @@ class SalesforceSource(BaseSource[SalesforceSourceConfig], OAuthMixin):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SALESFORCE
 
-    def get_schemas(self, config: SalesforceSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: SalesforceSourceConfig, team_id: int, with_counts: bool = False
+    ) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,
