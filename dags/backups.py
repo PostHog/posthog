@@ -310,8 +310,21 @@ def check_latest_backup_status(
     else:
         most_recent_status = get_most_recent_status(map_hosts(latest_backup.status).result().values())
         if most_recent_status and most_recent_status.status != "BACKUP_CREATED":
+            # Check if the backup is stuck (CREATING_BACKUP with no active process)
+            if most_recent_status.status == "CREATING_BACKUP":
+                # Check how old the backup status is
+                time_since_status = datetime.now(UTC) - most_recent_status.event_time_microseconds.replace(tzinfo=UTC)
+                if time_since_status > timedelta(hours=2):
+                    context.log.warning(
+                        f"Previous backup {latest_backup.path} is stuck in CREATING_BACKUP status for {time_since_status}. "
+                        f"This usually happens when the server was restarted during backup. "
+                        f"Proceeding with new backup as the old one is no longer active."
+                    )
+                    # Don't raise an error - the backup is dead and won't interfere
+                    return
+            # For other unexpected statuses (like BACKUP_FAILED), still raise an error
             raise ValueError(
-                f"Latest backup {latest_backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Please clean it from S3 before running a new backup."
+                f"Latest backup {latest_backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Please check the backup logs."
             )
         else:
             context.log.info(f"Latest backup {latest_backup.path} finished successfully")
@@ -387,18 +400,8 @@ def wait_for_backup(
         map_hosts(backup.wait).result().values()
         most_recent_status = get_most_recent_status(map_hosts(backup.status).result().values())
         if most_recent_status and most_recent_status.status != "BACKUP_CREATED":
-            # Check if the backup is stuck (CREATING_BACKUP with no active process)
-            if most_recent_status.status == "CREATING_BACKUP":
-                # Check how old the backup status is
-                time_since_status = datetime.now(UTC) - most_recent_status.event_time_microseconds.replace(tzinfo=UTC)
-                if time_since_status > timedelta(hours=2):
-                    context.log.warning(
-                        f"Backup {backup.path} is stuck in CREATING_BACKUP status for {time_since_status}. "
-                        f"This usually happens when the server was restarted during backup. "
-                        f"Please clean it from S3 and the backup_log table."
-                    )
             raise ValueError(
-                f"Latest backup {backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Please clean it from S3 before running a new backup."
+                f"Backup {backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}."
             )
     else:
         context.log.info("No backup to wait for")
