@@ -1,4 +1,5 @@
 import { PubSub, Topic } from '@google-cloud/pubsub'
+
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { RetryError } from '@posthog/plugin-scaffold'
 

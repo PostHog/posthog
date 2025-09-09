@@ -1,5 +1,7 @@
-import { LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -10,9 +12,9 @@ import { urls } from 'scenes/urls'
 import { PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
 
 import { AppMetricSparkLine } from './AppMetricSparkLine'
-import { TRANSFORMATION_TYPES } from './destinations/constants'
-import { Destinations } from './destinations/Destinations'
 import { NewButton } from './NewButton'
+import { Destinations } from './destinations/Destinations'
+import { TRANSFORMATION_TYPES } from './destinations/constants'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { pipelineTransformationsLogic } from './transformationsLogic'
 import { Transformation } from './types'

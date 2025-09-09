@@ -1,38 +1,36 @@
 import datetime as dt
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, run_clickhouse_statement_in_parallel
 from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
-from freezegun import freeze_time
 
 from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import email_verification_token_generator
-from posthog.batch_exports.models import (
-    BatchExport,
-    BatchExportDestination,
-    BatchExportRun,
-)
+from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.models import Organization, Team, User
+from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.plugin import Plugin, PluginConfig
 from posthog.tasks.email import (
+    login_from_new_device_notification,
     send_async_migration_complete_email,
     send_async_migration_errored_email,
     send_batch_export_run_failure,
     send_canary_email,
     send_email_verification,
     send_fatal_plugin_error,
-    send_hog_functions_digest_email,
     send_hog_functions_daily_digest,
+    send_hog_functions_digest_email,
     send_invite,
     send_member_join,
     send_password_reset,
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, run_clickhouse_statement_in_parallel
-from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 
 
 def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> tuple[Organization, User]:
@@ -248,6 +246,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function-1",
                     "name": "Test Function 1",
                     "type": "destination",
+                    "created_by_email": "creator1@example.com",
+                    "last_edited_by_email": "editor1@example.com",
+                    "last_edit_date": "2025-08-01",
                     "succeeded": 95,
                     "failed": 5,
                     "failure_rate": 5.0,
@@ -257,6 +258,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function-2",
                     "name": "Test Function 2",
                     "type": "transformation",
+                    "created_by_email": "creator2@example.com",
+                    "last_edited_by_email": "editor2@example.com",
+                    "last_edit_date": "2025-08-02",
                     "succeeded": 200,
                     "failed": 50,
                     "failure_rate": 20.0,
@@ -285,6 +289,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function-1",
                     "name": "Webhook Alert System",
                     "type": "destination",
+                    "created_by_email": "admin@company.com",
+                    "last_edited_by_email": "dev@company.com",
+                    "last_edit_date": "2025-07-20",
                     "succeeded": 1000,
                     "failed": 50000,
                     "failure_rate": 98.0,
@@ -294,6 +301,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function-2",
                     "name": "Slack Notifications",
                     "type": "transformation",
+                    "created_by_email": None,  # Test case for missing creator
+                    "last_edited_by_email": "maintainer@company.com",
+                    "last_edit_date": "2025-07-15",
                     "succeeded": 1500000,
                     "failed": 25000,
                     "failure_rate": 1.6,
@@ -303,6 +313,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function-3",
                     "name": "Email Campaign Processor",
                     "type": "destination",
+                    "created_by_email": "developer@company.com",
+                    "last_edited_by_email": None,  # Test case for missing last editor
+                    "last_edit_date": None,
                     "succeeded": 75000,
                     "failed": 3500,
                     "failure_rate": 4.5,
@@ -312,6 +325,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function-4",
                     "name": "Data Warehouse Sync",
                     "type": "destination",
+                    "created_by_email": "data-team@company.com",
+                    "last_edited_by_email": "ops@company.com",
+                    "last_edit_date": "2025-07-25",
                     "succeeded": 2000000,
                     "failed": 150000,
                     "failure_rate": 7.0,
@@ -321,6 +337,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function-5",
                     "name": "Analytics Dashboard Feed",
                     "type": "transformation",
+                    "created_by_email": "analytics@company.com",
+                    "last_edited_by_email": "analyst@company.com",
+                    "last_edit_date": "2025-08-05",
                     "succeeded": 500000,
                     "failed": 12000,
                     "failure_rate": 2.3,
@@ -373,6 +392,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function-1",
                     "name": "Webhook Alert System",
                     "type": "destination",
+                    "created_by_email": "user@example.com",
+                    "last_edited_by_email": "modifier@example.com",
+                    "last_edit_date": "2025-07-28",
                     "succeeded": 1000,
                     "failed": 50000,
                     "failure_rate": 98.0,
@@ -382,6 +404,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function-2",
                     "name": "Slack Notifications",
                     "type": "transformation",
+                    "created_by_email": "another@example.com",
+                    "last_edited_by_email": "updater@example.com",
+                    "last_edit_date": "2025-07-30",
                     "succeeded": 1500000,
                     "failed": 25000,
                     "failure_rate": 1.6,
@@ -410,7 +435,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
-        # Create a HogFunction for testing
+        # Create users for creator and editor
+        creator_user = self._create_user("creator@posthog.com")
+        editor_user = self._create_user("editor@posthog.com")
+
+        # Create a HogFunction for testing with real creator
         hog_function = HogFunction.objects.create(
             team=self.team,
             name="Test Destination Function",
@@ -418,6 +447,21 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             enabled=True,
             deleted=False,
             hog="return event",
+            created_by=creator_user,
+        )
+
+        # Create an activity log entry for this function (simulating an edit)
+        from posthog.models.activity_logging.activity_log import ActivityLog, Detail
+
+        edit_date = timezone.now() - dt.timedelta(days=1)
+        ActivityLog.objects.create(
+            team_id=self.team.id,
+            user=editor_user,
+            activity="updated",
+            scope="HogFunction",
+            item_id=str(hog_function.id),
+            detail=Detail(name=hog_function.name, type="destination"),
+            created_at=edit_date,
         )
 
         # Create test data in app_metrics2 table with all metric types
@@ -457,6 +501,12 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
+        # Check that the HTML body contains both creator and editor info
+        html_body = mocked_email_messages[0].html_body
+        assert "creator@posthog.com" in html_body, "Creator email should be in the email"
+        assert "editor@posthog.com" in html_body, "Editor email should be in the email"
+        assert edit_date.strftime("%Y-%m-%d") in html_body, "Edit date should be in the email"
+
         # Reset mocked messages
         mocked_email_messages.clear()
 
@@ -494,16 +544,18 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         self.user.save()
 
         send_hog_functions_daily_digest()
-        # Should only be sent to user2 (user1 has notifications disabled)
-        assert mocked_email_messages[0].to == [{"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com"}]
+        # Should be sent to users with notifications enabled (creator, editor, test2)
+        recipients = {recipient["raw_email"] for recipient in mocked_email_messages[0].to}
+        expected_recipients = {"creator@posthog.com", "editor@posthog.com", "test2@posthog.com"}
+        assert recipients == expected_recipients
 
         # Test 6: Test notification settings - user with plugin_disabled: True should receive email
         self.user.partial_notification_settings = {"plugin_disabled": True}
         self.user.save()
 
         send_hog_functions_daily_digest()
-        # Should now be sent to both users
-        assert len(mocked_email_messages[1].to) == 2
+        # Should now be sent to all users (creator, editor, original user, test2)
+        assert len(mocked_email_messages[1].to) == 4
 
     def test_send_hog_functions_digest_email_with_test_email_override(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
@@ -523,6 +575,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function-1",
                     "name": "Test Function 1",
                     "type": "destination",
+                    "created_by_email": "test@example.com",
+                    "last_edited_by_email": "tester@example.com",
+                    "last_edit_date": "2025-08-04",
                     "succeeded": 95,
                     "failed": 5,
                     "failure_rate": 5.0,
@@ -580,6 +635,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             enabled=True,
             deleted=False,
             hog="return event",
+            created_by=self.user,
         )
 
         # Only create successful metrics, no failures
@@ -605,6 +661,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             enabled=False,  # Disabled
             deleted=False,
             hog="return event",
+            created_by=self.user,
         )
 
         # Create failure metrics for disabled function
@@ -630,6 +687,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             enabled=True,
             deleted=True,  # Deleted
             hog="return event",
+            created_by=self.user,
         )
 
         # Create failure metrics for deleted function
@@ -647,3 +705,26 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             send_hog_functions_daily_digest()
 
         assert len(mocked_email_messages) == 0
+
+    @patch("posthog.tasks.email.check_and_cache_login_device")
+    def test_login_from_new_device_notification(
+        self, mock_check_device: MagicMock, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        mock_check_device.return_value = True  # Simulate new device
+
+        login_from_new_device_notification(
+            user_id=self.user.id,
+            login_time=timezone.now(),
+            short_user_agent="Chrome 135.0.0 on Mac OS 15.3",
+            ip_address="24.114.32.12",  # random ip in Canada
+        )
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        assert mocked_email_messages[0].subject == "A new device logged into your account"
+
+        # Check that location appears in email body
+        html_body = mocked_email_messages[0].html_body
+        assert html_body
+        assert "Canada" in html_body

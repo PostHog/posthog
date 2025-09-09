@@ -1,31 +1,32 @@
-import datetime as dt
 import json
+import datetime as dt
 from zoneinfo import ZoneInfo
 
-from posthog.clickhouse.client.connection import Workload
-from posthog.hogql import ast
-from posthog.hogql.property import property_to_expr
-from posthog.hogql.parser import parse_select, parse_expr, parse_order_expr
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     CachedLogsQueryResponse,
     HogQLFilters,
+    IntervalType,
+    LogPropertyFilter,
     LogsQuery,
     LogsQueryResponse,
-    IntervalType,
     PropertyGroupsMode,
     PropertyOperator,
-    LogPropertyFilter,
 )
 
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
+from posthog.hogql.property import property_to_expr
 
-class LogsQueryRunner(QueryRunner):
+from posthog.clickhouse.client.connection import Workload
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.filters.mixins.utils import cached_property
+
+
+class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
     query: LogsQuery
-    response: LogsQueryResponse
     cached_response: CachedLogsQueryResponse
     paginator: HogQLHasMorePaginator
 
@@ -84,7 +85,7 @@ class LogsQueryRunner(QueryRunner):
                     ),
                 )
 
-    def calculate(self) -> LogsQueryResponse:
+    def _calculate(self) -> LogsQueryResponse:
         self.modifiers.convertToProjectTimezone = False
         self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
         response = self.paginator.execute_hogql_query(

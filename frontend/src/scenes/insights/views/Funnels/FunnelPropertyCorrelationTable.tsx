@@ -1,24 +1,26 @@
 import './FunnelCorrelationTable.scss'
 
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+import { useState } from 'react'
+
 import { IconArchive, IconTrending } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonTable } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
-import { IconSelectProperties, IconTrendingDown } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { IconSelectProperties, IconTrendingDown } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { useEffect } from 'react'
-import { useState } from 'react'
+import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsageLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { funnelPropertyCorrelationLogic } from 'scenes/funnels/funnelPropertyCorrelationLogic'
 import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
-import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
@@ -44,7 +46,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         if (loadedPropertyCorrelationsTableOnce) {
             loadPropertyCorrelations({})
         }
-    }, [querySource])
+    }, [querySource]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const { openCorrelationPersonsModal } = useActions(funnelPersonsModalLogic(insightProps))
     const { correlationPropKey } = useValues(funnelCorrelationUsageLogic(insightProps))
@@ -133,7 +135,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     return steps.length > 1 ? (
         <VisibilitySensor offset={150} id={`${correlationPropKey}-properties`}>
             <div className="FunnelCorrelationTable mt-4 border rounded overflow-hidden">
-                <div className="flex px-2 py-1 bg-[var(--bg-table)]">
+                <div className="flex px-2 py-1 bg-[var(--color-bg-table)]">
                     <div className="flex items-center text-xs font-bold">
                         <IconSelectProperties style={{ marginRight: 4, opacity: 0.5, fontSize: 24 }} />
                         CORRELATED PROPERTIES

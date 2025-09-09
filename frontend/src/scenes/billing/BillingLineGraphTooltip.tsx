@@ -1,7 +1,7 @@
 import { SeriesColorDot } from './BillingLineGraph'
 
 export interface BillingLineGraphTooltipSeriesItem {
-    id: number | string
+    id: number
     label: string
     value: number
     formattedValue: string
@@ -21,7 +21,7 @@ export function BillingLineGraphTooltip({ title, sortedSeries }: BillingLineGrap
             {sortedSeries.map((item) => (
                 <div key={item.id} className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1">
-                        <SeriesColorDot colorIndex={item.datasetIndex} />
+                        <SeriesColorDot colorIndex={item.id} />
                         <span className="text-text-secondary whitespace-nowrap overflow-hidden text-ellipsis max-w-xs">
                             {item.label}
                         </span>

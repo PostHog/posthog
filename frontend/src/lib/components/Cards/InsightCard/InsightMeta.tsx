@@ -1,10 +1,14 @@
 import clsx from 'clsx'
-import { lemonToast } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import React from 'react'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { TZLabel } from 'lib/components/TZLabel'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
@@ -16,7 +20,6 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
-import React from 'react'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -29,7 +32,6 @@ import { ExporterFormat, InsightColor, QueryBasedInsightModel } from '~/types'
 
 import { InsightCardProps } from './InsightCard'
 import { InsightDetails } from './InsightDetails'
-import { TZLabel } from 'lib/components/TZLabel'
 
 interface InsightMetaProps
     extends Pick<
@@ -49,6 +51,7 @@ interface InsightMetaProps
         | 'showEditingControls'
         | 'showDetailsControls'
         | 'moreButtons'
+        | 'filtersOverride'
         | 'variablesOverride'
     > {
     insight: QueryBasedInsightModel
@@ -61,6 +64,7 @@ export function InsightMeta({
     ribbonColor,
     dashboardId,
     updateColor,
+    filtersOverride,
     variablesOverride,
     removeFromDashboard,
     deleteWithUndo,
@@ -93,8 +97,8 @@ export function InsightMeta({
         nextAllowedClientRefresh && dayjs(nextAllowedClientRefresh).isAfter(dayjs())
             ? 'You are viewing the most recent calculated results.'
             : loading || loadingQueued || !refreshEnabled
-            ? 'Refreshing...'
-            : undefined
+              ? 'Refreshing...'
+              : undefined
 
     return (
         <CardMeta
@@ -107,7 +111,7 @@ export function InsightMeta({
             topHeading={<TopHeading query={insight.query} lastRefresh={insight.last_refresh} />}
             content={
                 <InsightMetaContent
-                    link={urls.insightView(short_id, dashboardId, variablesOverride)}
+                    link={urls.insightView(short_id, dashboardId, variablesOverride, filtersOverride)}
                     title={name}
                     fallbackTitle={summary}
                     description={insight.description}

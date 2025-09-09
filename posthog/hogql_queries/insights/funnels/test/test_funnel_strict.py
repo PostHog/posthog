@@ -1,31 +1,24 @@
 from datetime import datetime
 from typing import cast
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import Mock, patch
+
+from posthog.schema import FunnelsQuery
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
-from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import (
-    funnel_conversion_time_test_factory,
-)
-
 from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
-    funnel_breakdown_test_factory,
-    funnel_breakdown_group_test_factory,
     assert_funnel_results_equal,
+    funnel_breakdown_group_test_factory,
+    funnel_breakdown_test_factory,
 )
+from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from posthog.hogql_queries.insights.funnels.test.test_funnel import PseudoFunnelActors
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.action import Action
 from posthog.models.filters import Filter
 from posthog.models.instance_setting import override_instance_config
-from posthog.schema import FunnelsQuery
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-)
-
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"

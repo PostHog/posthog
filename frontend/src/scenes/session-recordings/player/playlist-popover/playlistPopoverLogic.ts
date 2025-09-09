@@ -1,11 +1,12 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { lazyLoaders, loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import {
-    sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
+    sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { addRecordingToPlaylist, removeRecordingFromPlaylist } from 'scenes/session-recordings/player/utils/playerUtils'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'

@@ -1,6 +1,7 @@
 import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
+
 import { App } from 'scenes/App'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -77,7 +78,7 @@ export const AccessRevoked = (): JSX.Element => {
 
     useEffect(() => {
         loadCurrentTeamSuccess(null)
-    }, [])
+    }, [loadCurrentTeamSuccess])
 
     return <App />
 }
@@ -114,7 +115,7 @@ export const NoSelectableProjects = (): JSX.Element => {
 
     useEffect(() => {
         loadCurrentTeamSuccess(null)
-    }, [])
+    }, [loadCurrentTeamSuccess])
 
     return <App />
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/posthog/posthog/livestream/events"
 	"github.com/posthog/posthog/livestream/geo"
 	"github.com/posthog/posthog/livestream/handlers"
+	"github.com/posthog/posthog/livestream/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -53,6 +54,17 @@ func main() {
 	defer consumer.Close()
 	go consumer.Consume()
 
+	go func() {
+		for {
+			metrics.IncomingQueue.Set(consumer.IncomingRatio())
+			metrics.EventQueue.Set(float64(len(phEventChan)) / float64(cap(phEventChan)))
+			metrics.StatsQueue.Set(float64(len(statsChan)) / float64(cap(statsChan)))
+			metrics.SubQueue.Set(float64(len(subChan)) / float64(cap(subChan)))
+			metrics.UnSubQueue.Set(float64(len(unSubChan)) / float64(cap(unSubChan)))
+			time.Sleep(7127 * time.Millisecond)
+		}
+	}()
+
 	filter := events.NewFilter(subChan, unSubChan, phEventChan)
 	go filter.Run()
 
@@ -63,7 +75,7 @@ func main() {
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{
-		Level: 9, // Set compression level to maximum
+		Level: 9, // Set the compression level to maximum
 	}))
 	e.Use(echoprometheus.NewMiddlewareWithConfig(
 		echoprometheus.MiddlewareConfig{DoNotUseRequestPathFor404: true, Subsystem: "livestream"}))

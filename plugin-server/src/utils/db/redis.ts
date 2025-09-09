@@ -9,7 +9,7 @@ import { captureException } from '../posthog'
 /** Number of Redis error events until the server is killed gracefully. */
 const REDIS_ERROR_COUNTER_LIMIT = 10
 
-export type REDIS_SERVER_KIND = 'posthog' | 'ingestion' | 'session-recording'
+export type REDIS_SERVER_KIND = 'posthog' | 'ingestion' | 'session-recording' | 'cookieless'
 
 export function getRedisConnectionOptions(
     serverConfig: PluginsServerConfig,
@@ -39,20 +39,29 @@ export function getRedisConnectionOptions(
                       },
                   }
                 : serverConfig.POSTHOG_REDIS_HOST
-                ? {
-                      url: serverConfig.POSTHOG_REDIS_HOST,
-                      options: {
-                          port: serverConfig.POSTHOG_REDIS_PORT,
-                          password: serverConfig.POSTHOG_REDIS_PASSWORD,
-                      },
-                  }
-                : fallback
+                  ? {
+                        url: serverConfig.POSTHOG_REDIS_HOST,
+                        options: {
+                            port: serverConfig.POSTHOG_REDIS_PORT,
+                            password: serverConfig.POSTHOG_REDIS_PASSWORD,
+                        },
+                    }
+                  : fallback
         case 'session-recording':
             return serverConfig.POSTHOG_SESSION_RECORDING_REDIS_HOST
                 ? {
-                      url: serverConfig.POSTHOG_SESSION_RECORDING_REDIS_HOST ?? 'localhost',
+                      url: serverConfig.POSTHOG_SESSION_RECORDING_REDIS_HOST,
                       options: {
                           port: serverConfig.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379,
+                      },
+                  }
+                : fallback
+        case 'cookieless':
+            return serverConfig.COOKIELESS_REDIS_HOST
+                ? {
+                      url: serverConfig.COOKIELESS_REDIS_HOST,
+                      options: {
+                          port: serverConfig.COOKIELESS_REDIS_PORT ?? 6379,
                       },
                   }
                 : fallback

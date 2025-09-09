@@ -1,8 +1,9 @@
 import { useActions } from 'kea'
+import { useEffect, useRef } from 'react'
+
 import { IconBookmarkBorder } from 'lib/lemon-ui/icons'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useEffect, useRef } from 'react'
 
 import { TeamBasicType } from '~/types'
 

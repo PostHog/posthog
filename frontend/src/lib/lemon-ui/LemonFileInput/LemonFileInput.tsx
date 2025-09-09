@@ -1,11 +1,12 @@
 import './LemonFileInput.scss'
 
 import clsx from 'clsx'
-import { IconUploadFile } from 'lib/lemon-ui/icons'
+import { ChangeEvent, RefObject, createRef, useEffect, useState } from 'react'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { ChangeEvent, createRef, RefObject, useEffect, useState } from 'react'
+import { IconUploadFile } from 'lib/lemon-ui/icons'
 
 export interface LemonFileInputProps extends Pick<HTMLInputElement, 'multiple' | 'accept'> {
     value?: File[]
@@ -58,7 +59,7 @@ export const LemonFileInput = ({
         if (value && value !== files) {
             setFiles(value)
         }
-    }, [value])
+    }, [value]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const handleCallToActionClick = (): void => {
         if (disabledReason === undefined && fileInputRef.current) {
@@ -130,7 +131,7 @@ export const LemonFileInput = ({
             div?.removeEventListener('dragover', handleDrag)
             div?.removeEventListener('drop', handleDrop)
         }
-    }, [value])
+    }, [value, handleDrop, handleDragOut, alternativeDropTargetRef, dropRef, handleDragIn])
 
     useEffect(() => {
         const extraDragTarget = alternativeDropTargetRef?.current

@@ -1,11 +1,11 @@
 import uuid
-from unittest.mock import patch, MagicMock, call
 
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+from unittest.mock import MagicMock, call, patch
 
 from posthog.models import Team
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.test import setup_stream_from
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 # this is the utf-16 surrogate pass encoded, gzipped and base64 encoded version of the above
 # see: https://github.com/PostHog/posthog/blob/8ff764bb573c6a98368b2ae3503890551a1c3842/posthog/session_recordings/session_recording_helpers.py#L277
@@ -20,16 +20,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.team = Team.objects.create(organization=self.organization, name="New Team")
 
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch(
-        "posthog.session_recordings.queries_to_delete.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
     def test_2023_08_01_version_stored_snapshots_can_be_gathered(
-        self, mock_list_objects: MagicMock, _mock_exists_old: MagicMock, _mock_exists_new: MagicMock
+        self, mock_list_objects: MagicMock, _mock_exists: MagicMock
     ) -> None:
         session_id = str(uuid.uuid4())
         lts_storage_path = "purposefully/not/what/we/would/calculate/to/prove/this/is/used"
@@ -80,11 +76,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         }
 
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch(
-        "posthog.session_recordings.queries_to_delete.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.stream_from", return_value=setup_stream_from())
@@ -95,8 +87,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_list_objects: MagicMock,
         mock_get_presigned_url: MagicMock,
         _mock_stream_from: MagicMock,
-        _mock_exists_old: MagicMock,
-        _mock_exists_new: MagicMock,
+        _mock_exists: MagicMock,
     ) -> None:
         session_id = str(uuid.uuid4())
         lts_storage_path = "purposefully/not/what/we/would/calculate/to/prove/this/is/used"

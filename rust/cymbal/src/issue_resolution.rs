@@ -273,7 +273,8 @@ pub async fn resolve_issue(
             )
             .await?;
             let output_props: OutputErrProps = event_properties.clone().to_output(issue.id);
-            send_issue_reopened_alert(&context, &issue, assignment, output_props).await?;
+            send_issue_reopened_alert(&context, &issue, assignment, output_props, &event_timestamp)
+                .await?;
         }
         return Ok(issue);
     }
@@ -325,7 +326,8 @@ pub async fn resolve_issue(
             )
             .await?;
             let output_props: OutputErrProps = event_properties.clone().to_output(issue.id);
-            send_issue_reopened_alert(&context, &issue, assignment, output_props).await?;
+            send_issue_reopened_alert(&context, &issue, assignment, output_props, &event_timestamp)
+                .await?;
         }
     } else {
         metrics::counter!(ISSUE_CREATED).increment(1);
@@ -338,7 +340,8 @@ pub async fn resolve_issue(
         .await?;
 
         let output_props = event_properties.clone().to_output(issue.id);
-        send_issue_created_alert(&context, &issue, assignment, output_props).await?;
+        send_issue_created_alert(&context, &issue, assignment, output_props, &event_timestamp)
+            .await?;
         txn.commit().await?;
         capture_issue_created(team_id, issue_override.issue_id);
     };
@@ -372,6 +375,7 @@ async fn send_issue_created_alert(
     issue: &Issue,
     assignment: Option<Assignment>,
     output_props: OutputErrProps,
+    event_timestamp: &DateTime<Utc>,
 ) -> Result<(), UnhandledError> {
     send_internal_event(
         context,
@@ -379,6 +383,7 @@ async fn send_issue_created_alert(
         issue,
         assignment,
         output_props,
+        event_timestamp,
     )
     .await
 }
@@ -388,6 +393,7 @@ async fn send_issue_reopened_alert(
     issue: &Issue,
     assignment: Option<Assignment>,
     output_props: OutputErrProps,
+    event_timestamp: &DateTime<Utc>,
 ) -> Result<(), UnhandledError> {
     send_internal_event(
         context,
@@ -395,6 +401,7 @@ async fn send_issue_reopened_alert(
         issue,
         assignment,
         output_props,
+        event_timestamp,
     )
     .await
 }
@@ -405,6 +412,7 @@ async fn send_internal_event(
     issue: &Issue,
     new_assignment: Option<Assignment>,
     output_props: OutputErrProps,
+    event_timestamp: &DateTime<Utc>,
 ) -> Result<(), UnhandledError> {
     let mut event = InternalEventEvent::new(event, issue.id, Utc::now(), None);
     event
@@ -415,6 +423,7 @@ async fn send_internal_event(
         .expect("Strings are serializable");
     event.insert_prop("status", issue.status.as_str())?;
     event.insert_prop("fingerprint", &output_props.fingerprint)?;
+    event.insert_prop("exception_timestamp", event_timestamp)?;
     event.insert_prop("exception_props", output_props)?;
 
     if let Some(assignment) = new_assignment {

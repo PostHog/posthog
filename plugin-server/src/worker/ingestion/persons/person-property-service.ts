@@ -1,13 +1,8 @@
 import { InternalPerson } from '../../../types'
-import { personPropertiesSizeHistogram } from '../../../utils/db/metrics'
-import { logger } from '../../../utils/logger'
 import { promiseRetry } from '../../../utils/retries'
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
-
-// temporary: for fetchPerson properties JSONB size observation
-const ONE_MEGABYTE_PROPS_BLOB = 1048576
 
 /**
  * Service responsible for handling person property updates and person creation.
@@ -39,8 +34,6 @@ export class PersonPropertyService {
      * @returns [Person, boolean that indicates if properties were already handled or not]
      */
     private async createOrGetPerson(): Promise<[InternalPerson, boolean]> {
-        await this.capturePersonPropertiesSizeEstimate('createOrGetPerson')
-
         const person = await this.context.personStore.fetchForUpdate(this.context.team.id, this.context.distinctId)
         if (person) {
             return [person, false]
@@ -93,33 +86,6 @@ export class PersonPropertyService {
         )
         const kafkaAck = this.context.kafkaProducer.queueMessages(kafkaMessages)
         return [updatedPerson, kafkaAck]
-    }
-
-    private async capturePersonPropertiesSizeEstimate(at: string): Promise<void> {
-        if (Math.random() >= this.context.measurePersonJsonbSize) {
-            // no-op if env flag is set to 0 (default) otherwise rate-limit
-            // ramp up of expensive size checking while we test it
-            return
-        }
-
-        const estimatedBytes: number = await this.context.personStore.personPropertiesSize(
-            this.context.team.id,
-            this.context.distinctId
-        )
-        personPropertiesSizeHistogram.labels({ at: at }).observe(estimatedBytes)
-
-        // if larger than size threshold (start conservative, adjust as we observe)
-        // we should log the team and disinct_id associated with the properties
-        if (estimatedBytes >= ONE_MEGABYTE_PROPS_BLOB) {
-            logger.warn('⚠️', 'record with oversized person properties detected', {
-                teamId: this.context.team.id,
-                distinctId: this.context.distinctId,
-                called_at: at,
-                estimated_bytes: estimatedBytes,
-            })
-        }
-
-        return
     }
 
     getContext(): PersonContext {

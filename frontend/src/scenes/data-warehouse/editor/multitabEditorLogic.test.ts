@@ -1,5 +1,5 @@
-import { editorModelsStateKey } from './multitabEditorLogic'
 import { set } from './db'
+import { editorModelsStateKey } from './multitabEditorLogic'
 
 jest.mock('posthog-js', () => ({ captureException: jest.fn() }))
 jest.mock('./db', () => ({

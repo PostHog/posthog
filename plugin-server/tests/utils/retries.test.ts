@@ -21,7 +21,7 @@ describe('getNextRetryMs', () => {
     })
 
     it('throws on attempt below 0', () => {
-        expect(() => getNextRetryMs(4000, 2, 0)).toThrowError('Attempts are indexed starting with 1')
-        expect(() => getNextRetryMs(4000, 2, -1)).toThrowError('Attempts are indexed starting with 1')
+        expect(() => getNextRetryMs(4000, 2, 0)).toThrow('Attempts are indexed starting with 1')
+        expect(() => getNextRetryMs(4000, 2, -1)).toThrow('Attempts are indexed starting with 1')
     })
 })

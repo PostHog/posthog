@@ -1,10 +1,12 @@
 import abc
-from typing import Optional, Union, Any
+from typing import Any, Optional, Union
+
+from django.conf import settings
 
 import structlog
 from boto3 import client
 from botocore.client import Config
-from django.conf import settings
+
 from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
@@ -153,6 +155,11 @@ class ObjectStorage(ObjectStorageClient):
             if s3_response.get("Contents"):
                 return [obj["Key"] for obj in s3_response["Contents"]]
             else:
+                capture_exception(
+                    Exception("object_storage.no_contents_found_list_objects_in_bucket"),
+                    {"bucket": bucket, "prefix": prefix},
+                )
+                logger.info("object_storage.no_contents_found_list_objects_in_bucket", bucket=bucket, prefix=prefix)
                 return None
         except Exception as e:
             logger.exception(

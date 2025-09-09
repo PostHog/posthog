@@ -77,11 +77,11 @@ impl fmt::Display for WebhookRequestError {
                     None => "No response from the server".to_string(),
                 };
                 if is_error_source::<NoPublicIPv4Error>(error) {
-                    writeln!(f, "{}: {}", error, NoPublicIPv4Error)?;
+                    writeln!(f, "{error}: {NoPublicIPv4Error}")?;
                 } else {
-                    writeln!(f, "{}", error)?;
+                    writeln!(f, "{error}")?;
                 }
-                write!(f, "{}", response_message)?;
+                write!(f, "{response_message}")?;
 
                 Ok(())
             }

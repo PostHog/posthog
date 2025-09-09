@@ -1,6 +1,7 @@
 import { Meta, StoryFn } from '@storybook/react'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { CapturedNetworkRequest } from 'posthog-js'
+
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { mapRRWebNetworkRequest } from 'scenes/session-recordings/apm/performance-event-utils'
 import {
     BodyDisplay,

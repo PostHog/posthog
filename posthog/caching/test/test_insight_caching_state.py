@@ -1,10 +1,12 @@
 from datetime import timedelta
 from typing import Any, Optional, Union, cast
-from unittest.mock import patch
 
 import pytest
-from django.utils.timezone import now
 from freezegun import freeze_time
+from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from django.utils.timezone import now
 
 from posthog.caching.insight_caching_state import (
     LazyLoader,
@@ -25,7 +27,6 @@ from posthog.models import (
     User,
 )
 from posthog.models.signals import mute_selected_signals
-from posthog.test.base import BaseTest
 
 filter_dict = {
     "events": [{"id": "$pageview"}],

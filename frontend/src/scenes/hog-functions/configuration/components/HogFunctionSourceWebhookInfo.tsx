@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
+
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
-import { apiHostOrigin } from 'lib/utils/apiHost'
 
 export function HogFunctionSourceWebhookInfo(): JSX.Element {
     const { logicProps } = useValues(hogFunctionConfigurationLogic)
@@ -12,7 +13,9 @@ export function HogFunctionSourceWebhookInfo(): JSX.Element {
         <div className="p-3 rounded border deprecated-space-y-2 bg-surface-primary">
             <LemonLabel>Webhook URL</LemonLabel>
             <CodeSnippet thing="Webhook URL">
-                {!id ? 'The webhook URL will be shown here once you save' : apiHostOrigin() + '/public/webhooks/' + id}
+                {!id
+                    ? 'The webhook URL will be shown here once you save'
+                    : publicWebhooksHostOrigin() + '/public/webhooks/' + id}
             </CodeSnippet>
 
             <p className="text-sm">

@@ -1,12 +1,14 @@
 import './Playlist.scss'
 
-import { LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { ReactNode, useRef, useState } from 'react'
+
+import { LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { range } from 'lib/utils'
-import { ReactNode, useRef, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
 import { SessionRecordingType } from '~/types'
@@ -145,7 +147,7 @@ export function Playlist({
                     'xl:flex-row': true,
                 })}
             >
-                <div className="flex flex-col xl:max-w-80">
+                <div className="flex flex-col min-w-60 xl:max-w-80 xl:min-w-80">
                     {filterActions && (
                         <DraggableToNotebook className="mb-2" href={notebooksHref}>
                             {filterActions}

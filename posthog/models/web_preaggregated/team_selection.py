@@ -1,12 +1,45 @@
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree
-from posthog.settings.data_stores import CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
+from posthog.settings.data_stores import CLICKHOUSE_DATABASE, CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
 
 WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME = "web_pre_aggregated_teams"
 WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME = "web_pre_aggregated_teams_dict"
 
 # Default team IDs (fallback)
 DEFAULT_ENABLED_TEAM_IDS = [1, 2, 55348, 47074, 12669, 1589, 117126]
+
+# Strategy configurations
+DEFAULT_TOP_TEAMS_BY_PAGEVIEWS_LIMIT = 30
+# We want to limit the number of teams we proactively add while in beta
+MAX_TOP_TEAMS_BY_PAGEVIEWS_LIMIT = 100
+
+
+def get_top_teams_by_median_pageviews_sql(limit: int = DEFAULT_TOP_TEAMS_BY_PAGEVIEWS_LIMIT) -> str:
+    if not isinstance(limit, int) or limit < 1 or limit > MAX_TOP_TEAMS_BY_PAGEVIEWS_LIMIT:
+        raise ValueError(
+            f"Invalid limit: {limit}. Must be an integer between 1 and {MAX_TOP_TEAMS_BY_PAGEVIEWS_LIMIT}."
+        )
+
+    return f"""
+SELECT
+    team_id,
+    median(daily_pageviews) AS median_daily_pageviews
+FROM (
+    SELECT
+        team_id,
+        toDate(timestamp) AS day,
+        count() AS daily_pageviews
+    FROM events
+    WHERE timestamp >= now() - INTERVAL 30 DAY
+      AND event = '$pageview'
+    GROUP BY
+        team_id,
+        day
+)
+GROUP BY team_id
+ORDER BY median_daily_pageviews DESC
+LIMIT {limit}
+"""
 
 
 def WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(on_cluster=True):
@@ -40,7 +73,7 @@ def WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_QUERY():
 SELECT
     team_id
 FROM
-    `{WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME}`
+    `{CLICKHOUSE_DATABASE}`.`{WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME}`
 FINAL
 WHERE version > 0
 """.replace("\n", " ").strip()

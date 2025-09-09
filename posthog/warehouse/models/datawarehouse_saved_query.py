@@ -1,33 +1,37 @@
-from datetime import datetime
 import re
-from typing import Any, Optional, Union
 import uuid
+from datetime import datetime
+from typing import Any, Optional, Union
+from urllib.parse import urlparse
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.conf import settings
+
+from dlt.common.normalizers.naming.snake_case import NamingConvention
+
+from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FieldOrTable, SavedQuery
+from posthog.hogql.database.s3_table import S3Table
+
 from posthog.models.team import Team
-from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel
-from posthog.schema import HogQLQueryModifiers
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel
+from posthog.sync import database_sync_to_async
 from posthog.warehouse.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
     remove_named_tuples,
 )
-from posthog.hogql.database.s3_table import S3Table
-from posthog.sync import database_sync_to_async
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 
 def validate_saved_query_name(value):
-    if not re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", value):
+    if not re.match(r"^[A-Za-z_$][A-Za-z0-9_.$]*$", value):
         raise ValidationError(
-            f"{value} is not a valid view name. View names can only contain letters, numbers, '_', or '$' ",
+            f"{value} is not a valid view name. View names can only contain letters, numbers, '_', '.', or '$' ",
             params={"value": value},
         )
 
@@ -43,7 +47,7 @@ def validate_saved_query_name(value):
         )
 
 
-class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
+class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     class Status(models.TextChoices):
         """Possible states of this SavedQuery."""
 
@@ -76,6 +80,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     table = models.ForeignKey("posthog.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
     # The name of the view at the time of soft deletion
     deleted_name = models.CharField(max_length=128, default=None, null=True, blank=True)
+    is_materialized = models.BooleanField(default=False, blank=True, null=True)
 
     class Meta:
         constraints = [
@@ -136,6 +141,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         from posthog.hogql.parser import parse_select
         from posthog.hogql.query import create_default_modifiers_for_team
         from posthog.hogql.resolver import resolve_types
+
         from posthog.models.property.util import S3TableVisitor
 
         context = HogQLContext(
@@ -162,13 +168,13 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
     @property
     def url_pattern(self):
-        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
+        if settings.USE_LOCAL_SETUP:
+            parsed = urlparse(settings.BUCKET_URL)
+            bucket_name = parsed.netloc
 
-    @property
-    def is_materialized(self):
-        return self.table is not None and (
-            self.status == DataWarehouseSavedQuery.Status.COMPLETED or self.last_run_at is not None
-        )
+            return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
+
+        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
 
     def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> Union[SavedQuery, S3Table]:
         if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:

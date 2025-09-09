@@ -18,12 +18,7 @@ export class LiquidRenderer {
 
     static renderWithHogFunctionGlobals(template: string, globals: HogFunctionInvocationGlobalsWithInputs): string {
         const context = {
-            event: globals.event,
-            person: globals.person,
-            groups: globals.groups,
-            project: globals.project,
-            source: globals.source,
-            inputs: globals.inputs || {},
+            ...globals,
             now: new Date(),
         }
 

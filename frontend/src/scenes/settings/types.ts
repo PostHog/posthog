@@ -27,6 +27,7 @@ export type SettingSectionId =
     | 'environment-feature-flags'
     | 'environment-error-tracking'
     | 'environment-csp-reporting'
+    | 'environment-crm'
     | 'environment-max'
     | 'environment-integrations'
     | 'environment-access-control'
@@ -44,6 +45,7 @@ export type SettingSectionId =
     | 'organization-roles'
     | 'organization-authentication'
     | 'organization-proxy'
+    | 'organization-security'
     | 'organization-danger-zone'
     | 'organization-billing'
     | 'organization-startup-program'
@@ -53,6 +55,7 @@ export type SettingSectionId =
     | 'user-customization'
     | 'user-danger-zone'
     | 'user-feature-previews'
+    | 'mcp-server'
 
 export type SettingId =
     | 'replay-triggers'
@@ -68,6 +71,7 @@ export type SettingId =
     | 'internal-user-filtering'
     | 'data-theme'
     | 'correlation-analysis'
+    | 'crm-usage-metrics'
     | 'person-display-name'
     | 'path-cleaning'
     | 'datacapture'
@@ -108,6 +112,7 @@ export type SettingId =
     | 'organization-roles'
     | 'organization-delete'
     | 'organization-proxy'
+    | 'organization-security'
     | 'details'
     | 'change-password'
     | '2fa'
@@ -139,9 +144,11 @@ export type SettingId =
     | 'core-memory'
     | 'customization-irl'
     | 'web-analytics-pre-aggregated-tables'
+    | 'web-analytics-opt-in-pre-aggregated-tables-and-api'
     | 'csp-reporting'
     | 'base-currency'
     | 'marketing-settings'
+    | 'mcp-server-configure'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
@@ -150,6 +157,7 @@ export type Setting = {
     title: JSX.Element | string
     description?: JSX.Element | string
     component: JSX.Element
+    searchTerm?: string
     /**
      * Feature flag to gate the setting being shown.
      * If prefixed with !, the condition is inverted - the setting will only be shown if the is flag false.
@@ -172,4 +180,5 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
     level: SettingLevelId
     settings: Setting[]
     minimumAccessLevel?: EitherMembershipLevel
+    searchValue?: string
 }

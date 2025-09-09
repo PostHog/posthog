@@ -1,13 +1,16 @@
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonDropdown, Popover } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { AnyDataNode } from '~/queries/schema/schema-general'
-import { UniversalFiltersGroup, UniversalFilterValue } from '~/types'
+import { IconPlusSmall } from '@posthog/icons'
+import { LemonButton, LemonButtonProps, LemonDropdown, Popover } from '@posthog/lemon-ui'
 
-import { TaxonomicPropertyFilter } from '../PropertyFilters/components/TaxonomicPropertyFilter'
+import { OperatorValueSelectProps } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
+
+import { AnyDataNode } from '~/queries/schema/schema-general'
+import { UniversalFilterValue, UniversalFiltersGroup } from '~/types'
+
 import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
+import { TaxonomicPropertyFilter } from '../PropertyFilters/components/TaxonomicPropertyFilter'
 import { isValidPropertyFilter } from '../PropertyFilters/utils'
 import { TaxonomicFilter } from '../TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
@@ -78,6 +81,7 @@ const Value = ({
     initiallyOpen = false,
     metadataSource,
     className,
+    operatorAllowlist,
 }: {
     index: number
     filter: UniversalFilterValue
@@ -86,6 +90,7 @@ const Value = ({
     initiallyOpen?: boolean
     metadataSource?: AnyDataNode
     className?: string
+    operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
 }): JSX.Element => {
     const { rootKey, taxonomicPropertyFilterGroupTypes } = useValues(universalFiltersLogic)
 
@@ -123,6 +128,7 @@ const Value = ({
                         setFilter={(_, property) => onChange(property)}
                         disablePopover={false}
                         taxonomicGroupTypes={taxonomicPropertyFilterGroupTypes}
+                        operatorAllowlist={operatorAllowlist}
                     />
                 ) : null
             }
@@ -169,7 +175,13 @@ const AddFilterButton = (props: Omit<LemonButtonProps, 'onClick' | 'sideAction' 
     )
 }
 
-const PureTaxonomicFilter = ({ fullWidth = true }: { fullWidth?: boolean }): JSX.Element => {
+const PureTaxonomicFilter = ({
+    fullWidth = true,
+    onChange,
+}: {
+    fullWidth?: boolean
+    onChange: () => void
+}): JSX.Element => {
     const { taxonomicGroupTypes } = useValues(universalFiltersLogic)
     const { addGroupFilter } = useActions(universalFiltersLogic)
 
@@ -177,6 +189,7 @@ const PureTaxonomicFilter = ({ fullWidth = true }: { fullWidth?: boolean }): JSX
         <TaxonomicFilter
             {...(fullWidth ? { width: '100%' } : {})}
             onChange={(taxonomicGroup, value, item, originalQuery) => {
+                onChange()
                 addGroupFilter(taxonomicGroup, value, item, originalQuery)
             }}
             taxonomicGroupTypes={taxonomicGroupTypes}

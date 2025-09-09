@@ -1,5 +1,6 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
@@ -95,7 +96,8 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
         source: InternalPerson,
         target: InternalPerson,
         distinctId: string,
-        tx?: PersonRepositoryTransaction
+        limit: number | undefined,
+        tx: PersonRepositoryTransaction
     ): Promise<MoveDistinctIdsResult>
 
     /**
@@ -126,7 +128,17 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
     /**
      * Returns the size of the person properties
      */
-    personPropertiesSize(teamId: number, distinctId: string): Promise<number>
+    personPropertiesSize(personId: string): Promise<number>
+
+    /**
+     * Fetch distinct ids for a person inside a transaction-aware wrapper
+     */
+    fetchPersonDistinctIds(
+        person: InternalPerson,
+        distinctId: string,
+        limit: number | undefined,
+        tx: PersonRepositoryTransaction
+    ): Promise<string[]>
 
     /**
      * Reports metrics about person operations in batch

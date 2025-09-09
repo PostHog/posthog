@@ -1,10 +1,10 @@
-import { SceneName } from 'lib/components/Scenes/SceneName'
 import { useActions, useValues } from 'kea'
-import { ScenePanelCommonActions, ScenePanelDivider, ScenePanelLabel } from '~/layout/scenes/SceneLayout'
-import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
-import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
+
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
+import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
+import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -15,27 +15,38 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
-import { AssigneeSelect } from './components/Assignee/AssigneeSelect'
-import { AssigneeIconDisplay, AssigneeLabelDisplay } from './components/Assignee/AssigneeDisplay'
-import { StatusIndicator } from './components/Indicator'
+
+import { ScenePanelCommonActions, ScenePanelDivider, ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
+
+import { AssigneeIconDisplay, AssigneeLabelDisplay } from './components/Assignee/AssigneeDisplay'
+import { AssigneeSelect } from './components/Assignee/AssigneeSelect'
 import { ExternalReferences } from './components/ExternalReferences'
+import { StatusIndicator } from './components/Indicator'
+import { IssueTasks } from './components/IssueTasks'
+import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 
 const RESOURCE_TYPE = 'issue'
 
 export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
     const { issue } = useValues(errorTrackingIssueSceneLogic)
     const { updateName, updateDescription, updateAssignee, updateStatus } = useActions(errorTrackingIssueSceneLogic)
+    const hasTasks = useFeatureFlag('TASKS')
 
     return issue ? (
         <div className="flex flex-col gap-2">
-            <SceneName defaultValue={issue.name ?? ''} onSave={updateName} dataAttrKey={RESOURCE_TYPE} />
-            <SceneDescription
+            <SceneTextInput
+                name="name"
+                defaultValue={issue.name ?? ''}
+                onSave={updateName}
+                dataAttrKey={RESOURCE_TYPE}
+            />
+            <SceneTextarea
+                name="description"
                 defaultValue={issue.description ?? ''}
                 onSave={updateDescription}
                 dataAttrKey={RESOURCE_TYPE}
             />
-            <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
 
             <IssueStatusSelect status={issue.status} onChange={updateStatus} />
             <IssueAssigneeSelect
@@ -44,23 +55,28 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
                 disabled={issue.status != 'active'}
             />
             <IssueExternalReference />
+            {hasTasks && <IssueTasks />}
+            <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
 
-            <ScenePanelDivider />
+            {/* Add a div here to break out of the gap-2 */}
+            <div>
+                <ScenePanelDivider className="mb-0" />
 
-            <ScenePanelCommonActions isFirst={false}>
-                <SceneCommonButtons
-                    comment
-                    share={{
-                        onClick: () => {
-                            void copyToClipboard(
-                                window.location.origin + urls.errorTrackingIssue(issue.id),
-                                'issue link'
-                            )
-                        },
-                    }}
-                    dataAttrKey={RESOURCE_TYPE}
-                />
-            </ScenePanelCommonActions>
+                <ScenePanelCommonActions>
+                    <SceneCommonButtons
+                        comment
+                        share={{
+                            onClick: () => {
+                                void copyToClipboard(
+                                    window.location.origin + urls.errorTrackingIssue(issue.id),
+                                    'issue link'
+                                )
+                            },
+                        }}
+                        dataAttrKey={RESOURCE_TYPE}
+                    />
+                </ScenePanelCommonActions>
+            </div>
         </div>
     ) : null
 }
@@ -76,7 +92,7 @@ const IssueStatusSelect = ({
         <ScenePanelLabel title="Status">
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                    <ButtonPrimitive fullWidth className="flex justify-between">
+                    <ButtonPrimitive fullWidth className="flex justify-between" variant="panel" menuItem>
                         <StatusIndicator status={status} withTooltip={true} />
                         <DropdownMenuOpenIndicator />
                     </ButtonPrimitive>
@@ -128,6 +144,7 @@ const IssueAssigneeSelect = ({
                         disabled={disabled}
                         className="flex justify-between"
                         data-state={isOpen ? 'open' : 'closed'}
+                        variant="panel"
                     >
                         <div className="flex items-center">
                             <AssigneeIconDisplay assignee={anyAssignee} size="small" />

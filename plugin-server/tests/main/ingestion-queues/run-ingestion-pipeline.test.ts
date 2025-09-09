@@ -65,7 +65,11 @@ describe('workerTasks.runEventPipeline()', () => {
             uuid: new UUIDT().toString(),
         }
         const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(personRepository, hub.kafkaProducer)
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+            hub.db,
+            hub.groupRepository,
+            hub.clickhouseGroupRepository
+        )
         await expect(
             new EventPipelineRunner(hub, event, null, [], personsStoreForBatch, groupStoreForBatch).runEventPipeline(
                 event,

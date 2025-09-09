@@ -1,3 +1,5 @@
+import { instrumented } from '~/common/tracing/tracing-utils'
+
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import {
@@ -14,16 +16,17 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     protected name = 'CdpCyclotronWorkerHogFlow'
 
     constructor(hub: Hub) {
-        super(hub)
-        this.queue = 'hogflow' // NOTE: Hogflows are a different processing logic to hogfunctions so we currently explicitly set the queue
+        super(hub, 'hogflow')
     }
 
+    @instrumented('cdpConsumer.handleEachBatch.executeInvocations')
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
         this.personsManager.clear() // We want to load persons fresh each time
         const loadedInvocations = await this.loadHogFlows(invocations)
         return await Promise.all(loadedInvocations.map((item) => this.hogFlowExecutor.execute(item)))
     }
 
+    @instrumented('cdpConsumer.handleEachBatch.loadHogFlows')
     protected async loadHogFlows(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationHogFlow[]> {
         const loadedInvocations: CyclotronJobInvocationHogFlow[] = []
         const failedInvocations: CyclotronJobInvocation[] = []

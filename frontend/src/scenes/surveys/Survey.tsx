@@ -1,34 +1,35 @@
-import { LemonButton, LemonDivider, LemonTag, lemonToast, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { useEffect } from 'react'
+
+import { LemonButton, LemonDivider, LemonTag, Link, lemonToast } from '@posthog/lemon-ui'
+
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { useEffect } from 'react'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { FeatureFlagFilters, Survey, SurveyMatchType } from '~/types'
 
-import { LOADING_SURVEY_RESULTS_TOAST_ID, NewSurvey, SurveyMatchTypeLabels } from './constants'
 import SurveyEdit from './SurveyEdit'
-import { surveyLogic } from './surveyLogic'
 import { SurveyView } from './SurveyView'
+import { LOADING_SURVEY_RESULTS_TOAST_ID, NewSurvey, SurveyMatchTypeLabels } from './constants'
+import { SurveyLogicProps, surveyLogic } from './surveyLogic'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<SurveyLogicProps> = {
     component: SurveyComponent,
     logic: surveyLogic,
-    paramsToProps: ({ params: { id } }): (typeof surveyLogic)['props'] => ({
-        id: id,
-    }),
+    paramsToProps: ({ params: { id } }) => ({ id }),
     settingSectionId: 'environment-surveys',
 }
 
-export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
+export function SurveyComponent({ id }: SurveyLogicProps): JSX.Element {
     const { editingSurvey, setSelectedPageIndex } = useActions(surveyLogic)
     const { isEditingSurvey, surveyMissing } = useValues(surveyLogic)
 
@@ -64,6 +65,7 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
 export function SurveyForm({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, targetingFlagFilters } = useValues(surveyLogic)
     const { loadSurvey, editingSurvey } = useActions(surveyLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const handleCancelClick = (): void => {
         editingSurvey(false)
@@ -106,7 +108,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     </div>
                 }
             />
-            <LemonDivider />
+            {!newSceneLayout && <LemonDivider />}
             <SurveyEdit />
             <LemonDivider />
             <SurveyDisplaySummary id={id} survey={survey} targetingFlagFilters={targetingFlagFilters} />
@@ -129,7 +131,7 @@ export function SurveyDisplaySummary({
         survey.conditions?.selector ||
         survey.conditions?.seenSurveyWaitPeriodInDays ||
         (survey.conditions?.events?.values.length ?? 0) > 0
-    const hasFeatureFlags = survey.linked_flag_id || targetingFlagFilters
+    const hasFeatureFlags = survey.linked_flag_id || survey.linked_flag || targetingFlagFilters
 
     return (
         <div className="flex flex-col mt-2 gap-2">
@@ -174,15 +176,25 @@ export function SurveyDisplaySummary({
                     </div>
                 </div>
             )}
-            {survey.linked_flag_id && (
+            {(survey.linked_flag_id || survey.linked_flag) && (
                 <div className="flex flex-row font-medium gap-1">
                     <span>Feature flag enabled for:</span>{' '}
                     {id !== 'new' ? (
                         survey.linked_flag?.id ? (
-                            <Link to={urls.featureFlag(survey.linked_flag?.id)}>{survey.linked_flag?.key}</Link>
+                            <>
+                                <Link to={urls.featureFlag(survey.linked_flag?.id)}>{survey.linked_flag?.key}</Link>
+                                {survey.conditions?.linkedFlagVariant && (
+                                    <LemonTag>variant: {survey.conditions.linkedFlagVariant}</LemonTag>
+                                )}
+                            </>
                         ) : null
                     ) : (
-                        <FlagSelector value={survey.linked_flag_id} readOnly={true} onChange={() => {}} />
+                        <>
+                            <FlagSelector value={survey.linked_flag_id || 0} readOnly={true} onChange={() => {}} />
+                            {survey.conditions?.linkedFlagVariant && (
+                                <LemonTag>variant: {survey.conditions.linkedFlagVariant}</LemonTag>
+                            )}
+                        </>
                     )}
                 </div>
             )}

@@ -1,5 +1,8 @@
 import { Counter } from 'prom-client'
 
+import { eventPassesMetadataSwitchoverTest } from '~/main/utils'
+import { SessionRecordingV2MetadataSwitchoverDate } from '~/types'
+
 import { KAFKA_LOG_ENTRIES } from '../../../../config/kafka-topics'
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
@@ -7,7 +10,7 @@ import { KafkaProducerWrapper } from '../../../../kafka/producer'
 import { logger } from '../../../../utils/logger'
 import { captureException } from '../../../../utils/posthog'
 import { eventDroppedCounter } from '../../metrics'
-import { ConsoleLogEntry, gatherConsoleLogEvents, RRWebEventType } from '../process-event'
+import { ConsoleLogEntry, RRWebEventType, gatherConsoleLogEvents } from '../process-event'
 import { IncomingRecordingMessage } from '../types'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
 
@@ -42,7 +45,7 @@ export class ConsoleLogsIngester {
     constructor(
         private readonly producer: KafkaProducerWrapper,
         private readonly persistentHighWaterMarker?: OffsetHighWaterMarker,
-        private readonly metadataSwitchoverDate: Date | null = null
+        private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate = null
     ) {}
 
     public async consumeBatch(messages: IncomingRecordingMessage[]) {
@@ -132,11 +135,8 @@ export class ConsoleLogsIngester {
         }
 
         // Check if we should process this event based on the switchover date
-        if (this.metadataSwitchoverDate) {
-            const switchoverMs = this.metadataSwitchoverDate.getTime()
-            if (event.metadata.timestamp >= switchoverMs) {
-                return drop('after_switchover')
-            }
+        if (eventPassesMetadataSwitchoverTest(event.metadata.timestamp, this.metadataSwitchoverDate)) {
+            return drop('after_switchover')
         }
 
         const rrwebEvents = Object.values(event.eventsByWindowId).reduce((acc, val) => acc.concat(val), [])

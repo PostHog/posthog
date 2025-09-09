@@ -1,35 +1,25 @@
-import collections.abc
-import dataclasses
-import functools
-import typing
 import uuid
+import typing
+import functools
+import dataclasses
+import collections.abc
+
+from django.conf import settings
+from django.db.models import Q
 
 import pyarrow as pa
 import pyarrow.fs as fs
 import pyarrow.ipc as ipc
-from django.conf import settings
-from django.db.models import Q
 
 from posthog.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.temporal.common.clickhouse import ClickHouseClient
-from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
-    bigquery_default_fields,
-)
-from products.batch_exports.backend.temporal.destinations.postgres_batch_export import (
-    postgres_default_fields,
-)
-from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
-    redshift_default_fields,
-)
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
-    s3_default_fields,
-)
-from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
-    snowflake_default_fields,
-)
-from products.batch_exports.backend.temporal.pipeline.internal_stage import (
-    get_s3_staging_folder,
-)
+
+from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import bigquery_default_fields
+from products.batch_exports.backend.temporal.destinations.postgres_batch_export import postgres_default_fields
+from products.batch_exports.backend.temporal.destinations.redshift_batch_export import redshift_default_fields
+from products.batch_exports.backend.temporal.destinations.s3_batch_export import s3_default_fields
+from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import snowflake_default_fields
+from products.batch_exports.backend.temporal.pipeline.internal_stage import get_s3_staging_folder
 from products.batch_exports.backend.temporal.spmc import (
     BatchExportField,
     compose_filters_clause,

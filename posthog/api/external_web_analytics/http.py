@@ -1,39 +1,37 @@
 from django.conf import settings
+
 import posthoganalytics
+from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from rest_framework import viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
-from drf_spectacular.utils import extend_schema, OpenApiExample
-from rest_framework.exceptions import PermissionDenied
 
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from drf_spectacular.utils import OpenApiResponse
 from posthog.api.utils import action
-from posthog.models.user import User
-
-from posthog.auth import SessionAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.clickhouse.client.limit import get_web_analytics_api_rate_limiter
+from posthog.models.user import User
 from posthog.rate_limit import WebAnalyticsAPIBurstThrottle, WebAnalyticsAPISustainedThrottle
-
-from .serializers import (
-    WebAnalyticsOverviewRequestSerializer,
-    WebAnalyticsTrendRequestSerializer,
-    WebAnalyticsBreakdownRequestSerializer,
-    WebAnalyticsOverviewResponseSerializer,
-    WebAnalyticsTrendResponseSerializer,
-    WebAnalyticsBreakdownResponseSerializer,
-)
 
 from .data import WebAnalyticsDataFactory
 from .query_adapter import ExternalWebAnalyticsQueryAdapter
+from .serializers import (
+    WebAnalyticsBreakdownRequestSerializer,
+    WebAnalyticsBreakdownResponseSerializer,
+    WebAnalyticsOverviewRequestSerializer,
+    WebAnalyticsOverviewResponseSerializer,
+    WebAnalyticsTrendRequestSerializer,
+    WebAnalyticsTrendResponseSerializer,
+)
 
 TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS = [1, 2]
 
 
 class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     """
-    Provides access to web analytics data for a project. This is currently in beta, please contact support to enable it for your team.
+    Provides access to web analytics data for a project. This is currently in Concept state, please join the feature preview to try it out when it's ready.
     """
 
     scope_object = "query"
@@ -86,7 +84,7 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
     @action(methods=["GET"], detail=False)
     def overview(self, request: Request, **kwargs) -> Response:
         """
-        Get an overview of web analytics data including visitors, views, sessions, bounce rate, and session duration. This endpoint is in beta, please contact support to enable it for your team.
+        This endpoint is in Concept state, please join the feature preview to try it out when it's ready. Get an overview of web analytics data including visitors, views, sessions, bounce rate, and session duration.
         """
         self._can_use_external_web_analytics()
 
@@ -127,7 +125,7 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
     @action(methods=["GET"], detail=False)
     def trend(self, request: Request, **kwargs) -> Response:
         """
-        Get trends for visitors, views, or sessions over time. This endpoint is in beta, please contact support to enable it for your team.
+        This endpoint is in Concept state, please join the feature preview to try it out when it's ready. Get trends for visitors, views, or sessions over time.
         """
         self._can_use_external_web_analytics()
 
@@ -167,7 +165,7 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
     @action(methods=["GET"], detail=False)
     def breakdown(self, request: Request, **kwargs) -> Response:
         """
-        Get a breakdown by a property (e.g. browser, device type, country, etc.). This endpoint is in beta, please contact support to enable it for your team.
+        This endpoint is in Concept state, please join the feature preview to try it out when it's ready. Get a breakdown by a property (e.g. browser, device type, country, etc.).
         """
         self._can_use_external_web_analytics()
 

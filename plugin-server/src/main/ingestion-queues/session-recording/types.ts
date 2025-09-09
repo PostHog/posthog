@@ -1,5 +1,4 @@
 // This is the incoming message from Kafka
-
 import { RRWebEvent } from '../../../types'
 
 export type IncomingRecordingMessage = {

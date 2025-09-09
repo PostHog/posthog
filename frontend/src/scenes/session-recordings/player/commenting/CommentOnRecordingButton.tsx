@@ -1,13 +1,15 @@
 import { useActions, useValues } from 'kea'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { playerCommentOverlayLogic } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-import { IconEmoji, IconComment } from '@posthog/icons'
-import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
+import { useCallback } from 'react'
+
+import { IconComment, IconEmoji } from '@posthog/icons'
+import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
+
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
-import { useCallback, useState } from 'react'
-import { Spinner } from 'lib/lemon-ui/Spinner'
+import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
+import { playerCommentOverlayLogic } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 export function EmojiCommentRow({ onSelectEmoji }: { onSelectEmoji?: () => void }): JSX.Element {
     const {
@@ -24,7 +26,7 @@ export function EmojiCommentRow({ onSelectEmoji }: { onSelectEmoji?: () => void 
         addEmojiComment(emoji)
         emojiUsed(emoji)
         onSelectEmoji?.()
-    }, [])
+    }, []) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="flex flex-row items-center justify-around">
@@ -39,10 +41,8 @@ export function EmojiCommentRow({ onSelectEmoji }: { onSelectEmoji?: () => void 
 }
 
 export function CommentOnRecordingButton(): JSX.Element {
-    const { setIsCommenting } = useActions(sessionRecordingPlayerLogic)
-    const { isCommenting } = useValues(sessionRecordingPlayerLogic)
-
-    const [quickEmojiIsOpen, setQuickEmojiIsOpen] = useState<boolean>(false)
+    const { setIsCommenting, setQuickEmojiIsOpen } = useActions(sessionRecordingPlayerLogic)
+    const { isCommenting, quickEmojiIsOpen } = useValues(sessionRecordingPlayerLogic)
 
     const {
         sessionPlayerData: { sessionRecordingId },
@@ -52,52 +52,63 @@ export function CommentOnRecordingButton(): JSX.Element {
     const { isLoading } = useValues(theBuiltOverlayLogic)
 
     return (
-        <LemonButton
-            size="xsmall"
-            onClick={() => setIsCommenting(!isCommenting)}
-            tooltip={
-                isCommenting ? (
-                    <>
-                        Stop commenting <KeyboardShortcut c />
-                    </>
-                ) : (
-                    <>
-                        Comment on this recording <KeyboardShortcut c />
-                    </>
-                )
-            }
-            data-attr={isCommenting ? 'stop-annotating-recording' : 'annotate-recording'}
-            active={isCommenting}
-            icon={<IconComment className="text-lg" />}
-            sideAction={{
-                icon: isLoading ? <Spinner textColored={true} /> : <IconEmoji className="text-lg" />,
-                onClick: () => {
-                    if (isLoading) {
-                        return
-                    }
+        <>
+            <LemonButton
+                size="xsmall"
+                onClick={() => setIsCommenting(!isCommenting)}
+                tooltip={
+                    isCommenting ? (
+                        <>
+                            Stop commenting <KeyboardShortcut c />
+                        </>
+                    ) : (
+                        <>
+                            Comment on this recording <KeyboardShortcut c />
+                        </>
+                    )
+                }
+                data-attr={isCommenting ? 'stop-annotating-recording' : 'annotate-recording'}
+                active={isCommenting}
+                icon={<IconComment className="text-lg" />}
+            />
+            <LemonDropdown
+                overlay={
+                    <EmojiCommentRow
+                        onSelectEmoji={() => {
+                            setQuickEmojiIsOpen(!quickEmojiIsOpen)
+                        }}
+                    />
+                }
+                placement="bottom-end"
+                visible={quickEmojiIsOpen}
+                closeOnClickInside={false}
+                onClickOutside={() => {
                     setQuickEmojiIsOpen(!quickEmojiIsOpen)
-                },
-                dropdown: {
-                    placement: 'bottom-end',
-                    overlay: (
-                        <EmojiCommentRow
-                            onSelectEmoji={() => {
-                                setQuickEmojiIsOpen(!quickEmojiIsOpen)
-                            }}
-                        />
-                    ),
-                    // because of the emoji picker popover
-                    // we have to manually manage when the overlay closes
-                    visible: quickEmojiIsOpen,
-                    closeOnClickInside: false,
-                    onClickOutside: () => {
-                        setQuickEmojiIsOpen(!quickEmojiIsOpen)
-                    },
-                },
-                'data-attr': 'emoji-comment-dropdown',
-            }}
-        >
-            Comment
-        </LemonButton>
+                }}
+                onVisibilityChange={(visible) => {
+                    setQuickEmojiIsOpen(visible)
+                }}
+            >
+                <LemonButton
+                    size="xsmall"
+                    onClick={() => setQuickEmojiIsOpen(!quickEmojiIsOpen)}
+                    tooltip={
+                        quickEmojiIsOpen ? (
+                            <>
+                                Close emoji picker <KeyboardShortcut e />
+                            </>
+                        ) : (
+                            <>
+                                Emoji react at the current timestamp <KeyboardShortcut e />
+                            </>
+                        )
+                    }
+                    data-attr={quickEmojiIsOpen ? 'close-emoji-picker' : 'emoji-comment-dropdown'}
+                    active={quickEmojiIsOpen}
+                    disabledReason={isLoading ? 'Loading...' : undefined}
+                    icon={<IconEmoji className="text-lg" />}
+                />
+            </LemonDropdown>
+        </>
     )
 }

@@ -1,6 +1,8 @@
-import { IconPlus } from '@posthog/icons'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { IconPlus } from '@posthog/icons'
+
 import api from 'lib/api'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -18,7 +20,7 @@ import {
     getDefaultTreePersons,
     getDefaultTreeProducts,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { projectTreeLogic, RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { RecentResults, SearchResults, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { FolderState, ProjectTreeAction } from '~/layout/panel-layout/ProjectTree/types'
 import {
     appendResultsToFolders,
@@ -30,10 +32,10 @@ import {
     sortFilesAndFolders,
     splitPath,
 } from '~/layout/panel-layout/ProjectTree/utils'
-import { groupsModel } from '~/models/groupsModel'
-import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
-import { UserBasicType } from '~/types'
 import { FEATURE_FLAGS } from '~/lib/constants'
+import { groupsModel } from '~/models/groupsModel'
+import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import { UserBasicType } from '~/types'
 
 import type { projectTreeDataLogicType } from './projectTreeDataLogicType'
 
@@ -436,10 +438,13 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             (s) => [s.savedItems, s.pendingActions],
             (savedItems, pendingActions): FileSystemEntry[] => {
                 const initialItems = [...savedItems]
-                const itemsByPath = initialItems.reduce((acc, item) => {
-                    acc[item.path] = acc[item.path] ? [...acc[item.path], item] : [item]
-                    return acc
-                }, {} as Record<string, FileSystemEntry[]>)
+                const itemsByPath = initialItems.reduce(
+                    (acc, item) => {
+                        acc[item.path] = acc[item.path] ? [...acc[item.path], item] : [item]
+                        return acc
+                    },
+                    {} as Record<string, FileSystemEntry[]>
+                )
 
                 for (const action of pendingActions) {
                     if ((action.type === 'move' || action.type === 'prepare-move') && action.newPath) {
@@ -566,7 +571,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                           {
                               path: 'Groups',
                               category: 'Groups',
-                              iconType: 'cohort',
+                              iconType: 'group',
                               href: urls.groups(0),
                               visualOrder: 30,
                           },
@@ -574,7 +579,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     : Array.from(groupTypes.values()).map((groupType) => ({
                           path: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
                           category: 'Groups',
-                          iconType: 'cohort',
+                          iconType: 'group',
                           href: urls.groups(groupType.group_type_index),
                           visualOrder: 30 + groupType.group_type_index,
                       }))
@@ -589,7 +594,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                               path: shortcut.path,
                               type: shortcut.type,
                               category: 'Saved Views',
-                              iconType: 'database' as const,
+                              iconType: 'group' as FileSystemIconType,
                               href: shortcut.href || '',
                               visualOrder: 100,
                               shortcut: true,

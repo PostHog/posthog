@@ -1,9 +1,10 @@
 import heatmapsJs, { Heatmap as HeatmapJS } from 'heatmap.js'
 import { useValues } from 'kea'
+import { MutableRefObject, useCallback, useEffect, useMemo, useRef } from 'react'
+
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'
 import { cn } from 'lib/utils/css-classes'
-import { MutableRefObject, useCallback, useEffect, useMemo, useRef } from 'react'
 
 import { useMousePosition } from './useMousePosition'
 
@@ -110,11 +111,11 @@ export function HeatmapCanvas({
         })
 
         updateHeatmapData()
-    }, [])
+    }, []) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         updateHeatmapData()
-    }, [heatmapJsData])
+    }, [heatmapJsData]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (!heatmapsJsContainerRef.current) {
@@ -122,7 +123,7 @@ export function HeatmapCanvas({
         }
 
         heatmapsJsRef.current?.configure({
-            ...heatmapConfig,
+            ...heatmapConfig, // oxlint-disable-line react-hooks/exhaustive-deps
             container: heatmapsJsContainerRef.current,
             gradient: heatmapJSColorGradient,
         })

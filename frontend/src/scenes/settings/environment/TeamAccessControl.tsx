@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlObject } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObject'

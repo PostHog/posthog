@@ -14,7 +14,10 @@ export class ActionManager {
     private actionCache: ActionCache
     private refreshJob?: schedule.Job
 
-    constructor(private postgres: PostgresRouter, private pubSub: PubSub) {
+    constructor(
+        private postgres: PostgresRouter,
+        private pubSub: PubSub
+    ) {
         this.started = false
         this.ready = false
         this.actionCache = {}

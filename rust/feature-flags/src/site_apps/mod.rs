@@ -80,7 +80,7 @@ pub async fn get_decide_site_apps(
                 r.plugin_source_updated_at, r.plugin_updated_at, r.config_updated_at
             );
             let digest = md5::compute(hash_input.as_bytes());
-            let hash = format!("{:x}", digest);
+            let hash = format!("{digest:x}");
             let url = format!("/site_app/{}/{}/{}/", r.id, r.web_token, hash);
             WebJsUrl::new(r.id, url, "site_app".to_string())
         })
@@ -421,7 +421,7 @@ mod tests {
         let site_app = &result[0];
 
         // URL should be in format: /site_app/{config_id}/{web_token}/{hash}/
-        let expected_prefix = format!("/site_app/{}/specific_token/", config_id);
+        let expected_prefix = format!("/site_app/{config_id}/specific_token/");
         assert!(site_app.url.starts_with(&expected_prefix));
         assert!(site_app.url.ends_with('/'));
 

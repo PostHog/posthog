@@ -1,6 +1,7 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { RefObject } from 'react'
+
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { sidePanelStateLogic } from '../sidePanelStateLogic'

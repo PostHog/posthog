@@ -11,6 +11,8 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
         setShowAsText: (showAsText: boolean) => ({ showAsText }),
         setShowAllFrames: (showAllFrames: boolean) => ({ showAllFrames }),
         setLoading: (loading: boolean) => ({ loading }),
+        setCurrentSessionTab: (tab: string) => ({ tab }),
+        setCurrentTab: (tab: string) => ({ tab }),
     }),
 
     reducers({
@@ -42,6 +44,18 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
             true,
             {
                 setLoading: (_, { loading }: { loading: boolean }) => loading,
+            },
+        ],
+        currentSessionTab: [
+            'timeline',
+            {
+                setCurrentSessionTab: (_, { tab }: { tab: string }) => tab,
+            },
+        ],
+        currentTab: [
+            'stacktrace',
+            {
+                setCurrentTab: (_, { tab }: { tab: string }) => tab,
             },
         ],
     }),

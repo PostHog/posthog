@@ -1,15 +1,18 @@
+import uuid
 from contextlib import contextmanager
-from dateutil import parser
+
 from django.conf import settings
 from django.db.models import Sum
-import uuid
+
+from dateutil import parser
+from structlog.types import FilteringBoundLogger
+
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, Team
-from posthog.settings import EE_AVAILABLE
-from posthog.temporal.common.logger import FilteringBoundLogger
-from posthog.warehouse.models import ExternalDataJob
 from posthog.redis import get_client
+from posthog.settings import EE_AVAILABLE
+from posthog.warehouse.models import ExternalDataJob
 
 
 def _get_hash_key(team_id: int) -> str:
@@ -121,8 +124,6 @@ def will_hit_billing_limit(team_id: int, logger: FilteringBoundLogger) -> bool:
         logger.debug(f"will_hit_billing_limit: Teams in org: {all_teams_in_org}")
 
         billing_res = billing_manager.get_billing(organization)
-
-        logger.debug(f"will_hit_billing_limit: billing_res = {billing_res}")
 
         current_billing_cycle_start = billing_res.get("billing_period", {}).get("current_period_start")
         if current_billing_cycle_start is None:

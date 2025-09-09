@@ -1,5 +1,6 @@
-import { IconChevronDown } from '@posthog/icons'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
+import { IconChevronDown } from '@posthog/icons'
 
 import { Popover } from './Popover'
 

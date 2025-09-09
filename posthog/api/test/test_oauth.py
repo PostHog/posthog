@@ -1,13 +1,22 @@
 import base64
-from datetime import timedelta
 import hashlib
+from datetime import timedelta
 from typing import Optional, cast
-from django.test import override_settings
+from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
+
 from freezegun import freeze_time
-import jwt
-from rest_framework import status
-from posthog.models.team.team import Team
 from posthog.test.base import APIBaseTest
+
+from django.conf import settings
+from django.test import override_settings
+from django.utils import timezone
+
+import jwt
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from rest_framework import status
+
+from posthog.api.oauth import OAuthAuthorizationSerializer
 from posthog.models.oauth import (
     OAuthAccessToken,
     OAuthApplication,
@@ -15,13 +24,7 @@ from posthog.models.oauth import (
     OAuthGrant,
     OAuthRefreshToken,
 )
-from django.utils import timezone
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
-from django.conf import settings
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives import serialization
-from posthog.api.oauth import OAuthAuthorizationSerializer
-from urllib.parse import quote
+from posthog.models.team.team import Team
 
 
 def generate_rsa_key() -> str:
@@ -1081,7 +1084,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertIn("scoped_teams", serializer.errors)
 
     def test_application_isolation_different_users(self):
-        from posthog.models import User, Organization, OrganizationMembership
+        from posthog.models import Organization, OrganizationMembership, User
 
         other_org = Organization.objects.create(name="Other Org")
         other_user = User.objects.create_user(email="other@test.com", password="password", first_name="Other")

@@ -1,5 +1,6 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useMountedLogic } from 'kea'
+
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { humanFriendlyNumber } from 'lib/utils'
 

@@ -278,7 +278,7 @@ pub async fn bulk_create_jobs_copy(
     let result = stream.send(&csv_writer.get_ref()[..]).await;
     if let Err(e) = result {
         let _unused = stream
-            .abort(format!("failed to send COPY IN record: {}", e))
+            .abort(format!("failed to send COPY IN record: {e}"))
             .await;
         return Err(QueueError::SqlxError(e));
     }

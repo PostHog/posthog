@@ -2,9 +2,10 @@ import './ErrorBoundary.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { supportLogic } from 'lib/components/Support/supportLogic'
+import { PostHogErrorBoundary, type PostHogErrorBoundaryFallbackProps } from 'posthog-js/react'
+
+import { SupportTicketExceptionEvent, supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { PostHogErrorBoundary } from 'posthog-js/react'
 import { teamLogic } from 'scenes/teamLogic'
 
 interface ErrorBoundaryProps {
@@ -26,33 +27,50 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
     return (
         <PostHogErrorBoundary
             additionalProperties={additionalProperties}
-            fallback={({ error: { stack, name, message } }: { error: Error }) => (
-                <div className={clsx('ErrorBoundary', className)}>
-                    <h2>An error has occurred</h2>
-                    <pre>
-                        <code>
-                            {stack || (
-                                <>
-                                    {name}
-                                    <br />
-                                    {message}
-                                </>
-                            )}
-                        </code>
-                    </pre>
-                    Please help us resolve the issue by sending a screenshot of this message.
-                    <LemonButton
-                        type="primary"
-                        fullWidth
-                        center
-                        onClick={() => openSupportForm({ kind: 'bug', isEmailFormOpen: true })}
-                        targetBlank
-                        className="mt-2"
-                    >
-                        Email an engineer
-                    </LemonButton>
-                </div>
-            )}
+            fallback={(props: PostHogErrorBoundaryFallbackProps) => {
+                const rawError = props.error
+                const normalizedError =
+                    rawError instanceof Error
+                        ? rawError
+                        : new Error(typeof rawError === 'string' ? rawError : 'Unknown error')
+                const { stack, name, message } = normalizedError
+
+                const exceptionEvent = props.exceptionEvent as SupportTicketExceptionEvent
+
+                return (
+                    <div className={clsx('ErrorBoundary', className)}>
+                        <h2>An error has occurred</h2>
+                        <pre>
+                            <code>
+                                {stack || (
+                                    <>
+                                        {name}
+                                        <br />
+                                        {message}
+                                    </>
+                                )}
+                            </code>
+                        </pre>
+                        Please help us resolve the issue by sending a screenshot of this message.
+                        <LemonButton
+                            type="primary"
+                            fullWidth
+                            center
+                            onClick={() => {
+                                openSupportForm({
+                                    kind: 'bug',
+                                    isEmailFormOpen: true,
+                                    exception_event: exceptionEvent ?? null,
+                                })
+                            }}
+                            targetBlank
+                            className="mt-2"
+                        >
+                            Email an engineer
+                        </LemonButton>
+                    </div>
+                )
+            }}
         >
             {children}
         </PostHogErrorBoundary>
@@ -68,11 +86,19 @@ export function LightErrorBoundary({ children, exceptionProps = {}, className }:
     return (
         <PostHogErrorBoundary
             additionalProperties={additionalProperties}
-            fallback={({ error: { stack, name, message } }: { error: Error }) => (
-                <div className={clsx('text-danger', className)}>
-                    {stack || (name || message ? `${name}: ${message}` : 'Error')}
-                </div>
-            )}
+            fallback={(props: PostHogErrorBoundaryFallbackProps) => {
+                const rawError = props.error
+                const normalizedError =
+                    rawError instanceof Error
+                        ? rawError
+                        : new Error(typeof rawError === 'string' ? rawError : 'Unknown error')
+                const { stack, name, message } = normalizedError
+                return (
+                    <div className={clsx('text-danger', className)}>
+                        {stack || (name || message ? `${name}: ${message}` : 'Error')}
+                    </div>
+                )
+            }}
         >
             {children}
         </PostHogErrorBoundary>

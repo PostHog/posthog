@@ -1,26 +1,28 @@
 import './Navigation.scss'
 
 import { useValues } from 'kea'
+import { ReactNode, useRef } from 'react'
+
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { CommandBar } from 'lib/components/CommandBar/CommandBar'
-import { ReactNode, useRef } from 'react'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
 import { SceneConfig } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 
 import { MaxFloatingInput } from '../../scenes/max/MaxFloatingInput'
-import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
+import { navigationLogic } from '../navigation/navigationLogic'
+import { SceneLayout } from '../scenes/SceneLayout'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { TopBar } from './components/TopBar'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
 import { themeLogic } from './themeLogic'
-import { SceneLayout } from '../scenes/SceneLayout'
-import { cn } from 'lib/utils/css-classes'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 
 export function Navigation({
     children,
@@ -35,6 +37,7 @@ export function Navigation({
     const mainRef = useRef<HTMLElement>(null)
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+    const { currentTeam } = useValues(teamLogic)
 
     if (mode !== 'full') {
         return (
@@ -42,7 +45,7 @@ export function Navigation({
             <div className="Navigation3000 flex-col" style={theme?.mainStyle}>
                 {mode === 'minimal' ? <MinimalNavigation /> : null}
                 <main>{children}</main>
-                <MaxFloatingInput />
+                {currentTeam ? <MaxFloatingInput /> : null}
             </div>
         )
     }
@@ -53,7 +56,7 @@ export function Navigation({
             className={cn(
                 'Navigation3000',
                 mobileLayout && 'Navigation3000--mobile',
-                newSceneLayout && 'Navigation3000--minimal-scene-layout'
+                newSceneLayout && 'Navigation3000--minimal-scene-layout [&>main]:overflow-y-hidden'
             )}
             style={theme?.mainStyle}
         >
@@ -110,7 +113,7 @@ export function Navigation({
             </main>
             <SidePanel />
             <CommandBar />
-            <MaxFloatingInput />
+            {currentTeam ? <MaxFloatingInput /> : null}
         </div>
     )
 }

@@ -1,12 +1,14 @@
-from contextlib import contextmanager
-import datetime
-import re
-from typing import Any, Optional
 import os
-from clickhouse_driver import Client
+import re
+import datetime
+from contextlib import contextmanager
+from typing import Any, Optional
+
 import pytz
+from clickhouse_driver import Client
+
 from posthog.session_recordings.models.metadata import RecordingMetadata
-from posthog.session_recordings.queries_to_replace.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 
 def _get_ch_client_local_reads_prod() -> Client:

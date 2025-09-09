@@ -1,7 +1,10 @@
+import { useEffect, useState } from 'react'
+
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { useEffect, useState } from 'react'
+
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
+
 import { ObjectTags } from '../ObjectTags/ObjectTags'
 import { SceneCanEditProps, SceneDataAttrKeyProps, SceneSaveCancelButtons } from './utils'
 
@@ -75,6 +78,7 @@ export const SceneTags = ({
                 menuItem
                 inert={!canEdit}
                 data-attr={`${dataAttrKey}-tags-button`}
+                variant="panel"
             >
                 {tags && tags.length > 0 ? (
                     <ObjectTags tags={tags} data-attr={`${dataAttrKey}-tags`} staticOnly />

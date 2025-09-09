@@ -1,9 +1,13 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -32,7 +36,7 @@ import {
 
 import { addRecordingToPlaylist, removeRecordingFromPlaylist } from '../player/utils/playerUtils'
 import { filtersFromUniversalFilterGroups, isUniversalFilters } from '../utils'
-import { convertLegacyFiltersToUniversalFilters, PINNED_RECORDINGS_LIMIT } from './sessionRecordingsPlaylistLogic'
+import { PINNED_RECORDINGS_LIMIT, convertLegacyFiltersToUniversalFilters } from './sessionRecordingsPlaylistLogic'
 import type { sessionRecordingsPlaylistSceneLogicType } from './sessionRecordingsPlaylistSceneLogicType'
 
 export interface SessionRecordingsPlaylistLogicProps {
@@ -44,7 +48,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
     props({} as SessionRecordingsPlaylistLogicProps),
     key((props) => props.shortId),
     connect(() => ({
-        values: [cohortsModel, ['cohortsById'], sceneLogic, ['activeScene']],
+        values: [cohortsModel, ['cohortsById'], sceneLogic, ['activeSceneId'], featureFlagLogic, ['featureFlags']],
         actions: [sessionRecordingEventUsageLogic, ['reportRecordingPlaylistCreated']],
     })),
     actions({
@@ -161,7 +165,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
     beforeUnload(({ values, actions }) => ({
         enabled: (newLocation) => {
             const response =
-                values.activeScene === Scene.ReplayPlaylist &&
+                values.activeSceneId === Scene.ReplayPlaylist &&
                 values.hasChanges &&
                 removeProjectIdIfPresent(newLocation?.pathname ?? '') !==
                     removeProjectIdIfPresent(router.values.location.pathname) &&
@@ -177,8 +181,8 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
 
     selectors(({ asyncActions }) => ({
         breadcrumbs: [
-            (s) => [s.playlist],
-            (playlist): Breadcrumb[] => [
+            (s) => [s.playlist, s.featureFlags],
+            (playlist, featureFlags): Breadcrumb[] => [
                 {
                     key: Scene.Replay,
                     name: 'Replay',
@@ -192,13 +196,15 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
                 {
                     key: [Scene.ReplayPlaylist, playlist?.short_id || 'new'],
                     name: playlist?.name || playlist?.derived_name || 'Unnamed',
-                    onRename: async (name: string) => {
-                        if (!playlist) {
-                            lemonToast.error('Cannot rename unsaved playlist')
-                            return
-                        }
-                        await asyncActions.updatePlaylist({ short_id: playlist.short_id, name })
-                    },
+                    ...(!featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT] && {
+                        onRename: async (name: string) => {
+                            if (!playlist) {
+                                lemonToast.error('Cannot rename unsaved playlist')
+                                return
+                            }
+                            await asyncActions.updatePlaylist({ short_id: playlist.short_id, name })
+                        },
+                    }),
                 },
             ],
         ],

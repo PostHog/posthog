@@ -64,7 +64,7 @@ export const asLink = (person?: PersonPropType | null): string | undefined =>
     person?.distinct_id
         ? urls.personByDistinctId(person.distinct_id)
         : person?.distinct_ids?.length
-        ? urls.personByDistinctId(person.distinct_ids[0])
-        : person?.id
-        ? urls.personByUUID(person.id)
-        : undefined
+          ? urls.personByDistinctId(person.distinct_ids[0])
+          : person?.id
+            ? urls.personByUUID(person.id)
+            : undefined

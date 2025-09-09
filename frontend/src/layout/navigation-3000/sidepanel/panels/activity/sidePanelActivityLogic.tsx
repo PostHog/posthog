@@ -1,9 +1,10 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+
 import api, { PaginatedResponse } from 'lib/api'
-import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
-import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { activityLogTransforms, describerFor } from 'lib/components/ActivityLog/activityLogLogic'
+import { ActivityLogItem, HumanizedActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { ActivityScope, UserBasicType } from '~/types'
@@ -12,6 +13,18 @@ import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { SidePanelSceneContext } from '../../types'
 import { sidePanelContextLogic } from '../sidePanelContextLogic'
 import type { sidePanelActivityLogicType } from './sidePanelActivityLogicType'
+
+// ActivityScope values that should not appear in dropdowns
+const HIDDEN_ACTIVITY_SCOPES: ActivityScope[] = [
+    ActivityScope.TAGGED_ITEM, // Handled under ActivityScope.TAG
+    ActivityScope.ORGANIZATION_MEMBERSHIP, // Handled under ActivityScope.ORGANIZATION
+    ActivityScope.ORGANIZATION_INVITE, // Handled under ActivityScope.ORGANIZATION
+    ActivityScope.EXTERNAL_DATA_SCHEMA, // Handled under ActivityScope.EXTERNAL_DATA_SOURCE
+]
+
+const getVisibleActivityScopes = (): ActivityScope[] => {
+    return Object.values(ActivityScope).filter((scope) => !HIDDEN_ACTIVITY_SCOPES.includes(scope))
+}
 
 export type ActivityFilters = {
     scope?: ActivityScope | string
@@ -73,7 +86,9 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
             null as PaginatedResponse<ActivityLogItem> | null,
             {
                 loadAllActivity: async (_, breakpoint) => {
-                    const response = await api.activity.list(values.filters ?? {})
+                    const filters = values.filters ?? {}
+                    const expandedFilters = activityLogTransforms.expandListScopes(filters)
+                    const response = await api.activity.list(expandedFilters)
 
                     breakpoint()
                     return response
@@ -120,6 +135,12 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
             },
         ],
         allActivityHasNext: [(s) => [s.allActivityResponse], (allActivityResponse) => !!allActivityResponse?.next],
+        visibleActivityScopes: [
+            () => [],
+            (): ActivityScope[] => {
+                return getVisibleActivityScopes()
+            },
+        ],
     }),
 
     subscriptions(({ actions, values }) => ({

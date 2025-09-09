@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { createAdDestinationPayload, TemplateTester } from '../../test/test-helpers'
+import { TemplateTester, createAdDestinationPayload } from '../../test/test-helpers'
 import { template } from './tiktok.template'
 
 jest.setTimeout(2 * 60 * 1000)

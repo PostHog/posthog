@@ -1,5 +1,7 @@
-import { LemonButton, LemonTable, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonTable, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+
 import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { defaultQuery } from 'scenes/data-warehouse/utils'
@@ -88,6 +90,7 @@ export const SyncProgressStep = (): JSX.Element => {
 
     return (
         <div className="flex flex-col gap-2">
+            <h3>Sit tight as we import your data! After it's done, you will be able to query it in PostHog.</h3>
             <div>
                 <LemonTable
                     emptyState="No schemas selected"

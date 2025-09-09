@@ -1,5 +1,4 @@
-from posthog.warehouse.types import IncrementalField
-from posthog.warehouse.types import IncrementalFieldType
+from posthog.warehouse.types import IncrementalField, IncrementalFieldType
 
 INCREMENTAL_ENDPOINTS = (
     "Account",

@@ -1,12 +1,12 @@
-import { IconTrash } from '@posthog/icons'
+import { useValues } from 'kea'
+import { useState } from 'react'
+
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import api from 'lib/api'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { useState } from 'react'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -48,29 +48,8 @@ const getSlackAppManifest = (): any => ({
 
 export function SlackIntegration(): JSX.Element {
     const { slackIntegrations, slackAvailable } = useValues(integrationsLogic)
-    const { deleteIntegration } = useActions(integrationsLogic)
     const [showSlackInstructions, setShowSlackInstructions] = useState(false)
     const { user } = useValues(userLogic)
-
-    const onDeleteClick = (id: number): void => {
-        LemonDialog.open({
-            title: `Do you want to disconnect from Slack?`,
-            description:
-                'This cannot be undone. PostHog resources configured to use this Slack workspace will remain but will stop working.',
-            primaryButton: {
-                children: 'Yes, disconnect',
-                status: 'danger',
-                onClick: () => {
-                    if (id) {
-                        deleteIntegration(id)
-                    }
-                },
-            },
-            secondaryButton: {
-                children: 'No thanks',
-            },
-        })
-    }
 
     return (
         <div>
@@ -86,20 +65,7 @@ export function SlackIntegration(): JSX.Element {
 
             <div className="deprecated-space-y-2">
                 {slackIntegrations?.map((integration) => (
-                    <IntegrationView
-                        key={integration.id}
-                        integration={integration}
-                        suffix={
-                            <LemonButton
-                                type="secondary"
-                                status="danger"
-                                onClick={() => onDeleteClick(integration.id)}
-                                icon={<IconTrash />}
-                            >
-                                Disconnect
-                            </LemonButton>
-                        }
-                    />
+                    <IntegrationView key={integration.id} integration={integration} />
                 ))}
 
                 <div>

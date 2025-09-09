@@ -1,14 +1,21 @@
 import datetime
 from abc import ABC
-from typing import Any
+from typing import Any, Optional, get_args, get_origin
 from uuid import UUID
 
 from django.utils import timezone
+
 from langchain_core.runnables import RunnableConfig
 
-from ee.models import Conversation, CoreMemory
+from posthog.schema import ReasoningMessage
+
+from posthog.event_usage import groups
 from posthog.models import Team
+from posthog.models.action.action import Action
 from posthog.models.user import User
+
+from ee.hogai.utils.types.base import BaseState, BaseStateWithIntermediateSteps
+from ee.models import Conversation, CoreMemory
 
 
 class AssistantContextMixin(ABC):
@@ -87,6 +94,7 @@ class AssistantContextMixin(ABC):
             "$session_id": self._get_session_id(config),
             "$ai_trace_id": self._get_trace_id(config),
             "thread_id": self._get_thread_id(config),
+            "$groups": groups(team=self._team),
         }
         if metadata:
             debug_props.update(metadata)
@@ -115,3 +123,82 @@ class AssistantContextMixin(ABC):
         Extracts the thread ID from the runnable config.
         """
         return (config.get("configurable") or {}).get("thread_id") or None
+
+
+class StateClassMixin:
+    """Mixin to extract state types from generic class parameters."""
+
+    def _get_state_class(self, target_class: type) -> tuple[type, type]:
+        """Extract the State type from the class's generic parameters."""
+        # Check if this class has generic arguments
+        if hasattr(self.__class__, "__orig_bases__"):
+            for base in self.__class__.__orig_bases__:
+                if get_origin(base) is target_class:
+                    args = get_args(base)
+                    if args:
+                        return args[0], args[1]  # State is the first argument and PartialState is the second argument
+
+        # No generic type found - this shouldn't happen in proper usage
+        raise ValueError(
+            f"Could not determine state type for {self.__class__.__name__}. "
+            f"Make sure to inherit from {target_class.__name__} with a specific state type, "
+            f"e.g., {target_class.__name__}[StateType, PartialStateType]"
+        )
+
+
+class ReasoningNodeMixin:
+    REASONING_MESSAGE: Optional[str] = None
+    _team: Team
+    _user: User
+
+    async def get_reasoning_message(
+        self, input: BaseState, default_message: Optional[str] = None
+    ) -> ReasoningMessage | None:
+        content = self.REASONING_MESSAGE or default_message
+        return ReasoningMessage(content=content) if content else None
+
+
+class TaxonomyReasoningNodeMixin:
+    _team: Team
+    _user: User
+
+    async def get_reasoning_message(
+        self, input: BaseState, default_message: Optional[str] = None
+    ) -> ReasoningMessage | None:
+        if not isinstance(input, BaseStateWithIntermediateSteps):
+            return None
+        substeps: list[str] = []
+        if input:
+            if intermediate_steps := input.intermediate_steps:
+                for action, _ in intermediate_steps:
+                    assert isinstance(action.tool_input, dict)
+                    match action.tool:
+                        case "retrieve_event_properties":
+                            substeps.append(f"Exploring `{action.tool_input['event_name']}` event's properties")
+                        case "retrieve_entity_properties":
+                            substeps.append(f"Exploring {action.tool_input['entity']} properties")
+                        case "retrieve_event_property_values":
+                            substeps.append(
+                                f"Analyzing `{action.tool_input['event_name']}` event's property `{action.tool_input['property_name']}`"
+                            )
+                        case "retrieve_entity_property_values":
+                            substeps.append(
+                                f"Analyzing {action.tool_input['entity']} property `{action.tool_input['property_name']}`"
+                            )
+                        case "retrieve_action_properties" | "retrieve_action_property_values":
+                            try:
+                                action_model = await Action.objects.aget(
+                                    pk=action.tool_input["action_id"], team__project_id=self._team.project_id
+                                )
+                                if action.tool == "retrieve_action_properties":
+                                    substeps.append(f"Exploring `{action_model.name}` action properties")
+                                elif action.tool == "retrieve_action_property_values":
+                                    substeps.append(
+                                        f"Analyzing `{action.tool_input['property_name']}` action property of `{action_model.name}`"
+                                    )
+                            except Action.DoesNotExist:
+                                pass
+
+        # We don't want to reset back to just "Picking relevant events" after running QueryPlannerTools/TaxonomyAgentToolsNode,
+        # so we reuse the last reasoning headline (default message) when going back to QueryPlanner/TaxonomyAgentNode
+        return ReasoningMessage(content=default_message or "Picking relevant events and properties", substeps=substeps)

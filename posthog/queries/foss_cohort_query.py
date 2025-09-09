@@ -2,28 +2,19 @@ from datetime import datetime
 from typing import Any, Optional, Union, cast
 from zoneinfo import ZoneInfo
 
+from posthog.schema import PersonsOnEventsMode
+
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import PropertyOperatorType
 from posthog.models import Filter, Team
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
-from posthog.models.cohort.util import (
-    format_static_cohort_query,
-    get_count_operator,
-    get_entity_query,
-)
+from posthog.models.cohort.util import format_static_cohort_query, get_count_operator, get_entity_query
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.property import (
-    BehavioralPropertyType,
-    OperatorInterval,
-    Property,
-    PropertyGroup,
-    PropertyName,
-)
-from posthog.models.property.util import prop_filter_json_extract, parse_prop_grouped_clauses
+from posthog.models.property import BehavioralPropertyType, OperatorInterval, Property, PropertyGroup, PropertyName
+from posthog.models.property.util import parse_prop_grouped_clauses, prop_filter_json_extract
 from posthog.queries.event_query import EventQuery
 from posthog.queries.util import PersonPropertiesMode
-from posthog.schema import PersonsOnEventsMode
 from posthog.utils import relative_date_parse
 
 Relative_Date = tuple[int, OperatorInterval]

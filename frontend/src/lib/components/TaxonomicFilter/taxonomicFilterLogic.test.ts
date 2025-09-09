@@ -1,5 +1,7 @@
-import { expectLogic } from 'kea-test-utils'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
+
+import { expectLogic } from 'kea-test-utils'
+
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 
@@ -253,7 +255,7 @@ describe('taxonomicFilterLogic', () => {
             const taxonomicGroups = maxLogic.values.taxonomicGroups
             const maxAIGroup = taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.MaxAIContext)
 
-            expect(maxAIGroup).toBeDefined() // eslint-disable-line jest/no-restricted-matchers
+            expect(maxAIGroup).toBeDefined() // oxlint-disable-line jest/no-restricted-matchers
             expect(maxAIGroup?.name).toBe('On this page')
             expect(maxAIGroup?.searchPlaceholder).toBe('elements from this page')
             expect(maxAIGroup?.options).toEqual([

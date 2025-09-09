@@ -1,15 +1,17 @@
-import { IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import isEqual from 'lodash.isequal'
+import { useMemo, useState } from 'react'
+
+import { IconPlus } from '@posthog/icons'
+
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { VerticalNestedDND } from 'lib/components/VerticalNestedDND/VerticalNestedDND'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Link } from 'lib/lemon-ui/Link'
-import { genericOperatorMap, UnexpectedNeverError, uuid } from 'lib/utils'
+import { UnexpectedNeverError, genericOperatorMap, uuid } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import isEqual from 'lodash.isequal'
-import { useMemo, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 

@@ -1,29 +1,32 @@
 import os
-from boto3 import resource
-from unittest.mock import patch
-from rest_framework import status
-from freezegun import freeze_time
-from django.test import override_settings
-from django.core.files.uploadedfile import SimpleUploadedFile
-from unittest.mock import ANY
 
-from ee.models.rbac.role import Role
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
+from unittest.mock import ANY, patch
+
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
+
+from boto3 import resource
+from botocore.config import Config
+from rest_framework import status
+
 from posthog.models import (
-    ErrorTrackingSymbolSet,
-    ErrorTrackingStackFrame,
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingStackFrame,
+    ErrorTrackingSymbolSet,
 )
 from posthog.models.utils import uuid7
-from botocore.config import Config
 from posthog.settings import (
-    OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_SECRET_ACCESS_KEY,
     OBJECT_STORAGE_BUCKET,
+    OBJECT_STORAGE_ENDPOINT,
+    OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
+
+from ee.models.rbac.role import Role
 
 TEST_BUCKET = "test_storage_bucket-TestErrorTracking"
 
@@ -405,6 +408,43 @@ class TestErrorTracking(APIBaseTest):
         self.assertEqual(
             len(ErrorTrackingIssueAssignment.objects.filter(issue__in=[issue_one, issue_two], role=role)), 2
         )
+
+    def test_can_start_bulk_symbol_set_upload(self) -> None:
+        chunk_id_one = uuid7()
+        chunk_id_two = uuid7()
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={"chunk_ids": [chunk_id_one, chunk_id_two]},
+        )
+        response_json = response.json()
+        id_map = response_json["id_map"]
+
+        assert len(id_map.keys()) == 2
+
+        symbol_set = ErrorTrackingSymbolSet.objects.get(ref=chunk_id_one)
+        symbol_set_upload_response = id_map[str(chunk_id_one)]
+
+        assert str(symbol_set.id) == symbol_set_upload_response["symbol_set_id"]
+        assert symbol_set_upload_response["presigned_url"]["fields"]["key"] == symbol_set.storage_ptr
+
+    @patch("posthog.storage.object_storage.head_object")
+    def test_can_finish_bulk_symbol_set_upload(self, patched_object_storage) -> None:
+        symbol_set_one = ErrorTrackingSymbolSet.objects.create(
+            team=self.team, ref=str(uuid7()), storage_ptr="file/name1"
+        )
+        symbol_set_two = ErrorTrackingSymbolSet.objects.create(
+            team=self.team, ref=str(uuid7()), storage_ptr="file/name2"
+        )
+
+        patched_object_storage.return_value = {"ContentLength": 1000}  # 1KB
+
+        self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_finish_upload",
+            data={"content_hashes": {str(symbol_set_one.id): "hash_one", str(symbol_set_two.id): "hash_two"}},
+        )
+
+        assert ErrorTrackingSymbolSet.objects.get(id=symbol_set_one.id).content_hash == "hash_one"
+        assert ErrorTrackingSymbolSet.objects.get(id=symbol_set_two.id).content_hash == "hash_two"
 
     def _assert_logs_the_activity(self, error_tracking_issue_id: int, expected: list[dict]) -> None:
         activity_response = self._get_error_tracking_issue_activity(error_tracking_issue_id)

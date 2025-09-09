@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
@@ -14,7 +15,7 @@ type TaxonomicBreakdownPopoverProps = {
     open: boolean
     setOpen: (open: boolean) => void
     children: React.ReactElement
-    taxanomicType?: TaxonomicFilterGroupType
+    taxonomicType?: TaxonomicFilterGroupType
     breakdownType?: string
     breakdownValue?: string | number | null
 }
@@ -23,7 +24,7 @@ export const TaxonomicBreakdownPopover = ({
     open,
     setOpen,
     children,
-    taxanomicType,
+    taxonomicType,
     breakdownType,
     breakdownValue,
 }: TaxonomicBreakdownPopoverProps): JSX.Element => {
@@ -37,7 +38,11 @@ export const TaxonomicBreakdownPopover = ({
 
     let taxonomicGroupTypes: TaxonomicFilterGroupType[]
     if (isRetentionQuery(query) || (isInsightVizNode(query) && isRetentionQuery(query.source))) {
-        taxonomicGroupTypes = [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties]
+        taxonomicGroupTypes = [
+            TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.PersonProperties,
+            TaxonomicFilterGroupType.CohortsWithAllUsers,
+        ]
     } else {
         taxonomicGroupTypes = [
             TaxonomicFilterGroupType.EventProperties,
@@ -58,7 +63,7 @@ export const TaxonomicBreakdownPopover = ({
             style={{ minHeight: '200px' }}
             overlay={
                 <TaxonomicFilter
-                    groupType={taxanomicType}
+                    groupType={taxonomicType}
                     value={breakdownValue}
                     onChange={(taxonomicGroup, value) => {
                         if (breakdownValue && breakdownType) {

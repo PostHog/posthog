@@ -1,5 +1,7 @@
-import { LemonButton, LemonCard, LemonInput, LemonLabel, Link } from '@posthog/lemon-ui'
 import { useActions, useMountedLogic, useValues } from 'kea'
+
+import { LemonButton, LemonCard, LemonInput, LemonLabel, Link } from '@posthog/lemon-ui'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
@@ -95,10 +97,10 @@ const SingleTemplateVariable = ({
                     variable.type === 'event'
                         ? [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
                         : variable.type === 'flag'
-                        ? [TaxonomicFilterGroupType.FeatureFlags]
-                        : variable.type === 'person-property'
-                        ? [TaxonomicFilterGroupType.PersonProperties]
-                        : []
+                          ? [TaxonomicFilterGroupType.FeatureFlags]
+                          : variable.type === 'person-property'
+                            ? [TaxonomicFilterGroupType.PersonProperties]
+                            : []
                 }
                 onChange={(thisFilterGroup) => {
                     if (thisFilterGroup.values.length === 0) {

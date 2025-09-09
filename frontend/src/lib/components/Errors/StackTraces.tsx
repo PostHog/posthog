@@ -1,18 +1,20 @@
 import './StackTraces.scss'
 
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { MouseEvent, useEffect } from 'react'
+import { P, match } from 'ts-pattern'
+
 import { IconBox } from '@posthog/icons'
 import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 import { cancelEvent } from '@posthog/products-error-tracking/frontend/utils'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { MouseEvent, useEffect } from 'react'
-import { match, P } from 'ts-pattern'
 
-import { CodeLine, getLanguage, Language } from '../CodeSnippet/CodeSnippet'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+
+import { CodeLine, Language, getLanguage } from '../CodeSnippet/CodeSnippet'
 import { CopyToClipboardInline } from '../CopyToClipboard'
-import { errorPropertiesLogic } from './errorPropertiesLogic'
 import { FingerprintRecordPartDisplay } from './FingerprintRecordPartDisplay'
+import { errorPropertiesLogic } from './errorPropertiesLogic'
 import { stackFrameLogic } from './stackFrameLogic'
 import {
     ErrorTrackingException,

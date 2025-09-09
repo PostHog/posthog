@@ -1,6 +1,5 @@
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { runInstrumentedFunction } from '../../main/utils'
-import { Hub, PluginServerService, TeamId } from '../../types'
+import { HealthCheckResult, Hub, PluginServerService, TeamId } from '../../types'
 import { logger } from '../../utils/logger'
 import { CdpRedis, createCdpRedisPool } from '../redis'
 import { HogExecutorService } from '../services/hog-executor.service'
@@ -11,10 +10,11 @@ import { GroupsManagerService } from '../services/managers/groups-manager.servic
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from '../services/managers/hog-function-template-manager.service'
 import { PersonsManagerService } from '../services/managers/persons-manager.service'
+import { RecipientsManagerService } from '../services/managers/recipients-manager.service'
+import { RecipientPreferencesService } from '../services/messaging/recipient-preferences.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/monitoring/hog-masker.service'
 import { HogWatcherService } from '../services/monitoring/hog-watcher.service'
-import { HogWatcherService2 } from '../services/monitoring/hog-watcher-2.service'
 import { NativeDestinationExecutorService } from '../services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from '../services/segment-destination-executor.service'
 
@@ -24,21 +24,25 @@ export interface TeamIDWithConfig {
 }
 
 export abstract class CdpConsumerBase {
-    hogFunctionManager: HogFunctionManagerService
-    hogFlowManager: HogFlowManagerService
+    redis: CdpRedis
+    isStopping = false
+
     hogExecutor: HogExecutorService
     hogFlowExecutor: HogFlowExecutorService
-    hogWatcher: HogWatcherService
-    hogWatcher2: HogWatcherService2
     hogMasker: HogMaskerService
-    personsManager: PersonsManagerService
+    hogWatcher: HogWatcherService
+
     groupsManager: GroupsManagerService
-    isStopping = false
-    hogFunctionMonitoringService: HogFunctionMonitoringService
-    redis: CdpRedis
+    hogFlowManager: HogFlowManagerService
+    hogFunctionManager: HogFunctionManagerService
     hogFunctionTemplateManager: HogFunctionTemplateManagerService
-    pluginDestinationExecutorService: LegacyPluginExecutorService
+    personsManager: PersonsManagerService
+    recipientsManager: RecipientsManagerService
+
+    hogFunctionMonitoringService: HogFunctionMonitoringService
     nativeDestinationExecutorService: NativeDestinationExecutorService
+    pluginDestinationExecutorService: LegacyPluginExecutorService
+    recipientPreferencesService: RecipientPreferencesService
     segmentDestinationExecutorService: SegmentDestinationExecutorService
 
     protected kafkaProducer?: KafkaProducerWrapper
@@ -51,12 +55,20 @@ export abstract class CdpConsumerBase {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogFlowManager = new HogFlowManagerService(hub)
         this.hogWatcher = new HogWatcherService(hub, this.redis)
-        this.hogWatcher2 = new HogWatcherService2(hub, this.redis)
         this.hogMasker = new HogMaskerService(this.redis)
         this.hogExecutor = new HogExecutorService(this.hub)
         this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(this.hub)
-        this.hogFlowExecutor = new HogFlowExecutorService(this.hub, this.hogExecutor, this.hogFunctionTemplateManager)
-        this.personsManager = new PersonsManagerService(this.hub)
+
+        this.recipientsManager = new RecipientsManagerService(this.hub)
+        this.recipientPreferencesService = new RecipientPreferencesService(this.recipientsManager)
+        this.hogFlowExecutor = new HogFlowExecutorService(
+            this.hub,
+            this.hogExecutor,
+            this.hogFunctionTemplateManager,
+            this.recipientPreferencesService
+        )
+
+        this.personsManager = new PersonsManagerService(this.hub.personRepository)
         this.groupsManager = new GroupsManagerService(this.hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(this.hub)
         this.pluginDestinationExecutorService = new LegacyPluginExecutorService(this.hub)
@@ -68,12 +80,8 @@ export abstract class CdpConsumerBase {
         return {
             id: this.name,
             onShutdown: async () => await this.stop(),
-            healthcheck: () => this.isHealthy() ?? false,
+            healthcheck: () => this.isHealthy(),
         }
-    }
-
-    protected runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {
-        return runInstrumentedFunction<T>({ statsKey: `cdpConsumer.${name}`, func })
     }
 
     protected async runWithHeartbeat<T>(func: () => Promise<T> | T): Promise<T> {
@@ -104,5 +112,5 @@ export abstract class CdpConsumerBase {
         logger.info('👍', `${this.name} - stopped!`)
     }
 
-    public abstract isHealthy(): boolean
+    public abstract isHealthy(): HealthCheckResult
 }

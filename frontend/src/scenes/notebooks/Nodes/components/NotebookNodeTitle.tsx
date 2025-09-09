@@ -1,8 +1,10 @@
-import { LemonInput, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { KeyboardEvent } from 'react'
 import { useEffect, useState } from 'react'
+
+import { LemonInput, Tooltip } from '@posthog/lemon-ui'
+
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 import { notebookNodeLogic } from '../notebookNodeLogic'
@@ -15,7 +17,7 @@ export function NotebookNodeTitle(): JSX.Element {
 
     useEffect(() => {
         setNewValue(nodeAttributes.title ?? '')
-    }, [isEditingTitle])
+    }, [isEditingTitle]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const commitEdit = (): void => {
         updateAttributes({

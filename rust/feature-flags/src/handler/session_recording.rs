@@ -130,7 +130,7 @@ pub fn session_recording_config_response(
         canvas_quality,
     };
 
-    Some(SessionRecordingField::Config(config))
+    Some(SessionRecordingField::Config(Box::new(config)))
 }
 
 fn session_recording_domain_not_allowed(team: &Team, headers: &HeaderMap) -> bool {
@@ -146,7 +146,7 @@ fn hostname_in_allowed_url_list(allowed: &Vec<String>, hostname: Option<&str>) -
         if domain.contains('*') {
             // crude wildcard: treat '*' as regex '.*'
             let pattern = format!("^{}$", regex::escape(domain).replace("\\*", ".*"));
-            if regex::Regex::new(&pattern).map_or(false, |re| re.is_match(hostname)) {
+            if regex::Regex::new(&pattern).is_ok_and(|re| re.is_match(hostname)) {
                 return true;
             }
         } else if domain == hostname {
@@ -183,9 +183,8 @@ fn on_permitted_recording_domain(recording_domains: &Vec<String>, headers: &Head
     let is_authorized_web_client = hostname_in_allowed_url_list(recording_domains, origin)
         || hostname_in_allowed_url_list(recording_domains, referer);
 
-    let is_authorized_mobile_client = user_agent.map_or(false, |ua| {
-        AUTHORIZED_MOBILE_CLIENTS.iter().any(|&kw| ua.contains(kw))
-    });
+    let is_authorized_mobile_client =
+        user_agent.is_some_and(|ua| AUTHORIZED_MOBILE_CLIENTS.iter().any(|&kw| ua.contains(kw)));
 
     is_authorized_web_client || is_authorized_mobile_client
 }

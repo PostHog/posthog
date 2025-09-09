@@ -1,10 +1,11 @@
-import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, HogQLPropertyFilter, PropertyFilterType, UniversalFiltersGroup } from '~/types'
 
-import { errorTrackingSceneLogic } from '../../errorTrackingSceneLogic'
+import { errorTrackingBulkSelectLogic } from '../../errorTrackingBulkSelectLogic'
 import { AssigneeLabelDisplay } from '../Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../Assignee/AssigneeSelect'
 import { errorFiltersLogic } from '../ErrorFilters/errorFiltersLogic'
@@ -21,7 +22,7 @@ export function BulkActions({ issues, selectedIds }: BulkActionsProps): JSX.Elem
     const { mergeIssues, assignIssues, resolveIssues, suppressIssues, activateIssues } = useActions(issueActionsLogic)
     const { filterGroup } = useValues(errorFiltersLogic)
     const { setFilterGroup } = useActions(errorFiltersLogic)
-    const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
+    const { setSelectedIssueIds } = useActions(errorTrackingBulkSelectLogic)
 
     const hasAtLeastTwoIssues = selectedIds.length >= 2
 

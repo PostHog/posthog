@@ -63,7 +63,7 @@ describe('session-recording utils', () => {
             topic: 'the_topic',
             offset: 1,
             partition: 1,
-        } satisfies Message)
+        }) satisfies Message
 
     describe('parseKafkaMessage', () => {
         let fakeProducer: KafkaProducerWrapper

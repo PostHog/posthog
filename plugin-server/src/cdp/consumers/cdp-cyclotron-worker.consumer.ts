@@ -1,4 +1,6 @@
-import { Hub } from '../../types'
+import { instrumented } from '~/common/tracing/tracing-utils'
+
+import { HealthCheckResult, Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
@@ -20,9 +22,9 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     protected cyclotronJobQueue: CyclotronJobQueue
     protected queue: CyclotronJobQueueKind
 
-    constructor(hub: Hub) {
+    constructor(hub: Hub, queue?: CyclotronJobQueueKind) {
         super(hub)
-        this.queue = hub.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND
+        this.queue = queue ?? hub.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND
 
         if (!CYCLOTRON_INVOCATION_JOB_QUEUES.includes(this.queue)) {
             throw new Error(`Invalid cyclotron job queue kind: ${this.queue}`)
@@ -31,6 +33,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, (batch) => this.processBatch(batch))
     }
 
+    @instrumented('cdpConsumer.handleEachBatch.executeInvocations')
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
         const loadedInvocations = await this.loadHogFunctions(invocations)
 
@@ -49,6 +52,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         )
     }
 
+    @instrumented('cdpConsumer.handleEachBatch.loadHogFunctions')
     protected async loadHogFunctions(
         invocations: CyclotronJobInvocation[]
     ): Promise<CyclotronJobInvocationHogFunction[]> {
@@ -98,10 +102,11 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             return { backgroundTask: Promise.resolve(), invocationResults: [] }
         }
 
-        const invocationResults = await this.runInstrumented(
-            'handleEachBatch.executeInvocations',
-            async () => await this.processInvocations(invocations)
-        )
+        logger.info('🔁', `${this.name} - handling batch`, {
+            size: invocations.length,
+        })
+
+        const invocationResults = await this.processInvocations(invocations)
 
         // NOTE: We can queue and publish all metrics in the background whilst processing the next batch of invocations
         const backgroundTask = this.queueInvocationResults(invocationResults).then(() => {
@@ -109,18 +114,14 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             return Promise.allSettled([
                 this.hogFunctionMonitoringService
                     .queueInvocationResults(invocationResults)
-                    .then(() => this.hogFunctionMonitoringService.produceQueuedMessages())
+                    .then(() => this.hogFunctionMonitoringService.flush())
                     .catch((err) => {
                         captureException(err)
                         logger.error('Error processing invocation results', { err })
                     }),
-                this.hogWatcher.observeResults(invocationResults).catch((err) => {
+                this.hogWatcher.observeResults(invocationResults).catch((err: any) => {
                     captureException(err)
                     logger.error('Error observing results', { err })
-                }),
-                this.hogWatcher2.observeResults(invocationResults).catch((err) => {
-                    captureException(err)
-                    logger.error('Error observing results with hogWatcher2', { err })
                 }),
             ])
         })
@@ -145,7 +146,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         await super.stop()
     }
 
-    public isHealthy() {
+    public isHealthy(): HealthCheckResult {
         return this.cyclotronJobQueue.isHealthy()
     }
 }

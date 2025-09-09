@@ -284,7 +284,7 @@ describe('session-manager', () => {
         await afterResumeFlushPromise
 
         expect(sessionManager.flushBuffer).toEqual(undefined)
-        expect(fileStream.end).toBeCalledTimes(2) // One for the write, one for the destroy
+        expect(fileStream.end).toHaveBeenCalledTimes(2) // One for the write, one for the destroy
     })
 
     it('flushes messages and whilst collecting new ones', async () => {

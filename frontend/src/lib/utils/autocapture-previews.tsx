@@ -1,5 +1,6 @@
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import posthog from 'posthog-js'
+
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { ElementType } from '~/types'
 
@@ -42,8 +43,8 @@ function correctRelativeSrcImages(
     return img
 }
 
-export function autocaptureToImage(elements: ElementType[]): null | AutocapturedImage {
-    const find = elements.find((el) => el.tag_name === 'img')
+export function autocaptureToImage(elements: ElementType[] | undefined): null | AutocapturedImage {
+    const find = elements?.find((el) => el.tag_name === 'img')
     const image = {
         src: find?.attributes?.attr__src,
         width: find?.attributes?.attr__width,

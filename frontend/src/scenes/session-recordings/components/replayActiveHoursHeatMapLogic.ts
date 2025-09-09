@@ -1,10 +1,11 @@
 import { kea, key, listeners, path, props, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
+
 import api from 'lib/api'
 import { Dayjs, now } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 import { CalendarHeatMapProps } from 'scenes/web-analytics/CalendarHeatMap/CalendarHeatMap'
 

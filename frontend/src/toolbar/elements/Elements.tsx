@@ -1,14 +1,15 @@
 import { useActions, useValues } from 'kea'
+import { Fragment } from 'react'
+
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
 import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'
 import { compactNumber } from 'lib/utils'
-import { Fragment } from 'react'
 
 import { AutocaptureElement } from '~/toolbar/elements/AutocaptureElement'
 import { AutocaptureElementLabel } from '~/toolbar/elements/AutocaptureElementLabel'
 import { ElementInfoWindow } from '~/toolbar/elements/ElementInfoWindow'
-import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { FocusRect } from '~/toolbar/elements/FocusRect'
+import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { getBoxColors, getHeatMapHue } from '~/toolbar/utils'
 

@@ -1,22 +1,26 @@
-import { IconCheckCircle, IconChevronDown, IconChevronRight, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { capitalizeFirstLetter, humanFriendlyCurrency } from 'lib/utils'
 import { ReactNode, useRef } from 'react'
+
+import { IconCheckCircle, IconChevronDown, IconChevronRight, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+
+import { TRIAL_CANCELLATION_SURVEY_ID, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { capitalizeFirstLetter, humanFriendlyCurrency } from 'lib/utils'
 import { getProductIcon } from 'scenes/products/Products'
 
 import { BillingProductV2AddonType } from '~/types'
 
 import { BillingAddonFeaturesList } from './BillingAddonFeaturesList'
 import { BillingGauge } from './BillingGauge'
-import { billingLogic } from './billingLogic'
 import { BillingProductAddonActions } from './BillingProductAddonActions'
-import { billingProductAddonLogic } from './billingProductAddonLogic'
-import { billingProductLogic } from './billingProductLogic'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
 import { ProductPricingModal } from './ProductPricingModal'
+import { TrialCancellationSurveyModal } from './TrialCancellationSurveyModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
+import { billingLogic } from './billingLogic'
+import { billingProductAddonLogic } from './billingProductAddonLogic'
+import { billingProductLogic } from './billingProductLogic'
 
 export const formatFlatRate = (flatRate: number, unit: string | null): string | ReactNode => {
     if (!unit) {
@@ -188,7 +192,9 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
             />
 
             {/* Unsubscribe survey modal */}
-            {surveyID && <UnsubscribeSurveyModal product={addon} />}
+            {surveyID === UNSUBSCRIBE_SURVEY_ID && <UnsubscribeSurveyModal product={addon} />}
+            {/* Trial cancellation survey modal */}
+            {surveyID === TRIAL_CANCELLATION_SURVEY_ID && <TrialCancellationSurveyModal product={addon} />}
         </div>
     )
 }

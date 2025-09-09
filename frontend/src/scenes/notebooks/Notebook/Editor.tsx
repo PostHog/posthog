@@ -1,13 +1,23 @@
 import ExtensionDocument from '@tiptap/extension-document'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
-import ExtensionPlaceholder from '@tiptap/extension-placeholder'
-import TaskItem from '@tiptap/extension-task-item'
-import TaskList from '@tiptap/extension-task-list'
-import StarterKit from '@tiptap/starter-kit'
-import { useActions, useMountedLogic, useValues } from 'kea'
-import { sampleOne, uuid } from 'lib/utils'
-import { useCallback, useMemo } from 'react'
+import { TaskItem, TaskList } from '@tiptap/extension-list'
+import TableOfContents, { getHierarchicalIndexes } from '@tiptap/extension-table-of-contents'
+import { Placeholder } from '@tiptap/extensions'
+import StarterKit, { StarterKitOptions } from '@tiptap/starter-kit'
+import { useActions, useValues } from 'kea'
+import { useCallback } from 'react'
 
+import { IconComment } from '@posthog/icons'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+
+import { RichContentEditor } from 'lib/components/RichContentEditor'
+import { RichContentNodeMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
+import { RichContentNode, TTEditor } from 'lib/components/RichContentEditor/types'
+import { createEditor } from 'lib/components/RichContentEditor/utils'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { uuid } from 'lib/utils'
+
+import { MentionsExtension } from '../../../lib/components/RichContentEditor/MentionsExtension'
 import { NotebookMarkComment } from '../Marks/NotebookMarkComment'
 import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
@@ -31,37 +41,26 @@ import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestam
 import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
 import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
 import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
-import { InlineMenu } from './InlineMenu'
-import { MentionsExtension } from '../../../lib/components/RichContentEditor/MentionsExtension'
-import { notebookLogic } from './notebookLogic'
-import { SlashCommandsExtension } from './SlashCommands'
-import TableOfContents, { getHierarchicalIndexes } from '@tiptap/extension-table-of-contents'
-import { RichContentNodeMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
-import { createEditor } from 'lib/components/RichContentEditor/utils'
-import { textContent } from '../utils'
-import { RichContentNode, TTEditor } from 'lib/components/RichContentEditor/types'
-import { RichContentEditor } from 'lib/components/RichContentEditor'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { NotebookEditor } from '../types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconComment } from '@posthog/icons'
+import { textContent } from '../utils'
+import { CollapsibleHeading } from './CollapsibleHeading'
 import { DropAndPasteHandlerExtension } from './DropAndPasteHandlerExtension'
+import { InlineMenu } from './InlineMenu'
+import { SlashCommandsExtension } from './SlashCommands'
+import { notebookLogic } from './notebookLogic'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
 })
 
-const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes', 'Bug analysis']
-
 export function Editor(): JSX.Element {
     const { shortId, mode } = useValues(notebookLogic)
-    const { setEditor, onEditorUpdate, onEditorSelectionUpdate, setTableOfContents } = useActions(notebookLogic)
-    const mountedNotebookLogic = useMountedLogic(notebookLogic)
+    const { setEditor, onEditorUpdate, onEditorSelectionUpdate, setTableOfContents, insertComment } =
+        useActions(notebookLogic)
     const hasDiscussions = useFeatureFlag('DISCUSSIONS')
+    const hasCollapsibleSections = useFeatureFlag('NOTEBOOKS_COLLAPSIBLE_SECTIONS')
 
     const { resetSuggestions, setPreviousNode } = useActions(insertionSuggestionsLogic)
-
-    const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
 
     const updatePreviousNode = useCallback(
         (editor: TTEditor) => {
@@ -70,78 +69,84 @@ export function Editor(): JSX.Element {
         [setPreviousNode]
     )
 
+    const starterKitConfig: Partial<StarterKitOptions> = {
+        document: false,
+        gapcursor: false,
+        link: false,
+    }
+
+    const extensions = [
+        mode === 'notebook' ? CustomDocument : ExtensionDocument,
+        StarterKit.configure(hasCollapsibleSections ? { ...starterKitConfig, heading: false } : starterKitConfig),
+        TableOfContents.configure({
+            getIndex: getHierarchicalIndexes,
+            onUpdate(content) {
+                setTableOfContents(content)
+            },
+        }),
+        Placeholder.configure({
+            placeholder: ({ node }: { node: any }) => {
+                if (node.type.name === 'heading' && node.attrs.level === 1) {
+                    return 'Untitled'
+                }
+
+                if (node.type.name === 'heading') {
+                    return `Heading ${node.attrs.level}`
+                }
+
+                return ''
+            },
+        }),
+        FloatingMenu.extend({
+            onSelectionUpdate(this) {
+                updatePreviousNode(this.editor)
+            },
+            onUpdate(this) {
+                updatePreviousNode(this.editor)
+                resetSuggestions()
+            },
+        }),
+        DropAndPasteHandlerExtension,
+        TaskList,
+        TaskItem.configure({ nested: true }),
+        NotebookMarkLink,
+        NotebookMarkComment,
+        NotebookNodeLatex,
+        NotebookNodeBacklink,
+        NotebookNodeQuery,
+        NotebookNodeRecording,
+        NotebookNodeReplayTimestamp,
+        NotebookNodePlaylist,
+        NotebookNodePerson,
+        NotebookNodeCohort,
+        NotebookNodeGroup,
+        NotebookNodeFlagCodeExample,
+        NotebookNodeFlag,
+        NotebookNodeExperiment,
+        NotebookNodeEarlyAccessFeature,
+        NotebookNodeSurvey,
+        NotebookNodeImage,
+        NotebookNodeProperties,
+        RichContentNodeMention,
+        NotebookNodeEmbed,
+        SlashCommandsExtension,
+        MentionsExtension,
+        NotebookNodePersonFeed,
+        NotebookNodeMap,
+    ]
+
+    if (hasCollapsibleSections) {
+        extensions.push(CollapsibleHeading.configure())
+    }
+
     return (
         <RichContentEditor
             logicKey={`Notebook.${shortId}`}
-            extensions={[
-                mode === 'notebook' ? CustomDocument : ExtensionDocument,
-                StarterKit.configure({
-                    document: false,
-                    gapcursor: false,
-                }),
-                TableOfContents.configure({
-                    getIndex: getHierarchicalIndexes,
-                    onUpdate(content) {
-                        setTableOfContents(content)
-                    },
-                }),
-                ExtensionPlaceholder.configure({
-                    placeholder: ({ node }: { node: any }) => {
-                        if (node.type.name === 'heading' && node.attrs.level === 1) {
-                            return `Untitled - maybe.. "${headingPlaceholder}"`
-                        }
-
-                        if (node.type.name === 'heading') {
-                            return `Heading ${node.attrs.level}`
-                        }
-
-                        return ''
-                    },
-                }),
-                FloatingMenu.extend({
-                    onSelectionUpdate(this) {
-                        updatePreviousNode(this.editor)
-                    },
-                    onUpdate(this) {
-                        updatePreviousNode(this.editor)
-                        resetSuggestions()
-                    },
-                }),
-                DropAndPasteHandlerExtension,
-                TaskList,
-                TaskItem.configure({ nested: true }),
-                NotebookMarkLink,
-                NotebookMarkComment,
-                NotebookNodeLatex,
-                NotebookNodeBacklink,
-                NotebookNodeQuery,
-                NotebookNodeRecording,
-                NotebookNodeReplayTimestamp,
-                NotebookNodePlaylist,
-                NotebookNodePerson,
-                NotebookNodeCohort,
-                NotebookNodeGroup,
-                NotebookNodeFlagCodeExample,
-                NotebookNodeFlag,
-                NotebookNodeExperiment,
-                NotebookNodeEarlyAccessFeature,
-                NotebookNodeSurvey,
-                NotebookNodeImage,
-                NotebookNodeProperties,
-                RichContentNodeMention,
-                NotebookNodeEmbed,
-                SlashCommandsExtension,
-                MentionsExtension,
-                NotebookNodePersonFeed,
-                NotebookNodeMap,
-            ]}
+            extensions={extensions}
             className="NotebookEditor flex flex-col flex-1"
             onUpdate={onEditorUpdate}
             onSelectionUpdate={onEditorSelectionUpdate}
             onCreate={(editor) => {
-                // NOTE: This could be the wrong way of passing state to extensions but this is what we are using for now!
-                editor.extensionStorage._notebookLogic = mountedNotebookLogic
-
                 const notebookEditor: NotebookEditor = {
                     ...createEditor(editor),
                     findCommentPosition: (markId: string) => findCommentPosition(editor, markId),
@@ -162,7 +167,7 @@ export function Editor(): JSX.Element {
                                 onClick={() => {
                                     const markId = uuid()
                                     editor.setMark(markId)
-                                    mountedNotebookLogic.actions.insertComment({ type: 'mark', id: markId })
+                                    insertComment({ type: 'mark', id: markId })
                                 }}
                                 icon={<IconComment className="w-4 h-4" />}
                                 size="small"

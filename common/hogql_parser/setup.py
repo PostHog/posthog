@@ -1,5 +1,6 @@
-from setuptools import setup, Extension
 import platform
+
+from setuptools import Extension, setup
 
 system = platform.system()
 if system not in ("Darwin", "Linux"):

@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import api from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
@@ -506,6 +507,95 @@ describe('the feature flag release conditions logic', () => {
                     sort_key: 'A',
                 },
             ])
+        })
+
+        it('preserves affected user calculations when reordering', () => {
+            const filters = generateFeatureFlagFilters([
+                { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                { properties: [], rollout_percentage: 75, variant: null, sort_key: 'B' },
+                { properties: [], rollout_percentage: 100, variant: null, sort_key: 'C' },
+            ])
+            logic.actions.setFilters(filters)
+
+            for (let i = 0; i < 3; i++) {
+                logic.actions.setAffectedUsers(i, i * 100)
+            }
+
+            logic.actions.moveConditionSetDown(0)
+            expect(logic.values.affectedUsers).toEqual({ 0: 100, 1: 0, 2: 200 })
+
+            logic.actions.moveConditionSetUp(1)
+            expect(logic.values.affectedUsers).toEqual({ 0: 0, 1: 100, 2: 200 })
+        })
+    })
+
+    describe('condition set descriptions', () => {
+        it('updates description for a condition set', () => {
+            const filters = generateFeatureFlagFilters([
+                { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                {
+                    properties: [],
+                    rollout_percentage: 75,
+                    variant: null,
+                    sort_key: 'B',
+                    description: 'Initial description',
+                },
+            ])
+            logic.actions.setFilters(filters)
+
+            logic.actions.updateConditionSet(0, undefined, undefined, undefined, 'New description for set 1')
+
+            expect(logic.values.filters.groups[0].description).toBe('New description for set 1')
+            expect(logic.values.filters.groups[1].description).toBe('Initial description')
+        })
+
+        it('clears description when set to empty string', () => {
+            const filters = generateFeatureFlagFilters([
+                {
+                    properties: [],
+                    rollout_percentage: 50,
+                    variant: null,
+                    sort_key: 'A',
+                    description: 'Existing description',
+                },
+            ])
+            logic.actions.setFilters(filters)
+
+            logic.actions.updateConditionSet(0, undefined, undefined, undefined, '')
+
+            expect(logic.values.filters.groups[0].description).toBe(null)
+        })
+
+        it('preserves description when updating other properties', () => {
+            const filters = generateFeatureFlagFilters([
+                {
+                    properties: [],
+                    rollout_percentage: 50,
+                    variant: null,
+                    sort_key: 'A',
+                    description: 'My test condition',
+                },
+            ])
+            logic.actions.setFilters(filters)
+
+            logic.actions.updateConditionSet(0, 75)
+            expect(logic.values.filters.groups[0].description).toBe('My test condition')
+            expect(logic.values.filters.groups[0].rollout_percentage).toBe(75)
+
+            logic.actions.updateConditionSet(0, undefined, undefined, 'variant-a')
+            expect(logic.values.filters.groups[0].description).toBe('My test condition')
+            expect(logic.values.filters.groups[0].variant).toBe('variant-a')
+
+            logic.actions.updateConditionSet(0, undefined, [
+                {
+                    key: 'email',
+                    type: PropertyFilterType.Person,
+                    value: 'test@example.com',
+                    operator: PropertyOperator.Exact,
+                },
+            ])
+            expect(logic.values.filters.groups[0].description).toBe('My test condition')
+            expect(logic.values.filters.groups[0].properties).toHaveLength(1)
         })
     })
 })

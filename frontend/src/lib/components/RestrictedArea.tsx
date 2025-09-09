@@ -59,7 +59,7 @@ export function useRestrictedArea({
             )}s and up. Your level is ${membershipLevelToName.get(scopeAccessLevel)}.`
         }
         return null
-    }, [currentOrganization])
+    }, [currentOrganization, currentTeam]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return restrictionReason
 }

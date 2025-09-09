@@ -117,7 +117,7 @@ async fn it_drops_events_if_dropper_enabled() -> Result<()> {
     config.kafka.kafka_topic = main_topic.topic_name().to_string();
     config.kafka.kafka_historical_topic = histo_topic.topic_name().to_string();
     config.kafka.kafka_overflow_topic = overflow_topic.topic_name().to_string();
-    config.drop_events_by_token_distinct_id = Some(format!("{}:{}", token, dropped_id));
+    config.drop_events_by_token_distinct_id = Some(format!("{token}:{dropped_id}"));
     let server = ServerHandle::for_config(config).await;
 
     let event = json!({
@@ -155,6 +155,40 @@ async fn it_drops_events_if_dropper_enabled() -> Result<()> {
         expected: json!({
             "token": token,
             "distinct_id": distinct_id
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_redacts_ip_address_of_capture_internal_events() -> Result<()> {
+    setup_tracing();
+    let token = random_string("token", 16);
+    let distinct_id = random_string("id", 16);
+
+    let main_topic = EphemeralTopic::new().await;
+    let histo_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
+
+    let event = json!({
+        "token": token,
+        "event": "test_event_from_capture_internal",
+        "distinct_id": distinct_id,
+        "properties": {
+            "capture_internal": true
+        }
+    });
+    let res = server.capture_events(event.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let event = main_topic.next_event()?;
+    assert_json_include!(
+        actual: event,
+        expected: json!({
+            "token": token,
+            "distinct_id": distinct_id,
+            "ip": "127.0.0.1",
         })
     );
 
@@ -297,7 +331,7 @@ async fn it_overflows_events_on_specified_keys() -> Result<()> {
     // token:distinct_id will be limited by candidate list
     let token2 = String::from("token2");
     let distinct_id2 = String::from("user2");
-    let key2 = format!("{}:{}", token2, distinct_id2);
+    let key2 = format!("{token2}:{distinct_id2}");
 
     // won't be limited other than by burst/rate-limits
     let token3 = String::from("token3");
@@ -308,7 +342,7 @@ async fn it_overflows_events_on_specified_keys() -> Result<()> {
 
     let mut config = DEFAULT_CONFIG.clone();
     // this is the candidate list of tokens/event keys to reroute on sight
-    config.ingestion_force_overflow_by_token_distinct_id = Some(format!("{},{}", token1, key2));
+    config.ingestion_force_overflow_by_token_distinct_id = Some(format!("{token1},{key2}"));
     config.kafka.kafka_hosts = "localhost:9092".to_string();
     config.kafka.kafka_producer_linger_ms = 0; // Send messages immediately
     config.kafka.kafka_message_timeout_ms = 10000; // 10s timeout
@@ -377,21 +411,21 @@ async fn it_overflows_events_on_specified_keys() -> Result<()> {
     // main toppic results
     assert_eq!(
         topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token2, distinct_id1)
+        format!("{token2}:{distinct_id1}")
     );
     assert_eq!(
         topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token3, distinct_id1)
-    );
-
-    assert_eq!(
-        topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token3, distinct_id2)
+        format!("{token3}:{distinct_id1}")
     );
 
     assert_eq!(
         topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token3, distinct_id3)
+        format!("{token3}:{distinct_id2}")
+    );
+
+    assert_eq!(
+        topic.next_message_key()?.unwrap(),
+        format!("{token3}:{distinct_id3}")
     );
 
     topic.assert_empty();
@@ -438,7 +472,7 @@ async fn it_overflows_events_on_specified_keys_preserving_locality() -> Result<(
     // token:distinct_id will be limited by candidate list
     let token2 = String::from("token2");
     let distinct_id2 = String::from("user2");
-    let key2 = format!("{}:{}", token2, distinct_id2);
+    let key2 = format!("{token2}:{distinct_id2}");
 
     // won't be limited other than by burst/rate-limits
     let token3 = String::from("token3");
@@ -449,7 +483,7 @@ async fn it_overflows_events_on_specified_keys_preserving_locality() -> Result<(
 
     let mut config = DEFAULT_CONFIG.clone();
     // this is the candidate list of tokens/event keys to reroute on sight
-    config.ingestion_force_overflow_by_token_distinct_id = Some(format!("{},{}", token1, key2));
+    config.ingestion_force_overflow_by_token_distinct_id = Some(format!("{token1},{key2}"));
     config.kafka.kafka_hosts = "localhost:9092".to_string();
     config.kafka.kafka_producer_linger_ms = 0; // Send messages immediately
     config.kafka.kafka_message_timeout_ms = 10000; // 10s timeout
@@ -519,21 +553,21 @@ async fn it_overflows_events_on_specified_keys_preserving_locality() -> Result<(
     // main topic results
     assert_eq!(
         topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token2, distinct_id1)
+        format!("{token2}:{distinct_id1}")
     );
     assert_eq!(
         topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token3, distinct_id1)
-    );
-
-    assert_eq!(
-        topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token3, distinct_id2)
+        format!("{token3}:{distinct_id1}")
     );
 
     assert_eq!(
         topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token3, distinct_id3)
+        format!("{token3}:{distinct_id2}")
+    );
+
+    assert_eq!(
+        topic.next_message_key()?.unwrap(),
+        format!("{token3}:{distinct_id3}")
     );
 
     topic.assert_empty();
@@ -542,17 +576,17 @@ async fn it_overflows_events_on_specified_keys_preserving_locality() -> Result<(
     // retain original partition keys, so fetch-by-key works here
     assert_eq!(
         overflow_topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token1, distinct_id1)
+        format!("{token1}:{distinct_id1}")
     );
 
     assert_eq!(
         overflow_topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token1, distinct_id2)
+        format!("{token1}:{distinct_id2}")
     );
 
     assert_eq!(
         overflow_topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token2, distinct_id2)
+        format!("{token2}:{distinct_id2}")
     );
 
     overflow_topic.assert_empty();
@@ -571,7 +605,7 @@ async fn it_reroutes_to_historical_on_specified_keys() -> Result<()> {
     // token:distinct_id will be limited by candidate list
     let token2 = String::from("token2");
     let distinct_id2 = String::from("user2");
-    let key2 = format!("{}:{}", token2, distinct_id2);
+    let key2 = format!("{token2}:{distinct_id2}");
 
     // won't be limited other than by burst/rate-limits
     let token3 = String::from("token3");
@@ -585,7 +619,7 @@ async fn it_reroutes_to_historical_on_specified_keys() -> Result<()> {
     // enable historical rerouting but focus this test on token1, key2
     config.enable_historical_rerouting = true;
     config.historical_rerouting_threshold_days = 30_i64; // 30 days won't interfere w/test!
-    config.historical_tokens_keys = Some(format!("{},{}", token1, key2));
+    config.historical_tokens_keys = Some(format!("{token1},{key2}"));
 
     config.kafka.kafka_hosts = "localhost:9092".to_string();
     config.kafka.kafka_producer_linger_ms = 0; // Send messages immediately
@@ -655,21 +689,21 @@ async fn it_reroutes_to_historical_on_specified_keys() -> Result<()> {
     // main toppic results
     assert_eq!(
         topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token2, distinct_id1)
+        format!("{token2}:{distinct_id1}")
     );
     assert_eq!(
         topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token3, distinct_id1)
-    );
-
-    assert_eq!(
-        topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token3, distinct_id2)
+        format!("{token3}:{distinct_id1}")
     );
 
     assert_eq!(
         topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token3, distinct_id3)
+        format!("{token3}:{distinct_id2}")
+    );
+
+    assert_eq!(
+        topic.next_message_key()?.unwrap(),
+        format!("{token3}:{distinct_id3}")
     );
 
     topic.assert_empty();
@@ -773,11 +807,11 @@ async fn it_reroutes_to_historical_on_event_timestamp() -> Result<()> {
     // main toppic results
     assert_eq!(
         topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token1, distinct_id1)
+        format!("{token1}:{distinct_id1}")
     );
     assert_eq!(
         topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token3, distinct_id3)
+        format!("{token3}:{distinct_id3}")
     );
 
     topic.assert_empty();
@@ -840,12 +874,12 @@ async fn it_overflows_events_on_burst() -> Result<()> {
     // First two events should go to main topic
     assert_eq!(
         topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token, distinct_id)
+        format!("{token}:{distinct_id}")
     );
 
     assert_eq!(
         topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token, distinct_id)
+        format!("{token}:{distinct_id}")
     );
 
     topic.assert_empty();
@@ -898,12 +932,12 @@ async fn it_does_not_overflow_team_with_different_ids() -> Result<()> {
 
     assert_eq!(
         topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token, distinct_id)
+        format!("{token}:{distinct_id}")
     );
 
     assert_eq!(
         topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token, distinct_id2)
+        format!("{token}:{distinct_id2}")
     );
 
     Ok(())
@@ -947,18 +981,18 @@ async fn it_skips_overflows_when_disabled() -> Result<()> {
 
     assert_eq!(
         topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token, distinct_id)
+        format!("{token}:{distinct_id}")
     );
 
     assert_eq!(
         topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token, distinct_id)
+        format!("{token}:{distinct_id}")
     );
 
     // Should have triggered overflow, but has not
     assert_eq!(
         topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token, distinct_id)
+        format!("{token}:{distinct_id}")
     );
     Ok(())
 }
@@ -1292,11 +1326,12 @@ async fn it_returns_200() -> Result<()> {
     let histo_topic = EphemeralTopic::new().await;
     let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
 
-    let event = json!({
+    let event_payload = json!({
         "token": token,
         "event": "testing",
         "distinct_id": distinct_id
-    });
+    })
+    .to_string();
 
     let client = reqwest::Client::builder()
         .timeout(StdDuration::from_millis(3000))
@@ -1304,16 +1339,21 @@ async fn it_returns_200() -> Result<()> {
         .unwrap();
     let timestamp = Utc::now().timestamp_millis();
     let url = format!(
-        "http://{:?}/i/v0/e/?_={}&ver=1.240.6&compression=gzip-js",
+        "http://{:?}/i/v0/e/?_={}&ver=1.240.6",
         server.addr, timestamp
     );
     let res = client
         .post(url)
-        .body(event.to_string())
+        .body(event_payload)
         .send()
         .await
         .expect("failed to send request");
-    assert_eq!(StatusCode::OK, res.status());
+    assert_eq!(
+        StatusCode::OK,
+        res.status(),
+        "error response: {}",
+        res.text().await.unwrap()
+    );
 
     Ok(())
 }
@@ -1328,11 +1368,12 @@ async fn it_returns_204_when_beacon_is_1() -> Result<()> {
     let histo_topic = EphemeralTopic::new().await;
     let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
 
-    let event = json!({
+    let event_payload = json!({
         "token": token,
         "event": "testing",
         "distinct_id": distinct_id
-    });
+    })
+    .to_string();
 
     let client = reqwest::Client::builder()
         .timeout(StdDuration::from_millis(3000))
@@ -1340,16 +1381,21 @@ async fn it_returns_204_when_beacon_is_1() -> Result<()> {
         .unwrap();
     let timestamp = Utc::now().timestamp_millis();
     let url = format!(
-        "http://{:?}/i/v0/e/?_={}&ver=1.240.6&compression=gzip-js&beacon=1",
+        "http://{:?}/i/v0/e/?_={}&ver=1.240.6&beacon=1",
         server.addr, timestamp
     );
     let res = client
         .post(url)
-        .body(event.to_string())
+        .body(event_payload)
         .send()
         .await
         .expect("failed to send request");
-    assert_eq!(StatusCode::NO_CONTENT, res.status());
+    assert_eq!(
+        StatusCode::NO_CONTENT,
+        res.status(),
+        "error response: {}",
+        res.text().await.unwrap()
+    );
 
     Ok(())
 }

@@ -1,11 +1,13 @@
+import { useActions, useValues } from 'kea'
+
 import { IconPlusSmall } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PageHeader } from 'lib/components/PageHeader'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
-import { useEffect } from 'react'
 import { DataWarehouseManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
 import { DataWarehouseSelfManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseSelfManagedSourcesTable'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
@@ -49,10 +51,10 @@ export function DataPipelinesOverview(): JSX.Element {
     const { hogFunctionPluginsDestinations, hogFunctionBatchExports } = useValues(nonHogFunctionsLogic)
     const { loadHogFunctionPluginsDestinations, loadHogFunctionBatchExports } = useActions(nonHogFunctionsLogic)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         loadHogFunctionPluginsDestinations()
         loadHogFunctionBatchExports()
-    }, [])
+    })
 
     return (
         <>

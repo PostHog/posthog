@@ -2,15 +2,16 @@ import './Histogram.scss'
 
 import * as d3 from 'd3'
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { FunnelLayout } from 'lib/constants'
 import { D3Selector, D3Transition, useD3 } from 'lib/hooks/useD3'
 import { animate, getOrCreateEl, wrap } from 'lib/utils/d3Utils'
-import { useEffect } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { histogramLogic } from 'scenes/insights/views/Histogram/histogramLogic'
 
-import { createRoundedRectPath, D3HistogramDatum, getConfig, INITIAL_CONFIG } from './histogramUtils'
+import { D3HistogramDatum, INITIAL_CONFIG, createRoundedRectPath, getConfig } from './histogramUtils'
 
 export interface HistogramDatum {
     id: string | number
@@ -95,7 +96,7 @@ export function Histogram({
                 config.margin.right
         )
         setConfig(getConfig(layout, isDashboardItem ? width : minWidth, height))
-    }, [data.length, layout, width, height])
+    }, [data.length, layout, width, height]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const ref = useD3(
         (container) => {

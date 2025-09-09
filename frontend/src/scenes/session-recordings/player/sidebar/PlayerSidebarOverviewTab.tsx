@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { playerMetaLogic } from '../player-meta/playerMetaLogic'

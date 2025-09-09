@@ -1,5 +1,6 @@
-import { VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
+
+import { VMState } from '@posthog/hogvm'
 
 import { CyclotronInputType, CyclotronInvocationQueueParametersType } from '~/schema/cyclotron'
 
@@ -47,6 +48,7 @@ export interface HogFunctionFilters {
     source?: 'events' | 'person-updates' // Special case to identify what kind of thing this filters on
     events?: HogFunctionFilterEvent[]
     actions?: HogFunctionFilterAction[]
+    properties?: Record<string, any>[] // Global property filters that apply to all events
     filter_test_accounts?: boolean
     bytecode?: HogBytecode
 }
@@ -96,7 +98,10 @@ export type HogFunctionInvocationGlobals = {
         headers: Record<string, string | undefined>
         ip?: string
         body: Record<string, any>
+        stringBody: string
     }
+
+    unsubscribe_url?: string // For email actions, the unsubscribe URL to use
 }
 
 export type HogFunctionInvocationGlobalsWithInputs = HogFunctionInvocationGlobals & {
@@ -106,6 +111,7 @@ export type HogFunctionInvocationGlobalsWithInputs = HogFunctionInvocationGlobal
 export type HogFunctionFilterGlobals = {
     // Filter Hog is built in the same way as analytics so the global object is meant to be an event
     event: string
+    uuid: string
     timestamp: string
     elements_chain: string
     elements_chain_href: string
@@ -178,25 +184,27 @@ export type MinimalAppMetric = {
     team_id: number
     app_source_id: string // The main item (like the hog function or hog flow ID)
     instance_id?: string // The specific instance of the item (can be the invocation ID or a sub item like an action ID)
-    metric_kind: 'failure' | 'success' | 'other' | 'email'
+    metric_kind: 'failure' | 'success' | 'other' | 'email' | 'billing'
     metric_name:
+        | 'early_exit'
+        | 'triggered'
         | 'succeeded'
         | 'failed'
         | 'filtered'
         | 'disabled_temporarily'
         | 'disabled_permanently'
+        | 'rate_limited'
         | 'masked'
         | 'filtering_failed'
         | 'inputs_failed'
         | 'missing_addon'
         | 'fetch'
-        | 'event_triggered_destination'
-        | 'destination_invoked'
+        | 'billable_invocation'
         | 'dropped'
         | 'email_sent'
         | 'email_failed'
         | 'email_opened'
-        | 'email_clicked'
+        | 'email_link_clicked'
         | 'email_bounced'
         | 'email_blocked'
         | 'email_spam'
@@ -214,7 +222,7 @@ export interface HogFunctionTiming {
     duration_ms: number
 }
 
-export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'hog_overflow', 'segment', 'hogflow'] as const
+export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'hog_overflow', 'hogflow'] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
 export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka'] as const
@@ -293,6 +301,7 @@ export type HogFunctionInputSchemaType = {
         | 'integration'
         | 'integration_field'
         | 'email'
+        | 'native_email'
     key: string
     label?: string
     choices?: { value: string; label: string }[]
@@ -309,7 +318,12 @@ export type HogFunctionInputSchemaType = {
     templating?: boolean
 }
 
-export type HogFunctionTypeType = 'destination' | 'transformation' | 'internal_destination' | 'source_webhook'
+export type HogFunctionTypeType =
+    | 'destination'
+    | 'transformation'
+    | 'internal_destination'
+    | 'source_webhook'
+    | 'site_destination'
 
 export interface HogFunctionMappingType {
     inputs_schema?: HogFunctionInputSchemaType[]
@@ -332,7 +346,6 @@ export type HogFunctionType = {
     filters?: HogFunctionFilters | null
     mappings?: HogFunctionMappingType[] | null
     masking?: HogFunctionMasking | null
-    is_addon_required: boolean
     template_id?: string
     execution_order?: number
     created_at: string
@@ -375,6 +388,7 @@ export type DBHogFunctionTemplate = {
     inputs_schema: HogFunctionInputSchemaType[]
     bytecode: HogBytecode
     type: HogFunctionTypeType
+    free: boolean
 }
 
 export type IntegrationType = {

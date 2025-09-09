@@ -1,44 +1,40 @@
-import functools
 import re
+import logging
+import functools
 from datetime import timedelta
-from typing import Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 from urllib.parse import urlsplit
-from prometheus_client import Counter
 
-import jwt
 from django.apps import apps
+from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
+
+import jwt
+from prometheus_client import Counter
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
+from zxcvbn import zxcvbn
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.oauth import OAuthAccessToken
-from posthog.models.personal_api_key import (
-    PersonalAPIKey,
-    hash_key_value,
-    PERSONAL_API_KEY_MODES_TO_TRY,
-)
+from posthog.models.personal_api_key import PERSONAL_API_KEY_MODES_TO_TRY, PersonalAPIKey, hash_key_value
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
-from posthog.metrics import LABEL_TEAM_ID
-from django.contrib.auth.models import AnonymousUser
-from zxcvbn import zxcvbn
+
+if TYPE_CHECKING:
+    from posthog.models.share_password import SharePassword
+
+logger = logging.getLogger(__name__)
 
 PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
     "api_auth_personal_api_key_query_param",
     "Requests where the personal api key is specified in a query parameter",
-    labelnames=["user_uuid", "extra_data"],
-)
-
-PROJECT_SECRET_API_KEY_QUERY_PARAM_COUNTER = Counter(
-    "api_auth_project_secret_api_key_query_param",
-    "Requests where the project secret api key is specified in a query parameter",
-    labelnames=[LABEL_TEAM_ID],
+    labelnames=["user_uuid"],
 )
 
 
@@ -108,9 +104,6 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             return data["personal_api_key"], "body"
         if "personal_api_key" in request.GET:
             return request.GET["personal_api_key"], "query string"
-        if extra_data and "personal_api_key" in extra_data:
-            # compatibility with /capture endpoint
-            return extra_data["personal_api_key"], "query string data"
         return None
 
     @classmethod
@@ -157,9 +150,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             key_to_update.save(update_fields=["secure_value"])
 
         if source == "query string":
-            PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(personal_api_key_object.user.uuid, False).inc()
-        elif source == "query string data":
-            PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(personal_api_key_object.user.uuid, True).inc()
+            PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(personal_api_key_object.user.uuid).inc()
 
         return personal_api_key_object
 
@@ -184,6 +175,8 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             user_id=personal_api_key_object.user.pk,
             team_id=personal_api_key_object.user.current_team_id,
             access_method="personal_api_key",
+            api_key_mask=personal_api_key_object.mask_value,
+            api_key_label=personal_api_key_object.label,
         )
 
         self.personal_api_key = personal_api_key_object
@@ -206,7 +199,6 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     Only the first key candidate found in the request is tried, and the order is:
     1. Request Authorization header of type Bearer.
     2. Request body.
-    3. Request query string.
     """
 
     keyword = "Bearer"
@@ -215,12 +207,12 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     def find_secret_api_token(
         cls,
         request: Union[HttpRequest, Request],
-    ) -> Optional[tuple[str, str]]:
+    ) -> Optional[str]:
         """Try to find project secret API key in request and return it"""
         if "HTTP_AUTHORIZATION" in request.META:
             authorization_match = re.match(rf"^{cls.keyword}\s+(phs_[a-zA-Z0-9]+)$", request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
-                return authorization_match.group(1).strip(), "header"
+                return authorization_match.group(1).strip()
 
         # Wrap HttpRequest in DRF Request if needed
         if not isinstance(request, Request):
@@ -229,20 +221,16 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
         data = request.data
 
         if data and "secret_api_key" in data:
-            return data["secret_api_key"], "body"
-
-        if "secret_api_key" in request.GET:
-            return request.GET["secret_api_key"], "query"
+            return data["secret_api_key"]
 
         return None
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        secret_api_token_with_source = self.find_secret_api_token(request)
+        secret_api_token = self.find_secret_api_token(request)
 
-        if not secret_api_token_with_source:
+        if not secret_api_token:
             return None
 
-        secret_api_token, source = secret_api_token_with_source
         # get the team from the secret api key
         try:
             Team = apps.get_model(app_label="posthog", model_name="Team")
@@ -250,9 +238,6 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
 
             if team is None:
                 return None
-
-            if source == "query":
-                PROJECT_SECRET_API_KEY_QUERY_PARAM_COUNTER.labels(team.id).inc()
 
             # Secret api keys are not associated with a user, so we create a ProjectSecretAPIKeyUser
             # and attach the team. The team is the important part here.
@@ -360,12 +345,83 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
                 sharing_configuration = SharingConfiguration.objects.get(
                     access_token=sharing_access_token, enabled=True
                 )
+
+                # If password is required, don't authenticate via direct access_token
+                # Let the view handle showing the unlock page
+                if sharing_configuration.password_required:
+                    return None
+
             except SharingConfiguration.DoesNotExist:
                 raise AuthenticationFailed(detail="Sharing access token is invalid.")
             else:
                 self.sharing_configuration = sharing_configuration
                 return (AnonymousUser(), None)
         return None
+
+
+class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
+    """
+    JWT-based authentication for password-protected shared resources.
+    Supports both Bearer token (for API calls) and cookie (for rendering decisions).
+    """
+
+    keyword = "Bearer"
+    sharing_configuration: SharingConfiguration
+    share_password: "SharePassword"
+
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, Any]]:
+        if request.method != "GET":
+            return None
+
+        # Extract JWT token from Authorization header or cookie
+        sharing_jwt_token = None
+        if "HTTP_AUTHORIZATION" in request.META:
+            authorization_match = re.match(rf"^{self.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
+            if authorization_match:
+                sharing_jwt_token = authorization_match.group(1).strip()
+        elif hasattr(request, "COOKIES") and request.COOKIES.get("posthog_sharing_token"):
+            sharing_jwt_token = request.COOKIES.get("posthog_sharing_token")
+
+        if not sharing_jwt_token:
+            return None
+
+        try:
+            # Attempt full JWT validation - this will fail fast for non-sharing JWTs due to audience mismatch
+            payload = decode_jwt(sharing_jwt_token, PosthogJwtAudience.SHARING_PASSWORD_PROTECTED)
+
+            from posthog.models.share_password import SharePassword
+
+            share_password = SharePassword.objects.select_related("sharing_configuration").get(
+                id=payload["share_password_id"],
+                sharing_configuration__team_id=payload["team_id"],
+                sharing_configuration__enabled=True,
+                sharing_configuration__password_required=True,
+                is_active=True,
+            )
+
+            sharing_configuration = share_password.sharing_configuration
+
+            # Verify the access token matches (prevents token reuse across different shares)
+            if sharing_configuration.access_token != payload.get("access_token"):
+                return None
+
+            self.sharing_configuration = sharing_configuration
+            self.share_password = share_password
+            return (AnonymousUser(), None)
+
+        except jwt.InvalidTokenError:
+            # Expected: JWT decode failed (likely a personal API key was passed)
+            # Let the next authenticator (PersonalAPIKeyAuthentication) handle it
+            return None
+        except Exception as e:
+            # Unexpected: Database issues, programming errors, etc.
+            # Log for debugging but still fail gracefully
+            logger.info(
+                "SharingPasswordProtectedAuthentication failed with unexpected exception",
+                exc_info=True,
+                extra={"exception_type": type(e).__name__, "exception_message": str(e)},
+            )
+            return None
 
 
 class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):

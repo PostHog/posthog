@@ -1,10 +1,11 @@
-import { IconCheckCircle, IconInfo, IconLock, IconTrash, IconWarning } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconCheckCircle, IconInfo, IconLock, IconTrash, IconWarning } from '@posthog/icons'
+
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { IconExclamation, IconOffline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -13,6 +14,7 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconExclamation, IconOffline } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
@@ -21,8 +23,8 @@ import { AvailableFeature, OrganizationDomainType } from '~/types'
 import { AddDomainModal } from './AddDomainModal'
 import { ConfigureSAMLModal } from './ConfigureSAMLModal'
 import { SSOSelect } from './SSOSelect'
-import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 import { VerifyDomainModal } from './VerifyDomainModal'
+import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 
 const iconStyle = { marginRight: 4, fontSize: '1.15em', paddingTop: 2 }
 

@@ -6,13 +6,23 @@ on:
 
 name: Security
 
+permissions:
+    contents: read
+
 jobs:
     ensure-pinned-actions:
         runs-on: ubuntu-latest
         steps:
             - name: Checkout code
-              uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+              uses: actions/checkout@v4
             - name: Ensure SHA pinned actions
               uses: zgosalvez/github-actions-ensure-sha-pinned-actions@25ed13d0628a1601b4b44048e63cc4328ed03633 # v3
               with:
-                  allowlist: PostHog/ # It's a string, parsed by splitting on \r\n but we only have one entry
+                  allowlist: |
+                      actions/
+                      aws-actions/
+                      docker/
+                      github/
+                      hashicorp/
+                      PostHog/
+                      tailscale/

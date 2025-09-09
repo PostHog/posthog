@@ -1,16 +1,17 @@
 from datetime import datetime
+
+from freezegun import freeze_time
 from unittest.mock import Mock, patch
 
 from django.test import TestCase
-from freezegun import freeze_time
 
 from posthog.session_recordings.models.metadata import RecordingBlockListing
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.session_recording_v2_service import (
-    list_blocks,
-    load_blocks,
     FIVE_SECONDS,
+    list_blocks,
     listing_cache_key,
+    load_blocks,
 )
 
 

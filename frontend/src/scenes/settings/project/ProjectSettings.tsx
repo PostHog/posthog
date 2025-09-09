@@ -1,6 +1,8 @@
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
+
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+
 import { projectLogic } from 'scenes/projectLogic'
 
 export function ProjectDisplayName(): JSX.Element {

@@ -19,7 +19,7 @@ export class ActionManagerCDP {
     constructor(private postgres: PostgresRouter) {
         this.lazyLoader = new LazyLoader({
             name: 'ActionManagerCDP',
-            refreshAge: 5 * 60 * 1000, // 5 minutes
+            refreshAgeMs: 5 * 60 * 1000, // 5 minutes
             refreshJitterMs: 60 * 1000, // 1 minute
             loader: async (teamIds: string[]) => {
                 return await this.fetchActions(teamIds)

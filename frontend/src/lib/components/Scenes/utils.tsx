@@ -1,5 +1,7 @@
 import { IconCheck, IconLoading, IconX } from '@posthog/icons'
+
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { SelectPrimitiveItemProps } from 'lib/ui/SelectPrimitive/SelectPrimitive'
 
 export type SceneCanEditProps = {
     canEdit?: boolean
@@ -13,21 +15,45 @@ export type SceneDataAttrKeyProps = {
     dataAttrKey: string
 }
 
+export type SceneNameProps = {
+    name: string
+}
+
 // Common props for all scene inputs
+export type SceneTextInputProps = SceneCanEditProps &
+    SceneDataAttrKeyProps &
+    SceneNameProps &
+    SceneLoadingProps & {
+        defaultValue?: string
+        onSave: (value: string) => void
+        optional?: boolean
+    }
+
+export type SceneTextareaProps = SceneTextInputProps & {
+    markdown?: boolean
+}
+
 export type SceneInputProps = SceneCanEditProps &
     SceneDataAttrKeyProps &
+    SceneDataAttrKeyProps &
     SceneLoadingProps & {
-        defaultValue: string
+        defaultValue?: string
         onSave: (value: string) => void
         optional?: boolean
     }
 
 export type SceneSaveCancelButtonsProps = SceneDataAttrKeyProps &
+    SceneNameProps &
     SceneLoadingProps & {
         onCancel: () => void
         hasChanged: boolean
         error?: string | null
-        name: string
+    }
+
+export type SceneSelectProps = SceneInputProps &
+    SceneNameProps & {
+        options: SelectPrimitiveItemProps[]
+        value?: string
     }
 
 export function SceneSaveCancelButtons({
@@ -39,7 +65,7 @@ export function SceneSaveCancelButtons({
     dataAttrKey,
 }: SceneSaveCancelButtonsProps): JSX.Element {
     return (
-        <div className="flex gap-1 px-button-padding-x">
+        <div className="flex gap-1">
             <ButtonPrimitive
                 type="submit"
                 variant="outline"

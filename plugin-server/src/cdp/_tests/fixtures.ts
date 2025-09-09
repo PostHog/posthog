@@ -121,6 +121,7 @@ export const createClickhousePerson = (teamId: number, data: Partial<ClickHouseP
         is_identified: 1,
         is_deleted: 0,
         timestamp: new Date().toISOString(),
+        version: 1,
         ...data,
     }
 }
@@ -255,7 +256,7 @@ export const createHogExecutionGlobals = (
 
 export const createExampleInvocation = (
     _hogFunction: Partial<HogFunctionType> = {},
-    _globals: Partial<HogFunctionInvocationGlobals> = {},
+    _globals: Partial<HogFunctionInvocationGlobalsWithInputs> = {},
     queue: CyclotronJobQueueKind = 'hog'
 ): CyclotronJobInvocationHogFunction => {
     const hogFunction = createHogFunction(_hogFunction)

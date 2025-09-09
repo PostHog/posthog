@@ -21,7 +21,7 @@
     }
 
     .Preflight__checks-container {
-        border: 1px solid var(--border-primary);
+        border: 1px solid var(--color-border-primary);
         border-radius: var(--radius);
 
         svg {
@@ -32,7 +32,7 @@
             display: flex;
             align-items: center;
             padding: 12px;
-            border-bottom: 1px solid var(--border-primary);
+            border-bottom: 1px solid var(--color-border-primary);
 
             .Preflight__summary-icon-container {
                 display: flex;
@@ -67,8 +67,8 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        background-color: var(--bg-primary);
-        border: 2px solid var(--bg-primary);
+        background-color: var(--color-bg-primary);
+        border: 2px solid var(--color-bg-primary);
 
         p {
             margin-bottom: 0;
@@ -81,7 +81,7 @@
 
         svg,
         .Preflight__status-text {
-            color: var(--accent);
+            color: var(--color-accent);
         }
     }
 
@@ -127,7 +127,7 @@
     align-items: center;
     justify-content: center;
     padding: 12px;
-    border-bottom: 1px solid var(--border-primary);
+    border-bottom: 1px solid var(--color-border-primary);
 
     p {
         margin-bottom: 0;

@@ -1,7 +1,9 @@
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import { actions, kea, listeners, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { router, urlToAction } from 'kea-router'
+
+import { IconPlusSmall } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -12,10 +14,10 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
 import { CampaignsTable } from './Campaigns/CampaignsTable'
-import type { messagingSceneLogicType } from './MessagingSceneType'
 import { MessageChannels } from './Channels/MessageChannels'
-import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
+import type { messagingSceneLogicType } from './MessagingSceneType'
 import { OptOutScene } from './OptOuts/OptOutScene'
+import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
 
 const MESSAGING_SCENE_TABS = ['campaigns', 'library', 'channels', 'opt-outs'] as const
 export type MessagingSceneTab = (typeof MESSAGING_SCENE_TABS)[number]
@@ -41,8 +43,8 @@ export const messagingSceneLogic = kea<messagingSceneLogicType>([
     selectors({
         logicProps: [() => [(_, props) => props], (props) => props],
         breadcrumbs: [
-            () => [(_, props) => props],
-            ({ tab }): Breadcrumb[] => {
+            (_, p) => [p.tab],
+            (tab): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.Messaging,
@@ -63,7 +65,6 @@ export const messagingSceneLogic = kea<messagingSceneLogicType>([
     }),
     urlToAction(({ actions, values }) => {
         return {
-            // All possible routes for this scene need to be listed here
             [urls.messaging(':tab' as MessagingSceneTab)]: ({ tab }) => {
                 let possibleTab: MessagingSceneTab = (tab as MessagingSceneTab) ?? 'campaigns'
                 possibleTab = MESSAGING_SCENE_TABS.includes(possibleTab) ? possibleTab : 'campaigns'
@@ -76,12 +77,10 @@ export const messagingSceneLogic = kea<messagingSceneLogicType>([
     }),
 ])
 
-export const scene: SceneExport = {
+export const scene: SceneExport<MessagingSceneProps> = {
     component: MessagingScene,
     logic: messagingSceneLogic,
-    paramsToProps: ({ params: { tab } }): (typeof messagingSceneLogic)['props'] => ({
-        tab,
-    }),
+    paramsToProps: ({ params: { tab } }) => ({ tab }),
 }
 
 export function MessagingScene(): JSX.Element {

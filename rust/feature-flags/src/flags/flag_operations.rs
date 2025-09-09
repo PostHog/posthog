@@ -387,10 +387,9 @@ mod tests {
                 r#"{{
             "key": "test_key",
             "value": "test_value",
-            "operator": "{}",
+            "operator": "{op_str}",
             "type": "person"
-        }}"#,
-                op_str
+        }}"#
             );
             let deserialized: PropertyFilter = serde_json::from_str(&json).unwrap();
             assert_eq!(deserialized.operator, Some(op_type));
@@ -608,9 +607,7 @@ mod tests {
                 assert_eq!(
                     variant.name,
                     Some(expected_name.to_string()),
-                    "Incorrect variant name for {} in {}",
-                    key,
-                    source
+                    "Incorrect variant name for {key} in {source}"
                 );
             }
 
@@ -631,8 +628,7 @@ mod tests {
                 };
                 assert_eq!(
                     value["feature"], expected_feature,
-                    "Incorrect payload value for {} in {}",
-                    key, source
+                    "Incorrect payload value for {key} in {source}"
                 );
             }
         }

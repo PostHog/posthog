@@ -1,5 +1,7 @@
-import { LemonDialog, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonDialog, LemonSelect } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { truncate } from 'lib/utils'
 import { NPS_DETRACTOR_LABEL, NPS_PASSIVE_LABEL, NPS_PROMOTER_LABEL } from 'scenes/surveys/constants'

@@ -1,14 +1,14 @@
+import dns from 'dns/promises'
+import { range } from 'lodash'
+
+import { SecureRequestError, fetch, legacyFetch, raiseIfUserProvidedUrlUnsafe } from './request'
+
 const realDnsLookup = jest.requireActual('dns/promises').lookup
 jest.mock('dns/promises', () => ({
     lookup: jest.fn((hostname: string, options?: any) => {
         return realDnsLookup(hostname, options)
     }),
 }))
-
-import dns from 'dns/promises'
-import { range } from 'lodash'
-
-import { fetch, legacyFetch, raiseIfUserProvidedUrlUnsafe, SecureRequestError } from './request'
 
 describe('fetch', () => {
     beforeEach(() => {
@@ -40,7 +40,7 @@ describe('fetch', () => {
             ['http://172.20.0.21', 'Hostname is not allowed'],
             ['http://fgtggggzzggggfd.com', 'Invalid hostname'],
         ])('should raise against unsafe URLs: %s', async (url, error) => {
-            await expect(raiseIfUserProvidedUrlUnsafe(url)).rejects.toThrow(new SecureRequestError(error))
+            await expect(raiseIfUserProvidedUrlUnsafe(url)).rejects.toThrow(error)
         })
     })
 

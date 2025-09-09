@@ -1,9 +1,10 @@
 import { BindLogic, useValues } from 'kea'
-import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { useState } from 'react'
+
+import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { InsightLoadingState } from 'scenes/insights/EmptyStates'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { teamLogic } from 'scenes/teamLogic'
@@ -16,6 +17,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { GraphDataset, GraphType } from '~/types'
+
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 
 let uniqueNode = 0
@@ -65,9 +67,9 @@ export function RevenueAnalyticsTopCustomersNode(props: {
         return {
             id: idx + 1, // Make them start at 1, for good measure
 
-            // Name is in first column, grab from any result
-            // Fallback to second column if first is undefined, that's the customer_id
-            label: results[key][0] ?? results[key][1],
+            // Name is in the second column, grab from any result
+            // Fallback to first column if second is undefined, that's the customer_id
+            label: results[key][1] ?? results[key][0],
 
             // In the same order as the labels get the revenue
             // assuming it was 0 if not present in the dataset

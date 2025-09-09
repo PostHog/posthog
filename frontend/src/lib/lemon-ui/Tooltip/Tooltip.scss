@@ -1,4 +1,7 @@
 .Tooltip {
+    --color-text-secondary: var(--color-text-secondary-inverse); // Inverting secondary for intuitive devex
+
     z-index: var(--z-tooltip);
+    color: var(--color-text-primary-inverse);
     box-shadow: var(--modal-shadow-elevation);
 }

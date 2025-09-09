@@ -2,10 +2,10 @@ from typing import Optional, cast
 
 from django.db.utils import IntegrityError
 from django.shortcuts import get_object_or_404
+
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 
-from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.organization import OrganizationMembership
@@ -13,6 +13,8 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import TeamMemberStrictManagementPermission
 from posthog.user_permissions import UserPermissionsSerializerMixin
+
+from ee.models.explicit_team_membership import ExplicitTeamMembership
 
 
 # DEPRECATED - do not use

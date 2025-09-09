@@ -1,6 +1,8 @@
 import { actions, connect, defaults, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
+
 import api from 'lib/api'
 import { ErrorEventProperties, ErrorEventType } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -21,7 +23,6 @@ import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 import { errorTrackingIssueQuery } from './queries'
 import { ERROR_TRACKING_DETAILS_RESOLUTION } from './utils'
-import { subscriptions } from 'kea-subscriptions'
 
 export interface ErrorTrackingIssueSceneLogicProps {
     id: ErrorTrackingIssue['id']
@@ -52,7 +53,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         loadInitialEvent: (timestamp: string) => ({ timestamp }),
         setInitialEventTimestamp: (timestamp: string | null) => ({ timestamp }),
         setIssue: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
-        setLastSeen: (lastSeen: Dayjs) => ({ lastSeen }),
+        setLastSeen: (lastSeen: string) => ({ lastSeen }),
         selectEvent: (event: ErrorEventType | null) => ({
             event,
         }),
@@ -81,8 +82,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         summary: {},
         lastSeen: {
             setLastSeen: (prevLastSeen, { lastSeen }) => {
-                if (!prevLastSeen || prevLastSeen.isBefore(lastSeen)) {
-                    return lastSeen
+                const lastSeenDayjs = dayjs(lastSeen)
+                if (!prevLastSeen || prevLastSeen.isBefore(lastSeenDayjs)) {
+                    return lastSeenDayjs
                 }
                 return prevLastSeen
             },
@@ -112,8 +114,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             createExternalReference: async ({ integrationId, config }) => {
                 if (values.issue) {
                     const response = await api.errorTracking.createExternalReference(props.id, integrationId, config)
-                    // TODO: we only allow one external reference until we redesign the page
-                    return { ...values.issue, external_issues: [response] }
+                    const externalIssues = values.issue.external_issues ?? []
+                    return { ...values.issue, external_issues: [...externalIssues, response] }
                 }
                 return null
             },
@@ -193,15 +195,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 if (!response.results.length) {
                     return null
                 }
-                if (response.results[0] && response.results[0].last_seen) {
-                    actions.setLastSeen(dayjs(response.results[0].last_seen))
-                    actions.setInitialEventTimestamp(response.results[0].last_seen)
-                }
                 const summary = response.results[0]
                 if (!summary.aggregations) {
                     return null
                 }
                 return {
+                    first_seen: summary.first_seen,
+                    last_seen: summary.last_seen,
                     aggregations: summary.aggregations,
                 }
             },
@@ -255,12 +255,20 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         },
     })),
 
-    listeners(({ props, actions }) => {
+    listeners(({ props, values, actions }) => {
         return {
             setDateRange: actions.loadSummary,
             setFilterGroup: actions.loadSummary,
             setFilterTestAccounts: actions.loadSummary,
             setSearchQuery: actions.loadSummary,
+            loadSummarySuccess: ({ summary }: { summary: ErrorTrackingIssueSummary | null }) => {
+                if (summary && summary.last_seen) {
+                    actions.setLastSeen(summary.last_seen)
+                    actions.setInitialEventTimestamp(summary.last_seen)
+                } else {
+                    actions.setInitialEventTimestamp(values.issue?.first_seen ?? null)
+                }
+            },
             loadIssueFailure: ({ errorObject: { status, data } }) => {
                 if (status == 308 && 'issue_id' in data) {
                     router.actions.replace(urls.errorTrackingIssue(data.issue_id))
@@ -303,5 +311,7 @@ function getNarrowDateRange(timestamp: Dayjs | string): DateRange {
 }
 
 export type ErrorTrackingIssueSummary = {
+    last_seen?: string
+    first_seen?: string
     aggregations: ErrorTrackingIssueAggregations
 }

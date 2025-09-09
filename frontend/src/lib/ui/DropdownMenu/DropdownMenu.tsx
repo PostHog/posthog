@@ -1,8 +1,10 @@
-import { IconCheck, IconChevronRight } from '@posthog/icons'
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
+import * as React from 'react'
+
+import { IconCheck, IconChevronRight } from '@posthog/icons'
+
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
-import * as React from 'react'
 
 import { Label } from '../Label/Label'
 
@@ -95,7 +97,7 @@ const DropdownMenuContent = React.forwardRef<
             className,
             children,
             sideOffset = 4,
-            collisionPadding = { top: 50, bottom: 50 },
+            collisionPadding = { top: 50, bottom: 50, left: 10, right: 10 },
             matchTriggerWidth,
             ...props
         },

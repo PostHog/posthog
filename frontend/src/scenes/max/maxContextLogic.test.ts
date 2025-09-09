@@ -1,6 +1,8 @@
-import {} from '@posthog/icons'
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+
+import '@posthog/icons'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'

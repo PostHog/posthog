@@ -1,7 +1,9 @@
-import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
+
+import { IconPlusSmall, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { TrendsFormulaNode } from '~/queries/schema/schema-general'
@@ -43,7 +45,7 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
                 setLocalValues([emptyNode])
             }
         }
-    }, [formulaNodes, hasFormula])
+    }, [formulaNodes, hasFormula]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const updateFormulas = (newValues: TrendsFormulaNode[]): void => {
         // Filter out empty values when updating the query but keep them in local state

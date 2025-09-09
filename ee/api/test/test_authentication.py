@@ -1,25 +1,28 @@
-import datetime
 import os
 import uuid
+import datetime
 from typing import cast
-from unittest.mock import patch
 
 import pytest
+from freezegun.api import freeze_time
+from unittest.mock import patch
+
 from django.core import mail
 from django.core.exceptions import ValidationError
 from django.test import override_settings
 from django.utils import timezone
-from freezegun.api import freeze_time
+
 from rest_framework import status
 from social_core.exceptions import AuthFailed, AuthMissingParameter
 from social_django.models import UserSocialAuth
 
-from ee.api.test.base import APILicensedTest
-from ee.models.license import License
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
 from posthog.models.organization_domain import OrganizationDomain
+
 from ee.api.authentication import CustomGoogleOAuth2
+from ee.api.test.base import APILicensedTest
+from ee.models.license import License
 
 SAML_MOCK_SETTINGS = {
     "SOCIAL_AUTH_SAML_SECURITY_CONFIG": {
@@ -761,8 +764,8 @@ YotAcSbU3p5bzd11wpyebYHB"""
     # Remove after we figure out saml / xmlsec issues
     # Test login with SAML on dev prod before removing
     def test_xmlsec_and_lxml(self):
-        import xmlsec
         import lxml
+        import xmlsec
 
         assert "1.3.14" == xmlsec.__version__
         assert "5.2.1" == lxml.__version__

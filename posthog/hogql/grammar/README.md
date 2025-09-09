@@ -8,7 +8,7 @@ To generate source code you need to install locally the `antlr` binary. Run this
 brew install antlr
 ```
 
-In case this installs a newer version than 4.13.2, update [ci-hog.yml](https://github.com/PostHog/posthog/blob/master/.github/workflows/ci-hog.yml) to reflect the changes. 
+In case this installs a newer version than 4.13.2, update [ci-hog.yml](https://github.com/PostHog/posthog/blob/master/.github/workflows/ci-hog.yml) to reflect the changes.
 
 Run this if you're using bash on ubuntu:
 
@@ -44,6 +44,7 @@ antlr -visitor -Dlanguage=Python3 HogQLParser.g4
 Original ClickHouse ANTLR grammar from: https://github.com/ClickHouse/ClickHouse/blob/master/utils/antlr/ClickHouseParser.g4
 
 Changes with ClickHouse's grammar:
+
 - removed all statements except for "select"
 - raises an error if you run some ClickHouse SQL query features that are not implemented yet (ever changing list, check the code)
 - supports placeholders like "team_id = {val1}"

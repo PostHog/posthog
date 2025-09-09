@@ -108,7 +108,9 @@ export const API_KEY_SCOPE_PRESETS: {
         value: 'mcp_server',
         label: 'MCP Server',
         scopes: API_SCOPES.map(({ key }) =>
-            ['feature_flag', 'insight', 'dashboard'].includes(key) ? `${key}:write` : `${key}:read`
+            ['feature_flag', 'insight', 'dashboard', 'survey', 'experiment'].includes(key)
+                ? `${key}:write`
+                : `${key}:read`
         ),
         access_type: 'all',
     },

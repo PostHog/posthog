@@ -1,7 +1,9 @@
-import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
+import { Link } from '@posthog/lemon-ui'
+
 import { PageHeader } from 'lib/components/PageHeader'
-import { IconPlayCircle, IconRefresh, IconReplay } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
@@ -11,21 +13,21 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconPlayCircle, IconRefresh, IconReplay } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { useEffect } from 'react'
 import { AsyncMigrationParametersModal } from 'scenes/instance/AsyncMigrations/AsyncMigrationParametersModal'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
 import { AsyncMigrationDetails } from './AsyncMigrationDetails'
+import { SettingUpdateField } from './SettingUpdateField'
 import {
     AsyncMigration,
-    asyncMigrationsLogic,
-    AsyncMigrationsTab,
     AsyncMigrationStatus,
+    AsyncMigrationsTab,
+    asyncMigrationsLogic,
     migrationStatusNumberToMessage,
 } from './asyncMigrationsLogic'
-import { SettingUpdateField } from './SettingUpdateField'
 
 export const scene: SceneExport = {
     component: AsyncMigrations,
@@ -63,7 +65,7 @@ export function AsyncMigrations(): JSX.Element {
             const interval = setInterval(() => loadAsyncMigrations(), STATUS_RELOAD_INTERVAL_MS)
             return () => clearInterval(interval)
         }
-    }, [isAnyMigrationRunning])
+    }, [isAnyMigrationRunning]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const nameColumn: AsyncMigrationColumnType = {
         title: 'Migration',
@@ -94,12 +96,12 @@ export function AsyncMigrations(): JSX.Element {
                 status === AsyncMigrationStatus.Running
                     ? 'success'
                     : status === AsyncMigrationStatus.Errored || status === AsyncMigrationStatus.FailedAtStartup
-                    ? 'danger'
-                    : status === AsyncMigrationStatus.Starting
-                    ? 'warning'
-                    : status === AsyncMigrationStatus.RolledBack
-                    ? 'warning'
-                    : 'default'
+                      ? 'danger'
+                      : status === AsyncMigrationStatus.Starting
+                        ? 'warning'
+                        : status === AsyncMigrationStatus.RolledBack
+                          ? 'warning'
+                          : 'default'
             return (
                 <LemonTag type={type} className="uppercase">
                     {migrationStatusNumberToMessage[status]}

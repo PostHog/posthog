@@ -18,7 +18,7 @@ impl FromStr for FlexBool {
         match s.trim().to_lowercase().as_str() {
             "true" | "1" | "yes" | "on" => Ok(FlexBool(true)),
             "false" | "0" | "no" | "off" | "" => Ok(FlexBool(false)),
-            _ => Err(format!("Invalid boolean value: {}", s)),
+            _ => Err(format!("Invalid boolean value: {s}")),
         }
     }
 }
@@ -53,8 +53,8 @@ pub enum ParseTeamIdsError {
 impl std::fmt::Display for ParseTeamIdsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ParseTeamIdsError::InvalidRange(r) => write!(f, "Invalid range: {}", r),
-            ParseTeamIdsError::InvalidNumber(e) => write!(f, "Invalid number: {}", e),
+            ParseTeamIdsError::InvalidRange(r) => write!(f, "Invalid range: {r}"),
+            ParseTeamIdsError::InvalidNumber(e) => write!(f, "Invalid number: {e}"),
         }
     }
 }
@@ -113,6 +113,12 @@ pub struct Config {
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub read_database_url: String,
 
+    #[envconfig(default = "")]
+    pub persons_write_database_url: String,
+
+    #[envconfig(default = "")]
+    pub persons_read_database_url: String,
+
     #[envconfig(default = "1000")]
     pub max_concurrency: usize,
 
@@ -159,6 +165,12 @@ pub struct Config {
     #[envconfig(from = "COOKIELESS_SALT_TTL_SECONDS", default = "86400")]
     pub cookieless_salt_ttl_seconds: u64,
 
+    #[envconfig(from = "COOKIELESS_REDIS_HOST", default = "localhost")]
+    pub cookieless_redis_host: String,
+
+    #[envconfig(from = "COOKIELESS_REDIS_PORT", default = "6379")]
+    pub cookieless_redis_port: u64,
+
     #[envconfig(from = "NEW_ANALYTICS_CAPTURE_ENDPOINT", default = "/i/v0/e/")]
     pub new_analytics_capture_endpoint: String,
 
@@ -204,6 +216,8 @@ impl Config {
             write_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog"
                 .to_string(),
             read_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
+            persons_write_database_url: "".to_string(),
+            persons_read_database_url: "".to_string(),
             max_concurrency: 1000,
             max_pg_connections: 10,
             acquire_timeout_secs: 5,
@@ -216,6 +230,8 @@ impl Config {
             cookieless_force_stateless: false,
             cookieless_identifies_ttl_seconds: 7200,
             cookieless_salt_ttl_seconds: 86400,
+            cookieless_redis_host: "localhost".to_string(),
+            cookieless_redis_port: 6379,
             new_analytics_capture_endpoint: "/i/v0/e/".to_string(),
             new_analytics_capture_excluded_team_ids: TeamIdCollection::None,
             element_chain_as_string_excluded_teams: TeamIdCollection::None,
@@ -260,6 +276,13 @@ impl Config {
         }
     }
 
+    pub fn get_redis_cookieless_url(&self) -> String {
+        format!(
+            "redis://{}:{}",
+            self.cookieless_redis_host, self.cookieless_redis_port
+        )
+    }
+
     pub fn get_cookieless_config(&self) -> CookielessConfig {
         CookielessConfig {
             disabled: self.cookieless_disabled,
@@ -274,6 +297,29 @@ impl Config {
             TeamIdCollection::All => true,
             TeamIdCollection::None => false,
             TeamIdCollection::TeamIds(ids) => ids.contains(&team_id),
+        }
+    }
+
+    /// Check if persons database routing is enabled
+    pub fn is_persons_db_routing_enabled(&self) -> bool {
+        !self.persons_read_database_url.is_empty() && !self.persons_write_database_url.is_empty()
+    }
+
+    /// Get the database URL for persons reads, falling back to the default read URL
+    pub fn get_persons_read_database_url(&self) -> String {
+        if self.persons_read_database_url.is_empty() {
+            self.read_database_url.clone()
+        } else {
+            self.persons_read_database_url.clone()
+        }
+    }
+
+    /// Get the database URL for persons writes, falling back to the default write URL
+    pub fn get_persons_write_database_url(&self) -> String {
+        if self.persons_write_database_url.is_empty() {
+            self.write_database_url.clone()
+        } else {
+            self.persons_write_database_url.clone()
         }
     }
 }

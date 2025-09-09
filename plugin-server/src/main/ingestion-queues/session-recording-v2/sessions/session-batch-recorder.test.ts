@@ -45,7 +45,11 @@ export class SnappySessionRecorderMock {
     private endDateTime: DateTime | null = null
     private _distinctId: string | null = null
 
-    constructor(public readonly sessionId: string, public readonly teamId: number, private readonly batchId: string) {}
+    constructor(
+        public readonly sessionId: string,
+        public readonly teamId: number,
+        private readonly batchId: string
+    ) {}
 
     public recordMessage(message: ParsedMessageData): number {
         let bytesWritten = 0
@@ -233,7 +237,7 @@ describe('SessionBatchRecorder', () => {
 
     // Helper to capture written data
     const captureWrittenData = (mockWriteSession: jest.Mock): string[] => {
-        return mockWriteSession.mock.calls.map(([buffer]) => buffer.toString())
+        return mockWriteSession.mock.calls.map(([data]) => data.buffer.toString())
     }
 
     describe('recording and writing', () => {
@@ -1027,7 +1031,9 @@ describe('SessionBatchRecorder', () => {
                 ),
             ]
 
-            messages.forEach((message) => recorder.record(message))
+            for (const message of messages) {
+                await recorder.record(message)
+            }
             await recorder.flush()
 
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith(
@@ -1108,7 +1114,9 @@ describe('SessionBatchRecorder', () => {
                 ),
             ]
 
-            messages.forEach((message) => recorder.record(message))
+            for (const message of messages) {
+                await recorder.record(message)
+            }
             await recorder.flush()
 
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
@@ -1147,7 +1155,9 @@ describe('SessionBatchRecorder', () => {
                 ),
             ]
 
-            messages.forEach((message) => recorder.record(message))
+            for (const message of messages) {
+                await recorder.record(message)
+            }
             recorder.discardPartition(1)
             await recorder.flush()
 
@@ -1285,7 +1295,9 @@ describe('SessionBatchRecorder', () => {
                 ),
             ]
 
-            messages.forEach((message) => recorder.record(message))
+            for (const message of messages) {
+                await recorder.record(message)
+            }
             recorder.discardPartition(1)
             await recorder.flush()
 
@@ -1386,7 +1398,7 @@ describe('SessionBatchRecorder', () => {
                             consoleWarnCount: 3,
                             consoleErrorCount: 2,
                         }),
-                    } as unknown as SessionConsoleLogRecorder)
+                    }) as unknown as SessionConsoleLogRecorder
             )
 
             const message = createMessage('session_custom', [
@@ -1564,7 +1576,7 @@ describe('SessionBatchRecorder', () => {
                     ({
                         recordMessage: jest.fn().mockReturnValue(1),
                         end: () => Promise.reject(new Error('Stream read error')),
-                    } as unknown as SnappySessionRecorder)
+                    }) as unknown as SnappySessionRecorder
             )
 
             await recorder.record(createMessage('session', events))

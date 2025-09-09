@@ -1,4 +1,5 @@
 import { IconDownload } from '@posthog/icons'
+
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -7,10 +8,12 @@ import {
     DropdownMenuOpenIndicator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { SubscriptionBaseProps } from '../../Subscriptions/utils'
+
 import { ExportContext, ExporterFormat, OnlineExportContext } from '~/types'
+
 import { TriggerExportProps } from '../../ExportButton/exporter'
 import { exportsLogic } from '../../ExportButton/exportsLogic'
+import { SubscriptionBaseProps } from '../../Subscriptions/utils'
 
 interface SceneExportDropdownMenuProps extends SubscriptionBaseProps {
     dropdownMenuItems: {
@@ -40,7 +43,7 @@ export function SceneExportDropdownMenu({ dropdownMenuItems }: SceneExportDropdo
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" matchTriggerWidth>
-                {dropdownMenuItems.map((item) => {
+                {dropdownMenuItems.map((item, index) => {
                     const exportFormatExtension = Object.keys(ExporterFormat)
                         .find((key) => ExporterFormat[key as keyof typeof ExporterFormat] === item.format)
                         ?.toLowerCase()
@@ -60,7 +63,7 @@ export function SceneExportDropdownMenu({ dropdownMenuItems }: SceneExportDropdo
 
                     return (
                         <DropdownMenuItem
-                            key={item.label}
+                            key={index}
                             onClick={() =>
                                 void onExportClick({
                                     export_format: item.format,

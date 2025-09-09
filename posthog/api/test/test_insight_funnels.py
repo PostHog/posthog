@@ -1,12 +1,8 @@
 from datetime import datetime
 from typing import Any, Union
 
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    snapshot_clickhouse_queries,
-)
 from posthog.test.test_journeys import journeys_for
 
 

@@ -179,13 +179,25 @@ pub struct EphemeralTopic {
 impl EphemeralTopic {
     pub async fn new() -> Self {
         let mut config = ClientConfig::new();
-        config.set("group.id", "capture_integration_tests");
+        let group_id = random_string("capture_it", 12);
+        config.set("group.id", &group_id);
         config.set(
             "bootstrap.servers",
             DEFAULT_CONFIG.kafka.kafka_hosts.clone(),
         );
-        config.set("debug", "all");
-        config.set("socket.timeout.ms", "5000");
+        config.set("debug", "consumer,cgrp,topic,fetch");
+        config.set("socket.timeout.ms", "30000");
+        // RedPanda compatibility settings
+        config.set("enable.auto.commit", "false");
+        config.set("auto.offset.reset", "earliest");
+        config.set("session.timeout.ms", "30000");
+        config.set("heartbeat.interval.ms", "10000");
+        config.set("max.poll.interval.ms", "300000");
+        config.set("connections.max.idle.ms", "540000");
+        // Consumer-specific timeout settings
+        config.set("fetch.wait.max.ms", "500");
+        config.set("fetch.error.backoff.ms", "500");
+        config.set("partition.assignment.strategy", "cooperative-sticky");
 
         // TODO: check for name collision?
         let topic_name = random_string("events_", 16);
@@ -207,7 +219,35 @@ impl EphemeralTopic {
             result.expect("failed to create topic");
         }
 
+        // Wait for topic metadata to be fully available across RedPanda cluster
         let consumer: BaseConsumer = config.create().expect("failed to create consumer");
+
+        // Robust topic readiness check
+        for attempt in 0..100 {
+            match consumer.fetch_metadata(Some(&topic_name), Duration::from_secs(1)) {
+                Ok(metadata) => {
+                    let ready = metadata
+                        .topics()
+                        .iter()
+                        .any(|t| t.name() == topic_name && !t.partitions().is_empty());
+                    if ready {
+                        // Add extra delay to ensure topic is fully ready for production/consumption
+                        std::thread::sleep(Duration::from_millis(200));
+                        break;
+                    }
+                }
+                Err(_) => {
+                    // Metadata fetch failed, continue retrying
+                }
+            }
+
+            if attempt == 99 {
+                panic!("Topic {topic_name} not ready after 100 attempts");
+            }
+
+            std::thread::sleep(Duration::from_millis(50));
+        }
+
         let mut assignment = TopicPartitionList::new();
         assignment.add_partition(&topic_name, 0);
         consumer
@@ -216,38 +256,72 @@ impl EphemeralTopic {
 
         Self {
             consumer,
-            read_timeout: Timeout::After(Duration::from_secs(5)),
+            read_timeout: Timeout::After(Duration::from_secs(30)),
             topic_name,
         }
     }
 
     pub fn next_event(&self) -> anyhow::Result<serde_json::Value> {
-        match self.consumer.poll(self.read_timeout) {
-            Some(Ok(message)) => {
-                let body = message.payload().expect("empty kafka message");
-                let event = serde_json::from_slice(body)?;
-                Ok(event)
+        // Retry on transient Kafka errors like NotCoordinator
+        let mut retries = 0;
+        const MAX_RETRIES: u32 = 10;
+
+        loop {
+            match self.consumer.poll(self.read_timeout) {
+                Some(Ok(message)) => {
+                    let body = message.payload().expect("empty kafka message");
+                    let event = serde_json::from_slice(body)?;
+                    return Ok(event);
+                }
+                Some(Err(err)) => {
+                    // Check if it's a transient error that should be retried
+                    let err_str = err.to_string();
+                    if (err_str.contains("NotCoordinator") || err_str.contains("Unknown partition"))
+                        && retries < MAX_RETRIES
+                    {
+                        retries += 1;
+                        std::thread::sleep(Duration::from_millis(100));
+                        continue;
+                    }
+                    bail!("kafka read error: {}", err);
+                }
+                None => bail!("kafka read timeout"),
             }
-            Some(Err(err)) => bail!("kafka read error: {}", err),
-            None => bail!("kafka read timeout"),
         }
     }
     pub fn next_message_key(&self) -> anyhow::Result<Option<String>> {
-        match self.consumer.poll(self.read_timeout) {
-            Some(Ok(message)) => {
-                let key = message.key();
+        // Retry on transient Kafka errors like NotCoordinator
+        let mut retries = 0;
+        const MAX_RETRIES: u32 = 10;
 
-                if let Some(key) = key {
-                    let key = std::str::from_utf8(key)?;
-                    let key = String::from_str(key)?;
+        loop {
+            match self.consumer.poll(self.read_timeout) {
+                Some(Ok(message)) => {
+                    let key = message.key();
 
-                    Ok(Some(key))
-                } else {
-                    Ok(None)
+                    if let Some(key) = key {
+                        let key = std::str::from_utf8(key)?;
+                        let key = String::from_str(key)?;
+
+                        return Ok(Some(key));
+                    } else {
+                        return Ok(None);
+                    }
                 }
+                Some(Err(err)) => {
+                    // Check if it's a transient error that should be retried
+                    let err_str = err.to_string();
+                    if (err_str.contains("NotCoordinator") || err_str.contains("Unknown partition"))
+                        && retries < MAX_RETRIES
+                    {
+                        retries += 1;
+                        std::thread::sleep(Duration::from_millis(100));
+                        continue;
+                    }
+                    bail!("kafka read error: {}", err);
+                }
+                None => bail!("kafka read timeout"),
             }
-            Some(Err(err)) => bail!("kafka read error: {}", err),
-            None => bail!("kafka read timeout"),
         }
     }
 
@@ -268,7 +342,14 @@ impl EphemeralTopic {
 impl Drop for EphemeralTopic {
     fn drop(&mut self) {
         info!("dropping EphemeralTopic {}...", self.topic_name);
+
+        // First unsubscribe to stop any ongoing polls
         self.consumer.unsubscribe();
+
+        // Give some time for any ongoing polls to complete
+        std::thread::sleep(Duration::from_millis(100));
+
+        // Then delete the topic
         match futures::executor::block_on(timeout(
             Duration::from_secs(10),
             delete_topic(self.topic_name.clone()),
@@ -347,5 +428,5 @@ pub fn random_string(prefix: &str, length: usize) -> String {
         .take(length)
         .map(char::from)
         .collect();
-    format!("{}_{}", prefix, suffix)
+    format!("{prefix}_{suffix}")
 }

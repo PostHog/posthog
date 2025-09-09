@@ -1,17 +1,15 @@
 import uuid
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlparse
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+
+from posthog.schema import CustomChannelCondition, CustomChannelRule, FilterLogicalOperator, HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
+
 from posthog.models.utils import uuid7
-from posthog.schema import HogQLQueryModifiers, CustomChannelRule, CustomChannelCondition, FilterLogicalOperator
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_person,
-    _create_event,
-)
 
 
 class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):

@@ -1,22 +1,24 @@
-import { IconDownload, IconEllipsis, IconMinusSmall, IconNotebook, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
+
+import { IconDownload, IconEllipsis, IconMinusSmall, IconNotebook, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems, LemonTag } from '@posthog/lemon-ui'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useMemo } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { PlaylistPopoverButton } from 'scenes/session-recordings/player/playlist-popover/PlaylistPopover'
 import {
-    sessionRecordingPlayerLogic,
     SessionRecordingPlayerMode,
+    sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { PlayerShareMenu } from 'scenes/session-recordings/player/share/PlayerShareMenu'
 import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 
 import { PlayerMetaBreakpoints } from './PlayerMeta'
-import { NotebookNodeType } from 'scenes/notebooks/types'
 
 function PinToPlaylistButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -138,8 +140,8 @@ const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'full
 
 const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { deleteRecording, setIsFullScreen, exportRecordingToFile } = useActions(sessionRecordingPlayerLogic)
-
+    const { deleteRecording, setIsFullScreen, exportRecordingToFile, exportRecordingToVideoFile } =
+        useActions(sessionRecordingPlayerLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const isStandardMode =
@@ -170,36 +172,32 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                 label: () => <AddToNotebookButton fullWidth={true} />,
             },
             isStandardMode && {
-                title: 'Export',
-                key: 'export',
-                items: [
-                    {
-                        label: 'posthog .json',
-                        status: 'default',
-                        icon: <IconDownload />,
-                        onClick: () => exportRecordingToFile('posthog'),
-                        tooltip:
-                            'Export PostHog recording data to a JSON file. This can be loaded later into PostHog for playback.',
-                    },
-                    {
-                        label: 'rrweb .json',
-                        status: 'default',
-                        icon: <IconDownload />,
-                        onClick: () => exportRecordingToFile('rrweb'),
-                        tooltip:
-                            'Export rrweb snapshots to a JSON file. This can be played in rrweb compatible players like rrwebdebug.com.',
-                    },
-                ],
+                label: 'PostHog .json',
+                status: 'default',
+                icon: <IconDownload />,
+                onClick: () => exportRecordingToFile(),
+                tooltip:
+                    'Export PostHog recording data to a JSON file. This can be loaded later into PostHog for playback.',
+                'data-attr': 'replay-export-posthog-json',
             },
+            isStandardMode && featureFlags[FEATURE_FLAGS.REPLAY_EXPORT_FULL_VIDEO]
+                ? {
+                      label: (
+                          <div className="flex w-full gap-x-2 justify-between items-center">
+                              Export to MP4{' '}
+                              <LemonTag type="warning" size="small">
+                                  BETA
+                              </LemonTag>
+                          </div>
+                      ),
+                      status: 'default',
+                      icon: <IconDownload />,
+                      onClick: () => exportRecordingToVideoFile(),
+                      tooltip: 'Export PostHog recording data to MP4 video file.',
+                      'data-attr': 'replay-export-mp4',
+                  }
+                : null,
         ]
-
-        if (featureFlags[FEATURE_FLAGS.REPLAY_EXPORT_RAW_RECORDING]) {
-            itemsArray.push({
-                label: 'Raw recording (PostHog only)',
-                onClick: () => exportRecordingToFile('raw'),
-                tooltip: 'Export raw recording to a JSON file.',
-            })
-        }
 
         if (logicProps.playerKey !== 'modal') {
             isStandardMode &&
@@ -208,6 +206,8 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                     status: 'danger',
                     onClick: onDelete,
                     icon: <IconTrash />,
+                    tooltip: 'Delete recording',
+                    'data-attr': 'replay-delete-recording',
                 })
         }
         return itemsArray

@@ -92,9 +92,9 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('function_email'),
         config: z.object({
-            message_category_id: z.string().uuid(),
-            template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
-            template_id: z.literal('template-email-native'),
+            message_category_id: z.string().uuid().optional(),
+            template_uuid: z.string().optional(), // May be used later to specify a specific template version
+            template_id: z.literal('template-email'),
             inputs: z.record(CyclotronInputSchema),
         }),
     }),
@@ -104,7 +104,6 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('function'),
         config: z.object({
-            message_category_id: z.string().uuid(),
             template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
             template_id: z.string(),
             inputs: z.record(CyclotronInputSchema),
@@ -114,30 +113,12 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('function_sms'),
         config: z.object({
+            message_category_id: z.string().uuid().optional(),
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-twilio'),
             inputs: z.record(CyclotronInputSchema),
         }),
     }),
-    z.object({
-        ..._commonActionFields,
-        type: z.literal('function_slack'),
-        config: z.object({
-            template_uuid: z.string().uuid().optional(),
-            template_id: z.literal('template-slack'),
-            inputs: z.record(CyclotronInputSchema),
-        }),
-    }),
-    z.object({
-        ..._commonActionFields,
-        type: z.literal('function_webhook'),
-        config: z.object({
-            template_uuid: z.string().uuid().optional(),
-            template_id: z.literal('template-webhook'),
-            inputs: z.record(CyclotronInputSchema),
-        }),
-    }),
-
     // Exit
     z.object({
         ..._commonActionFields,

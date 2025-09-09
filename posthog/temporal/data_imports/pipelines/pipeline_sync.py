@@ -3,27 +3,30 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Optional
 
-import dlt
-import dlt.common
-import dlt.common.libs
-import dlt.common.libs.pyarrow
-import dlt.extract
-import dlt.extract.incremental
-import dlt.extract.incremental.transform
-import pendulum
-import pyarrow
-from clickhouse_driver.errors import ServerException
 from django.conf import settings
 from django.db.models import Prefetch
+
+import dlt
+import pyarrow
+import pendulum
+import dlt.common
+import dlt.extract
+import dlt.common.libs
+import dlt.common.libs.pyarrow
+import dlt.extract.incremental
+import dlt.extract.incremental.transform
+from clickhouse_driver.errors import ServerException
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
+from posthog.temporal.common.logger import get_logger
 from posthog.warehouse.models.credential import get_or_create_datawarehouse_credential
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
+from posthog.warehouse.types import ExternalDataSourceType
+
+LOGGER = get_logger(__name__)
 
 
 def _from_arrow_scalar(arrow_value: pyarrow.Scalar) -> Any:
@@ -47,7 +50,7 @@ class PipelineInputs:
     run_id: str
     schema_id: uuid.UUID
     dataset_name: str
-    job_type: ExternalDataSource.Type
+    job_type: ExternalDataSourceType
     team_id: int
 
 
@@ -79,8 +82,7 @@ def validate_schema_and_update_table_sync(
         table_format: The format of the table
         table_schema_dict: The schema of the table
     """
-
-    logger = bind_temporal_worker_logger_sync(team_id=team_id)
+    logger = LOGGER.bind(team_id=team_id)
 
     if row_count == 0:
         logger.warn("Skipping `validate_schema_and_update_table` due to `row_count` being 0")

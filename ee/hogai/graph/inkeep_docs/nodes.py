@@ -2,6 +2,7 @@ from typing import Literal
 from uuid import uuid4
 
 from django.conf import settings
+
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     BaseMessage,
@@ -11,10 +12,11 @@ from langchain_core.messages import (
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
+from posthog.schema import AssistantMessage, AssistantToolCallMessage
+
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.state import PartialAssistantState
 from ee.hogai.utils.types import AssistantState
-from posthog.schema import AssistantMessage, AssistantToolCallMessage
 
 from ..root.nodes import RootNode
 from .prompts import INKEEP_DATA_CONTINUATION_PHRASE, INKEEP_DOCS_SYSTEM_PROMPT
@@ -39,7 +41,8 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
         )
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
-        messages: list[BaseMessage] = [LangchainSystemMessage(content=INKEEP_DOCS_SYSTEM_PROMPT)]
+        system_prompt = LangchainSystemMessage(content=INKEEP_DOCS_SYSTEM_PROMPT)
+        messages: list[BaseMessage] = []
         for message in super()._construct_messages(state):
             if message.content:
                 messages.append(message)
@@ -51,7 +54,7 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
         )
         if last_human_message_index is not None:
             messages = messages[: last_human_message_index + 1]
-        return messages
+        return [system_prompt] + messages[-29:]
 
     def _get_model(self):  # type: ignore
         return MaxChatOpenAI(

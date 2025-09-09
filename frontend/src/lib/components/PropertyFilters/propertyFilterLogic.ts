@@ -1,4 +1,5 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+
 import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import { isValidPropertyFilter, parseProperties } from 'lib/components/PropertyFilters/utils'
 

@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'

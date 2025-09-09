@@ -84,7 +84,7 @@ impl FingerprintBuilder {
 
     pub fn finalize(self) -> Fingerprint {
         let result = self.hasher.finalize();
-        let content = format!("{:x}", result);
+        let content = format!("{result:x}");
         Fingerprint {
             value: content,
             record: self.record,

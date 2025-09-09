@@ -1,16 +1,18 @@
-import { IconCode } from '@posthog/icons'
-import { LemonModal } from '@posthog/lemon-ui'
-import { LemonButton } from '@posthog/lemon-ui'
 import useSize from '@react-hook/size'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useRef, useState } from 'react'
+
+import { IconCode } from '@posthog/icons'
+import { LemonModal } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { SkeletonLog } from 'lib/components/ActivityLog/ActivityLog'
 import { HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { TZLabel } from 'lib/components/TZLabel'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { useRef, useState } from 'react'
 
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { queryHistoryLogic } from './queryHistoryLogic'

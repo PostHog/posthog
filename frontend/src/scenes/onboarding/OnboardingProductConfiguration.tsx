@@ -1,12 +1,15 @@
-import { LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import React, { useEffect, useRef } from 'react'
+
+import { LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { pipelineDefaultEnabledLogic } from 'scenes/pipeline/pipelineDefaultEnabledLogic'
 
-import { ProductKey, OnboardingStepKey } from '~/types'
+import { OnboardingStepKey, ProductKey } from '~/types'
 
-import { onboardingProductConfigurationLogic, ProductConfigOption } from './onboardingProductConfigurationLogic'
 import { OnboardingStep } from './OnboardingStep'
+import { ProductConfigOption, onboardingProductConfigurationLogic } from './onboardingProductConfigurationLogic'
 
 type ConfigType = 'toggle' | 'select'
 type PluginType = 'plugin'
@@ -48,9 +51,9 @@ export const OnboardingProductConfiguration = ({
         configOptionsRef.current = configOptions
     }, [configOptions])
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         setConfigOptions(options.filter((option): option is ProductConfigOption => !!option))
-    }, [])
+    })
 
     const combinedList: ConfigOption[] = [
         ...configOptions

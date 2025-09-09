@@ -2,6 +2,7 @@ import './HedgehogBuddy.scss'
 
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
+
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -16,7 +17,7 @@ export function HedgehogBuddyWithLogic(): JSX.Element {
     const { members } = useValues(membersLogic)
     const { ensureAllMembersLoaded } = useActions(membersLogic)
 
-    useEffect(() => ensureAllMembersLoaded(), [hedgehogConfig.enabled])
+    useEffect(() => ensureAllMembersLoaded(), [hedgehogConfig.enabled, ensureAllMembersLoaded])
 
     return hedgehogConfig.enabled ? (
         <>

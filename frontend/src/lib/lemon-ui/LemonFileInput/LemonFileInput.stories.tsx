@@ -1,6 +1,7 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { createRef, useState } from 'react'
+
+import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 
 type Story = StoryObj<typeof LemonFileInput>
 const meta: Meta<typeof LemonFileInput> = {

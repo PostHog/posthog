@@ -1,20 +1,20 @@
 import re
+from typing import TYPE_CHECKING, Union
+
+from django.db.models import Q
 
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateDatabaseField,
     DateTimeDatabaseField,
-    IntegerDatabaseField,
-    FloatDatabaseField,
     DecimalDatabaseField,
+    FloatDatabaseField,
+    IntegerDatabaseField,
     StringArrayDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
     UnknownDatabaseField,
 )
-
-from django.db.models import Q
-from typing import TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
     from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable

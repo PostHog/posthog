@@ -1,4 +1,4 @@
-import { LogLevel, PluginLogLevel, PluginsServerConfig, stringToPluginServerMode, ValueMatcher } from '../types'
+import { LogLevel, PluginLogLevel, PluginsServerConfig, ValueMatcher, stringToPluginServerMode } from '../types'
 import { isDevEnv, isProdEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
@@ -8,7 +8,6 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
-    KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS,
     KAFKA_LOG_ENTRIES,
 } from './kafka-topics'
 
@@ -19,37 +18,47 @@ export const defaultConfig = overrideWithEnv(getDefaultConfig())
 export function getDefaultConfig(): PluginsServerConfig {
     return {
         INSTRUMENT_THREAD_PERFORMANCE: false,
+        OTEL_EXPORTER_OTLP_ENDPOINT: isDevEnv() ? 'http://localhost:4317' : '',
+        OTEL_SDK_DISABLED: isDevEnv() ? false : true,
+        OTEL_TRACES_SAMPLER_ARG: 1,
+        OTEL_MAX_SPANS_PER_GROUP: 2,
+        OTEL_MIN_SPAN_DURATION_MS: 50,
         DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/posthog'
-            : '',
+              ? 'postgres://posthog:posthog@localhost:5432/posthog'
+              : '',
         DATABASE_READONLY_URL: '',
         PLUGIN_STORAGE_DATABASE_URL: '',
         PERSONS_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/posthog'
-            : '',
+              ? 'postgres://posthog:posthog@localhost:5432/posthog'
+              : '',
         PERSONS_READONLY_DATABASE_URL: '',
+        PERSONS_MIGRATION_DATABASE_URL: isTestEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/test_posthog_persons_migration'
+            : isDevEnv()
+              ? 'postgres://posthog:posthog@localhost:5432/posthog_persons_migration'
+              : '',
+        PERSONS_MIGRATION_READONLY_DATABASE_URL: '',
         POSTGRES_CONNECTION_POOL_SIZE: 10,
         POSTHOG_DB_NAME: null,
         POSTHOG_DB_USER: 'postgres',
         POSTHOG_DB_PASSWORD: '',
         POSTHOG_POSTGRES_HOST: 'localhost',
         POSTHOG_POSTGRES_PORT: 5432,
-        CASSANDRA_HOST: 'localhost',
-        CASSANDRA_PORT: 9042,
-        CASSANDRA_KEYSPACE: isTestEnv() ? 'test_posthog' : 'posthog',
-        CASSANDRA_USER: null,
-        CASSANDRA_PASSWORD: null,
-        WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: false,
+        POSTGRES_COUNTERS_HOST: 'localhost',
+        POSTGRES_COUNTERS_USER: 'postgres',
+        POSTGRES_COUNTERS_PASSWORD: '',
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         CONSUMER_BATCH_SIZE: 500,
         CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: 30_000,
+        CONSUMER_LOOP_STALL_THRESHOLD_MS: 60_000, // 1 minute - consider loop stalled after this
+        CONSUMER_LOOP_BASED_HEALTH_CHECK: false, // Use consumer loop monitoring for health checks instead of heartbeats
         CONSUMER_MAX_BACKGROUND_TASKS: 1,
         CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: false,
         CONSUMER_AUTO_CREATE_TOPICS: true,
@@ -99,7 +108,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
-        EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS,
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
         OBJECT_STORAGE_ENABLED: true,
@@ -114,7 +122,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKAJS_LOG_LEVEL: 'WARN',
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
         CLOUD_DEPLOYMENT: null,
-        EXTERNAL_REQUEST_TIMEOUT_MS: 10 * 1000, // 10 seconds
+        EXTERNAL_REQUEST_TIMEOUT_MS: 3000, // 3 seconds
+        EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000, // 3 seconds
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
         SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
         PIPELINE_STEP_STALLED_LOG_TIMEOUT: 30,
@@ -125,6 +134,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
         LAZY_LOADER_DEFAULT_BUFFER_MS: 10,
+        CAPTURE_INTERNAL_URL: isProdEnv()
+            ? 'http://capture.posthog.svc.cluster.local:3000/capture'
+            : 'http://localhost:8010/capture',
 
         // posthog
         POSTHOG_API_KEY: '',
@@ -168,6 +180,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_WATCHER_REFILL_RATE: 10,
         CDP_WATCHER_STATE_LOCK_TTL: 60, // 1 minute
         CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: 3,
+        CDP_WATCHER_SEND_EVENTS: isProdEnv() ? false : true,
+        CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS: 500,
+        CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS: 500,
+        CDP_RATE_LIMITER_BUCKET_SIZE: 100,
+        CDP_RATE_LIMITER_REFILL_RATE: 1, // per second request rate limit
+        CDP_RATE_LIMITER_TTL: 60 * 60 * 24, // This is really long as it is essentially only important to make sure the key is eventually deleted
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
         CDP_REDIS_PASSWORD: '',
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
@@ -186,22 +204,20 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_HOG_WATCHER_SAMPLE_RATE: 0, // default is off
-        CDP_FETCH_TIMEOUT_MS: 3000, // 3 seconds
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
         CDP_OVERFLOW_QUEUE_ENABLED: false,
         CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS: isProdEnv() ? false : true, // For prod we primarily use overflow and some more manual control
+        CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
         CDP_LEGACY_EVENT_REDIRECT_TOPIC: '',
-
         CDP_PLUGIN_CAPTURE_EVENTS_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
 
         HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
         HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: KAFKA_LOG_ENTRIES,
-        HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
 
         // Destination Migration Diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
@@ -233,7 +249,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB
         SESSION_RECORDING_MAX_BATCH_AGE_MS: 10 * 1000, // 10 seconds
         SESSION_RECORDING_V2_S3_BUCKET: 'posthog',
-        SESSION_RECORDING_V2_S3_PREFIX: 'session_recording_batches',
+        SESSION_RECORDING_V2_S3_PREFIX: 'session_recordings',
         SESSION_RECORDING_V2_S3_ENDPOINT: 'http://localhost:19000',
         SESSION_RECORDING_V2_S3_REGION: 'us-east-1',
         SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user',
@@ -242,7 +258,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: 'clickhouse_session_replay_events',
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: 'log_entries',
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
-        SESSION_RECORDING_V2_METADATA_SWITCHOVER: '',
+        // in both the PostHog cloud environment and development
+        // we want this metadata switchover to be in blob ingestion v2 mode
+        // hobby installs will set this metadata value to a datetime
+        // since they may be running v1 and being upgraded
+        SESSION_RECORDING_V2_METADATA_SWITCHOVER: '*',
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,
@@ -258,6 +278,8 @@ export function getDefaultConfig(): PluginsServerConfig {
                 24) * // amount of time salt is valid in one timezone
             60 *
             60,
+        COOKIELESS_REDIS_HOST: '',
+        COOKIELESS_REDIS_PORT: 6379,
 
         PERSON_BATCH_WRITING_DB_WRITE_MODE: 'NO_ASSERT',
         PERSON_BATCH_WRITING_OPTIMISTIC_UPDATES_ENABLED: false,
@@ -265,9 +287,26 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE: 0,
+        // DB constraint check uses pg_column_size(properties); default 512kb + 128kb = 655360 bytes
+        PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES: 655360,
+        // Trim target is the customer-facing limit (512kb)
+        PERSON_PROPERTIES_TRIM_TARGET_BYTES: 512 * 1024,
+        // Limit per merge for moving distinct IDs. 0 disables limiting (move all)
+        PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 0,
+        // Topic for async person merge processing
+        PERSON_MERGE_ASYNC_TOPIC: '',
+        // Enable async person merge processing
+        PERSON_MERGE_ASYNC_ENABLED: false,
+        // Batch size for sync person merge processing (0 = unlimited, process all distinct IDs in one query)
+        PERSON_MERGE_SYNC_BATCH_SIZE: 0,
+
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
+        PERSONS_DUAL_WRITE_ENABLED: false,
+        PERSONS_DUAL_WRITE_COMPARISON_ENABLED: false,
+        GROUPS_DUAL_WRITE_ENABLED: false,
+        GROUPS_DUAL_WRITE_COMPARISON_ENABLED: false,
         USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
 
         // Messaging

@@ -1,11 +1,8 @@
-import { lemonToast } from '@posthog/lemon-ui'
-import { playerConfig, Replayer, ReplayPlugin } from '@posthog/rrweb'
-import { EventType, eventWithTime, IncrementalSource } from '@posthog/rrweb-types'
 import {
+    BuiltLogic,
     actions,
     afterMount,
     beforeUnmount,
-    BuiltLogic,
     connect,
     kea,
     key,
@@ -18,22 +15,26 @@ import {
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { delay } from 'kea-test-utils'
+import posthog from 'posthog-js'
+import { RefObject } from 'react'
+
+import { lemonToast } from '@posthog/lemon-ui'
+import { ReplayPlugin, Replayer, playerConfig } from '@posthog/rrweb'
+import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
+
 import api from 'lib/api'
-import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
-import posthog from 'posthog-js'
-import { RefObject } from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { ReplayIframeData } from 'scenes/heatmaps/heatmapsBrowserLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { ExportedSessionType } from 'scenes/session-recordings/file-playback/types'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import {
-    sessionRecordingDataLogic,
     SessionRecordingDataLogicProps,
+    sessionRecordingDataLogic,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
@@ -41,6 +42,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import {
     AvailableFeature,
+    ExporterFormat,
     RecordingSegment,
     SessionPlayerData,
     SessionPlayerState,
@@ -58,6 +60,7 @@ import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLo
 import { deleteRecording } from './utils/playerUtils'
 import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionRecordingPlayerExplorer'
 
+const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const PLAYBACK_SPEEDS = [0.5, 1, 1.5, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
 
@@ -96,7 +99,10 @@ export enum SessionRecordingPlayerMode {
     Sharing = 'sharing',
     Notebook = 'notebook',
     Preview = 'preview',
+    Screenshot = 'screenshot',
+    Video = 'video',
 }
+const ModesThatCanBeMarkedViewed = [SessionRecordingPlayerMode.Standard, SessionRecordingPlayerMode.Notebook]
 
 export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLogicProps {
     playerKey: string
@@ -219,11 +225,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'sessionPlayerData',
                 'sessionPlayerMetaData',
                 'sessionPlayerMetaDataLoading',
-                'snapshotsRaw',
                 'createExportJSON',
                 'customRRWebEvents',
                 'fullyLoaded',
-                'wasMarkedViewed',
                 'trackedWindow',
             ],
             playerSettingsLogic,
@@ -244,15 +248,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'loadSnapshotSourcesFailure',
                 'loadRecordingMetaSuccess',
                 'maybePersistRecording',
-                'setWasMarkedViewed',
-                'markViewed',
             ],
             playerSettingsLogic,
             ['setSpeed', 'setSkipInactivitySetting'],
             sessionRecordingEventUsageLogic,
             ['reportNextRecordingTriggered', 'reportRecordingExportedToFile'],
-            takeScreenshotLogic({ screenshotKey: 'replay' }),
-            ['setHtml'],
+            exportsLogic,
+            ['startReplayExport'],
         ],
     })),
     actions({
@@ -288,10 +290,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         incrementErrorCount: true,
         incrementWarningCount: (count: number = 1) => ({ count }),
         syncSnapshotsWithPlayer: true,
-        exportRecordingToFile: (type?: ExportedSessionType) => ({ type }),
+        exportRecordingToFile: true,
         deleteRecording: true,
         openExplorer: true,
         takeScreenshot: true,
+        getClip: (format: ExporterFormat, duration: number = 5) => ({ format, duration }),
+        exportRecording: (
+            format: ExporterFormat,
+            timestamp: number = 0,
+            mode: SessionRecordingPlayerMode = SessionRecordingPlayerMode.Screenshot,
+            duration: number = 5
+        ) => ({ format, timestamp, mode, duration }),
         closeExplorer: true,
         openHeatmap: true,
         setExplorerProps: (props: SessionRecordingPlayerExplorerProps | null) => ({ props }),
@@ -313,13 +322,42 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadRecordingMeta: true,
         setSimilarRecordings: (results: string[]) => ({ results }),
         setIsCommenting: (isCommenting: boolean) => ({ isCommenting }),
+        setQuickEmojiIsOpen: (quickEmojiIsOpen: boolean) => ({ quickEmojiIsOpen }),
         updatePlayerTimeTracking: true,
+        exportRecordingToVideoFile: true,
+        markViewed: (delay?: number) => ({ delay }),
+        setWasMarkedViewed: (wasMarkedViewed: boolean) => ({ wasMarkedViewed }),
+        setShowingClipParams: (showingClipParams: boolean) => ({ showingClipParams }),
     }),
     reducers(({ props }) => ({
+        showingClipParams: [
+            false as boolean,
+            {
+                setShowingClipParams: (_, { showingClipParams }) => showingClipParams,
+                setIsCommenting: (state, { isCommenting }) => (isCommenting ? false : state),
+                setQuickEmojiIsOpen: (state, { quickEmojiIsOpen }) => (quickEmojiIsOpen ? false : state),
+            },
+        ],
+        wasMarkedViewed: [
+            false as boolean,
+            {
+                setWasMarkedViewed: (_, { wasMarkedViewed }) => wasMarkedViewed,
+            },
+        ],
         isCommenting: [
             false,
             {
                 setIsCommenting: (_, { isCommenting }) => isCommenting,
+                setShowingClipParams: (state, { showingClipParams }) => (showingClipParams ? false : state),
+                setQuickEmojiIsOpen: (state, { quickEmojiIsOpen }) => (quickEmojiIsOpen ? false : state),
+            },
+        ],
+        quickEmojiIsOpen: [
+            false,
+            {
+                setQuickEmojiIsOpen: (_, { quickEmojiIsOpen }) => quickEmojiIsOpen,
+                setShowingClipParams: (state, { showingClipParams }) => (showingClipParams ? false : state),
+                setIsCommenting: (state, { isCommenting }) => (isCommenting ? false : state),
             },
         ],
         maskingWindow: [
@@ -552,7 +590,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     })),
     selectors({
         // Prop references for use by other logics
-        sessionRecordingId: [() => [(_, props) => props], (props): string => props.sessionRecordingId],
+        sessionRecordingId: [(_, p) => [p.sessionRecordingId], (sessionRecordingId) => sessionRecordingId],
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlayerLogicProps => props],
         playlistLogic: [() => [(_, props) => props], (props) => props.playlistLogic],
 
@@ -660,10 +698,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     case isScrubbing:
                         // If scrubbing, playingState takes precedence
                         return playingState
-                    case !snapshotsLoaded && !snapshotsLoading:
-                        return SessionPlayerState.READY
                     case !!playerError?.trim().length:
                         return SessionPlayerState.ERROR
+                    case !snapshotsLoaded && !snapshotsLoading:
+                        return SessionPlayerState.READY
                     case isSkippingInactivity && playingState !== SessionPlayerState.PAUSE:
                         return SessionPlayerState.SKIP
                     case isBuffering:
@@ -995,6 +1033,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (!cache.hasInitialized) {
                     cache.hasInitialized = true
                     const searchParams = router.values.searchParams
+                    if (searchParams.fullscreen) {
+                        actions.setIsFullScreen(true)
+                    }
                     if (searchParams.timestamp) {
                         const desiredStartTime = Number(searchParams.timestamp)
                         actions.seekToTimestamp(desiredStartTime, true)
@@ -1043,6 +1084,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadRecordingMetaSuccess: () => {
             // As the connected data logic may be preloaded we call a shared function here and on mount
             actions.syncSnapshotsWithPlayer()
+
             if (props.autoPlay) {
                 // Autoplay assumes we are playing immediately so lets go ahead and load more data
                 actions.setPlay()
@@ -1071,7 +1113,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             }
         },
-
         loadSnapshotsForSourceFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
@@ -1106,6 +1147,29 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (nextTimestamp !== undefined) {
                 actions.seekToTimestamp(nextTimestamp, true)
             }
+        },
+        markViewed: async ({ delay }, breakpoint) => {
+            breakpoint()
+            if (
+                props.playerKey?.startsWith('file-') ||
+                values.wasMarkedViewed ||
+                (props.mode && !ModesThatCanBeMarkedViewed.includes(props.mode))
+            ) {
+                return
+            }
+
+            actions.setWasMarkedViewed(true) // this prevents us from calling the function multiple times
+
+            await breakpoint(IS_TEST_MODE ? 1 : (delay ?? 3000))
+            await api.recordings.update(props.sessionRecordingId, {
+                viewed: true,
+                player_metadata: values.sessionPlayerMetaData,
+            })
+            await breakpoint(IS_TEST_MODE ? 1 : 10000)
+            await api.recordings.update(props.sessionRecordingId, {
+                analyzed: true,
+                player_metadata: values.sessionPlayerMetaData,
+            })
         },
         setPause: () => {
             actions.stopAnimation()
@@ -1300,7 +1364,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.pausedMediaElements = []
         },
 
-        exportRecordingToFile: async ({ type }) => {
+        exportRecordingToFile: async () => {
             if (!values.sessionPlayerData) {
                 return
             }
@@ -1325,11 +1389,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     await delay(delayTime)
                 }
 
-                const payload = type === 'raw' ? values.snapshotsRaw : values.createExportJSON(type)
-                const suffix = type === 'rrweb' ? 'rrweb-recording' : 'ph-recording'
+                const payload = values.createExportJSON()
                 const recordingFile = new File(
                     [JSON.stringify(payload, null, 2)],
-                    `export-${props.sessionRecordingId}-${suffix}.json`,
+                    `export-${props.sessionRecordingId}-ph-recording.json`,
                     { type: 'application/json' }
                 )
 
@@ -1371,15 +1434,40 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 height: parseFloat(iframe.height),
             })
         },
-        takeScreenshot: async () => {
+        exportRecording: ({ format, timestamp = 0, mode = SessionRecordingPlayerMode.Screenshot, duration = 5 }) => {
             actions.setPause()
             const iframe = values.rootFrame?.querySelector('iframe')
             if (!iframe) {
-                lemonToast.error('Cannot take screenshot. Please try again.')
+                lemonToast.error('Cannot export recording. Please try again.')
                 return
             }
 
-            actions.setHtml(iframe)
+            actions.startReplayExport(values.sessionRecordingId, format, timestamp, duration, mode, {
+                width: iframe?.width ? Number(iframe.width) : 1400,
+                height: iframe?.height ? Number(iframe.height) : 600,
+                css_selector: '.replayer-wrapper',
+                filename: `replay-${values.sessionRecordingId}`,
+            })
+        },
+        takeScreenshot: async () => {
+            // We need to subtract 1 second as the player starts immediately
+            const timestamp = Math.max(0, getCurrentPlayerTime(values.logicProps) - 1)
+            actions.exportRecording(ExporterFormat.PNG, timestamp, SessionRecordingPlayerMode.Screenshot)
+        },
+        getClip: async ({ format, duration = 5 }) => {
+            // Center the clip around current time, minus 1 second offset for player start
+            const timestamp = Math.max(
+                0,
+                Math.floor(getCurrentPlayerTime(values.logicProps) - 1 - Math.floor(duration / 2))
+            )
+            actions.exportRecording(format, timestamp, SessionRecordingPlayerMode.Screenshot, duration)
+        },
+        exportRecordingToVideoFile: async () => {
+            const duration = values.sessionPlayerData?.durationMs
+                ? Math.floor(values.sessionPlayerData?.durationMs / 1000)
+                : 5
+
+            actions.exportRecording(ExporterFormat.MP4, 0, SessionRecordingPlayerMode.Video, duration)
         },
         openHeatmap: () => {
             actions.setPause()
@@ -1462,8 +1550,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     })),
 
     subscriptions(({ actions, values }) => ({
-        sessionPlayerData: (next, prev) => {
-            const hasSnapshotChanges = next?.snapshotsByWindowId !== prev?.snapshotsByWindowId
+        sessionPlayerData: (value, oldValue) => {
+            const hasSnapshotChanges = value?.snapshotsByWindowId !== oldValue?.snapshotsByWindowId
 
             // TODO: Detect if the order of the current window has changed (this would require re-initializing the player)
 
@@ -1471,8 +1559,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.syncSnapshotsWithPlayer()
             }
         },
-        timestampChangeTracking: (next) => {
-            if (next.timestampMatchesPrevious < 10) {
+        timestampChangeTracking: (value) => {
+            if (value.timestampMatchesPrevious < 10) {
                 return
             }
 
@@ -1482,15 +1570,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.skipPlayerForward(rrwebPlayerTime, values.roughAnimationFPS)
             }
         },
-        playerError: (next) => {
-            if (next) {
+        playerError: (value) => {
+            if (value) {
                 posthog.capture('recording player error', {
                     watchedSessionId: values.sessionRecordingId,
                     currentTimestamp: values.currentTimestamp,
                     currentSegment: values.currentSegment,
                     currentPlayerTime: values.currentPlayerTime,
-                    error: next,
+                    error: value,
                 })
+            }
+        },
+        currentPlayerState: (value) => {
+            if (value === SessionPlayerState.PLAY && !values.wasMarkedViewed) {
+                actions.markViewed(0)
             }
         },
     })),

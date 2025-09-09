@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import { Group } from '~/types'
@@ -10,6 +11,7 @@ import { groupLogic } from './groupLogic'
 
 export function GroupOverview({ groupData }: { groupData: Group }): JSX.Element {
     const { groupTypeName } = useValues(groupLogic)
+
     return (
         <div className="flex flex-col gap-4">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

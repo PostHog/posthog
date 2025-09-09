@@ -1,5 +1,6 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { useEffect } from 'react'
+
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
@@ -159,10 +160,10 @@ export const LongLoading: StoryFn = () => {
         },
     })
 
-    useEffect(() => {
+    useDelayedOnMountEffect(() => {
         const logic = insightVizDataLogic.findMounted({ dashboardItemId: insight.short_id as InsightShortId })
         logic?.actions.setTimedOutQueryId('a-uuid-query-id') // Show the suggestions immediately
-    }, [])
+    })
 
     return <App />
 }

@@ -7,7 +7,10 @@ import { castTimestampOrNow } from '../../../../utils/utils'
 import { SessionBlockMetadata } from './session-block-metadata'
 
 export class SessionMetadataStore {
-    constructor(private producer: KafkaProducerWrapper, private kafkaTopic: string) {
+    constructor(
+        private producer: KafkaProducerWrapper,
+        private kafkaTopic: string
+    ) {
         logger.debug('🔍', 'session_metadata_store_created')
     }
 
@@ -37,6 +40,7 @@ export class SessionMetadataStore {
             snapshot_source: metadata.snapshotSource,
             snapshot_library: metadata.snapshotLibrary,
             event_count: metadata.eventCount || 0,
+            retention_period_days: metadata.retentionPeriodDays,
         }))
 
         await this.producer.queueMessages({

@@ -170,6 +170,27 @@ export const TECHNOLOGY = {
         'IconPointer',
         'IconImage',
     ],
+    LANGUAGES: [
+        'IconJavascript',
+        'IconReact',
+        'IconGo',
+        'IconNode',
+        'IconPython',
+        'IconRust',
+        'IconAndroid',
+        'IconApple',
+        'IconJava',
+        'IconPHP',
+        'IconKotlin',
+        'IconDart',
+        'IconFlutter',
+        'IconCSharp',
+        'IconC',
+        'IconCPlusPlus',
+        'IconRuby',
+        'IconSwift',
+        'IconElixir',
+    ],
 }
 
 export const ELEMENTS = {
@@ -234,6 +255,8 @@ export const ELEMENTS = {
         'IconTriangleDownFilled',
         'IconTriangleUp',
         'IconTriangleUpFilled',
+        'IconTriangleRight',
+        'IconTriangleRightFilled',
         'IconShortcut',
         'IconStar',
         'IconStarFilled',
@@ -294,5 +317,5 @@ export const TEAMS_AND_COMPANIES = {
     'Product OS': ['IconNotebook', 'IconHogQL', 'IconDashboard', 'IconSupport'],
     Logos: ['IconLogomark', 'IconGithub', 'IconLinear'],
     ErrorTracking: ['IconIssue'],
-    LLMObservability: ['IconLlmObservability', 'IconLlmPromptEvaluation', 'IconLlmPromptManagement'],
+    LLMAnalytics: ['IconLlmAnalytics', 'IconLlmPromptEvaluation', 'IconLlmPromptManagement'],
 }

@@ -1,8 +1,10 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import api, { PaginatedResponse } from 'lib/api'
 import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api, { PaginatedResponse } from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -134,13 +136,6 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         createDataWarehouseSavedQuerySuccess: () => {
             actions.loadDatabase()
         },
-        loadDataWarehouseSavedQueriesSuccess: () => {
-            clearTimeout(cache.savedQueriesRefreshTimeout)
-
-            cache.savedQueriesRefreshTimeout = setTimeout(() => {
-                actions.loadDataWarehouseSavedQueries()
-            }, REFRESH_INTERVAL)
-        },
         loadDataModelingJobsSuccess: ({ payload }) => {
             clearTimeout(cache.dataModelingJobsRefreshTimeout)
 
@@ -208,10 +203,13 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             (s) => [s.dataWarehouseSavedQueries],
             (dataWarehouseSavedQueries) => {
                 return (
-                    dataWarehouseSavedQueries?.reduce((acc, cur) => {
-                        acc[cur.id] = cur
-                        return acc
-                    }, {} as Record<string, DataWarehouseSavedQuery>) ?? {}
+                    dataWarehouseSavedQueries?.reduce(
+                        (acc, cur) => {
+                            acc[cur.id] = cur
+                            return acc
+                        },
+                        {} as Record<string, DataWarehouseSavedQuery>
+                    ) ?? {}
                 )
             },
         ],
@@ -220,10 +218,13 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             (s) => [s.dataWarehouseSavedQueries],
             (dataWarehouseSavedQueries) => {
                 return (
-                    dataWarehouseSavedQueries?.reduce((acc, cur) => {
-                        acc[cur.id.replace(/-/g, '')] = cur
-                        return acc
-                    }, {} as Record<string, DataWarehouseSavedQuery>) ?? {}
+                    dataWarehouseSavedQueries?.reduce(
+                        (acc, cur) => {
+                            acc[cur.id.replace(/-/g, '')] = cur
+                            return acc
+                        },
+                        {} as Record<string, DataWarehouseSavedQuery>
+                    ) ?? {}
                 )
             },
         ],
@@ -231,10 +232,13 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             (s) => [s.dataWarehouseSavedQueries],
             (dataWarehouseSavedQueries) => {
                 return (
-                    dataWarehouseSavedQueries?.reduce((acc, cur) => {
-                        acc[cur.name] = cur
-                        return acc
-                    }, {} as Record<string, DataWarehouseSavedQuery>) ?? {}
+                    dataWarehouseSavedQueries?.reduce(
+                        (acc, cur) => {
+                            acc[cur.name] = cur
+                            return acc
+                        },
+                        {} as Record<string, DataWarehouseSavedQuery>
+                    ) ?? {}
                 )
             },
         ],

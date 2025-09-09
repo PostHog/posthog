@@ -1,13 +1,12 @@
 from datetime import datetime, timedelta
+
+from posthog.test.base import _create_event, _create_person
+
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import Team
-from posthog.test.base import (
-    _create_event,
-    _create_person,
-)
 
 
 def create_standard_group_test_events(team: Team, feature_flag: FeatureFlag):

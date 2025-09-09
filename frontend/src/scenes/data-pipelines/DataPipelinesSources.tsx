@@ -1,6 +1,8 @@
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { IconPlusSmall } from '@posthog/icons'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -44,7 +46,12 @@ export function DataPipelinesSources({ newUrl }: { newUrl?: string }): JSX.Eleme
 
                 <FlaggedFeature flag="cdp-hog-sources">
                     <div>
-                        <h2>Event sources</h2>
+                        <h2 className="flex items-center gap-2">
+                            Event sources
+                            <LemonTag type="primary" size="small">
+                                Experimental
+                            </LemonTag>
+                        </h2>
                         <p>
                             PostHog can expose a webhook that you can configure however you need to receive data from a
                             3rd party with no in-between service necessary

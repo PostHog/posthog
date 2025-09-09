@@ -1,15 +1,17 @@
-import { IconLlmPromptEvaluation } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
-import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import React, { useEffect } from 'react'
+
+import { IconLlmPromptEvaluation } from '@posthog/icons'
+
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
+import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
+import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import React, { useEffect } from 'react'
 import { FilterPanel } from 'scenes/heatmaps/FilterPanel'
 import { heatmapsBrowserLogic } from 'scenes/heatmaps/heatmapsBrowserLogic'
 

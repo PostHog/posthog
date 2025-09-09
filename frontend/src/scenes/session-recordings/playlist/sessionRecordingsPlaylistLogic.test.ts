@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -9,9 +10,9 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/t
 import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import { playlistLogic } from './playlistLogic'
 import {
+    DEFAULT_RECORDING_FILTERS,
     convertLegacyFiltersToUniversalFilters,
     convertUniversalFiltersToRecordingsQuery,
-    DEFAULT_RECORDING_FILTERS,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
 

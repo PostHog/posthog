@@ -1,4 +1,5 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
+
 import {
     ErrorEventId,
     ErrorEventProperties,
@@ -75,5 +76,8 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
             (records: FingerprintRecordPart[]) => (frameRawId: string) =>
                 records.find((record) => record.type === 'frame' && record.raw_id === frameRawId),
         ],
+    }),
+    selectors({
+        uuid: [(_, props) => [props.id], (id: ErrorEventId) => id],
     }),
 ])

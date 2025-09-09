@@ -1,5 +1,7 @@
-import { LemonBanner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonBanner } from '@posthog/lemon-ui'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
@@ -8,17 +10,17 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { getHogQLValue } from 'scenes/insights/filters/AggregationSelect'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { Query } from '~/queries/Query/Query'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { Query } from '~/queries/Query/Query'
 import { ExperimentFunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { BreakdownAttributionType, FilterType } from '~/types'
 
 import {
-    commonActionFilterProps,
     FunnelAggregationSelect,
     FunnelAttributionSelect,
     FunnelConversionWindowFilter,
+    commonActionFilterProps,
 } from '../Metrics/Selectors'
 import { sharedMetricLogic } from './sharedMetricLogic'
 
@@ -139,8 +141,8 @@ export function LegacySharedFunnelsMetricForm(): JSX.Element {
                             !breakdownAttributionType
                                 ? BreakdownAttributionType.FirstTouch
                                 : breakdownAttributionType === BreakdownAttributionType.Step
-                                ? `${breakdownAttributionType}/${breakdownAttributionValue || 0}`
-                                : breakdownAttributionType
+                                  ? `${breakdownAttributionType}/${breakdownAttributionValue || 0}`
+                                  : breakdownAttributionType
 
                         return currentValue
                     })()}

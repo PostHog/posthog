@@ -4,8 +4,8 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { InsightType, TrendExperimentVariant } from '~/types'
 import { ExperimentIdType } from '~/types'
 
-import { calculateDelta } from '../../legacyExperimentCalculations'
 import { VariantTag } from '../../ExperimentView/components'
+import { calculateDelta } from '../../legacyExperimentCalculations'
 
 interface VariantTooltipProps {
     tooltipData: {
@@ -34,7 +34,7 @@ export function VariantTooltip({
 }: VariantTooltipProps): JSX.Element {
     return (
         <div
-            className="fixed -translate-x-1/2 -translate-y-full bg-[var(--bg-surface-primary)] border border-[var(--border-primary)] px-3 py-2 rounded-md text-[13px] shadow-md pointer-events-none z-[103] min-w-[300px]"
+            className="fixed -translate-x-1/2 -translate-y-full bg-[var(--color-bg-surface-primary)] border border-[var(--color-border-primary)] px-3 py-2 rounded-md text-[13px] shadow-md pointer-events-none z-[103] min-w-[300px]"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 left: tooltipData.x,

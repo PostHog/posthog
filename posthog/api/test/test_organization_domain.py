@@ -1,20 +1,17 @@
 import datetime
-from unittest.mock import ANY, patch
 from zoneinfo import ZoneInfo
 
-import dns.resolver
-import dns.rrset
-from django.utils import timezone
 from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, BaseTest
+from unittest.mock import ANY, patch
+
+from django.utils import timezone
+
+import dns.rrset
+import dns.resolver
 from rest_framework import status
 
-from posthog.models import (
-    Organization,
-    OrganizationDomain,
-    OrganizationMembership,
-    Team,
-)
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Team
 
 
 class FakeAnswer:

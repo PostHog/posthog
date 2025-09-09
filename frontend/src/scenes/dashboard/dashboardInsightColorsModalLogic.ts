@@ -1,4 +1,5 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
+
 import { getFunnelDatasetKey, getTrendDatasetKey, sortCohorts } from 'scenes/insights/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -85,7 +86,7 @@ export function extractBreakdownValues(
 export const dashboardInsightColorsModalLogic = kea<dashboardInsightColorsModalLogicType>([
     path(['scenes', 'dashboard', 'dashboardInsightColorsModalLogic']),
     connect(() => ({
-        values: [cohortsModel, ['cohorts']],
+        values: [cohortsModel, ['allCohorts']],
     })),
     actions({
         showInsightColorsModal: (id: number) => ({ id }),
@@ -112,8 +113,8 @@ export const dashboardInsightColorsModalLogic = kea<dashboardInsightColorsModalL
             { resultEqualityCheck: () => false, equalityCheck: () => false },
         ],
         breakdownValues: [
-            (s) => [s.insightTiles, s.cohorts],
-            (insightTiles, cohorts) => extractBreakdownValues(insightTiles, cohorts?.results),
+            (s) => [s.insightTiles, s.allCohorts],
+            (insightTiles, allCohorts) => extractBreakdownValues(insightTiles, allCohorts?.results),
         ],
     }),
 ])

@@ -1,16 +1,18 @@
 .NotebookNode {
     --notebook-node-meta-height: 2.5rem;
     --notebook-node-meta-padding: 0.25rem;
-    --border-color: var(--border-primary);
+    --border-color: var(--color-border-primary);
 
     transform: translate3d(0, 0, 0);
 
     .NotebookNode__box {
         overflow: hidden;
-        background-color: var(--bg-surface-primary);
+        background-color: var(--color-bg-surface-primary);
         border: 1px solid var(--border-color);
         border-radius: var(--radius);
-        transition: border 150ms linear, margin-bottom 150ms linear;
+        transition:
+            border 150ms linear,
+            margin-bottom 150ms linear;
         transform: translate3d(0, 0, 0);
 
         .NotebookNode__meta {
@@ -23,11 +25,11 @@
             font-size: 0.875rem;
             font-weight: 500;
             color: var(--primary-alt);
-            border-bottom: 1px solid var(--border-primary);
+            border-bottom: 1px solid var(--color-border-primary);
         }
 
         .NotebookNode__settings {
-            border-bottom: 1px solid var(--border-primary);
+            border-bottom: 1px solid var(--color-border-primary);
         }
 
         .NotebookNode__content {
@@ -70,7 +72,7 @@
             z-index: var(--z-popover);
             pointer-events: none;
             visibility: hidden;
-            background-color: var(--bg-surface-primary);
+            background-color: var(--color-bg-surface-primary);
         }
 
         .Notebook--editable & {
@@ -86,7 +88,7 @@
         }
 
         &:hover {
-            --border-color: var(--border-primary);
+            --border-color: var(--color-border-primary);
         }
     }
 }
@@ -111,7 +113,7 @@
         transition: background-color 150ms linear;
 
         &:hover {
-            background-color: var(--border-primary);
+            background-color: var(--color-border-primary);
         }
     }
 }

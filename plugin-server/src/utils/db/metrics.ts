@@ -16,7 +16,6 @@ export const pluginLogEntryCounter = new Counter({
     help: 'Plugin log entry created by plugin',
     labelNames: ['plugin_id', 'source'],
 })
-
 export const moveDistinctIdsCountHistogram = new Histogram({
     name: 'move_distinct_ids_count',
     help: 'Number of distinct IDs moved in merge operations',
@@ -28,4 +27,10 @@ export const personPropertiesSizeHistogram = new Histogram({
     help: 'histogram of compressed person JSONB bytes retrieved in Person DB calls',
     labelNames: ['at'],
     buckets: [1024, 8192, 65536, 131072, 262144, 524288, 1048576, 2097152, 8388608],
+})
+
+export const postgresErrorCounter = new Counter({
+    name: 'plugin_server_postgres_errors',
+    help: 'Count of Postgres errors by type',
+    labelNames: ['error_type', 'database_use'],
 })

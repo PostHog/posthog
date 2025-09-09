@@ -1,9 +1,10 @@
-import dataclasses
 import json
+import dataclasses
 from copy import deepcopy
 
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
 from posthog.hogql.escape_sql import escape_hogql_string
+
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
 from posthog.models.integration import GoogleCloudIntegration
 
 template: HogFunctionTemplateDC = HogFunctionTemplateDC(
@@ -35,7 +36,7 @@ let res := fetch(f'https://pubsub.googleapis.com/v1/{inputs.topicId}:publish', {
 if (res.status >= 200 and res.status < 300) {
   print('Event sent successfully!')
 } else {
-  throw Error('Error sending event', res)
+  throw Error(f'Error from pubsub.googleapis.com (status {res.status}): {res.body}')
 }
 """.strip(),
     inputs_schema=[

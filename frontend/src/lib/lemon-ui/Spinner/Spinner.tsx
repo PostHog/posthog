@@ -1,9 +1,10 @@
 import './Spinner.scss'
 
-import { IconPencil } from '@posthog/icons'
 import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 import { twJoin, twMerge } from 'tailwind-merge'
+
+import { IconPencil } from '@posthog/icons'
 
 function useTimingCapture(captureTime: boolean): void {
     const mountTimeRef = useRef<number>(performance.now())

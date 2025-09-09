@@ -3,6 +3,7 @@ from typing import Optional, TypeVar, Union
 from django.db import models
 from django.db.models import Q
 from django.db.models.query import QuerySet, RawQuerySet
+
 from rest_framework import filters, settings
 from rest_framework.request import Request
 from rest_framework.views import APIView

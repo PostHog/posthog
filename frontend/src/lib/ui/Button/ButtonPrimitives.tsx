@@ -1,15 +1,16 @@
 import './ButtonPrimitives.scss'
 
-import { cva, type VariantProps } from 'cva'
+import { type VariantProps, cva } from 'cva'
+import React, { ReactNode, createContext, forwardRef, useContext } from 'react'
+
 import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip/Tooltip'
 import { cn } from 'lib/utils/css-classes'
-import React, { createContext, forwardRef, ReactNode, useContext } from 'react'
 
 /* -------------------------------------------------------------------------- */
 /*                           Props & Contexts & Hooks                         */
 /* -------------------------------------------------------------------------- */
 
-type ButtonVariant = 'default' | 'outline' | 'danger'
+type ButtonVariant = 'default' | 'outline' | 'danger' | 'panel'
 
 export type ButtonSize = 'xxs' | 'xs' | 'sm' | 'base' | 'lg' | 'fit' | 'base-tall'
 
@@ -120,7 +121,9 @@ ButtonGroupPrimitive.displayName = 'ButtonGroupPrimitive'
 /*                              Button Base Component                         */
 /* -------------------------------------------------------------------------- */
 
-export interface ButtonPrimitiveProps extends ButtonBaseProps, React.ButtonHTMLAttributes<HTMLButtonElement> {}
+export interface ButtonPrimitiveProps extends ButtonBaseProps, React.ButtonHTMLAttributes<HTMLButtonElement> {
+    'data-attr'?: string
+}
 
 export const buttonPrimitiveVariants = cva({
     base: 'button-primitive group/button-primitive',
@@ -128,6 +131,8 @@ export const buttonPrimitiveVariants = cva({
         variant: {
             // Bordereless variant (aka posthog tertiary button)
             default: 'button-primitive--variant-default',
+            // Like default, but with a dark background (like active state by default)
+            panel: 'button-primitive--variant-panel',
             // Bordereless danger variant (aka posthog danger tertiary button)
             danger: 'button-primitive--variant-danger',
             // Outline variant (aka posthog secondary button)
@@ -143,7 +148,7 @@ export const buttonPrimitiveVariants = cva({
             fit: 'px-0',
         },
         autoHeight: {
-            true: 'button-primitive--height-auto',
+            true: 'button-primitive--height-auto h-auto',
             false: '',
         },
         iconOnly: {

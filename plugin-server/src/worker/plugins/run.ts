@@ -259,7 +259,7 @@ async function getPluginMethodsForTeam<M extends keyof PluginMethodsConcrete>(
 
     const methodsObtainedFiltered = methodsObtained.filter(([_, method]) => !!method) as [
         PluginConfig,
-        PluginMethodsConcrete[M]
+        PluginMethodsConcrete[M],
     ][]
 
     return methodsObtainedFiltered

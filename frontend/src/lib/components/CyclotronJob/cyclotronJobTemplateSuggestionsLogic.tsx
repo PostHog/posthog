@@ -1,6 +1,7 @@
-import { STL as HOG_STL } from '@posthog/hogvm'
 import FuseClass from 'fuse.js'
 import { actions, kea, key, path, props, reducers, selectors } from 'kea'
+
+import { STL as HOG_STL } from '@posthog/hogvm'
 
 import type { cyclotronJobTemplateSuggestionsLogicType } from './cyclotronJobTemplateSuggestionsLogicType'
 

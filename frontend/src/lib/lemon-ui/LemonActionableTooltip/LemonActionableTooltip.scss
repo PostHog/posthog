@@ -26,7 +26,7 @@
         align-items: center;
         width: 1.5rem;
         height: 1.5rem;
-        color: var(--accent);
+        color: var(--color-accent);
 
         > svg {
             width: 100%;
@@ -69,7 +69,7 @@
     .LemonActionableTooltip__navigation {
         display: flex;
         align-items: center;
-        color: var(--text-secondary);
+        color: var(--color-text-secondary);
 
         > * + * {
             margin-left: 0.25rem;

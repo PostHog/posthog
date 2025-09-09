@@ -152,6 +152,6 @@ describe('resolveTeam()', () => {
         }
         await expect(async () => {
             await resolveTeam(hub, incomingEvent)
-        }).rejects.toThrowError('retry me')
+        }).rejects.toThrow('retry me')
     })
 })

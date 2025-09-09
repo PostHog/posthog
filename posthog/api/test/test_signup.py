@@ -1,18 +1,20 @@
 import uuid
 from datetime import datetime, timedelta
 from typing import Optional, cast
-from unittest import mock
-from unittest.mock import ANY, patch
 from zoneinfo import ZoneInfo
 
 import pytest
+from posthog.test.base import APIBaseTest
+from unittest import mock
+from unittest.mock import ANY, patch
+
 from django.core import mail
 from django.core.cache import cache
 from django.urls.base import reverse
 from django.utils import timezone
+
 from rest_framework import status
 
-from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
 from posthog.email import is_email_available
@@ -21,8 +23,9 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
-from posthog.test.base import APIBaseTest
 from posthog.utils import get_instance_realm
+
+from ee.models.explicit_team_membership import ExplicitTeamMembership
 
 MOCK_GITLAB_SSO_RESPONSE = {
     "access_token": "123",

@@ -1,5 +1,6 @@
 import { Replayer } from '@posthog/rrweb'
 import { CanvasArg } from '@posthog/rrweb-types'
+
 import { base64ArrayBuffer } from 'lib/utils'
 
 type GLVarMap = Map<string, any[]>
@@ -33,7 +34,7 @@ export const deserializeCanvasArg = (
             }
             if (arg.rr_type === 'ImageBitmap' && 'args' in arg) {
                 const args = await deserializeCanvasArg(imageMap, ctx, preload)(arg.args)
-                // eslint-disable-next-line prefer-spread
+                // oxlint-disable-next-line prefer-spread
                 return await createImageBitmap.apply(null, args)
             }
             if ('index' in arg) {

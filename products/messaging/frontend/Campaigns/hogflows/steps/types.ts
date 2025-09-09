@@ -1,8 +1,10 @@
-import { Handle, Node, NodeProps } from '@xyflow/react'
+import { Handle, NodeProps } from '@xyflow/react'
+import { z } from 'zod'
+
+import { LogEntry } from 'scenes/hog-functions/logs/logsViewerLogic'
 
 import { Optional } from '~/types'
 
-import { z } from 'zod'
 import { HogFlowAction } from '../types'
 
 export type HogFlowStepNodeProps = NodeProps & {
@@ -12,24 +14,11 @@ export type HogFlowStepNodeProps = NodeProps & {
 
 export type StepViewNodeHandle = Omit<Optional<Handle, 'width' | 'height'>, 'nodeId'> & { label?: string }
 
-export type HogFlowStep<T extends HogFlowAction['type']> = {
-    type: T
-    name: string
-    description: string
-    icon?: JSX.Element
-    renderNode: (props: HogFlowStepNodeProps) => JSX.Element
-    renderConfiguration: (node: Node<Extract<HogFlowAction, { type: T }>>) => JSX.Element
-    create: () => {
-        action: Pick<Extract<HogFlowAction, { type: T }>, 'config' | 'name' | 'description'>
-        branchEdges?: number
-    }
-}
-
 const _commonActionFields = {
     id: z.string(),
     name: z.string(),
     description: z.string(),
-    on_error: z.enum(['continue', 'abort', 'complete', 'branch']).optional(),
+    on_error: z.enum(['continue', 'abort', 'complete', 'branch']).optional().nullable(),
     created_at: z.number(),
     updated_at: z.number(),
     filters: z.any(), // TODO: Correct to the right type
@@ -42,6 +31,8 @@ const CyclotronInputSchema = z.object({
     bytecode: z.any().optional(),
     order: z.number().optional(),
 })
+
+export type CyclotronInputType = z.infer<typeof CyclotronInputSchema>
 
 export const HogFlowActionSchema = z.discriminatedUnion('type', [
     // Trigger
@@ -84,7 +75,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('delay'),
         config: z.object({
-            delay_duration: z.string(),
+            delay_duration: z.string().min(2),
         }),
     }),
     z.object({
@@ -118,18 +109,6 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         }),
     }),
 
-    // Native messages
-    z.object({
-        ..._commonActionFields,
-        type: z.literal('function_email'),
-        config: z.object({
-            message_category: z.string().optional(),
-            template_uuid: z.string().optional(), // May be used later to specify a specific template version
-            template_id: z.literal('template-email-native'),
-            inputs: z.record(CyclotronInputSchema),
-        }),
-    }),
-
     // CDP functions
     z.object({
         ..._commonActionFields,
@@ -142,28 +121,21 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
     }),
     z.object({
         ..._commonActionFields,
+        type: z.literal('function_email'),
+        config: z.object({
+            message_category_id: z.string().uuid().optional(),
+            template_uuid: z.string().optional(), // May be used later to specify a specific template version
+            template_id: z.literal('template-email'),
+            inputs: z.record(CyclotronInputSchema),
+        }),
+    }),
+    z.object({
+        ..._commonActionFields,
         type: z.literal('function_sms'),
         config: z.object({
+            message_category_id: z.string().uuid().optional(),
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-twilio'),
-            inputs: z.record(CyclotronInputSchema),
-        }),
-    }),
-    z.object({
-        ..._commonActionFields,
-        type: z.literal('function_slack'),
-        config: z.object({
-            template_uuid: z.string().uuid().optional(),
-            template_id: z.literal('template-slack'),
-            inputs: z.record(CyclotronInputSchema),
-        }),
-    }),
-    z.object({
-        ..._commonActionFields,
-        type: z.literal('function_webhook'),
-        config: z.object({
-            template_uuid: z.string().uuid().optional(),
-            template_id: z.literal('template-webhook'),
             inputs: z.record(CyclotronInputSchema),
         }),
     }),
@@ -177,3 +149,22 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         }),
     }),
 ])
+
+export const isOptOutEligibleAction = (
+    action: HogFlowAction
+): action is Extract<HogFlowAction, { type: 'function_email' | 'function_sms' }> => {
+    return ['function_email', 'function_sms'].includes(action.type)
+}
+
+export const isFunctionAction = (
+    action: HogFlowAction
+): action is Extract<HogFlowAction, { type: 'function' | 'function_sms' | 'function_email' }> => {
+    return ['function', 'function_sms', 'function_email'].includes(action.type)
+}
+
+export interface HogflowTestResult {
+    status: 'success' | 'error' | 'skipped'
+    logs?: LogEntry[]
+    nextActionId: string | null
+    errors?: string[]
+}

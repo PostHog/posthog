@@ -1,5 +1,7 @@
-import { Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { Link } from '@posthog/lemon-ui'
+
 import { parseDraftQueryFromLocalStorage } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'

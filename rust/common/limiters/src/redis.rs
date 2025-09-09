@@ -31,20 +31,21 @@ use tokio::time::interval;
 ///
 /// Some small delay between an account being limited and the limit taking effect is acceptable.
 /// However, ideally we should not allow requests from some pods but 429 from others.
-
 // todo: fetch from env
 // due to historical reasons we use different suffixes for quota limits and overflow
 // hopefully we can unify these in the future
 pub const QUOTA_LIMITER_CACHE_KEY: &str = "@posthog/quota-limits/";
 pub const OVERFLOW_LIMITER_CACHE_KEY: &str = "@posthog/capture-overflow/";
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum QuotaResource {
     Events,
     Exceptions,
     Recordings,
     Replay,
     FeatureFlags,
+    Surveys,
+    LLMEvents,
 }
 
 impl QuotaResource {
@@ -55,6 +56,8 @@ impl QuotaResource {
             Self::Recordings => "recordings",
             Self::Replay => "replay",
             Self::FeatureFlags => "feature_flag_requests",
+            Self::Surveys => "surveys",
+            Self::LLMEvents => "llm_events",
         }
     }
 }

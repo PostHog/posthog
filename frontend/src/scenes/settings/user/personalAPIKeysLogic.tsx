@@ -1,20 +1,22 @@
-import { LemonBanner, LemonDialog } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
+import { LemonBanner, LemonDialog } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { hasMembershipLevelOrHigher, organizationAllowsPersonalApiKeysForMembers } from 'lib/utils/permissioning'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { API_KEY_SCOPE_PRESETS } from '~/lib/scopes'
 import { OrganizationBasicType, PersonalAPIKeyType, TeamBasicType, UserType } from '~/types'
-import { hasMembershipLevelOrHigher, organizationAllowsPersonalApiKeysForMembers } from 'lib/utils/permissioning'
 
 import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
-import { OrganizationMembershipLevel } from 'lib/constants'
 
 export type EditingKeyFormValues = Pick<
     PersonalAPIKeyType,
@@ -357,10 +359,10 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     access_type: key?.scoped_organizations?.length
                         ? 'organizations'
                         : key?.scoped_teams?.length
-                        ? 'teams'
-                        : id !== 'new'
-                        ? 'all'
-                        : undefined,
+                          ? 'teams'
+                          : id !== 'new'
+                            ? 'all'
+                            : undefined,
                 }
 
                 actions.resetEditingKey(formValues)

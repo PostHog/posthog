@@ -1,5 +1,7 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
@@ -123,7 +125,11 @@ export const variableModalLogic = kea<variableModalLogicType>([
 
                     throw new Error(`Unsupported variable type ${variableType}`)
                 },
-                updateVariable: (state, { variable }) => ({ ...state, ...variable } as Variable),
+                updateVariable: (state, { variable }) =>
+                    ({
+                        ...state,
+                        ...variable,
+                    }) as Variable,
                 closeModal: () => DEFAULT_VARIABLE,
             },
         ],
