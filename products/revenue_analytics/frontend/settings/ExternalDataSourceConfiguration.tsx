@@ -169,14 +169,25 @@ export function ExternalDataSourceConfiguration({
                                     </span>
 
                                     {join && source.revenue_analytics_config.enabled ? (
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            onClick={() => toggleEditJoinModal(join)}
-                                            disabledReason={disabledReasonForRevenueAnalyticsConfig(source)}
-                                        >
-                                            {join.source_table_name}.{join.source_table_key}
-                                        </LemonButton>
+                                        <>
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                onClick={() => toggleEditJoinModal(join)}
+                                                disabledReason={disabledReasonForRevenueAnalyticsConfig(source)}
+                                            >
+                                                {join.source_table_name}.{join.source_table_key}
+                                            </LemonButton>
+
+                                            <LemonButton
+                                                type="secondary"
+                                                status="danger"
+                                                size="small"
+                                                tooltip="Delete join"
+                                                icon={<IconTrash />}
+                                                onClick={() => deleteJoin(join)}
+                                            />
+                                        </>
                                     ) : (
                                         <LemonButton
                                             type="secondary"
