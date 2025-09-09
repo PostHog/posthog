@@ -24,6 +24,8 @@ export interface CampaignLogicProps {
 export const TRIGGER_NODE_ID = 'trigger_node'
 export const EXIT_NODE_ID = 'exit_node'
 
+export type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
+
 const NEW_CAMPAIGN: HogFlow = {
     id: 'new',
     name: '',
@@ -223,6 +225,13 @@ export const campaignLogic = kea<campaignLogicType>([
                     },
                     {} as Record<string, HogFlowActionValidationResult>
                 )
+            },
+        ],
+
+        triggerAction: [
+            (s) => [s.campaign],
+            (campaign): TriggerAction | null => {
+                return campaign.actions.find((action) => action.type === 'trigger') ?? null
             },
         ],
     }),
