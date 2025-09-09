@@ -484,30 +484,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         Undo materialization, revert back to the original view.
         (i.e. delete the materialized table and the schedule)
         """
-        saved_query = self.get_object()
-
-        with transaction.atomic():
-            saved_query.sync_frequency_interval = None
-            saved_query.last_run_at = None
-            saved_query.latest_error = None
-            saved_query.status = None
-            saved_query.is_materialized = False
-
-            # delete the materialized table reference
-            if saved_query.table is not None:
-                saved_query.table.soft_delete()
-                saved_query.table_id = None
-
-            try:
-                delete_saved_query_schedule(str(saved_query.id))
-            except Exception as e:
-                logger.exception(f"Failed to delete temporal schedule for saved query {saved_query.id}: {str(e)}")
-
-            saved_query.save()
-
-            DataWarehouseModelPath.objects.filter(
-                team=saved_query.team, path__lquery=f"*{{1,}}.{saved_query.id.hex}"
-            ).delete()
+        saved_query: DataWarehouseSavedQuery = self.get_object()
+        saved_query.revert_materialization()
 
         return response.Response(status=status.HTTP_200_OK)
 
