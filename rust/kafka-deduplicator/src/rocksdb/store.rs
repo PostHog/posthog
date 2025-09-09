@@ -212,6 +212,11 @@ impl RocksDbStore {
             .context("Failed to delete range")
     }
 
+    pub fn delete(&self, cf_name: &str, key: &[u8]) -> Result<()> {
+        let cf = self.get_cf_handle(cf_name)?;
+        self.db.delete_cf(&cf, key).context("Failed to delete key")
+    }
+
     pub fn get_cf_handle(&self, cf_name: &str) -> Result<Arc<BoundColumnFamily<'_>>> {
         self.db
             .cf_handle(cf_name)

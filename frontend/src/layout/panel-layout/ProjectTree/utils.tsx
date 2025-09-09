@@ -101,10 +101,7 @@ export function convertFileSystemEntryToTreeDataItem({
         const displayName = <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />
         const user: UserBasicType | undefined = item.meta?.created_by ? users?.[item.meta.created_by] : undefined
 
-        const icon = iconForType(
-            ('iconType' in item ? item.iconType : undefined) || (item.type as FileSystemIconType),
-            'iconColor' in item ? item.iconColor : undefined
-        )
+        const icon = iconForType(('iconType' in item ? item.iconType : undefined) || (item.type as FileSystemIconType))
         const node: TreeDataItem = {
             id: nodeId,
             name: itemName,

@@ -187,6 +187,7 @@ export type MinimalAppMetric = {
     metric_kind: 'failure' | 'success' | 'other' | 'email' | 'billing'
     metric_name:
         | 'early_exit'
+        | 'triggered'
         | 'succeeded'
         | 'failed'
         | 'filtered'

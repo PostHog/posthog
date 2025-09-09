@@ -17,11 +17,13 @@ import {
     TEMPLATE_LINK_TOOLTIP,
 } from 'lib/components/Sharing/templateLinkMessages'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconLink } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -41,6 +43,7 @@ import {
 
 import { AccessControlAction, accessLevelSatisfied } from '../AccessControlAction'
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
+import { SharePasswordsTable } from './SharePasswordsTable'
 import { sharingLogic } from './sharingLogic'
 
 export const SHARING_MODAL_WIDTH = 600
@@ -85,6 +88,7 @@ export function SharingModalContent({
     }
     const {
         whitelabelAvailable,
+        advancedPermissionsAvailable,
         sharingConfiguration,
         sharingConfigurationLoading,
         showPreview,
@@ -93,10 +97,14 @@ export function SharingModalContent({
         shareLink,
         sharingAllowed,
     } = useValues(sharingLogic(logicProps))
-    const { setIsEnabled, togglePreview, setSharingSettingsValue } = useActions(sharingLogic(logicProps))
+    const { setIsEnabled, setPasswordRequired, togglePreview, setSharingSettingsValue } = useActions(
+        sharingLogic(logicProps)
+    )
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { preflight } = useValues(preflightLogic)
     const siteUrl = preflight?.site_url || window.location.origin
+    const { featureFlags } = useValues(featureFlagLogic)
+    const passwordProtectedSharesEnabled = !!featureFlags[FEATURE_FLAGS.PASSWORD_PROTECTED_SHARES]
 
     const { push } = useActions(router)
 
@@ -179,6 +187,39 @@ export function SharingModalContent({
                         {sharingAllowed && sharingConfiguration.enabled && sharingConfiguration.access_token ? (
                             <>
                                 <div className="deprecated-space-y-2">
+                                    {passwordProtectedSharesEnabled && (
+                                        <div className="LemonSwitch LemonSwitch--medium LemonSwitch--bordered LemonSwitch--full-width flex-col py-1.5">
+                                            <LemonSwitch
+                                                className="px-0"
+                                                fullWidth
+                                                label={
+                                                    <div className="flex items-center">
+                                                        Password protect
+                                                        {!advancedPermissionsAvailable && (
+                                                            <Tooltip title="This is a premium feature, click to learn more.">
+                                                                <IconLock className="ml-1.5 text-muted text-lg" />
+                                                            </Tooltip>
+                                                        )}
+                                                    </div>
+                                                }
+                                                onChange={(passwordRequired: boolean) =>
+                                                    guardAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS, () =>
+                                                        setPasswordRequired(passwordRequired)
+                                                    )
+                                                }
+                                                checked={sharingConfiguration.password_required}
+                                            />
+                                            {sharingConfiguration.password_required && (
+                                                <div className="mt-1 w-full">
+                                                    <SharePasswordsTable
+                                                        dashboardId={dashboardId}
+                                                        insightId={insight?.id}
+                                                        recordingId={recordingId}
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                     <LemonButton
                                         data-attr="sharing-link-button"
                                         type="secondary"

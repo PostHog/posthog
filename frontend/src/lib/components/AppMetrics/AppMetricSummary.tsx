@@ -12,6 +12,8 @@ import { AppMetricsTimeSeriesResponse } from './appMetricsLogic'
 export type AppMetricSummaryProps = {
     name: string
     description: string
+    color?: string
+    colorIfZero?: string
     timeSeries: AppMetricsTimeSeriesResponse | null
     previousPeriodTimeSeries?: AppMetricsTimeSeriesResponse | null
     loading?: boolean
@@ -22,6 +24,8 @@ export function AppMetricSummary({
     timeSeries,
     previousPeriodTimeSeries,
     description,
+    color,
+    colorIfZero,
     loading,
 }: AppMetricSummaryProps): JSX.Element {
     const total = useMemo(() => {
@@ -91,6 +95,11 @@ export function AppMetricSummary({
                                     dataIndex: 0,
                                 },
                                 data: x.values,
+                                settings: {
+                                    display: {
+                                        color: total === 0 ? colorIfZero : color,
+                                    },
+                                },
                             }))}
                             visualizationType={ChartDisplayType.ActionsLineGraph}
                             chartSettings={{

@@ -458,6 +458,18 @@ export class ApiRequest {
         return this.insight(id, teamId).addPathComponent('sharing')
     }
 
+    public insightSharingPasswords(id: QueryBasedInsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.insightSharing(id, teamId).addPathComponent('passwords')
+    }
+
+    public insightSharingPassword(
+        id: QueryBasedInsightModel['id'],
+        passwordId: string,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.insightSharingPasswords(id, teamId).addPathComponent(passwordId)
+    }
+
     public insightsCancel(teamId?: TeamType['id']): ApiRequest {
         return this.insights(teamId).addPathComponent('cancel')
     }
@@ -702,6 +714,18 @@ export class ApiRequest {
         return this.recording(id, teamId).addPathComponent('sharing')
     }
 
+    public recordingSharingPasswords(id: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.recordingSharing(id, teamId).addPathComponent('passwords')
+    }
+
+    public recordingSharingPassword(
+        id: SessionRecordingType['id'],
+        passwordId: string,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.recordingSharingPasswords(id, teamId).addPathComponent(passwordId)
+    }
+
     // # Dashboards
     public dashboards(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('dashboards')
@@ -720,6 +744,18 @@ export class ApiRequest {
 
     public dashboardSharing(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dashboardsDetail(dashboardId, teamId).addPathComponent('sharing')
+    }
+
+    public dashboardSharingPasswords(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dashboardSharing(dashboardId, teamId).addPathComponent('passwords')
+    }
+
+    public dashboardSharingPassword(
+        dashboardId: DashboardType['id'],
+        passwordId: string,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.dashboardSharingPasswords(dashboardId, teamId).addPathComponent(passwordId)
     }
 
     public dashboardCollaboratorsDetail(
@@ -2526,6 +2562,48 @@ const api = {
                     ? new ApiRequest().recordingSharing(recordingId).update({ data })
                     : null
         },
+
+        async createPassword(
+            {
+                dashboardId,
+                insightId,
+                recordingId,
+            }: {
+                dashboardId?: DashboardType['id']
+                insightId?: QueryBasedInsightModel['id']
+                recordingId?: SessionRecordingType['id']
+            },
+            data: { raw_password?: string; note?: string }
+        ): Promise<{ id: string; password: string; note: string; created_at: string; created_by_email: string }> {
+            return dashboardId
+                ? new ApiRequest().dashboardSharingPasswords(dashboardId).create({ data })
+                : insightId
+                  ? new ApiRequest().insightSharingPasswords(insightId).create({ data })
+                  : recordingId
+                    ? new ApiRequest().recordingSharingPasswords(recordingId).create({ data })
+                    : null
+        },
+
+        async deletePassword(
+            {
+                dashboardId,
+                insightId,
+                recordingId,
+            }: {
+                dashboardId?: DashboardType['id']
+                insightId?: QueryBasedInsightModel['id']
+                recordingId?: SessionRecordingType['id']
+            },
+            passwordId: string
+        ): Promise<void> {
+            return dashboardId
+                ? new ApiRequest().dashboardSharingPassword(dashboardId, passwordId).delete()
+                : insightId
+                  ? new ApiRequest().insightSharingPassword(insightId, passwordId).delete()
+                  : recordingId
+                    ? new ApiRequest().recordingSharingPassword(recordingId, passwordId).delete()
+                    : null
+        },
     },
 
     pluginConfigs: {
@@ -4099,6 +4177,14 @@ const api = {
     async getResponse(url: string, options?: ApiMethodOptions): Promise<Response> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
+
+        // Add JWT token to Authorization header if available
+        const exporterContext = getCurrentExporterData()
+        const authHeaders: Record<string, string> = {}
+        if (exporterContext?.shareToken) {
+            authHeaders['Authorization'] = `Bearer ${exporterContext.shareToken}`
+        }
+
         return await handleFetch(url, 'GET', () => {
             return fetch(url, {
                 signal: options?.signal,
@@ -4106,6 +4192,7 @@ const api = {
                     ...objectClean(options?.headers ?? {}),
                     ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
                     ...(getDistinctId() ? { 'X-POSTHOG-DISTINCT-ID': getDistinctId() } : {}),
+                    ...authHeaders,
                 },
             })
         })

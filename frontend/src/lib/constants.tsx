@@ -257,7 +257,6 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_FRUSTRATING_PAGES_TILE: 'web-analytics-frustrating-pages-tile', // owner: @lricoy #team-web-analytics
     ALWAYS_QUERY_BLOCKING: 'always-query-blocking', // owner: @timgl
     GET_HOG_TEMPLATES_FROM_DB: 'get-hog-templates-from-db', // owner: @meikel #team-
-    BLOCKING_EXPORTS: 'blocking-exports', // owner: @aspicer #team-product-analytics
     SSE_DASHBOARDS: 'sse-dashboards', // owner: @aspicer #team-product-analytics
     LINKS: 'links', // owner: @marconlp #team-link
     GAME_CENTER: 'game-center', // owner: everybody
@@ -301,6 +300,7 @@ export const FEATURE_FLAGS = {
     AMPLITUDE_BATCH_IMPORT_OPTIONS: 'amplitude-batch-import-options', // owner: #team-ingestion
     MAX_DEEP_RESEARCH: 'max-deep-research', // owner: @kappa90 #team-max-ai
     NOTEBOOKS_COLLAPSIBLE_SECTIONS: 'notebooks-collapsible-sections', // owner: @daibhin @benjackwhite
+    PASSWORD_PROTECTED_SHARES: 'password-protected-shares', // owner: @aspicer
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
@@ -422,6 +422,7 @@ export const SESSION_REPLAY_MINIMUM_DURATION_OPTIONS: LemonSelectOptions<number 
 
 export const UNSUBSCRIBE_SURVEY_ID = '018b6e13-590c-0000-decb-c727a2b3f462'
 export const SESSION_RECORDING_OPT_OUT_SURVEY_ID = '01985c68-bd25-0000-b7e3-f1ccc987e979'
+export const TRIAL_CANCELLATION_SURVEY_ID = '019923cd-461c-0000-27ed-ed8e422c596e'
 
 export const TAILWIND_BREAKPOINTS = {
     sm: 526,
