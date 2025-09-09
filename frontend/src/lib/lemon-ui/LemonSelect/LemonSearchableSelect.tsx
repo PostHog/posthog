@@ -116,7 +116,8 @@ export function LemonSearchableSelect<T extends string | number | boolean | null
     }, [searchPlaceholder, searchTerm, filteredOptions])
 
     const handleChange = (newValue: T | null): void => {
-        onChange?.(newValue)
+        // Cast to `any` because `onChange` is a union type (T vs T | null) and TS can't infer it here.
+        onChange?.(newValue as any)
         setSearchTerm('')
     }
 

@@ -105,7 +105,7 @@ export interface LemonSelectPropsNonClearable<T> extends LemonSelectPropsBase<T>
     /** Should only be undefined in form fields. */
     value?: T
     /** Callback fired when a value different from the one currently set is selected. */
-    onChange?: (newValue: T | null) => void
+    onChange?: (newValue: T) => void
     renderButtonContent?: (leaf: LemonSelectOptionLeaf<T | null> | undefined) => string | JSX.Element
 }
 
