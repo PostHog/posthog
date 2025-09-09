@@ -1,5 +1,5 @@
 import uuid
-from typing import cast
+from typing import Union, cast
 
 import structlog
 from langchain_core.runnables import RunnableConfig
@@ -17,7 +17,7 @@ from posthog.schema import (
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
-from ee.hogai.graph.base import BaseAssistantNode
+from ee.hogai.graph.base import AssistantNode, BaseAssistantNode
 from ee.hogai.graph.deep_research.task_executor.prompts import EXECUTE_TASKS_TOOL_RESULT
 from ee.hogai.graph.deep_research.types import (
     DeepResearchNodeName,
@@ -28,7 +28,7 @@ from ee.hogai.graph.deep_research.types import (
 from ee.hogai.utils.helpers import find_last_message_of_type
 from ee.hogai.utils.types.base import InsightArtifact
 
-from .tools import ExecuteTasksTool
+from .tools import ExecuteNodeTasksTool, ExecuteTasksTool
 
 logger = structlog.get_logger(__name__)
 
@@ -38,9 +38,12 @@ class TaskExecutorNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
     Core task execution node that handles research tasks (Tasks coming from the Deep Research Planner).
     """
 
-    def __init__(self, team: Team, user: User, insights_subgraph: CompiledStateGraph):
+    def __init__(self, team: Team, user: User, executor: Union[CompiledStateGraph, AssistantNode]):
         super().__init__(team, user)
-        self._execute_tasks_tool = ExecuteTasksTool(insights_subgraph)
+        if isinstance(executor, CompiledStateGraph):
+            self._execute_tasks_tool = ExecuteTasksTool(executor)
+        else:
+            self._execute_tasks_tool = ExecuteNodeTasksTool(executor)
 
     async def arun(self, state: DeepResearchState, config: RunnableConfig) -> PartialDeepResearchState | None:
         last_tool_call_message = find_last_message_of_type(state.messages, AssistantMessage)

@@ -11,6 +11,7 @@ from langgraph.types import StreamWriter
 
 from posthog.schema import AssistantHogQLQuery, AssistantToolCallMessage
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Dashboard, DashboardTile, Insight
 from posthog.sync import database_sync_to_async
 
@@ -40,6 +41,8 @@ logger = structlog.get_logger(__name__)
 
 
 class DashboardCreatorNode(AssistantNode):
+    REASONING_MESSAGE = "Creating dashboard"
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._stream_writer = None
@@ -73,6 +76,7 @@ class DashboardCreatorNode(AssistantNode):
             writer(("dashboard_creator_node", "messages", message))
 
         except Exception as e:
+            capture_exception(e)
             logger.exception("Failed to stream reasoning message", error=str(e), content=progress_message)
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
@@ -93,17 +97,23 @@ class DashboardCreatorNode(AssistantNode):
                 writer=self._get_stream_writer(),
             )
 
-            query_to_insight_ids, found_insight_messages = await self._search_insights(state)
-            # query_to_insight_ids, found_insight_messages = {}, []
-            self._stream_reasoning(
-                progress_message=f"Found {len(query_to_insight_ids)} insights", writer=self._get_stream_writer()
-            )
+            query_to_insight_ids, found_insight_messages = await self._search_insights_in_parallel(state, config)
+
+            if query_to_insight_ids:
+                self._stream_reasoning(
+                    progress_message=f"Found {len(query_to_insight_ids)} insights", writer=self._get_stream_writer()
+                )
 
             left_to_create = [
                 search_query
                 for search_query in state.search_insights_queries
                 if search_query not in query_to_insight_ids
             ]
+
+            if left_to_create:
+                self._stream_reasoning(
+                    progress_message=f"Creating {len(left_to_create)} insights", writer=self._get_stream_writer()
+                )
 
             query_to_insight_ids, created_insight_messages = await self._create_insights_in_parallel(
                 left_to_create, query_to_insight_ids, state, config
@@ -117,15 +127,14 @@ class DashboardCreatorNode(AssistantNode):
             if not all_insight_ids:
                 return self._create_no_insights_response(state.root_tool_call_id or "unknown", final_last_messages)
 
-            dashboard_name = await self._generate_dashboard_name(
-                state.create_dashboard_query, final_last_messages, all_insight_ids
-            )
+            dashboard_name = await self._generate_dashboard_name(state.create_dashboard_query, final_last_messages)
 
             dashboard, all_insights = await self._create_dashboard_with_insights(dashboard_name, all_insight_ids)
 
             queries_no_insights = [
                 query for query in state.search_insights_queries if query not in query_to_insight_ids
             ]
+
             return self._create_success_response(
                 dashboard, all_insights, state.root_tool_call_id or "unknown", queries_no_insights
             )
@@ -139,46 +148,6 @@ class DashboardCreatorNode(AssistantNode):
                 exc_info=True,
             )
             return self._create_error_response(DASHBOARD_CREATION_ERROR_MESSAGE, state.root_tool_call_id or "unknown")
-
-    async def _search_insights(self, state: AssistantState) -> tuple[dict[str, list[int]], list[str]]:
-        """Search for existing insights using the InsightSearchNode."""
-        last_messages = []
-        query_to_insight_ids = {}
-        total_to_search = len(state.search_insights_queries)
-        index = 0
-        try:
-            for search_query in state.search_insights_queries:
-                index += 1
-                # Create a minimal state for insight search
-                search_state = AssistantState(
-                    root_tool_call_id=state.root_tool_call_id,
-                    create_dashboard_query=state.create_dashboard_query,
-                    search_insights_query=search_query,
-                    insight_ids=None,
-                )
-                self._stream_reasoning(
-                    progress_message=f"Searching {index}/{total_to_search} insights", writer=self._get_stream_writer()
-                )
-                insight_search_node = InsightSearchNode(team=self._team, user=self._user)
-                search_result = await insight_search_node.arun(search_state, {})
-
-                insight_ids = search_result.insight_ids if search_result and search_result.insight_ids else []
-                # Reason for selecting the insights
-                if insight_ids:
-                    last_messages.append(
-                        search_result.messages[-2].content if search_result and search_result.messages else ""
-                    )
-
-                    if search_query not in query_to_insight_ids:
-                        query_to_insight_ids[search_query] = set(insight_ids)
-                    else:
-                        query_to_insight_ids[search_query].update(set(insight_ids))
-
-            return query_to_insight_ids, last_messages
-
-        except Exception as e:
-            logger.exception(f"Error searching for insights: {e}")
-            return [], []
 
     def _build_insight_url(self, id: int) -> str:
         """Build the URL for an insight."""
@@ -205,11 +174,13 @@ class DashboardCreatorNode(AssistantNode):
             messages=state.messages,
             root_tool_call_id=state.root_tool_call_id,
             root_tool_insight_plan=state.root_tool_insight_plan,
-            search_insights_queries=left_to_create,
-            create_dashboard_query=state.create_dashboard_query,
             tasks=[
                 TaskExecutionItem(
-                    id=str(uuid.uuid4()), prompt=query, status=TaskExecutionStatus.PENDING, description=query
+                    id=str(uuid.uuid4()),
+                    prompt=query,
+                    status=TaskExecutionStatus.PENDING,
+                    description=f"Creating insight {query}",
+                    progress_text="Creating insights",
                 )
                 for query in left_to_create
             ],
@@ -226,7 +197,54 @@ class DashboardCreatorNode(AssistantNode):
             if task.status == TaskExecutionStatus.COMPLETED:
                 task_descriptions.append(task.description)
             else:
-                task_descriptions.append(f"Could not create insights for the query {task.prompt}")
+                task_descriptions.append(f"Could not create insights for the query {task.description}")
+        return query_to_insight_ids, task_descriptions
+
+    async def _search_insights_in_parallel(
+        self,
+        state: AssistantState,
+        config: RunnableConfig,
+    ) -> tuple[dict[str, set[int]], list[str]]:
+        """Search insights in parallel."""
+
+        insight_search_node = InsightSearchNode(self._team, self._user)
+        executor_node = TaskExecutorNode(self._team, self._user, insight_search_node)
+
+        task_executor_state = DeepResearchState(
+            messages=state.messages,
+            root_tool_call_id=state.root_tool_call_id,
+            root_tool_insight_plan=state.root_tool_insight_plan,
+            tasks=[
+                TaskExecutionItem(
+                    id=str(uuid.uuid4()),
+                    prompt=query,
+                    status=TaskExecutionStatus.PENDING,
+                    description=query,
+                    progress_text="Searching for existing insights",
+                )
+                for query in state.search_insights_queries
+            ],
+        )
+
+        result = await executor_node.arun(task_executor_state, config)
+        task_executor_state = PartialDeepResearchState.model_validate(result)
+
+        # Extract query to insight IDs mapping from task results
+        query_to_insight_ids = {}
+        task_descriptions = []
+
+        for task_result in task_executor_state.task_results:
+            if task_result.status == TaskExecutionStatus.COMPLETED:
+                # Extract insight IDs from artifacts
+                insight_ids = []
+                for artifact in task_result.artifacts:
+                    if artifact.insight_ids:
+                        insight_ids.extend(artifact.insight_ids)
+                        task_descriptions.append(artifact.selection_reason)
+
+                if insight_ids:
+                    query_to_insight_ids[task_result.description] = set(insight_ids)
+
         return query_to_insight_ids, task_descriptions
 
     @database_sync_to_async
@@ -271,57 +289,7 @@ class DashboardCreatorNode(AssistantNode):
 
         return created_insights
 
-    async def _create_insights_with_subgraph(
-        self,
-        left_to_create: list[str],
-        query_to_insight_ids: dict[str, set[int]],
-        state: AssistantState,
-        config: RunnableConfig,
-    ) -> dict[str, set[int]]:
-        """Create insights using the insights subgraph if no existing insights are found."""
-        try:
-            last_messages = []
-            # Import the insights graph here to avoid circular imports
-            from ee.hogai.graph.graph import InsightsAssistantGraph
-
-            total_to_create = len(left_to_create)
-            for query in left_to_create:
-                # Create state for insights creation
-                insights_state = AssistantState(
-                    root_tool_insight_plan=query,
-                    root_tool_call_id=state.root_tool_call_id,
-                    messages=state.messages,
-                    create_dashboard_query=state.create_dashboard_query,
-                    insight_ids=None,
-                )
-
-                graph = InsightsAssistantGraph(self._team, self._user).compile_full_graph()
-
-                result = await graph.ainvoke(insights_state, config=config)
-                insight_state = AssistantState.model_validate(result)
-                created_insight_ids = insight_state.insight_ids if insight_state and insight_state.insight_ids else []
-
-                if created_insight_ids:
-                    self._stream_reasoning(
-                        progress_message=f"Created {len(created_insight_ids)}/{total_to_create} insights",
-                        writer=self._get_stream_writer(),
-                    )
-                    if query not in query_to_insight_ids:
-                        query_to_insight_ids[query] = set(created_insight_ids)
-                    else:
-                        query_to_insight_ids[query].update(set(created_insight_ids))
-                    last_messages.append(f"Created insight for the query {query}")
-                else:
-                    self._stream_reasoning(
-                        progress_message=f"Failed to create insights for {query}", writer=self._get_stream_writer()
-                    )
-                    last_messages.append(f"Failed to create insight for the query {query}.")
-            return query_to_insight_ids, last_messages
-        except Exception as e:
-            logger.exception(f"Error creating insights with subgraph: {e}")
-            return {}, []
-
-    async def _generate_dashboard_name(self, query: str, last_messages: list[str], insight_ids: list[int]) -> str:
+    async def _generate_dashboard_name(self, query: str, last_messages: list[str]) -> str:
         """Generate a dashboard name based on the query and insights."""
         self._stream_reasoning(progress_message="Generating dashboard name", writer=self._get_stream_writer())
         try:
@@ -342,7 +310,8 @@ class DashboardCreatorNode(AssistantNode):
             return dashboard_name[:50]
 
         except Exception as e:
-            logger.exception(f"Error generating dashboard name: {e}")
+            capture_exception(e)
+            logger.exception(f"Error generating dashboard name: {e}", exc_info=True)
             return "Analytics Dashboard"
 
     async def _create_dashboard_with_insights(self, dashboard_name: str, insights: list[int]) -> Dashboard:
@@ -435,6 +404,7 @@ class DashboardCreatorNode(AssistantNode):
 
     def _create_error_response(self, content: str, tool_call_id: str) -> PartialAssistantState:
         """Create error response for the assistant."""
+        capture_exception(Exception(content))
         return PartialAssistantState(
             messages=[
                 AssistantToolCallMessage(

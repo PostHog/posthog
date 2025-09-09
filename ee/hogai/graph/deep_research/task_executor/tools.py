@@ -20,10 +20,16 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 
+from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.deep_research.task_executor.prompts import AGENT_TASK_PROMPT_TEMPLATE
 from ee.hogai.graph.deep_research.types import DeepResearchSingleTaskResult
 from ee.hogai.utils.types import AssistantState, VisualizationMessage
-from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AssistantMessageUnion, InsightArtifact
+from ee.hogai.utils.types.base import (
+    AnyAssistantGeneratedQuery,
+    AssistantMessageUnion,
+    InsightArtifact,
+    InsightSearchArtifact,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -149,14 +155,14 @@ class ExecuteTasksTool:
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", formatted_instructions),
-                ("user", tool_result_message.content),
+                ("user", "{content}"),
             ]
         )
 
         model = self._get_model()
         chain = prompt | model
         response = await chain.ainvoke(
-            {},
+            {"content": tool_result_message.content},
             config,
         )
         response = cast(LangchainAIMessage, response)
@@ -174,6 +180,7 @@ class ExecuteTasksTool:
     def _failed_result(self, task: TaskExecutionItem) -> DeepResearchSingleTaskResult:
         if self._task_progress_callback:
             self._task_progress_callback(task.id, None)
+
         return DeepResearchSingleTaskResult(
             id=task.id, description=task.description, result="", artifacts=[], status=TaskExecutionStatus.FAILED
         )
@@ -218,6 +225,142 @@ class ExecuteTasksTool:
                 progress_text = node_reasoning_messages[node_name]
                 if self._task_progress_callback and current_task_id:
                     self._task_progress_callback(current_task_id, progress_text)
+
+    def _get_model(self) -> ChatOpenAI:
+        return ChatOpenAI(
+            model="gpt-4.1",
+            temperature=0.3,
+        )
+
+
+class ExecuteNodeTasksTool:
+    """Tool for executing multiple tasks in parallel using a single node executor."""
+
+    def __init__(self, node_executor: AssistantNode):
+        self._node_executor = node_executor
+        self._reasoning_callback: Optional[Callable[[ReasoningMessage], None]] = None
+        self._task_progress_callback: Optional[Callable[[str, str | None], None]] = None
+
+    def set_reasoning_callback(self, callback: Callable[[ReasoningMessage], None]):
+        """Set a callback to emit reasoning messages during task execution."""
+        self._reasoning_callback = callback
+
+    def set_task_progress_callback(self, callback: Callable[[str, str | None], None]):
+        """Set a callback to emit task-specific progress updates.
+
+        Args:
+            callback: Function that takes (task_id, progress_text) parameters
+        """
+        self._task_progress_callback = callback
+
+    async def astream(
+        self,
+        input_tuples: list[tuple[TaskExecutionItem, list[InsightArtifact]]],
+        config: RunnableConfig,
+    ):
+        """
+        Execute tasks in parallel using a single node executor and yield results as they complete.
+        """
+
+        task_executor = RunnableLambda(self._execute_task_with_node).with_config(run_name="NodeTaskExecutor")  # type: ignore
+        batch_inputs = [{"task": task, "artifacts": artifacts, "config": config} for task, artifacts in input_tuples]
+
+        async for _, output in task_executor.abatch_as_completed(batch_inputs, config=config):
+            yield output
+
+        yield ReasoningMessage(
+            content=f"All {len(input_tuples)} research tasks completed! Collected insights are ready for synthesis and analysis."
+        )
+
+    async def _execute_task_with_node(self, input_dict: dict) -> DeepResearchSingleTaskResult:
+        """Execute a single task using a single node executor."""
+
+        task = input_dict["task"]
+        config = input_dict.get("config")
+
+        task_tool_call_id = f"task_{uuid.uuid4().hex[:8]}"
+
+        formatted_instructions = AGENT_TASK_PROMPT_TEMPLATE.format(
+            task_prompt=task.prompt, task_description=task.description
+        )
+
+        input_state = AssistantState(
+            root_tool_call_id=task_tool_call_id,
+            search_insights_query=task.prompt,
+        )
+
+        try:
+            result = await self._node_executor.arun(input_state, config)
+
+            if not result or not result.messages:
+                logger.warning("Task failed: no messages received from node executor", task_id=task.id)
+                return self._failed_result(task)
+
+            task_result = result.messages[0].content if result.messages else ""
+
+            # Extract artifacts from the result
+            extracted_artifacts = self._extract_artifacts_from_result(result, task)
+
+            if len(extracted_artifacts) == 0:
+                logger.warning("Task failed: no artifacts extracted", task_id=task.id)
+                return self._failed_result(task)
+
+            # Generate final result using the model
+            prompt = ChatPromptTemplate.from_messages(
+                [
+                    ("system", formatted_instructions),
+                    ("user", "{content}"),
+                ]
+            )
+
+            model = self._get_model()
+            chain = prompt | model
+            response = await chain.ainvoke(
+                {"content": task_result},
+                config,
+            )
+            response = cast(LangchainAIMessage, response)
+
+            if self._task_progress_callback:
+                self._task_progress_callback(task.id, None)
+
+            return DeepResearchSingleTaskResult(
+                id=task.id,
+                description=task.description,
+                result=str(response),
+                artifacts=extracted_artifacts,
+                status=TaskExecutionStatus.COMPLETED,
+            )
+
+        except Exception as e:
+            capture_exception(e)
+            logger.exception(f"Task failed with exception: {e}", task_id=task.id)
+            return self._failed_result(task)
+
+    def _failed_result(self, task: TaskExecutionItem) -> DeepResearchSingleTaskResult:
+        if self._task_progress_callback:
+            self._task_progress_callback(task.id, None)
+        return DeepResearchSingleTaskResult(
+            id=task.id, description=task.description, result="", artifacts=[], status=TaskExecutionStatus.FAILED
+        )
+
+    def _extract_artifacts_from_result(
+        self, result: AssistantState, task: TaskExecutionItem
+    ) -> list[InsightSearchArtifact]:
+        """Extract artifacts from node execution results."""
+        artifacts: list[InsightSearchArtifact] = []
+        task_result = result.messages[0].content if result.messages else ""
+        if result.insight_ids:
+            # For InsightSearchNode, we need to extract insight IDs from the result
+            artifact = InsightSearchArtifact(
+                id=str(uuid.uuid4()),
+                insight_ids=result.insight_ids,
+                description=task.prompt,
+                selection_reason=task_result,
+            )
+            artifacts.append(artifact)
+
+        return artifacts
 
     def _get_model(self) -> ChatOpenAI:
         return ChatOpenAI(

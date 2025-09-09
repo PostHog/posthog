@@ -329,3 +329,14 @@ class InsightArtifact(BaseModel):
     id: str
     query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
     description: str
+
+
+class InsightSearchArtifact(BaseModel):
+    """
+    An artifact created by a search task.
+    """
+
+    id: str
+    insight_ids: list[int]
+    selection_reason: str
+    description: str
