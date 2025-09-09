@@ -1,3 +1,4 @@
+import Fuse from 'fuse.js'
 import { useMemo, useState } from 'react'
 
 import { LemonInput } from '@posthog/lemon-ui'
@@ -29,30 +30,56 @@ export type LemonSearchableSelectProps<T> =
     | LemonSearchableSelectPropsClearable<T>
     | LemonSearchableSelectPropsNonClearable<T>
 
+function flattenOptions<T>(options: LemonSelectOptions<T>): LemonSelectOption<T>[] {
+    const flatOptions: LemonSelectOption<T>[] = []
+    const addOption = (option: LemonSelectOption<T> | LemonSelectSection<T>): void => {
+        if ('options' in option) {
+            option.options.forEach(addOption)
+        } else {
+            flatOptions.push(option)
+        }
+    }
+
+    options.forEach((item) => {
+        if (isLemonSelectSection(item)) {
+            item.options.forEach(addOption)
+        } else {
+            addOption(item)
+        }
+    })
+
+    return flatOptions
+}
+
+function filterStructure<T>(
+    item: LemonSelectOption<T> | LemonSelectSection<T>,
+    matchedOptions: Set<LemonSelectOption<T>>
+): typeof item | null {
+    if (isLemonSelectSection(item)) {
+        const filteredOptions = item.options
+            .map((option) => filterStructure(option, matchedOptions))
+            .filter(Boolean) as LemonSelectOption<T>[]
+        return filteredOptions.length > 0 ? { ...item, options: filteredOptions } : null
+    }
+    if ('options' in item) {
+        const filteredOptions = item.options
+            .map((option) => filterStructure(option, matchedOptions))
+            .filter(Boolean) as LemonSelectOption<T>[]
+        return filteredOptions.length > 0 ? { ...item, options: filteredOptions } : null
+    }
+    return matchedOptions.has(item) ? item : null
+}
+
 function filterOptions<T>(options: LemonSelectOptions<T>, searchTerm: string): LemonSelectOptions<T> {
     if (!searchTerm) {
         return options
     }
 
-    const searchLower = searchTerm.toLowerCase()
+    const flatOptions = flattenOptions(options)
+    const fuse = new Fuse(flatOptions, { keys: ['label'], threshold: 0.3 })
+    const matchedOptions = new Set(fuse.search(searchTerm).map((result) => result.item))
 
-    const filterOption = (
-        option: LemonSelectOption<T> | LemonSelectSection<T>
-    ): LemonSelectOption<T> | LemonSelectSection<T> | null => {
-        if (isLemonSelectSection(option)) {
-            const filteredOptions = option.options.map(filterOption).filter(Boolean) as LemonSelectOption<T>[]
-            return filteredOptions.length > 0 ? { ...option, options: filteredOptions } : null
-        } else if ('options' in option) {
-            // LemonSelectOptionNode
-            const filteredOptions = option.options.map(filterOption).filter(Boolean) as LemonSelectOption<T>[]
-            return filteredOptions.length > 0 ? { ...option, options: filteredOptions } : null
-        }
-        // Leaf option
-        const label = option.label || String(option.value)
-        return String(label).toLowerCase().includes(searchLower) ? option : null
-    }
-
-    return options.map(filterOption).filter(Boolean) as LemonSelectOptions<T>
+    return options.map((item) => filterStructure(item, matchedOptions)).filter(Boolean) as LemonSelectOptions<T>
 }
 
 export function LemonSearchableSelect<T extends string | number | boolean | null>({
