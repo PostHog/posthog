@@ -57,7 +57,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate
@@ -147,7 +148,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_one_user
@@ -237,7 +239,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_path_cleaning
@@ -327,7 +330,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_with_multiple_pathname_filters
@@ -417,7 +421,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_with_property
@@ -507,7 +512,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_breakdown_channel_type_doesnt_throw
@@ -558,7 +564,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_cohort_test_filters
@@ -633,7 +640,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_comparison
@@ -683,7 +691,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_conversion_goal_no_conversions
@@ -741,7 +750,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_conversion_goal_one_autocapture_conversion
@@ -797,7 +807,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_conversion_goal_one_custom_action_conversion
@@ -853,7 +864,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_conversion_goal_one_custom_event_conversion
@@ -909,7 +921,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_conversion_goal_one_pageview_conversion
@@ -967,7 +980,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_conversion_goal_one_pageview_conversion.1
@@ -1025,7 +1039,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_conversion_rate
@@ -1083,7 +1098,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_dont_filter_test_accounts
@@ -1133,7 +1149,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate
@@ -1196,7 +1213,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate_one_user
@@ -1259,7 +1277,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate_path_cleaning
@@ -1322,7 +1341,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate_with_property
@@ -1385,7 +1405,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_filter_test_accounts
@@ -1445,7 +1466,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_increase_in_users
@@ -1495,7 +1517,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_increase_in_users_on_mobile
@@ -1545,7 +1568,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_is_not_set_filter
@@ -1607,7 +1631,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_language_filter
@@ -1679,7 +1704,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_limit
@@ -1740,7 +1766,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_limit.2
@@ -1801,7 +1828,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_no_crash_when_no_data
@@ -1851,7 +1879,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_no_session_id
@@ -1913,7 +1942,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_no_session_id.2
@@ -1975,7 +2005,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_no_session_id.4
@@ -2036,7 +2067,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_null_in_utm_tags
@@ -2098,7 +2130,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters
@@ -2159,7 +2192,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_applied_in_order
@@ -2220,7 +2254,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_with_cleanable_path_property
@@ -2282,7 +2317,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_with_cleaned_path_property
@@ -2344,7 +2380,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_with_cleaned_path_property.2
@@ -2406,7 +2443,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_with_multiple_capture_groups
@@ -2467,7 +2505,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_with_order_field_and_baseline_urls
@@ -2528,7 +2567,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_same_user_multiple_sessions
@@ -2590,7 +2630,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_same_user_multiple_sessions.2
@@ -2651,7 +2692,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_same_user_multiple_sessions.4
@@ -2741,7 +2783,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_same_user_multiple_sessions.6
@@ -2858,7 +2901,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_scroll_depth_bounce_rate
@@ -2975,7 +3019,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_scroll_depth_bounce_rate_one_user
@@ -3092,7 +3137,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_scroll_depth_bounce_rate_path_cleaning
@@ -3209,7 +3255,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_scroll_depth_bounce_rate_with_filter
@@ -3326,7 +3373,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_bounce_rate
@@ -3417,7 +3465,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_bounce_rate.2
@@ -3508,7 +3557,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_conversion_rate
@@ -3567,7 +3617,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_conversion_rate.1
@@ -3626,7 +3677,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_scroll_depth
@@ -3744,7 +3796,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_scroll_depth.2
@@ -3862,7 +3915,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_total_conversions
@@ -3920,7 +3974,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_total_conversions.1
@@ -3978,7 +4033,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_views
@@ -4039,7 +4095,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_views.2
@@ -4100,7 +4157,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_visitors
@@ -4161,7 +4219,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_visitors.2
@@ -4222,7 +4281,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_source_medium_campaign
@@ -4287,7 +4347,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_timezone_filter_general
@@ -4337,7 +4398,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_timezone_filter_with_invalid_timezone_offset
@@ -4398,7 +4460,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_timezone_filter_with_invalid_timezone_offset.2
@@ -4459,7 +4522,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_timezone_filter_with_invalid_timezone_offset.4
@@ -4520,6 +4584,7 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
