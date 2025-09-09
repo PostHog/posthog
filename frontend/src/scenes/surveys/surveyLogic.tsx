@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { allOperatorsMapping, debounce, hasFormErrors, isObject } from 'lib/utils'
@@ -221,18 +221,18 @@ function extractPersonData(row: SurveyResponseRow): {
 } {
     const distinctId = row.at(-2) as string
     const timestamp = row.at(-1) as string
-    const unparsedPersonProperties = row.at(-3)
-    let personProperties: Record<string, any> | undefined
-
-    if (unparsedPersonProperties && unparsedPersonProperties !== null) {
-        try {
-            personProperties = JSON.parse(unparsedPersonProperties as string)
-        } catch {
-            // Ignore parsing errors for person properties
+    // now, we're querying for all PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES, starting from the third last value, so build our person properties object
+    // from those values. We use them to have a display name for the person
+    const personProperties: Record<string, any> = {}
+    let hasAnyProperties = false
+    for (let i = 0; i < PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES.length; i++) {
+        const value = row.at(-3 - i) as string
+        if (value && value !== null && value !== '') {
+            personProperties[PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES[i]] = value
+            hasAnyProperties = true
         }
     }
-
-    return { distinctId, personProperties, timestamp }
+    return { distinctId, personProperties: hasAnyProperties ? personProperties : undefined, timestamp }
 }
 
 // Helper to count a choice and store person data for latest occurrence
@@ -472,7 +472,16 @@ export const surveyLogic = kea<surveyLogicType>([
             teamLogic,
             ['addProductIntent'],
         ],
-        values: [enabledFlagLogic, ['featureFlags as enabledFlags'], surveysLogic, ['data'], userLogic, ['user']],
+        values: [
+            enabledFlagLogic,
+            ['featureFlags as enabledFlags'],
+            surveysLogic,
+            ['data'],
+            userLogic,
+            ['user'],
+            teamLogic,
+            ['currentTeam'],
+        ],
     })),
     actions({
         setSurveyMissing: true,
@@ -845,7 +854,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     -- QUERYING ALL SURVEY RESPONSES IN ONE GO
                     SELECT
                         ${questionFields.join(',\n')},
-                        person.properties,
+                        ${PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES.map((property) => `person.properties.${property}`).join(',\n')},
                         events.distinct_id,
                         events.timestamp
                     FROM events
