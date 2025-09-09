@@ -473,7 +473,6 @@ class ExperimentTimeseries:
 
         metric_events_query = get_metric_events_query(
             self.metric,
-            exposure_query,
             self.team,
             self.entity_key,
             self.experiment,
