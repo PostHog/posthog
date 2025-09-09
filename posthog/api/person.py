@@ -130,21 +130,14 @@ def get_person_name_helper(
     return str(person_pk)
 
 
-class PersonsThrottle(ClickHouseSustainedRateThrottle):
-    # Throttle class that's scoped just to the person endpoint.
-    # This makes the rate limit apply to all endpoints under /api/person/
-    # and independent of other endpoints.
-    scope = "persons"
-
-
 class PersonsBreakGlassBurstThrottle(BreakGlassBurstThrottle):
-    scope = "persons"
-    rate = "60/minute"
+    scope = "persons_burst"
+    rate = "180/minute"
 
 
 class PersonsBreakGlassSustainedThrottle(BreakGlassSustainedThrottle):
-    scope = "persons"
-    rate = "300/hour"
+    scope = "persons_sustained"
+    rate = "1200/hour"
 
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
@@ -229,7 +222,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     pagination_class = PersonLimitOffsetPagination
     throttle_classes = [
         ClickHouseBurstRateThrottle,
-        PersonsThrottle,
         PersonsBreakGlassBurstThrottle,
         PersonsBreakGlassSustainedThrottle,
     ]
