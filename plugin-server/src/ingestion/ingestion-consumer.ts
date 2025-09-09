@@ -2,6 +2,7 @@ import { Message, MessageHeader } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 import { z } from 'zod'
 
+import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { MessageSizeTooLarge } from '~/utils/db/error'
 import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
@@ -10,8 +11,9 @@ import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
 import { latestOffsetTimestampGauge, setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
-import { runInstrumentedFunction } from '../main/utils'
 import {
+    HealthCheckResult,
+    HealthCheckResultError,
     Hub,
     IncomingEventWithTeam,
     KafkaConsumerBreadcrumb,
@@ -31,8 +33,6 @@ import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
-import { PostgresDualWritePersonRepository } from '../worker/ingestion/persons/repositories/postgres-dualwrite-person-repository'
-import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
 import { deduplicateEvents } from './deduplication/events'
 import { DeduplicationRedis, createDeduplicationRedis } from './deduplication/redis-client'
 import {
@@ -153,20 +153,7 @@ export class IngestionConsumer {
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
 
-        const personRepositoryOptions = {
-            calculatePropertiesSize: this.hub.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
-            comparisonEnabled: this.hub.PERSONS_DUAL_WRITE_COMPARISON_ENABLED,
-        }
-
-        const personRepository = this.hub.PERSONS_DUAL_WRITE_ENABLED
-            ? new PostgresDualWritePersonRepository(
-                  this.hub.db.postgres,
-                  this.hub.db.postgresPersonMigration,
-                  personRepositoryOptions
-              )
-            : new PostgresPersonRepository(this.hub.db.postgres, personRepositoryOptions)
-
-        this.personStore = new BatchWritingPersonsStore(personRepository, this.hub.db.kafkaProducer, {
+        this.personStore = new BatchWritingPersonsStore(this.hub.personRepository, this.hub.db.kafkaProducer, {
             dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
             maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
@@ -207,11 +194,13 @@ export class IngestionConsumer {
         ])
 
         await this.kafkaConsumer.connect(async (messages) => {
-            return await runInstrumentedFunction({
-                statsKey: `ingestionConsumer.handleEachBatch`,
-                sendException: false,
-                func: async () => await this.handleKafkaBatch(messages),
-            })
+            return await instrumentFn(
+                {
+                    key: `ingestionConsumer.handleEachBatch`,
+                    sendException: false,
+                },
+                async () => await this.handleKafkaBatch(messages)
+            )
         })
     }
 
@@ -233,12 +222,15 @@ export class IngestionConsumer {
         logger.info('👍', `${this.name} - stopped!`)
     }
 
-    public isHealthy(): boolean {
-        return this.kafkaConsumer?.isHealthy()
+    public isHealthy(): HealthCheckResult {
+        if (!this.kafkaConsumer) {
+            return new HealthCheckResultError('Kafka consumer not initialized', {})
+        }
+        return this.kafkaConsumer.isHealthy()
     }
 
     private runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {
-        return runInstrumentedFunction<T>({ statsKey: `ingestionConsumer.${name}`, func })
+        return instrumentFn<T>(`ingestionConsumer.${name}`, func)
     }
 
     private createBreadcrumb(message: Message): KafkaConsumerBreadcrumb {

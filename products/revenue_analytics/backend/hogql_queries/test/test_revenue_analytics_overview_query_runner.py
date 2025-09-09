@@ -208,11 +208,11 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
             [
                 RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("8900.0246133332")
+                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("1631.9303277469")
                 ),
                 RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=3),
                 RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("2966.674871111")
+                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("543.9767759156")
                 ),
             ],
         )
@@ -225,11 +225,9 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             results,
             [
-                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("0")),
+                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=0),
                 RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=0),
-                RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("0")
-                ),
+                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=0),
             ],
         )
 
@@ -237,7 +235,7 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_revenue_analytics_overview_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="product",
+                    key="revenue_analytics_product.name",
                     operator=PropertyOperator.EXACT,
                     value=["Product C"],  # Equivalent to `prod_c` but we're querying by name
                 )
@@ -259,7 +257,7 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_revenue_analytics_overview_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="product",
+                    key="revenue_analytics_product.name",
                     operator=PropertyOperator.EXACT,
                     value=["Product A", "Product C"],
                 )
@@ -270,11 +268,11 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
             [
                 RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("133.9132683333")
+                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("33.8068654006")
                 ),
                 RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=2),
                 RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("66.9566341666")
+                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("16.9034327003")
                 ),
             ],
         )
@@ -309,7 +307,7 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             date_range=DateRange(date_from="2023-11-01", date_to="2024-01-31"),
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="source",
+                    key="source_label",
                     operator=PropertyOperator.EXACT,
                     value=["revenue_analytics.events.purchase"],
                 )
@@ -348,7 +346,7 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             date_range=DateRange(date_from="2023-11-01", date_to="2024-01-31"),
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="source",
+                    key="source_label",
                     operator=PropertyOperator.EXACT,
                     value=["revenue_analytics.events.purchase"],
                 )

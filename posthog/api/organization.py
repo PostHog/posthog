@@ -269,6 +269,13 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return get_object_or_404(queryset, **filter_kwargs)
 
     def perform_destroy(self, organization: Organization):
+        # Check if bulk deletion operations are disabled via environment variable
+        # Organizations contain teams, so we need to block organization deletion too
+        if settings.DISABLE_BULK_DELETES:
+            raise exceptions.ValidationError(
+                "Organization deletion is temporarily disabled during database migration. Please try again later."
+            )
+
         user = cast(User, self.request.user)
         report_organization_deleted(user, organization)
         team_ids = [team.pk for team in organization.teams.all()]

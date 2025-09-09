@@ -1,0 +1,212 @@
+{
+    "cache_key": "cache_5af00efb9d69bc726976f21244a03042",
+    "cache_target_age": "2025-05-30T20:24:26.606038Z",
+    "calculation_trigger": null,
+    "columns": null,
+    "error": null,
+    "hogql": null,
+    "is_cached": true,
+    "last_refresh": "2025-05-29T20:24:26.606038Z",
+    "modifiers": {
+        "bounceRateDurationSeconds": null,
+        "bounceRatePageViewMode": "count_pageviews",
+        "convertToProjectTimezone": true,
+        "customChannelTypeRules": null,
+        "dataWarehouseEventsModifiers": null,
+        "debug": null,
+        "formatCsvAllowDoubleQuotes": null,
+        "inCohortVia": "auto",
+        "materializationMode": "legacy_null_as_null",
+        "optimizeJoinedFilters": false,
+        "personsArgMaxVersion": "auto",
+        "personsJoinMode": null,
+        "personsOnEventsMode": "person_id_override_properties_joined",
+        "propertyGroupsMode": null,
+        "s3TableUseInvalidColumns": null,
+        "sessionTableVersion": "auto",
+        "sessionsV2JoinMode": "string",
+        "useMaterializedViews": true,
+        "usePresortedEventsTable": false,
+        "useWebAnalyticsPreAggregatedTables": null
+    },
+    "next_allowed_client_refresh": "2025-05-29T20:25:26.606038Z",
+    "query_status": null,
+    "results": [
+        {
+            "total": {
+                "action": {
+                    "days": [
+                        "2025-01-01T00:00:00-03:00",
+                        "2025-02-01T00:00:00-03:00",
+                        "2025-03-01T00:00:00-03:00",
+                        "2025-04-01T00:00:00-03:00",
+                        "2025-05-01T00:00:00-03:00"
+                    ],
+                    "id": "stripe.saas",
+                    "name": "stripe.saas"
+                },
+                "data": [47108.46, 57657.07, 67204.82, 62259.76, 67818.62],
+                "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
+                "label": "stripe.saas",
+                "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
+            },
+            "new": {
+                "action": {
+                    "days": [
+                        "2025-01-01T00:00:00-03:00",
+                        "2025-02-01T00:00:00-03:00",
+                        "2025-03-01T00:00:00-03:00",
+                        "2025-04-01T00:00:00-03:00",
+                        "2025-05-01T00:00:00-03:00"
+                    ],
+                    "id": "New | stripe.saas",
+                    "name": "New | stripe.saas"
+                },
+                "data": [7108.46, 6657.07, 8204.82, 459.76, 5818.62],
+                "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
+                "label": "New | stripe.saas",
+                "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
+            },
+            "expansion": {
+                "action": {
+                    "days": [
+                        "2025-01-01T00:00:00-03:00",
+                        "2025-02-01T00:00:00-03:00",
+                        "2025-03-01T00:00:00-03:00",
+                        "2025-04-01T00:00:00-03:00",
+                        "2025-05-01T00:00:00-03:00"
+                    ],
+                    "id": "Expansion | stripe.saas",
+                    "name": "Expansion | stripe.saas"
+                },
+                "data": [108.46, 657.07, 204.82, 59.76, 818.62],
+                "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
+                "label": "Expansion | stripe.saas",
+                "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
+            },
+            "contraction": {
+                "action": {
+                    "days": [
+                        "2025-01-01T00:00:00-03:00",
+                        "2025-02-01T00:00:00-03:00",
+                        "2025-03-01T00:00:00-03:00",
+                        "2025-04-01T00:00:00-03:00",
+                        "2025-05-01T00:00:00-03:00"
+                    ],
+                    "id": "Contraction | stripe.saas",
+                    "name": "Contraction | stripe.saas"
+                },
+                "data": [-5710.46, -9665.07, -5820.82, -745.76, -6581.62],
+                "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
+                "label": "Contraction | stripe.saas",
+                "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
+            },
+            "churn": {
+                "action": {
+                    "days": [
+                        "2025-01-01T00:00:00-03:00",
+                        "2025-02-01T00:00:00-03:00",
+                        "2025-03-01T00:00:00-03:00",
+                        "2025-04-01T00:00:00-03:00",
+                        "2025-05-01T00:00:00-03:00"
+                    ],
+                    "id": "Churn | stripe.saas",
+                    "name": "Churn | stripe.saas"
+                },
+                "data": [-571.46, -966.07, -582.82, -74.76, -658.62],
+                "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
+                "label": "Churn | stripe.saas",
+                "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
+            }
+        },
+        {
+            "total": {
+                "action": {
+                    "days": [
+                        "2025-01-01T00:00:00-03:00",
+                        "2025-02-01T00:00:00-03:00",
+                        "2025-03-01T00:00:00-03:00",
+                        "2025-04-01T00:00:00-03:00",
+                        "2025-05-01T00:00:00-03:00"
+                    ],
+                    "id": "stripe.merch",
+                    "name": "stripe.merch"
+                },
+                "data": [6657.07, 16500, 17108.46, 32000.82, 35818.62],
+                "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
+                "label": "stripe.merch",
+                "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
+            },
+            "new": {
+                "action": {
+                    "days": [
+                        "2025-01-01T00:00:00-03:00",
+                        "2025-02-01T00:00:00-03:00",
+                        "2025-03-01T00:00:00-03:00",
+                        "2025-04-01T00:00:00-03:00",
+                        "2025-05-01T00:00:00-03:00"
+                    ],
+                    "id": "New | stripe.merch",
+                    "name": "New | stripe.merch"
+                },
+                "data": [657.07, 500, 7108.46, 2000.82, 2818.62],
+                "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
+                "label": "New | stripe.merch",
+                "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
+            },
+            "expansion": {
+                "action": {
+                    "days": [
+                        "2025-01-01T00:00:00-03:00",
+                        "2025-02-01T00:00:00-03:00",
+                        "2025-03-01T00:00:00-03:00",
+                        "2025-04-01T00:00:00-03:00",
+                        "2025-05-01T00:00:00-03:00"
+                    ],
+                    "id": "Expansion | stripe.merch",
+                    "name": "Expansion | stripe.merch"
+                },
+                "data": [57.07, 0, 108.46, 0.82, 818.62],
+                "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
+                "label": "Expansion | stripe.merch",
+                "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
+            },
+            "contraction": {
+                "action": {
+                    "days": [
+                        "2025-01-01T00:00:00-03:00",
+                        "2025-02-01T00:00:00-03:00",
+                        "2025-03-01T00:00:00-03:00",
+                        "2025-04-01T00:00:00-03:00",
+                        "2025-05-01T00:00:00-03:00"
+                    ],
+                    "id": "Contraction | stripe.merch",
+                    "name": "Contraction | stripe.merch"
+                },
+                "data": [-665.07, -750, -5710.46, -3200.82, -1281.62],
+                "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
+                "label": "Contraction | stripe.merch",
+                "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
+            },
+            "churn": {
+                "action": {
+                    "days": [
+                        "2025-01-01T00:00:00-03:00",
+                        "2025-02-01T00:00:00-03:00",
+                        "2025-03-01T00:00:00-03:00",
+                        "2025-04-01T00:00:00-03:00",
+                        "2025-05-01T00:00:00-03:00"
+                    ],
+                    "id": "Churn | stripe.merch",
+                    "name": "Churn | stripe.merch"
+                },
+                "data": [-66.07, -75, -571.46, -320.82, -128.62],
+                "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
+                "label": "Churn | stripe.merch",
+                "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
+            }
+        }
+    ],
+    "timezone": "America/Sao_Paulo",
+    "timings": null
+}

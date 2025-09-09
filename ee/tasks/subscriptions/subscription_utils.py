@@ -82,6 +82,7 @@ async def generate_assets_async(
 ) -> tuple[list[Insight], list[ExportedAsset]]:
     """
     Async version of generate_assets that creates assets with bulk_create then exports them concurrently.
+    This function requires "created_by", "insight", "dashboard", "team" be prefetched on the resource
     """
     logger.info("generate_assets_async.starting", resource_id=getattr(resource, "id", None))
     with SUBSCRIPTION_ASSET_GENERATION_TIMER.time():

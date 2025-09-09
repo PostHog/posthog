@@ -808,7 +808,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
                     const inputs = buildInputs(globals);
                     const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
                     let __getGlobal = (key) => filterGlobals[key];
-                    const filterMatches = !!(!!(!ilike(toString(__getProperty(__getProperty(__getGlobal("person"), "properties", true), "email", true)), "%@posthog.com%") && ((!match(toString(__getProperty(__getGlobal("properties"), "$host", true)), "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)")) ?? 1) && (__getGlobal("event") == "$pageview")));
+                    const filterMatches = !!(!ilike(toString(__getProperty(__getProperty(__getGlobal("person"), "properties", true), "email", true)), "%@posthog.com%") && ((!match(toString(__getProperty(__getGlobal("properties"), "$host", true)), "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)")) ?? 1) && (__getGlobal("event") == "$pageview"));
                     if (!filterMatches) { return; }
                     ;
                 }

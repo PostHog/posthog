@@ -24,8 +24,20 @@ from posthog.models.team import Team
 from ee.api.billing import BillingUsageRequestSerializer
 from ee.api.test.base import APILicensedTest
 from ee.billing.billing_types import BillingPeriod, CustomerInfo, CustomerProduct, CustomerProductAddon
+from ee.billing.quota_limiting import QuotaResource
 from ee.billing.test.test_billing_manager import create_default_products_response
 from ee.models.license import License
+
+
+def create_usage_summary(**kwargs) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
+    }
+    for resource in QuotaResource:
+        data[resource.value] = {"limit": None, "usage": 0, "todays_usage": 0}
+
+    data.update(kwargs)
+    return data
 
 
 def create_billing_response(**kwargs) -> dict[str, Any]:
@@ -46,15 +58,7 @@ def create_missing_billing_customer(**kwargs) -> CustomerInfo:
             current_period_start="2022-10-07T11:12:48",
             current_period_end="2022-11-07T11:12:48",
         ),
-        usage_summary={
-            "events": {"limit": None, "usage": 0},
-            "exceptions": {"limit": None, "usage": 0},
-            "recordings": {"limit": None, "usage": 0},
-            "rows_synced": {"limit": None, "usage": 0},
-            "feature_flag_requests": {"limit": None, "usage": 0},
-            "api_queries_read_bytes": {"limit": None, "usage": 0},
-            "surveys": {"limit": None, "usage": 0},
-        },
+        usage_summary=create_usage_summary(),
         free_trial_until=None,
         available_product_features=[],
     )
@@ -146,15 +150,7 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
             current_period_start="2022-10-07T11:12:48",
             current_period_end="2022-11-07T11:12:48",
         ),
-        usage_summary={
-            "events": {"limit": None, "usage": 0},
-            "exceptions": {"limit": None, "usage": 0},
-            "recordings": {"limit": None, "usage": 0},
-            "rows_synced": {"limit": None, "usage": 0},
-            "feature_flag_requests": {"limit": None, "usage": 0},
-            "api_queries_read_bytes": {"limit": None, "usage": 0},
-            "surveys": {"limit": None, "usage": 0},
-        },
+        usage_summary=create_usage_summary(),
         free_trial_until=None,
     )
     data.update(kwargs)
@@ -443,15 +439,7 @@ class TestBillingAPI(APILicensedTest):
                 "current_period_start": "2022-10-07T11:12:48",
                 "current_period_end": "2022-11-07T11:12:48",
             },
-            "usage_summary": {
-                "events": {"limit": None, "usage": 0},
-                "exceptions": {"limit": None, "usage": 0},
-                "recordings": {"limit": None, "usage": 0},
-                "rows_synced": {"limit": None, "usage": 0},
-                "feature_flag_requests": {"limit": None, "usage": 0},
-                "api_queries_read_bytes": {"limit": None, "usage": 0},
-                "surveys": {"limit": None, "usage": 0},
-            },
+            "usage_summary": create_usage_summary(),
             "free_trial_until": None,
         }
 
@@ -571,15 +559,7 @@ class TestBillingAPI(APILicensedTest):
                 "current_period_start": "2022-10-07T11:12:48",
                 "current_period_end": "2022-11-07T11:12:48",
             },
-            "usage_summary": {
-                "events": {"limit": None, "usage": 0},
-                "exceptions": {"limit": None, "usage": 0},
-                "recordings": {"limit": None, "usage": 0},
-                "rows_synced": {"limit": None, "usage": 0},
-                "feature_flag_requests": {"limit": None, "usage": 0},
-                "api_queries_read_bytes": {"limit": None, "usage": 0},
-                "surveys": {"limit": None, "usage": 0},
-            },
+            "usage_summary": create_usage_summary(),
             "free_trial_until": None,
             "current_total_amount_usd": "0.00",
             "deactivated": False,
@@ -738,40 +718,7 @@ class TestBillingAPI(APILicensedTest):
         self.organization.refresh_from_db()
         TestCase().assertDictEqual(
             self.organization.usage,
-            {
-                "events": {
-                    "limit": None,
-                    "todays_usage": 0,
-                    "usage": 1000,
-                },
-                "exceptions": {
-                    "limit": None,
-                    "todays_usage": 0,
-                    "usage": 0,
-                },
-                "recordings": {
-                    "limit": None,
-                    "todays_usage": 0,
-                    "usage": 0,
-                },
-                "rows_synced": {
-                    "limit": None,
-                    "todays_usage": 0,
-                    "usage": 0,
-                },
-                "feature_flag_requests": {
-                    "limit": None,
-                    "todays_usage": 0,
-                    "usage": 0,
-                },
-                "api_queries_read_bytes": {
-                    "limit": None,
-                    "todays_usage": 0,
-                    "usage": 0,
-                },
-                "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
-                "surveys": {"limit": None, "usage": 0, "todays_usage": 0},
-            },
+            create_usage_summary(events={"usage": 1000, "limit": None, "todays_usage": 0}),
         )
 
         self.organization.usage = {"events": {"limit": None, "usage": 1000, "todays_usage": 1100000}}
@@ -841,17 +788,7 @@ class TestBillingAPI(APILicensedTest):
         res = self.client.get("/api/billing")
         assert res.status_code == 200
         self.organization.refresh_from_db()
-
-        assert self.organization.usage == {
-            "events": {"limit": None, "usage": 0, "todays_usage": 0},
-            "exceptions": {"limit": None, "usage": 0, "todays_usage": 0},
-            "recordings": {"limit": None, "usage": 0, "todays_usage": 0},
-            "rows_synced": {"limit": None, "usage": 0, "todays_usage": 0},
-            "feature_flag_requests": {"limit": None, "usage": 0, "todays_usage": 0},
-            "api_queries_read_bytes": {"limit": None, "usage": 0, "todays_usage": 0},
-            "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
-            "surveys": {"limit": None, "usage": 0, "todays_usage": 0},
-        }
+        assert self.organization.usage == create_usage_summary()
 
     @patch("ee.api.billing.requests.get")
     def test_org_trust_score_updated(self, mock_request):

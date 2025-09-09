@@ -152,7 +152,7 @@ function onLoad() {
         assert "console.log(globals);" in result
         assert "const filterMatches = " in result
         assert '__getGlobal("event") == "$pageview"' in result
-        assert "const filterMatches = !!(!!((__getGlobal" in result
+        assert 'const filterMatches = (__getGlobal("event") == "$pageview")' in result
         assert "if (!filterMatches) { return; }" in result
 
     def test_get_transpiled_function_with_invalid_template_input(self):
@@ -296,8 +296,8 @@ function onLoad() {
         result = self.compile_and_run()
 
         assert "console.log(inputs);" in result
-        assert 'const filterMatches = !!(!!((__getGlobal("event") == "$pageview")));' in result
-        assert 'if (!!(!!((__getGlobal("event") == "$autocapture")))) {' in result
+        assert 'const filterMatches = (__getGlobal("event") == "$pageview");' in result
+        assert 'if ((__getGlobal("event") == "$autocapture")) {' in result
         assert "const newInputs = structuredClone(inputs);" in result
         assert 'newInputs["greeting"] = concat("Hallo, ", __getProperty' in result
 

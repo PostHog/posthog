@@ -84,6 +84,7 @@ export function PieChart({
     const { aggregationLabel } = useValues(groupsModel)
     const { highlightSeries } = useActions(insightLogic)
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
+    const chartId = useRef(`pie-${Math.random().toString(36).substring(2, 11)}`)
 
     // Remove tooltip element on unmount
     useOnMountEffect(() => {
@@ -178,7 +179,7 @@ export function PieChart({
                                 return
                             }
 
-                            const [tooltipRoot, tooltipEl] = ensureTooltip()
+                            const [tooltipRoot, tooltipEl] = ensureTooltip(chartId.current)
                             if (tooltip.opacity === 0) {
                                 // remove highlight from the legend
                                 if (trendsFilter?.showLegend) {

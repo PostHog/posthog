@@ -268,19 +268,7 @@ describe('sessionRecordingDataLogic', () => {
                     'loadEvents',
                     'loadEventsSuccess',
                 ])
-                .toDispatchActions([sessionRecordingEventUsageLogic.actionTypes.reportRecording])
-        })
-
-        it('sends `recording viewed` and `recording analyzed` event on first contentful paint', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadSnapshots()
-            })
-                .toDispatchActions(['loadSnapshotsForSourceSuccess'])
-                .toDispatchActionsInAnyOrder([
-                    sessionRecordingEventUsageLogic.actionTypes.reportRecording, // loaded
-                    sessionRecordingEventUsageLogic.actionTypes.reportRecording, // viewed
-                    sessionRecordingEventUsageLogic.actionTypes.reportRecording, // analyzed
-                ])
+                .toDispatchActions([sessionRecordingEventUsageLogic.actionTypes.reportRecordingLoaded])
         })
     })
 
@@ -385,8 +373,6 @@ describe('sessionRecordingDataLogic', () => {
                     action.type === logic.actionTypes.loadSnapshotsForSource &&
                     action.payload.sources?.[0]?.source === 'blob',
                 'loadSnapshotsForSourceSuccess',
-                // and then we report having viewed the recording
-                'markViewed',
                 // the response to the success action triggers loading of the second item which is the realtime source
                 (action) =>
                     action.type === logic.actionTypes.loadSnapshotsForSource &&

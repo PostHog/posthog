@@ -1,7 +1,5 @@
 import uuid
-from typing import Optional
 
-from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import models
 
 from posthog.models.utils import UUIDTModel
@@ -33,33 +31,6 @@ class MessageRecipientPreference(UUIDTModel):
     def __str__(self) -> str:
         return f"Preferences for {self.identifier}"
 
-    def generate_preferences_token(self) -> str:
-        """Generate a secure, time-limited token for accessing preferences"""
-        signer = TimestampSigner()
-        return signer.sign_object({"id": str(self.id), "identifier": self.identifier})
-
-    @classmethod
-    def validate_preferences_token(
-        cls, token: str, max_age: int = 60 * 60 * 24 * 7
-    ) -> tuple[Optional["MessageRecipientPreference"], str]:
-        """
-        Validate a preferences token and return the recipient if valid
-        max_age defaults to 7 days
-        Returns (recipient, error_message). If validation fails, recipient will be None
-        """
-        signer = TimestampSigner()
-        try:
-            data = signer.unsign_object(token, max_age=max_age)
-            return cls.objects.get(id=uuid.UUID(data["id"]), identifier=data["identifier"]), ""
-        except SignatureExpired:
-            return None, "This link has expired. Please request a new one."
-        except BadSignature:
-            return None, "Invalid or tampered preferences link."
-        except cls.DoesNotExist:
-            return None, "Recipient not found."
-        except Exception:
-            return None, "An error occurred validating your preferences link."
-
     def set_preference(self, category_id: uuid.UUID, status: PreferenceStatus) -> None:
         """Set preference for a specific category"""
         if not isinstance(status, PreferenceStatus):
@@ -73,21 +44,6 @@ class MessageRecipientPreference(UUIDTModel):
         status = self.preferences.get(str(category_id), PreferenceStatus.NO_PREFERENCE.value)
         return PreferenceStatus(status)
 
-    def get_all_preferences(self) -> dict[uuid.UUID, PreferenceStatus]:
-        """Get all preferences as a dictionary of UUID to PreferenceStatus"""
-        return {uuid.UUID(category_id): PreferenceStatus(status) for category_id, status in self.preferences.items()}
-
-    @classmethod
-    def get_or_create_for_identifier(
-        cls, team_id: int, identifier: str, defaults: Optional[dict[uuid.UUID, PreferenceStatus]] = None
-    ) -> "MessageRecipientPreference":
-        """Get or create preferences for an identifier"""
-        if defaults is None:
-            defaults = {}
-
-        preferences_dict = {str(category_id): status.value for category_id, status in defaults.items()}
-
-        instance, _ = cls.objects.get_or_create(
-            team_id=team_id, identifier=identifier, defaults={"preferences": preferences_dict}
-        )
-        return instance
+    def get_all_preferences(self) -> dict[str, PreferenceStatus]:
+        """Get all preferences as a dictionary of category ID to PreferenceStatus"""
+        return {str(category_id): PreferenceStatus(status) for category_id, status in self.preferences.items()}

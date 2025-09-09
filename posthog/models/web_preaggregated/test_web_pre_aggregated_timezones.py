@@ -94,12 +94,14 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
             date_start="2024-01-14",  # Start earlier to catch cross-day timezone buckets
             date_end="2024-01-17",  # End later to catch cross-day timezone buckets
             team_ids=[team.pk],
+            table_name="web_pre_aggregated_stats",
             granularity="hourly",
         )
         bounces_insert = WEB_BOUNCES_INSERT_SQL(
             date_start="2024-01-14",
             date_end="2024-01-17",
             team_ids=[team.pk],
+            table_name="web_pre_aggregated_bounces",
             granularity="hourly",
         )
 

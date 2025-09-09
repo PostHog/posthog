@@ -61,7 +61,7 @@ class TestMigrateHooks(BaseTest):
         assert hog_function.filters == {
             "source": "events",
             "actions": [{"id": f"{self.action.id}", "name": "", "type": "actions", "order": 0}],
-            "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 29, 3, 1, 4, 1],
+            "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 29],
         }
         assert hog_function.hog == template_zapier.code
         assert hog_function.description == f"{template_zapier.description} Migrated from legacy hook {self.hook.id}."

@@ -1,9 +1,9 @@
 import { PoolClient } from 'pg'
 
+import { withSpan } from '~/common/tracing/tracing-utils'
 import { twoPhaseCommitFailuresCounter } from '~/worker/ingestion/persons/metrics'
 
 import { logger } from '../logger'
-import { instrumentQuery } from '../metrics'
 import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
 
 export type TwoPhaseSides = {
@@ -35,7 +35,7 @@ export class TwoPhaseCommitCoordinator {
         const gidRightLiteral = `'${gidRight.replace(/'/g, "''")}'`
         const { left, right } = this.sides
 
-        return await instrumentQuery('query.dualwrite_spc', tag, async () => {
+        return await withSpan('postgres', 'query.dualwrite_spc', { tag: tag ?? 'unknown' }, async () => {
             let lClient: PoolClient | undefined
             let rClient: PoolClient | undefined
             let preparedLeft = false

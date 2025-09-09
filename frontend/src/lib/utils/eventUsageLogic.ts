@@ -40,6 +40,7 @@ import {
     AccessLevel,
     CohortType,
     DashboardMode,
+    DashboardTile,
     DashboardType,
     EntityType,
     Experiment,
@@ -140,6 +141,46 @@ export function getEventPropertiesForExperiment(experiment: Experiment): object 
     }
 }
 
+function sanitizeInsight(insight: Partial<QueryBasedInsightModel> | null): object | undefined {
+    if (!insight) {
+        return undefined
+    }
+
+    // Remove results
+    const { result, ...sanitizedInsight } = insight
+
+    if (sanitizedInsight.query) {
+        return {
+            ...sanitizedInsight,
+            query: sanitizeQuery(sanitizedInsight.query),
+        }
+    }
+
+    return sanitizedInsight
+}
+
+function sanitizeTile(tile: DashboardTile<QueryBasedInsightModel> | null): object | undefined {
+    if (!tile) {
+        return undefined
+    }
+
+    return {
+        ...tile,
+        insight: tile.insight ? sanitizeInsight(tile.insight) : undefined,
+    }
+}
+
+function sanitizeDashboard(dashboard: DashboardType<QueryBasedInsightModel> | null): object | null {
+    if (!dashboard) {
+        return null
+    }
+
+    return {
+        ...dashboard,
+        tiles: dashboard.tiles?.map((tile) => sanitizeTile(tile)) || [],
+    }
+}
+
 /** Takes a query and returns an object with "useful" properties that don't contain sensitive data. */
 function sanitizeQuery(query: Node | null): Record<string, string | number | boolean | undefined> {
     const payload: Record<string, string | number | boolean | undefined> = {
@@ -210,7 +251,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
         // insights
         reportInsightCreated: (query: Node | null) => ({ query }),
-        reportInsightSaved: (query: Node | null, isNewInsight: boolean) => ({ query, isNewInsight }),
+        reportInsightSaved: (
+            insight: Partial<QueryBasedInsightModel> | null,
+            query: Node | null,
+            isNewInsight: boolean
+        ) => ({ insight, query, isNewInsight }),
         reportInsightViewed: (
             insightModel: Partial<QueryBasedInsightModel>,
             query: Node | null,
@@ -291,16 +336,62 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             delay,
             lastRefreshed,
         }),
-        reportDashboardModeToggled: (mode: DashboardMode, source: DashboardEventSource | null) => ({ mode, source }),
-        reportDashboardRefreshed: (dashboardId: number, lastRefreshed?: string | Dayjs | null) => ({
+        reportDashboardModeToggled: (
+            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            mode: DashboardMode,
+            source: DashboardEventSource | null
+        ) => ({ dashboard, mode, source }),
+        reportDashboardRefreshed: (
+            dashboardId: number,
+            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            filters: Record<string, any>,
+            variables: Record<string, any>,
+            lastRefreshed: string | Dayjs | null,
+            action: string,
+            forceRefresh: boolean,
+            insightsRefreshedInfo: {
+                totalTileCount: number
+                tilesStaleCount: number
+                tilesRefreshedCount: number
+                tilesErroredCount: number
+                tilesAbortedCount: number
+                refreshDurationMs: number
+            }
+        ) => ({
             dashboardId,
+            dashboard,
+            filters,
+            variables,
             lastRefreshed,
+            action,
+            forceRefresh,
+            insightsRefreshedInfo,
         }),
-        reportDashboardDateRangeChanged: (dateFrom?: string | Dayjs | null, dateTo?: string | Dayjs | null) => ({
+        reportDashboardTileRefreshed: (
+            dashboardId: number,
+            tile: DashboardTile<QueryBasedInsightModel>,
+            filters: Record<string, any>,
+            variables: Record<string, any>,
+            refreshDurationMs: number,
+            individualRefresh: boolean
+        ) => ({
+            dashboardId,
+            tile,
+            filters,
+            variables,
+            refreshDurationMs,
+            individualRefresh,
+        }),
+        reportDashboardDateRangeChanged: (
+            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            dateFrom?: string | Dayjs | null,
+            dateTo?: string | Dayjs | null
+        ) => ({
+            dashboard,
             dateFrom,
             dateTo,
         }),
-        reportDashboardPropertiesChanged: true,
+        reportDashboardPropertiesChanged: (dashboard: DashboardType<QueryBasedInsightModel> | null) => ({ dashboard }),
         reportDashboardPinToggled: (pinned: boolean, source: DashboardEventSource) => ({
             pinned,
             source,
@@ -326,8 +417,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCustomChannelTypeRulesUpdated: (numRules: number) => ({ numRules }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
-        reportSavedInsightToDashboard: true,
-        reportRemovedInsightFromDashboard: true,
+        reportSavedInsightToDashboard: (
+            insight: Partial<QueryBasedInsightModel> | null,
+            dashboardId: number | null
+        ) => ({ insight, dashboardId }),
+        reportRemovedInsightFromDashboard: (
+            insight: Partial<QueryBasedInsightModel> | null,
+            dashboardId: number | null
+        ) => ({ insight, dashboardId }),
         reportSavedInsightTabChanged: (tab: string) => ({ tab }),
         reportSavedInsightFilterUsed: (filterKeys: string[]) => ({ filterKeys }),
         reportSavedInsightLayoutChanged: (layout: string) => ({ layout }),
@@ -574,15 +671,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
 
             posthog.capture('insight created', sanitizeQuery(query))
         },
-        reportInsightSaved: async ({ query, isNewInsight }) => {
+        reportInsightSaved: async ({ insight, query, isNewInsight }) => {
             // "insight saved" is a proxy for the new insight's results being valuable to the user
             posthog.capture('insight saved', {
                 ...sanitizeQuery(query),
+                insight: sanitizeInsight(insight),
                 is_new_insight: isNewInsight,
             })
         },
         reportInsightViewed: ({ insightModel, query, isFirstLoad, delay }) => {
-            const payload: Record<string, string | number | boolean | undefined> = {
+            const payload: Record<string, any> = {
                 report_delay: delay,
                 is_first_component_load: isFirstLoad,
                 viewer_is_creator:
@@ -592,6 +690,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 is_saved: insightModel.saved,
                 description_length: insightModel.description?.length ?? 0,
                 tags_count: insightModel.tags?.length ?? 0,
+                insight: sanitizeInsight(insightModel),
                 ...sanitizeQuery(query),
             }
 
@@ -611,12 +710,17 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 is_shared,
                 pinned,
                 creation_mode,
+                viewer_is_creator:
+                    dashboard.created_by?.uuid && values.user?.uuid
+                        ? dashboard.created_by?.uuid === values.user?.uuid
+                        : undefined,
                 sample_items_count: 0,
                 item_count: dashboard.tiles?.length || 0,
                 created_by_system: !dashboard.created_by,
                 dashboard_id: id,
                 lastRefreshed: lastRefreshed?.toISOString(),
                 refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
+                dashboard: sanitizeDashboard(dashboard),
             }
 
             for (const item of dashboard.tiles || []) {
@@ -685,24 +789,80 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 total_properties: totalProperties,
             })
         },
-        reportDashboardModeToggled: async ({ mode, source }) => {
-            posthog.capture('dashboard mode toggled', { mode, source })
-        },
-        reportDashboardRefreshed: async ({ dashboardId, lastRefreshed }) => {
-            posthog.capture(`dashboard refreshed`, {
-                dashboard_id: dashboardId,
-                last_refreshed: lastRefreshed?.toString(),
-                refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
+        reportDashboardModeToggled: async ({ dashboard, mode, source }) => {
+            posthog.capture('dashboard mode toggled', {
+                dashboard_id: dashboard?.id,
+                dashboard: sanitizeDashboard(dashboard),
+                mode,
+                source,
             })
         },
-        reportDashboardDateRangeChanged: async ({ dateFrom, dateTo }) => {
+        reportDashboardRefreshed: async ({
+            dashboardId,
+            dashboard,
+            filters,
+            variables,
+            lastRefreshed,
+            action,
+            forceRefresh,
+            insightsRefreshedInfo,
+        }) => {
+            posthog.capture(`dashboard refreshed`, {
+                dashboard_id: dashboardId,
+                dashboard: sanitizeDashboard(dashboard),
+                filters,
+                variables,
+                last_refreshed: lastRefreshed?.toString(),
+                refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
+                action: action,
+                force_refresh: forceRefresh,
+                refresh_duration_ms: insightsRefreshedInfo.refreshDurationMs,
+                total_tile_count: insightsRefreshedInfo.totalTileCount,
+                tiles_stale_count: insightsRefreshedInfo.tilesStaleCount,
+                tiles_refreshed_count: insightsRefreshedInfo.tilesRefreshedCount,
+                tiles_errored_count: insightsRefreshedInfo.tilesErroredCount,
+                tiles_aborted_count: insightsRefreshedInfo.tilesAbortedCount,
+            })
+        },
+        reportDashboardTileRefreshed: async ({
+            dashboardId,
+            tile,
+            filters,
+            variables,
+            refreshDurationMs,
+            individualRefresh,
+        }) => {
+            const insight = tile.insight
+            const sanitizedQuery = insight?.query ? sanitizeQuery(insight.query) : {}
+
+            posthog.capture('dashboard insight refreshed', {
+                dashboard_id: dashboardId,
+                insight_id: insight?.id,
+                insight_short_id: insight?.short_id,
+                was_cached: tile.is_cached,
+                last_refreshed: insight?.last_refresh?.toString(),
+                refresh_age: insight?.last_refresh ? now().diff(insight?.last_refresh, 'seconds') : undefined,
+                filters,
+                variables,
+                tile: sanitizeTile(tile),
+                refresh_duration_ms: refreshDurationMs,
+                individual_refresh: individualRefresh,
+                ...sanitizedQuery,
+            })
+        },
+        reportDashboardDateRangeChanged: async ({ dashboard, dateFrom, dateTo }) => {
             posthog.capture(`dashboard date range changed`, {
+                dashboard_id: dashboard?.id,
+                dashboard: sanitizeDashboard(dashboard),
                 date_from: dateFrom?.toString() || 'Custom',
                 date_to: dateTo?.toString(),
             })
         },
-        reportDashboardPropertiesChanged: async () => {
-            posthog.capture(`dashboard properties changed`)
+        reportDashboardPropertiesChanged: async ({ dashboard }) => {
+            posthog.capture(`dashboard properties changed`, {
+                dashboard_id: dashboard?.id,
+                dashboard: sanitizeDashboard(dashboard),
+            })
         },
         reportDashboardPinToggled: async (payload) => {
             posthog.capture(`dashboard pin toggled`, payload)
@@ -771,11 +931,17 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCreatedDashboardFromModal: async () => {
             posthog.capture('created new dashboard from modal')
         },
-        reportSavedInsightToDashboard: async () => {
-            posthog.capture('saved insight to dashboard')
+        reportSavedInsightToDashboard: async ({ insight, dashboardId }) => {
+            posthog.capture('saved insight to dashboard', {
+                insight: sanitizeInsight(insight),
+                dashboard_id: dashboardId,
+            })
         },
-        reportRemovedInsightFromDashboard: async () => {
-            posthog.capture('removed insight from dashboard')
+        reportRemovedInsightFromDashboard: async ({ insight, dashboardId }) => {
+            posthog.capture('removed insight from dashboard', {
+                insight: sanitizeInsight(insight),
+                dashboard_id: dashboardId,
+            })
         },
         reportInsightsTableCalcToggled: async (payload) => {
             posthog.capture('insights table calc toggled', payload)

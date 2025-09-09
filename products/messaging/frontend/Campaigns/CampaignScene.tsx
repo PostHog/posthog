@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -14,6 +15,7 @@ import { CampaignSceneHeader } from './CampaignSceneHeader'
 import { CampaignWorkflow } from './CampaignWorkflow'
 import { campaignLogic } from './campaignLogic'
 import { CampaignSceneLogicProps, CampaignTab, campaignSceneLogic } from './campaignSceneLogic'
+import { renderWorkflowLogMessage } from './logs/log-utils'
 
 export const scene: SceneExport<CampaignSceneLogicProps> = {
     component: CampaignScene,
@@ -25,10 +27,14 @@ export function CampaignScene(props: CampaignSceneLogicProps): JSX.Element {
     const { currentTab } = useValues(campaignSceneLogic)
 
     const logic = campaignLogic(props)
-    const { campaignLoading } = useValues(logic)
+    const { campaignLoading, campaign, originalCampaign } = useValues(logic)
 
-    if (campaignLoading) {
+    if (!originalCampaign && campaignLoading) {
         return <SpinnerOverlay sceneLevel />
+    }
+
+    if (!originalCampaign) {
+        return <NotFound object="campaign" />
     }
 
     const tabs: (LemonTab<CampaignTab> | null)[] = [
@@ -46,7 +52,14 @@ export function CampaignScene(props: CampaignSceneLogicProps): JSX.Element {
             ? {
                   label: 'Logs',
                   key: 'logs',
-                  content: <LogsViewer sourceType="hog_flow" sourceId={props.id} />,
+                  content: (
+                      <LogsViewer
+                          sourceType="hog_flow"
+                          sourceId={props.id}
+                          instanceLabel="workflow run"
+                          renderMessage={(m) => renderWorkflowLogMessage(campaign, m)}
+                      />
+                  ),
               }
             : null,
         props.id && props.id !== 'new'

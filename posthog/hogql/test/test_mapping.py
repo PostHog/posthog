@@ -111,6 +111,9 @@ class TestMappings(BaseTest):
                     make_timestamp(2023, 1, 1, 12, 34, 56) as timestamp_result,
                     make_timestamptz(2023, 1, 1, 12, 34, 56, 'UTC') as timestamptz_result,
                     timezone('UTC', toDateTime('2023-01-01 13:45:32')) as timezone_result,
+                    toStartOfInterval(toDateTime('2023-01-01 13:45:32'), toIntervalHour(1)) as to_start_of_interval_result,
+                    toStartOfInterval(toDateTime('2023-01-01 13:45:32'), toIntervalHour(1), toDateTime('2023-01-01 13:15:00')) as to_start_of_interval_origin_result,
+                    date_bin(toIntervalHour(1), toDateTime('2023-01-01 13:45:32'), toDateTime('2023-01-01 13:15:00')) as date_bin_result,
                     toYear(toDateTime('2023-01-01 13:45:32')) as date_part_year,
                     toMonth(toDateTime('2023-01-01 13:45:32')) as date_part_month,
                     toDayOfMonth(toDateTime('2023-01-01 13:45:32')) as date_part_day,
@@ -200,6 +203,9 @@ class TestMappings(BaseTest):
         self.assertEqual(result_dict["timestamp_result"], datetime(2023, 1, 1, 12, 34, 56, tzinfo=UTC))
         self.assertEqual(result_dict["timestamptz_result"], datetime(2023, 1, 1, 12, 34, 56, tzinfo=UTC))
         self.assertEqual(result_dict["timezone_result"], datetime(2023, 1, 1, 13, 45, 32, tzinfo=UTC))
+        self.assertEqual(result_dict["to_start_of_interval_result"], datetime(2023, 1, 1, 13, 0, tzinfo=UTC))
+        self.assertEqual(result_dict["to_start_of_interval_origin_result"], datetime(2023, 1, 1, 13, 15, tzinfo=UTC))
+        self.assertEqual(result_dict["date_bin_result"], datetime(2023, 1, 1, 13, 15, tzinfo=UTC))
         self.assertEqual(result_dict["date_part_year"], 2023)
         self.assertEqual(result_dict["date_part_month"], 1)
         self.assertEqual(result_dict["date_part_day"], 1)

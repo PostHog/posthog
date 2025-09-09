@@ -34,6 +34,7 @@ pub const FLAG_GROUP_CACHE_FETCH_TIME: &str = "flags_groups_cache_fetch_time"; /
 pub const FLAG_GET_MATCH_TIME: &str = "flags_get_match_time";
 pub const FLAG_EVALUATE_ALL_CONDITIONS_TIME: &str = "flags_evaluate_all_conditions_time";
 pub const FLAG_PERSON_QUERY_TIME: &str = "flags_person_query_time";
+pub const FLAG_DEFINITION_QUERY_TIME: &str = "flags_definition_query_time";
 pub const FLAG_PERSON_PROCESSING_TIME: &str = "flags_person_processing_time";
 pub const FLAG_COHORT_QUERY_TIME: &str = "flags_cohort_query_time";
 pub const FLAG_COHORT_PROCESSING_TIME: &str = "flags_cohort_processing_time";

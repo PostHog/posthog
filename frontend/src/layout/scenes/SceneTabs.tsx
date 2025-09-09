@@ -3,18 +3,22 @@ import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dn
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 
-import { IconPlus, IconX } from '@posthog/icons'
+import { IconPlus, IconSearch, IconShare, IconX } from '@posthog/icons'
 
+import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { HoverCard, HoverCardContent, HoverCardTrigger } from 'lib/ui/HoverCard/HoverCard'
 import { cn } from 'lib/utils/css-classes'
 import { SceneTab } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
 import { sceneLogic } from '~/scenes/sceneLogic'
 
-import { ProjectDropdownMenu } from '../panel-layout/ProjectDropdownMenu'
+import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
 
 export interface SceneTabsProps {
     className?: string
@@ -23,6 +27,8 @@ export interface SceneTabsProps {
 export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const { tabs } = useValues(sceneLogic)
     const { newTab, reorderTabs } = useActions(sceneLogic)
+    const { toggleSearchBar } = useActions(commandBarLogic)
+    const { isLayoutPanelVisible } = useValues(panelLayoutLogic)
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
@@ -35,24 +41,46 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     return (
         <div
             className={cn(
-                'flex items-center w-full sticky top-0 bg-surface-tertiary z-[var(--z-top-navigation)] px-1.5 border-b border-primary',
+                'h-[var(--scene-layout-header-height)] flex items-center w-full bg-surface-tertiary z-[var(--z-top-navigation)] pr-1.5 border-b border-primary relative',
                 className
             )}
         >
+            {/* rounded corner on the left to make scene curve into tab line */}
+            {!isLayoutPanelVisible && (
+                <div className="absolute left-0 -bottom-1 size-2 bg-surface-tertiary">
+                    <div className="relative -bottom-1 size-2 border-l border-t border-primary rounded-tl bg-primary" />
+                </div>
+            )}
+
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
                 <SortableContext items={[...tabs.map((t) => t.id), 'new']} strategy={horizontalListSortingStrategy}>
-                    <div className={cn('flex flex-row flex-wrap gap-1 pt-1', className)}>
-                        <div className="flex items-center gap-1">
-                            <ProjectDropdownMenu
-                                buttonProps={{
-                                    className: 'h-[32px] mt-[-2px]',
-                                }}
-                            />
+                    <div className={cn('flex flex-row gap-1 pt-1 max-w-full items-center', className)}>
+                        <div className="py-1 pl-[2px] shrink-0">
+                            <ButtonPrimitive
+                                iconOnly
+                                onClick={toggleSearchBar}
+                                data-attr="tree-navbar-search-button"
+                                size="sm"
+                                tooltip={
+                                    <div className="flex flex-col gap-0.5">
+                                        <span>
+                                            For search, press <KeyboardShortcut command k />
+                                        </span>
+                                        <span>
+                                            For commands, press <KeyboardShortcut command shift k />
+                                        </span>
+                                    </div>
+                                }
+                            >
+                                <IconSearch className="text-secondary size-4" />
+                            </ButtonPrimitive>
                         </div>
-                        {tabs.map((tab) => (
-                            <SortableSceneTab key={tab.id} tab={tab} />
-                        ))}
-                        <div className="py-1">
+                        <div className="flex flex-row flex-1 min-w-0">
+                            {tabs.map((tab) => (
+                                <SortableSceneTab key={tab.id} tab={tab} />
+                            ))}
+                        </div>
+                        <div className="py-1 shrink-0">
                             <Link
                                 to={urls.newTab()}
                                 data-attr="scene-tab-new-button"
@@ -66,6 +94,11 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                         'p-1 flex flex-row items-center gap-1 cursor-pointer rounded-tr rounded-tl border-b',
                                     iconOnly: true,
                                 }}
+                                tooltip={
+                                    <>
+                                        New tab <KeyboardShortcut command b />
+                                    </>
+                                }
                             >
                                 <IconPlus className="!ml-0" fontSize={14} />
                             </Link>
@@ -86,10 +119,45 @@ function SortableSceneTab({ tab }: { tab: SceneTab }): JSX.Element {
     }
 
     return (
-        <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-            <SceneTabContextMenu tab={tab}>
-                <SceneTabComponent tab={tab} isDragging={isDragging} />
-            </SceneTabContextMenu>
+        <div
+            ref={setNodeRef}
+            style={style}
+            {...attributes}
+            {...listeners}
+            className="grow-0 shrink basis-auto min-w-[40px] max-w-[200px]"
+        >
+            <HoverCard>
+                <HoverCardTrigger>
+                    <SceneTabContextMenu tab={tab}>
+                        <SceneTabComponent tab={tab} isDragging={isDragging} />
+                    </SceneTabContextMenu>
+                </HoverCardTrigger>
+                <HoverCardContent
+                    className="break-words"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                >
+                    <ButtonPrimitive
+                        iconOnly
+                        size="xs"
+                        tooltip="Copy tab URL for sharing"
+                        className="text-primary float-right"
+                        onClick={() => {
+                            try {
+                                navigator.clipboard.writeText(
+                                    `${window.location.origin}${tab.pathname}${tab.search}${tab.hash}`
+                                )
+                                lemonToast.success('URL copied to clipboard')
+                            } catch (error) {
+                                lemonToast.error(`Failed to copy URL to clipboard ${error}`)
+                            }
+                        }}
+                    >
+                        <IconShare />
+                    </ButtonPrimitive>
+                    <span className="text-primary text-sm font-semibold">{tab.title}</span>
+                </HoverCardContent>
+            </HoverCard>
         </div>
     )
 }
@@ -112,6 +180,13 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                     clickOnTab(tab)
                 }
             }}
+            onAuxClick={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+                if (e.button === 1 && !isDragging) {
+                    removeTab(tab)
+                }
+            }}
             onDoubleClick={(e) => {
                 e.stopPropagation()
                 e.preventDefault()
@@ -121,16 +196,17 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
             }}
             to={isDragging ? undefined : `${tab.pathname}${tab.search}${tab.hash}`}
             className={cn(
+                'w-full',
                 'h-[37px] p-0.5 flex flex-row items-center gap-1 rounded-tr rounded-tl border border-transparent bottom-[-1px] relative',
                 tab.active
-                    ? 'cursor-default text-primary bg-surface-secondary border-primary border-b-transparent'
+                    ? 'cursor-default text-primary bg-primary border-primary border-b-transparent'
                     : 'cursor-pointer text-secondary bg-transparent hover:bg-surface-primary hover:text-primary-hover',
                 canRemoveTab ? 'pl-2 pr-1' : 'px-3',
                 'focus:outline-none',
                 className
             )}
         >
-            <div className={cn('flex-grow text-left whitespace-pre', tab.customTitle && 'italic')}>
+            <div className={cn('flex-grow text-left max-w-[200px] truncate', tab.customTitle && 'italic')}>
                 {tab.customTitle || tab.title}
             </div>
             {canRemoveTab && (
@@ -142,6 +218,15 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                     }}
                     iconOnly
                     size="xs"
+                    tooltip={
+                        tab.active ? (
+                            <>
+                                Close active tab <KeyboardShortcut shift command b />
+                            </>
+                        ) : (
+                            'Close tab'
+                        )
+                    }
                 >
                     <IconX />
                 </ButtonPrimitive>

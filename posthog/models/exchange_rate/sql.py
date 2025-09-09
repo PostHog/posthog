@@ -124,14 +124,14 @@ ORDER BY (date, currency);
     )
 
 
-def DROP_EXCHANGE_RATE_TABLE_SQL(on_cluster=True):
+def DROP_EXCHANGE_RATE_TABLE_SQL(on_cluster=False):
     return "DROP TABLE IF EXISTS {table_name} {on_cluster_clause}".format(
         table_name=f"`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_TABLE_NAME}`",
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     )
 
 
-def TRUNCATE_EXCHANGE_RATE_TABLE_SQL(on_cluster=True):
+def TRUNCATE_EXCHANGE_RATE_TABLE_SQL(on_cluster=False):
     return "TRUNCATE TABLE IF EXISTS {table_name} {on_cluster_clause}".format(
         table_name=f"`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_TABLE_NAME}`",
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
@@ -207,7 +207,7 @@ EXCHANGE_RATE_DICTIONARY_QUERY = re.sub(r"\s\s+", " ", EXCHANGE_RATE_DICTIONARY_
 # Also, note the `anyLast` function on the query construction
 # It is used to get the latest rate for a given date and currency from the underlying table
 # given that we might have more than one while the merges haven't finished yet
-def EXCHANGE_RATE_DICTIONARY_SQL(on_cluster=True):
+def EXCHANGE_RATE_DICTIONARY_SQL(on_cluster=False):
     return """
 CREATE DICTIONARY IF NOT EXISTS {exchange_rate_dictionary_name} {on_cluster_clause} (
     currency String,
@@ -229,7 +229,7 @@ RANGE(MIN start_date MAX end_date)""".format(
     )
 
 
-def DROP_EXCHANGE_RATE_DICTIONARY_SQL(on_cluster=True):
+def DROP_EXCHANGE_RATE_DICTIONARY_SQL(on_cluster=False):
     return "DROP DICTIONARY IF EXISTS {dictionary_name} {on_cluster_clause}".format(
         dictionary_name=f"`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`",
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),

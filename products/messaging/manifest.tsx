@@ -1,9 +1,7 @@
-import { IconCursor } from '@posthog/icons'
-
 import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 import type { MessagingSceneTab } from './frontend/MessagingScene'
 
 export const manifest: ProductManifest = {
@@ -53,8 +51,8 @@ export const manifest: ProductManifest = {
     fileSystemTypes: {
         messaging: {
             name: 'Campaign',
-            icon: <IconCursor />,
-            iconColor: ['var(--color-product-messaging-light)'],
+            iconType: 'messaging',
+            iconColor: ['var(--color-product-messaging-light)'] as FileSystemIconColor,
             href: (ref: string) => urls.messagingCampaign(ref),
             filterKey: 'messaging',
         },
@@ -68,6 +66,8 @@ export const manifest: ProductManifest = {
             category: 'Tools',
             tags: ['alpha'],
             flag: FEATURE_FLAGS.MESSAGING,
+            iconType: 'messaging',
+            iconColor: ['var(--color-product-messaging-light)'] as FileSystemIconColor,
         },
     ],
 }

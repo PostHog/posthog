@@ -137,12 +137,14 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
     KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_MV_SQL,
     SESSION_REPLAY_EVENTS_TABLE_SQL,
+    WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 from posthog.session_recordings.sql.session_replay_event_v2_test_sql import (
     SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE_SQL,
     SESSION_REPLAY_EVENTS_V2_TEST_DISTRIBUTED_TABLE_SQL,
     SESSION_REPLAY_EVENTS_V2_TEST_KAFKA_TABLE_SQL,
     SESSION_REPLAY_EVENTS_V2_TEST_MV_SQL,
+    SESSION_REPLAY_EVENTS_V2_TEST_WRITABLE_TABLE_SQL,
 )
 
 # Queries to create tables, you must pass function, otherwise the table is created before
@@ -168,6 +170,7 @@ CREATE_MERGETREE_TABLE_QUERIES = (
     APP_METRICS2_DATA_TABLE_SQL,
     PERFORMANCE_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_SQL,
+    WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE_SQL,
     CHANNEL_DEFINITION_TABLE_SQL,
     EXCHANGE_RATE_TABLE_SQL,
@@ -203,6 +206,7 @@ CREATE_DISTRIBUTED_TABLE_QUERIES = (
     WRITABLE_HEATMAPS_TABLE_SQL,
     DISTRIBUTED_HEATMAPS_TABLE_SQL,
     DISTRIBUTED_SYSTEM_PROCESSES_TABLE_SQL,
+    SESSION_REPLAY_EVENTS_V2_TEST_WRITABLE_TABLE_SQL,
 )
 CREATE_KAFKA_TABLE_QUERIES = (
     KAFKA_LOG_ENTRIES_TABLE_SQL,
@@ -275,4 +279,11 @@ CREATE_VIEW_QUERIES = (
 )
 
 build_query = lambda query: query if isinstance(query, str) else query()
-get_table_name = lambda query: re.findall(r"[\.\s]`?([a-z0-9_]+)`?\s+ON CLUSTER", build_query(query))[0]
+
+
+def get_table_name(query):
+    query = build_query(query)
+    try:
+        return re.findall(r"[\.\s]`?([a-z0-9_]+)`?\s+(?:ON CLUSTER '[a-z0-9_]+'\s+)?|\(", query)[0]
+    except Exception:
+        raise ValueError(f"No table name found in query {query}")

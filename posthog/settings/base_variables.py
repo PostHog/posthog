@@ -38,6 +38,9 @@ if E2E_TESTING:
 IS_COLLECT_STATIC = len(sys.argv) > 1 and sys.argv[1] == "collectstatic"
 SERVER_GATEWAY_INTERFACE = get_from_env("SERVER_GATEWAY_INTERFACE", "WSGI", type_cast=str)
 
+# Bulk deletion operations can be disabled during database migrations
+DISABLE_BULK_DELETES: bool = get_from_env("DISABLE_BULK_DELETES", False, type_cast=str_to_bool)
+
 if DEBUG and not TEST:
     logger.warning(
         [

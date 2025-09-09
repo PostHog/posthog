@@ -41,7 +41,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action, format_paginated_url
-from posthog.auth import SharingAccessTokenAuthentication
+from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -73,7 +73,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.alert import are_alerts_supported_for_insight
+from posthog.models.alert import AlertConfiguration, are_alerts_supported_for_insight
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
@@ -342,6 +342,7 @@ class InsightSerializer(InsightBasicSerializer):
     hogql = serializers.SerializerMethodField()
     types = serializers.SerializerMethodField()
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    alerts = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Insight
@@ -381,6 +382,7 @@ class InsightSerializer(InsightBasicSerializer):
             "hogql",
             "types",
             "_create_in_folder",
+            "alerts",
         ]
         read_only_fields = (
             "created_at",
@@ -627,6 +629,16 @@ class InsightSerializer(InsightBasicSerializer):
     def get_types(self, insight: Insight):
         return self.insight_result(insight).types
 
+    def get_alerts(self, insight: Insight):
+        if not are_alerts_supported_for_insight(insight):
+            return []
+
+        # Use prefetched alerts data
+        alerts = getattr(insight, "_prefetched_alerts", [])
+        from posthog.api.alert import AlertSerializer
+
+        return AlertSerializer(alerts, many=True, context=self.context).data
+
     def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
         if self.context.get("is_shared"):
             return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
@@ -838,7 +850,11 @@ class InsightViewSet(
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["is_shared"] = isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
+
+        context["is_shared"] = isinstance(
+            self.request.successful_authenticator,
+            SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
+        )
         context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
 
         return context
@@ -851,7 +867,10 @@ class InsightViewSet(
 
         include_deleted = False
 
-        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
+        if isinstance(
+            self.request.successful_authenticator,
+            SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
+        ):
             queryset = queryset.filter(
                 id__in=self.request.successful_authenticator.sharing_configuration.get_connected_insight_ids()
             )
@@ -871,6 +890,11 @@ class InsightViewSet(
             Prefetch(
                 "dashboard_tiles",
                 queryset=DashboardTile.objects.select_related("dashboard__team__organization"),
+            ),
+            Prefetch(
+                "alertconfiguration_set",
+                queryset=AlertConfiguration.objects.select_related("created_by"),
+                to_attr="_prefetched_alerts",
             ),
         )
 
@@ -951,7 +975,6 @@ class InsightViewSet(
                     "PATHS": schema.NodeKind.PATHS_QUERY,
                     "STICKINESS": schema.NodeKind.STICKINESS_QUERY,
                     "LIFECYCLE": schema.NodeKind.LIFECYCLE_QUERY,
-                    "CALENDAR_HEATMAP": schema.NodeKind.CALENDAR_HEATMAP_QUERY,
                 }
                 if insight == "JSON":
                     queryset = queryset.filter(query__isnull=False)
@@ -1135,7 +1158,6 @@ When set, the specified dashboard's filters and date range override will be appl
             isinstance(result, schema.CachedTrendsQueryResponse)
             or isinstance(result, schema.CachedStickinessQueryResponse)
             or isinstance(result, schema.CachedLifecycleQueryResponse)
-            or isinstance(result, schema.CachedCalendarHeatmapQueryResponse)
         )
 
         return {"result": result.results, "timezone": team.timezone}
@@ -1207,20 +1229,12 @@ When set, the specified dashboard's filters and date range override will be appl
     # ******************************************
     @action(methods=["POST"], detail=True, required_scopes=["insight:read"])
     def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        from posthog.hogql_queries.utils.event_usage import log_event_usage_from_insight
-
         insight = self.get_object()
         InsightViewed.objects.update_or_create(
             team=self.team,
             user=request.user,
             insight=insight,
             defaults={"last_viewed_at": now()},
-        )
-
-        log_event_usage_from_insight(
-            insight,
-            team_id=self.team_id,
-            user_id=self.request.user.pk,
         )
 
         return Response(status=status.HTTP_201_CREATED)
