@@ -182,6 +182,7 @@ CREATE TABLE IF NOT EXISTS {table_name} (
     lc_product LowCardinality(String),
     lc_chargeable Bool,
     lc_name String,
+    lc_request_name String,
     lc_client_query_id String,
 
     lc_org_id String,
@@ -228,10 +229,8 @@ PRIMARY KEY (team_id, event_date, event_time, query_id)
     )
 
 
-def QUERY_LOG_ARCHIVE_NEW_MV_SQL(view_name="query_log_archive_new_mv", dest_table="query_log_archive_new"):
-    return """CREATE MATERIALIZED VIEW IF NOT EXISTS {view_name}
-TO {dest_table}
-AS SELECT
+MV_SELECT_SQL = """/
+SELECT
     hostname,
     user,
     query_id,
@@ -295,6 +294,7 @@ AS SELECT
     JSONExtractString(log_comment, 'product') as lc_product,
     JSONExtractInt(log_comment, 'chargeable') == 1 as lc_chargeable,
     JSONExtractString(log_comment, 'name') as lc_name,
+    JSONExtractString(log_comment, 'request_name') as lc_request_name,
     JSONExtractString(log_comment, 'client_query_id') as lc_client_query_id,
 
     JSONExtractString(log_comment, 'org_id') as lc_org_id,
@@ -340,7 +340,28 @@ FROM system.query_log
 WHERE
     type != 'QueryStart'
     AND is_initial_query
+"""
+
+
+def QUERY_LOG_ARCHIVE_NEW_MV_SQL(view_name="query_log_archive_new_mv", dest_table="query_log_archive_new"):
+    return """CREATE MATERIALIZED VIEW IF NOT EXISTS {view_name}
+TO {dest_table}
+AS {select_sql}
     """.format(
         view_name=view_name,
         dest_table=dest_table,
+        select_sql=MV_SELECT_SQL,
     )
+
+
+# V4 - adding lc_request_name
+ADD_LC_REQUEST_NAME_SQL = """/
+ALTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS lc_request_name String AFTER lc_name
+"""
+
+
+def QUERY_LOG_ARCHIVE_MV_V4_SQL():
+    return """ /
+ALTER TABLE query_log_archive_mv MODIFY QUERY
+{select_sql}
+    """.format(select_sql=MV_SELECT_SQL)
