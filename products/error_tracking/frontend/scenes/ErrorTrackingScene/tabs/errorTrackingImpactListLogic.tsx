@@ -9,10 +9,10 @@ import { ErrorTrackingCorrelatedIssue } from '~/queries/schema/schema-general'
 import { errorTrackingBulkSelectLogic } from 'products/error_tracking/frontend/errorTrackingBulkSelectLogic'
 import { errorTrackingIssueCorrelationQuery } from 'products/error_tracking/frontend/queries'
 
-import type { errorTrackingImpactSceneLogicType } from './errorTrackingImpactSceneLogicType'
+import type { errorTrackingImpactListLogicType } from './errorTrackingImpactListLogicType'
 
-export const errorTrackingImpactSceneLogic = kea<errorTrackingImpactSceneLogicType>([
-    path(['scenes', 'error-tracking', 'configuration', 'errorTrackingImpactSceneLogic']),
+export const errorTrackingImpactListLogic = kea<errorTrackingImpactListLogicType>([
+    path(['scenes', 'error-tracking', 'configuration', 'errorTrackingImpactListLogic']),
 
     connect(() => ({
         actions: [errorTrackingBulkSelectLogic, ['setSelectedIssueIds']],
