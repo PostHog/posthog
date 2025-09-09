@@ -2,7 +2,7 @@ import './PlayerFrameOverlay.scss'
 
 import { useActions, useValues } from 'kea'
 
-import { IconPlay, IconRewindPlay, IconWarning } from '@posthog/icons'
+import { IconEmoji, IconPlay, IconRewindPlay, IconWarning } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
@@ -18,11 +18,22 @@ import { playerSettingsLogic } from './playerSettingsLogic'
 import { SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
 
 const PlayerFrameOverlayActions = (): JSX.Element | null => {
+    const { setQuickEmojiIsOpen } = useActions(sessionRecordingPlayerLogic)
+    const { quickEmojiIsOpen } = useValues(sessionRecordingPlayerLogic)
+
     return (
         <div className="flex gap-1 mt-4">
-            <CommentOnRecordingButton className="text-2xl text-white" />
-            <Screenshot className="text-2xl text-white" />
-            <ClipRecording className="text-2xl text-white" />
+            <CommentOnRecordingButton className="text-2xl text-white" data-attr="replay-overlay-comment" />
+            <LemonButton
+                size="xsmall"
+                icon={<IconEmoji className="text-2xl text-white" />}
+                onClick={(e) => {
+                    e.stopPropagation()
+                    setQuickEmojiIsOpen(!quickEmojiIsOpen)
+                }}
+            />
+            <Screenshot className="text-2xl text-white" data-attr="replay-overlay-screenshot" />
+            <ClipRecording className="text-2xl text-white" data-attr="replay-overlay-clip" />
         </div>
     )
 }

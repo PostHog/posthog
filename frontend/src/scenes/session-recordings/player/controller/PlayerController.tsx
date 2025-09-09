@@ -7,7 +7,10 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconFullScreen } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
-import { CommentOnRecordingButton } from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
+import {
+    CommentOnRecordingButton,
+    EmojiCommentOnRecordingButton,
+} from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
 import {
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
@@ -145,6 +148,7 @@ export function PlayerController(): JSX.Element {
                     {!isCinemaMode && playerMode === SessionRecordingPlayerMode.Standard && (
                         <>
                             <CommentOnRecordingButton />
+                            <EmojiCommentOnRecordingButton />
                             <Screenshot />
                             <ClipRecording />
                             {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
