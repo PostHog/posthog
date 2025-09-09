@@ -164,7 +164,7 @@ export function CampaignsTable(): JSX.Element {
                 dataSource={campaigns}
                 loading={campaignsLoading}
                 columns={columns}
-                defaultSorting={{ columnKey: 'status', order: -1 }}
+                defaultSorting={{ columnKey: 'status', order: 1 }}
             />
         </div>
     )
