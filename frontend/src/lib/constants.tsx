@@ -301,6 +301,7 @@ export const FEATURE_FLAGS = {
     MAX_DEEP_RESEARCH: 'max-deep-research', // owner: @kappa90 #team-max-ai
     NOTEBOOKS_COLLAPSIBLE_SECTIONS: 'notebooks-collapsible-sections', // owner: @daibhin @benjackwhite
     QUERY_EXECUTION_DETAILS: 'query-execution-details', // owner: @sakce
+    PASSWORD_PROTECTED_SHARES: 'password-protected-shares', // owner: @aspicer
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
@@ -422,6 +423,7 @@ export const SESSION_REPLAY_MINIMUM_DURATION_OPTIONS: LemonSelectOptions<number 
 
 export const UNSUBSCRIBE_SURVEY_ID = '018b6e13-590c-0000-decb-c727a2b3f462'
 export const SESSION_RECORDING_OPT_OUT_SURVEY_ID = '01985c68-bd25-0000-b7e3-f1ccc987e979'
+export const TRIAL_CANCELLATION_SURVEY_ID = '019923cd-461c-0000-27ed-ed8e422c596e'
 
 export const TAILWIND_BREAKPOINTS = {
     sm: 526,
