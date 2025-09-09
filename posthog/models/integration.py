@@ -396,17 +396,12 @@ class OauthIntegration:
     def authorize_url(cls, kind: str, token: str, next="") -> str:
         oauth_config = cls.oauth_config_for_kind(kind)
 
-        # Create a simpler state parameter that's easier to parse
-
-        state_data = json.dumps({"next": next, "token": token})
-        encoded_state = base64.urlsafe_b64encode(state_data.encode()).decode().rstrip("=")
-
         query_params = {
             "client_id": oauth_config.client_id,
             "scope": oauth_config.scope,
             "redirect_uri": cls.redirect_uri(kind),
             "response_type": "code",
-            "state": encoded_state,
+            "state": urlencode({"next": next, "token": token}),
             **(oauth_config.additional_authorize_params or {}),
         }
 
@@ -1453,8 +1448,6 @@ class GitHubIntegration:
             )
             if get_response.status_code == 200:
                 sha = get_response.json()["sha"]
-
-        import base64
 
         encoded_content = base64.b64encode(content.encode("utf-8")).decode("utf-8")
 
