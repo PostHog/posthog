@@ -1299,6 +1299,7 @@ class FileSystemIconType(StrEnum):
     LLM_ANALYTICS = "llm_analytics"
     PRODUCT_ANALYTICS = "product_analytics"
     REVENUE_ANALYTICS = "revenue_analytics"
+    EMBEDDED_ANALYTICS = "embedded_analytics"
     SQL_EDITOR = "sql_editor"
     WEB_ANALYTICS = "web_analytics"
     ERROR_TRACKING = "error_tracking"
