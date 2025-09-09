@@ -321,7 +321,7 @@ def check_latest_backup_status(
                         f"Proceeding with new backup as the old one is no longer active."
                     )
                     # Don't raise an error - the backup is dead and won't interfere
-                    return
+                    return None
             # For other unexpected statuses (like BACKUP_FAILED), still raise an error
             raise ValueError(
                 f"Latest backup {latest_backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Please check the backup logs."
