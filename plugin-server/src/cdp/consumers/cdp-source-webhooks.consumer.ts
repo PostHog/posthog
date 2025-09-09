@@ -18,9 +18,10 @@ import {
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
     HogFunctionType,
+    LogEntryLevel,
     MinimalAppMetric,
 } from '../types'
-import { createAddLogFunction, logEntry } from '../utils'
+import { logEntry } from '../utils'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
@@ -153,7 +154,35 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         hogFlow: HogFlow,
         hogFunction: HogFunctionType
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        const invocationId = new UUIDT().toString()
         const triggerActionId = hogFlow.actions.find((action) => action.type === 'trigger')?.id ?? 'trigger_node'
+
+        const addLog = (level: LogEntryLevel, message: string) => {
+            this.hogFunctionMonitoringService.queueLogs(
+                [
+                    {
+                        team_id: hogFlow.team_id,
+                        log_source: 'hog_flow',
+                        log_source_id: hogFlow.id,
+                        instance_id: invocationId,
+                        ...logEntry(level, actionIdForLogging({ id: triggerActionId }), message),
+                    },
+                ],
+                'hog_flow'
+            )
+        }
+
+        const addMetric = (metric: Pick<MinimalAppMetric, 'metric_kind' | 'metric_name' | 'count'>) => {
+            this.hogFunctionMonitoringService.queueAppMetric(
+                {
+                    team_id: hogFlow.team_id,
+                    app_source_id: hogFlow.id,
+                    ...metric,
+                },
+                'hog_flow'
+            )
+        }
+
         try {
             const globals: HogFunctionInvocationGlobals = this.buildRequestGlobals(hogFunction, req)
             const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
@@ -162,8 +191,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             // Slightly different handling for hog flows
             // Run the initial step - this allows functions not using fetches to respond immediately
             const functionResult = await this.hogFlowFunctionsService.execute(invocation)
-
-            const addLog = createAddLogFunction(functionResult.logs)
 
             // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
             if (!functionResult.finished) {
@@ -177,7 +204,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             }
 
             const capturedPostHogEvent = functionResult.capturedPostHogEvents[0]
-            const metrics: MinimalAppMetric[] = []
+            // Add all logs to the result
+            functionResult.logs.forEach((log) => addLog(log.level, log.message))
 
             if (capturedPostHogEvent) {
                 // Invoke the hogflow
@@ -197,17 +225,13 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                 )
 
                 // TODO: Abstract this out somewhere
-                metrics.push({
-                    team_id: hogFlow.team_id,
-                    app_source_id: hogFlow.id,
+                addMetric({
                     metric_kind: 'other',
                     metric_name: 'triggered',
                     count: 1,
                 })
 
-                metrics.push({
-                    team_id: hogFlow.team_id,
-                    app_source_id: hogFlow.id,
+                addMetric({
                     metric_kind: 'billing',
                     metric_name: 'billable_invocation',
                     count: 1,
@@ -215,47 +239,25 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
 
                 await this.cyclotronJobQueue.queueInvocations([hogFlowInvocation])
             } else {
-                metrics.push({
-                    team_id: hogFlow.team_id,
-                    app_source_id: hogFlow.id,
+                addMetric({
                     metric_kind: 'other',
                     metric_name: 'filtered',
                     count: 1,
                 })
             }
-            this.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_flow')
-
             // Always set to false for hog flows as this triggers the flow to continue so we dont want metrics for this
             functionResult.finished = false
 
             return functionResult
         } catch (error) {
             logger.error('Error triggering hog flow', { error })
-            this.hogFunctionMonitoringService.queueAppMetric(
-                {
-                    team_id: hogFlow.team_id,
-                    app_source_id: hogFlow.id,
-                    metric_kind: 'failure',
-                    metric_name: 'trigger_failed',
-                    count: 1,
-                },
-                'hog_flow'
-            )
-            this.hogFunctionMonitoringService.queueLogs(
-                [
-                    {
-                        team_id: hogFlow.team_id,
-                        log_source: 'hog_flow',
-                        log_source_id: hogFlow.id,
-                        instance_id: new UUIDT().toString(),
-                        ...logEntry(
-                            'error',
-                            `${actionIdForLogging({ id: triggerActionId })} Error triggering flow: ${error.message}`
-                        ),
-                    },
-                ],
-                'hog_flow'
-            )
+            addMetric({
+                metric_kind: 'failure',
+                metric_name: 'trigger_failed',
+                count: 1,
+            })
+
+            addLog('error', `${actionIdForLogging({ id: triggerActionId })} Error triggering flow: ${error.message}`)
 
             // NOTE: We only return a hog function result. We track out own logs and errors here
             return createInvocationResult(
