@@ -31,9 +31,9 @@ export interface LemonSwitchProps {
     loading?: boolean
     /** Access control props for automatic permission checking */
     accessControl?: {
-        userLevel: AccessControlLevel
-        minLevel: AccessControlLevel
-        resource: AccessControlResourceType
+        resourceType: AccessControlResourceType
+        minAccessLevel: AccessControlLevel
+        userAccessLevel?: AccessControlLevel
     }
 }
 
@@ -74,14 +74,16 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
 
         // Handle access control
         if (accessControl) {
-            const { userLevel, minLevel, resource } = accessControl
-            const hasAccess = accessLevelSatisfied(resource, userLevel, minLevel)
+            const { userAccessLevel, minAccessLevel, resourceType } = accessControl
+            const hasAccess = userAccessLevel
+                ? accessLevelSatisfied(resourceType, userAccessLevel, minAccessLevel)
+                : true
             if (!hasAccess) {
                 disabled = true
                 if (!disabledReason) {
                     disabledReason = `You don't have sufficient permissions for this ${resourceTypeToString(
-                        resource
-                    )}. Your access level (${userLevel}) doesn't meet the required level (${minLevel}).`
+                        resourceType
+                    )}. Your access level (${userAccessLevel}) doesn't meet the required level (${minAccessLevel}).`
                 }
             }
         }

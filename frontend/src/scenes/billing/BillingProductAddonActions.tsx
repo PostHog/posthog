@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconCheckCircle, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TRIAL_CANCELLATION_SURVEY_ID, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -17,11 +17,18 @@ import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 
 interface BillingProductAddonActionsProps {
-    productRef: React.RefObject<HTMLDivElement>
     addon: BillingProductV2AddonType
+    productRef?: React.RefObject<HTMLDivElement>
+    buttonSize?: LemonButtonProps['size']
+    ctaTextOverride?: string
 }
 
-export const BillingProductAddonActions = ({ addon, productRef }: BillingProductAddonActionsProps): JSX.Element => {
+export const BillingProductAddonActions = ({
+    addon,
+    productRef,
+    buttonSize,
+    ctaTextOverride,
+}: BillingProductAddonActionsProps): JSX.Element => {
     const { billing, billingError, timeTotalInSeconds, timeRemainingInSeconds } = useValues(billingLogic)
     const { currentAndUpgradePlans, billingProductLoading, trialLoading, isSubscribedToAnotherAddon } = useValues(
         billingProductLogic({ product: addon, productRef })
@@ -120,7 +127,7 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}
-                        size="small"
+                        size={buttonSize || 'small'}
                         disableClientSideRouting
                         disabledReason={
                             (billingError && billingError.message) ||
@@ -133,7 +140,7 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
                                 : () => initiateProductUpgrade(addon, currentAndUpgradePlans?.upgradePlan, '')
                         }
                     >
-                        {isTrialEligible ? 'Start trial' : 'Add'}
+                        {ctaTextOverride ?? (isTrialEligible ? 'Start trial' : 'Add')}
                     </LemonButton>
                 )}
             </>

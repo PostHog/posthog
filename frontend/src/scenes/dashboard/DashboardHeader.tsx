@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { IconGridMasonry, IconNotebook, IconPalette, IconScreen, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
@@ -348,10 +347,12 @@ export function DashboardHeader(): JSX.Element | null {
                                                     </LemonButton>
 
                                                     {canEditDashboard && (
-                                                        <AccessControlledLemonButton
-                                                            userAccessLevel={dashboard.user_access_level}
-                                                            minAccessLevel={AccessControlLevel.Editor}
-                                                            resourceType={AccessControlResourceType.Dashboard}
+                                                        <LemonButton
+                                                            accessControl={{
+                                                                resourceType: AccessControlResourceType.Dashboard,
+                                                                minAccessLevel: AccessControlLevel.Editor,
+                                                                userAccessLevel: dashboard.user_access_level,
+                                                            }}
                                                             onClick={() => {
                                                                 showDeleteDashboardModal(dashboard.id)
                                                             }}
@@ -359,7 +360,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                             fullWidth
                                                         >
                                                             Delete dashboard
-                                                        </AccessControlledLemonButton>
+                                                        </LemonButton>
                                                     )}
                                                 </>
                                             ) : undefined
@@ -387,10 +388,12 @@ export function DashboardHeader(): JSX.Element | null {
                                 </>
                             )}
                             {dashboard ? (
-                                <AccessControlledLemonButton
-                                    userAccessLevel={dashboard.user_access_level}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    resourceType={AccessControlResourceType.Dashboard}
+                                <LemonButton
+                                    accessControl={{
+                                        resourceType: AccessControlResourceType.Dashboard,
+                                        minAccessLevel: AccessControlLevel.Editor,
+                                        userAccessLevel: dashboard.user_access_level,
+                                    }}
                                     onClick={showAddInsightToDashboardModal}
                                     type="primary"
                                     data-attr="dashboard-add-graph-header"
@@ -399,10 +402,12 @@ export function DashboardHeader(): JSX.Element | null {
                                             placement: 'bottom-end',
                                             overlay: (
                                                 <>
-                                                    <AccessControlledLemonButton
-                                                        userAccessLevel={dashboard.user_access_level}
-                                                        minAccessLevel={AccessControlLevel.Editor}
-                                                        resourceType={AccessControlResourceType.Dashboard}
+                                                    <LemonButton
+                                                        accessControl={{
+                                                            resourceType: AccessControlResourceType.Dashboard,
+                                                            minAccessLevel: AccessControlLevel.Editor,
+                                                            userAccessLevel: dashboard.user_access_level,
+                                                        }}
                                                         fullWidth
                                                         onClick={() => {
                                                             push(urls.dashboardTextTile(dashboard.id, 'new'))
@@ -410,7 +415,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                         data-attr="add-text-tile-to-dashboard"
                                                     >
                                                         Add text card
-                                                    </AccessControlledLemonButton>
+                                                    </LemonButton>
                                                 </>
                                             ),
                                         },
@@ -419,7 +424,7 @@ export function DashboardHeader(): JSX.Element | null {
                                     }}
                                 >
                                     Add insight
-                                </AccessControlledLemonButton>
+                                </LemonButton>
                             ) : null}
                         </>
                     )

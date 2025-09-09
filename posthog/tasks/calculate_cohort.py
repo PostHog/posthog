@@ -274,7 +274,9 @@ def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id
 
 
 @shared_task(ignore_result=True, max_retries=1)
-def calculate_cohort_from_list(cohort_id: int, items: list[str], team_id: Optional[int] = None) -> None:
+def calculate_cohort_from_list(
+    cohort_id: int, items: list[str], team_id: Optional[int] = None, id_type: str = "distinct_id"
+) -> None:
     """
     team_id is only optional for backwards compatibility with the old celery task signature.
     All new tasks should pass team_id explicitly.
@@ -284,7 +286,11 @@ def calculate_cohort_from_list(cohort_id: int, items: list[str], team_id: Option
     if team_id is None:
         team_id = cohort.team_id
 
-    batch_count = cohort.insert_users_by_list(items, team_id=team_id)
+    batch_count = (
+        cohort.insert_users_by_list(items, team_id=team_id)
+        if id_type == "distinct_id"
+        else cohort.insert_users_list_by_uuid(items, insert_in_clickhouse=True, team_id=team_id)
+    )
     logger.warn(
         "Cohort {}: {:,} items in {} batches from CSV completed in {:.2f}s".format(
             cohort.pk, len(items), batch_count, (time.time() - start_time)
