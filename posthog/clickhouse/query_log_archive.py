@@ -229,7 +229,7 @@ PRIMARY KEY (team_id, event_date, event_time, query_id)
     )
 
 
-MV_SELECT_SQL = """/
+MV_SELECT_SQL = """
 SELECT
     hostname,
     user,
@@ -355,13 +355,13 @@ AS {select_sql}
 
 
 # V4 - adding lc_request_name
-ADD_LC_REQUEST_NAME_SQL = """/
+ADD_LC_REQUEST_NAME_SQL = """
 ALTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS lc_request_name String AFTER lc_name
 """
 
 
 def QUERY_LOG_ARCHIVE_MV_V4_SQL():
-    return """ /
+    return """
 ALTER TABLE query_log_archive_mv MODIFY QUERY
 {select_sql}
     """.format(select_sql=MV_SELECT_SQL)
