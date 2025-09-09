@@ -22,6 +22,8 @@ import {
     lemonToast,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
@@ -29,6 +31,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { IconCancel } from 'lib/lemon-ui/icons'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { AiRegexHelper, AiRegexHelperButton } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
 import { SupportedPlatforms } from 'scenes/settings/environment/SessionRecordingSettings'
 import { isStringWithLength, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
@@ -37,13 +40,14 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { SelectOption } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
-import { AvailableFeature, MultivariateFlagOptions } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AvailableFeature, MultivariateFlagOptions } from '~/types'
 import { SessionReplayUrlTriggerConfig } from '~/types'
 
 export const ANY_VARIANT = 'any'
 
 export function variantOptions(
-    multivariate: MultivariateFlagOptions | undefined
+    multivariate: MultivariateFlagOptions | undefined,
+    disabledReason?: string | null
 ): LemonSegmentedButtonOption<string>[] {
     if (!multivariate) {
         return []
@@ -52,11 +56,13 @@ export function variantOptions(
         {
             label: ANY_VARIANT,
             value: ANY_VARIANT,
+            disabledReason: disabledReason ?? undefined,
         },
         ...multivariate.variants.map((variant) => {
             return {
                 label: variant.key,
                 value: variant.key,
+                disabledReason: disabledReason ?? undefined,
             }
         }),
     ]
@@ -85,21 +91,40 @@ function LinkedFlagSelector(): JSX.Element | null {
                         <TriggerMatchTypeTag /> Enable recordings using feature flag {featureFlagLoading && <Spinner />}
                     </LemonLabel>
                     <div className="flex flex-row justify-start">
-                        <FlagSelector
-                            value={currentTeam?.session_recording_linked_flag?.id ?? undefined}
-                            onChange={(id, key, flag) => {
-                                selectFeatureFlag(flag)
-                                updateCurrentTeam({ session_recording_linked_flag: { id, key, variant: null } })
-                            }}
-                        />
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.SessionRecording}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
+                            }
+                        >
+                            {({ disabledReason }) => (
+                                <FlagSelector
+                                    value={currentTeam?.session_recording_linked_flag?.id ?? undefined}
+                                    onChange={(id, key, flag) => {
+                                        selectFeatureFlag(flag)
+                                        updateCurrentTeam({ session_recording_linked_flag: { id, key, variant: null } })
+                                    }}
+                                    disabledReason={disabledReason ?? undefined}
+                                    readOnly={disabledReason !== undefined}
+                                />
+                            )}
+                        </AccessControlAction>
                         {currentTeam?.session_recording_linked_flag && (
-                            <LemonButton
+                            <AccessControlledLemonButton
                                 className="ml-2"
                                 icon={<IconCancel />}
                                 size="small"
                                 type="secondary"
                                 onClick={() => updateCurrentTeam({ session_recording_linked_flag: null })}
                                 title="Clear selected flag"
+                                minAccessLevel={AccessControlLevel.Editor}
+                                resourceType={AccessControlResourceType.SessionRecording}
+                                userAccessLevel={
+                                    getAppContext()?.resource_access_control?.[
+                                        AccessControlResourceType.SessionRecording
+                                    ]
+                                }
                             />
                         )}
                     </div>
@@ -115,24 +140,34 @@ function LinkedFlagSelector(): JSX.Element | null {
                 {flagHasVariants && (
                     <>
                         <LemonLabel className="text-base">Link to a specific flag variant</LemonLabel>
-                        <LemonSegmentedButton
-                            className="min-w-1/3"
-                            value={currentTeam?.session_recording_linked_flag?.variant ?? ANY_VARIANT}
-                            options={variantOptions(linkedFlag?.filters.multivariate)}
-                            onChange={(variant) => {
-                                if (!linkedFlag) {
-                                    return
-                                }
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.SessionRecording}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
+                            }
+                        >
+                            {({ disabledReason }) => (
+                                <LemonSegmentedButton
+                                    className="min-w-1/3"
+                                    value={currentTeam?.session_recording_linked_flag?.variant ?? ANY_VARIANT}
+                                    options={variantOptions(linkedFlag?.filters.multivariate, disabledReason)}
+                                    onChange={(variant) => {
+                                        if (!linkedFlag) {
+                                            return
+                                        }
 
-                                updateCurrentTeam({
-                                    session_recording_linked_flag: {
-                                        id: linkedFlag?.id,
-                                        key: linkedFlag?.key,
-                                        variant: variant === ANY_VARIANT ? null : variant,
-                                    },
-                                })
-                            }}
-                        />
+                                        updateCurrentTeam({
+                                            session_recording_linked_flag: {
+                                                id: linkedFlag?.id,
+                                                key: linkedFlag?.key,
+                                                variant: variant === ANY_VARIANT ? null : variant,
+                                            },
+                                        })
+                                    }}
+                                />
+                            )}
+                        </AccessControlAction>
                         <p>
                             This is a multi-variant flag. You can link to "any" variant of the flag, and recordings will
                             start whenever the flag is enabled for a user.
@@ -250,8 +285,20 @@ function UrlConfigRow({
                 <span>{trigger.url}</span>
             </span>
             <div className="Actions flex deprecated-space-x-1 shrink-0">
-                <LemonButton icon={<IconPencil />} onClick={() => onEdit(index)} tooltip="Edit" center />
-                <LemonButton
+                <AccessControlledLemonButton
+                    icon={<IconPencil />}
+                    onClick={() => onEdit(index)}
+                    tooltip="Edit"
+                    center
+                    minAccessLevel={AccessControlLevel.Editor}
+                    resourceType={AccessControlResourceType.SessionRecording}
+                    userAccessLevel={
+                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
+                    }
+                >
+                    Edit
+                </AccessControlledLemonButton>
+                <AccessControlledLemonButton
                     icon={<IconTrash />}
                     tooltip={`Remove URL ${type}`}
                     center
@@ -269,7 +316,14 @@ function UrlConfigRow({
                             },
                         })
                     }}
-                />
+                    minAccessLevel={AccessControlLevel.Editor}
+                    resourceType={AccessControlResourceType.SessionRecording}
+                    userAccessLevel={
+                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
+                    }
+                >
+                    Remove
+                </AccessControlledLemonButton>
             </div>
         </div>
     )
@@ -297,14 +351,19 @@ function UrlConfigSection({
         <div className="flex flex-col deprecated-space-y-2 mt-4">
             <div className="flex items-center gap-2 justify-between">
                 <LemonLabel className="text-base">{title}</LemonLabel>
-                <LemonButton
+                <AccessControlledLemonButton
                     onClick={props.onAdd}
                     type="secondary"
                     icon={<IconPlus />}
                     data-attr={`session-replay-add-url-${type}`}
+                    minAccessLevel={AccessControlLevel.Editor}
+                    resourceType={AccessControlResourceType.SessionRecording}
+                    userAccessLevel={
+                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
+                    }
                 >
                     Add
-                </LemonButton>
+                </AccessControlledLemonButton>
             </div>
             <SupportedPlatforms
                 android={false}
@@ -407,15 +466,18 @@ function EventSelectButton(): JSX.Element {
                 />
             }
         >
-            <LemonButton
+            <AccessControlledLemonButton
                 size="small"
                 type="secondary"
                 icon={<IconPlus />}
                 sideIcon={null}
                 onClick={() => setOpen(!open)}
+                minAccessLevel={AccessControlLevel.Editor}
+                resourceType={AccessControlResourceType.SessionRecording}
+                userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]}
             >
                 Add event
-            </LemonButton>
+            </AccessControlledLemonButton>
         </Popover>
     )
 }
@@ -441,14 +503,28 @@ function EventTriggerOptions(): JSX.Element | null {
             />
             <div className="flex gap-2">
                 {eventTriggerConfig?.map((evnt) => (
-                    <LemonSnack
-                        key={evnt}
-                        onClose={() => {
-                            updateEventTriggerConfig(eventTriggerConfig?.filter((e) => e !== evnt))
-                        }}
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.SessionRecording}
+                        minAccessLevel={AccessControlLevel.Editor}
+                        userAccessLevel={
+                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
+                        }
                     >
-                        {evnt}
-                    </LemonSnack>
+                        {({ disabledReason }) => (
+                            <LemonSnack
+                                key={evnt}
+                                onClose={
+                                    !disabledReason
+                                        ? () => {
+                                              updateEventTriggerConfig(eventTriggerConfig?.filter((e) => e !== evnt))
+                                          }
+                                        : undefined
+                                }
+                            >
+                                {evnt}
+                            </LemonSnack>
+                        )}
+                    </AccessControlAction>
                 ))}
             </div>
         </div>
@@ -465,107 +541,118 @@ function Sampling(): JSX.Element {
                 <LemonLabel className="text-base">
                     <TriggerMatchTypeTag /> Sampling
                 </LemonLabel>
-                <LemonSelect
-                    onChange={(v) => {
-                        updateCurrentTeam({ session_recording_sample_rate: v })
-                    }}
-                    dropdownMatchSelectWidth={false}
-                    options={[
-                        {
-                            label: '100% (no sampling)',
-                            value: '1.00',
-                        },
-                        {
-                            label: '95%',
-                            value: '0.95',
-                        },
-                        {
-                            label: '90%',
-                            value: '0.90',
-                        },
-                        {
-                            label: '85%',
-                            value: '0.85',
-                        },
-                        {
-                            label: '80%',
-                            value: '0.80',
-                        },
-                        {
-                            label: '75%',
-                            value: '0.75',
-                        },
-                        {
-                            label: '70%',
-                            value: '0.70',
-                        },
-                        {
-                            label: '65%',
-                            value: '0.65',
-                        },
-                        {
-                            label: '60%',
-                            value: '0.60',
-                        },
-                        {
-                            label: '55%',
-                            value: '0.55',
-                        },
-                        {
-                            label: '50%',
-                            value: '0.50',
-                        },
-                        {
-                            label: '45%',
-                            value: '0.45',
-                        },
-                        {
-                            label: '40%',
-                            value: '0.40',
-                        },
-                        {
-                            label: '35%',
-                            value: '0.35',
-                        },
-                        {
-                            label: '30%',
-                            value: '0.30',
-                        },
-                        {
-                            label: '25%',
-                            value: '0.25',
-                        },
-                        {
-                            label: '20%',
-                            value: '0.20',
-                        },
-                        {
-                            label: '15%',
-                            value: '0.15',
-                        },
-                        {
-                            label: '10%',
-                            value: '0.10',
-                        },
-                        {
-                            label: '5%',
-                            value: '0.05',
-                        },
-                        {
-                            label: '1%',
-                            value: '0.01',
-                        },
-                        {
-                            label: '0% (replay disabled)',
-                            value: '0.00',
-                        },
-                    ]}
-                    value={
-                        typeof currentTeam?.session_recording_sample_rate === 'string'
-                            ? currentTeam?.session_recording_sample_rate
-                            : '1.00'
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.SessionRecording}
+                    minAccessLevel={AccessControlLevel.Editor}
+                    userAccessLevel={
+                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
                     }
-                />
+                >
+                    {({ disabledReason }) => (
+                        <LemonSelect
+                            onChange={(v) => {
+                                updateCurrentTeam({ session_recording_sample_rate: v })
+                            }}
+                            dropdownMatchSelectWidth={false}
+                            disabledReason={disabledReason ?? undefined}
+                            options={[
+                                {
+                                    label: '100% (no sampling)',
+                                    value: '1.00',
+                                },
+                                {
+                                    label: '95%',
+                                    value: '0.95',
+                                },
+                                {
+                                    label: '90%',
+                                    value: '0.90',
+                                },
+                                {
+                                    label: '85%',
+                                    value: '0.85',
+                                },
+                                {
+                                    label: '80%',
+                                    value: '0.80',
+                                },
+                                {
+                                    label: '75%',
+                                    value: '0.75',
+                                },
+                                {
+                                    label: '70%',
+                                    value: '0.70',
+                                },
+                                {
+                                    label: '65%',
+                                    value: '0.65',
+                                },
+                                {
+                                    label: '60%',
+                                    value: '0.60',
+                                },
+                                {
+                                    label: '55%',
+                                    value: '0.55',
+                                },
+                                {
+                                    label: '50%',
+                                    value: '0.50',
+                                },
+                                {
+                                    label: '45%',
+                                    value: '0.45',
+                                },
+                                {
+                                    label: '40%',
+                                    value: '0.40',
+                                },
+                                {
+                                    label: '35%',
+                                    value: '0.35',
+                                },
+                                {
+                                    label: '30%',
+                                    value: '0.30',
+                                },
+                                {
+                                    label: '25%',
+                                    value: '0.25',
+                                },
+                                {
+                                    label: '20%',
+                                    value: '0.20',
+                                },
+                                {
+                                    label: '15%',
+                                    value: '0.15',
+                                },
+                                {
+                                    label: '10%',
+                                    value: '0.10',
+                                },
+                                {
+                                    label: '5%',
+                                    value: '0.05',
+                                },
+                                {
+                                    label: '1%',
+                                    value: '0.01',
+                                },
+                                {
+                                    label: '0% (replay disabled)',
+                                    value: '0.00',
+                                },
+                            ]}
+                            value={
+                                typeof currentTeam?.session_recording_sample_rate === 'string'
+                                    ? currentTeam?.session_recording_sample_rate
+                                    : '1.00'
+                            }
+                        />
+                    )}
+                </AccessControlAction>
             </div>
             <SupportedPlatforms web={{ version: '1.85.0' }} />
             <p>
@@ -586,14 +673,25 @@ function MinimumDurationSetting(): JSX.Element | null {
             <>
                 <div className="flex flex-row justify-between">
                     <LemonLabel className="text-base">Minimum session duration (seconds)</LemonLabel>
-                    <LemonSelect
-                        dropdownMatchSelectWidth={false}
-                        onChange={(v) => {
-                            updateCurrentTeam({ session_recording_minimum_duration_milliseconds: v })
-                        }}
-                        options={SESSION_REPLAY_MINIMUM_DURATION_OPTIONS}
-                        value={currentTeam?.session_recording_minimum_duration_milliseconds}
-                    />
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.SessionRecording}
+                        minAccessLevel={AccessControlLevel.Editor}
+                        userAccessLevel={
+                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
+                        }
+                    >
+                        {({ disabledReason }) => (
+                            <LemonSelect
+                                dropdownMatchSelectWidth={false}
+                                onChange={(v) => {
+                                    updateCurrentTeam({ session_recording_minimum_duration_milliseconds: v })
+                                }}
+                                options={SESSION_REPLAY_MINIMUM_DURATION_OPTIONS}
+                                value={currentTeam?.session_recording_minimum_duration_milliseconds}
+                                disabledReason={disabledReason}
+                            />
+                        )}
+                    </AccessControlAction>
                 </div>
                 <SupportedPlatforms web={{ version: '1.85.0' }} />
                 <p>
@@ -644,40 +742,55 @@ function TriggerMatchChoice(): JSX.Element {
             </LemonBanner>
             <div className="flex flex-row gap-x-2 items-center">
                 <div>Start when</div>
-                <LemonSelect
-                    options={[
-                        {
-                            label: 'all',
-                            value: 'all',
-                            labelInMenu: (
-                                <SelectOption
-                                    title="All"
-                                    description="Every trigger must match"
-                                    value="all"
-                                    selectedValue={currentTeam?.session_recording_trigger_match_type_config || 'all'}
-                                />
-                            ),
-                        },
-                        {
-                            label: 'any',
-                            value: 'any',
-                            labelInMenu: (
-                                <SelectOption
-                                    title="Any"
-                                    description="One or more triggers must match"
-                                    value="any"
-                                    selectedValue={currentTeam?.session_recording_trigger_match_type_config || 'all'}
-                                />
-                            ),
-                        },
-                    ]}
-                    dropdownMatchSelectWidth={false}
-                    data-attr="trigger-match-choice"
-                    onChange={(value) => {
-                        updateCurrentTeam({ session_recording_trigger_match_type_config: value })
-                    }}
-                    value={currentTeam?.session_recording_trigger_match_type_config || 'all'}
-                />
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.SessionRecording}
+                    minAccessLevel={AccessControlLevel.Editor}
+                    userAccessLevel={
+                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
+                    }
+                >
+                    {({ disabledReason }) => (
+                        <LemonSelect
+                            options={[
+                                {
+                                    label: 'all',
+                                    value: 'all',
+                                    labelInMenu: (
+                                        <SelectOption
+                                            title="All"
+                                            description="Every trigger must match"
+                                            value="all"
+                                            selectedValue={
+                                                currentTeam?.session_recording_trigger_match_type_config || 'all'
+                                            }
+                                        />
+                                    ),
+                                },
+                                {
+                                    label: 'any',
+                                    value: 'any',
+                                    labelInMenu: (
+                                        <SelectOption
+                                            title="Any"
+                                            description="One or more triggers must match"
+                                            value="any"
+                                            selectedValue={
+                                                currentTeam?.session_recording_trigger_match_type_config || 'all'
+                                            }
+                                        />
+                                    ),
+                                },
+                            ]}
+                            dropdownMatchSelectWidth={false}
+                            data-attr="trigger-match-choice"
+                            onChange={(value) => {
+                                updateCurrentTeam({ session_recording_trigger_match_type_config: value })
+                            }}
+                            value={currentTeam?.session_recording_trigger_match_type_config || 'all'}
+                            disabledReason={disabledReason}
+                        />
+                    )}
+                </AccessControlAction>
                 <div>triggers below match</div>
             </div>
         </div>

@@ -50,7 +50,7 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                         sessionId={event.properties.$session_id}
                         recordingStatus={event.properties.$recording_status}
                         timestamp={event.timestamp}
-                        data-attr="events-table-usage"
+                        data-attr="events-table-view-recordings"
                     />
                     {event.event === '$exception' && '$exception_issue_id' in event.properties ? (
                         <LemonButton
