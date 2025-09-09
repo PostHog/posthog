@@ -530,7 +530,26 @@ describe('hog flow processing', () => {
         })
 
         it('should not create hog flow invocations with no filters', async () => {
-            await insertHogFlow(new FixtureHogFlowBuilder().withTeamId(team.id).build())
+            const hogFlow = new FixtureHogFlowBuilder().withTeamId(team.id).build()
+            hogFlow.trigger = {} as any
+            await insertHogFlow(hogFlow)
+
+            const invocations = await processor['createHogFlowInvocations']([globals])
+            expect(invocations).toHaveLength(0)
+        })
+
+        it('should not create hog flow invocations with webhook triggers', async () => {
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withSimpleWorkflow({
+                    trigger: {
+                        type: 'webhook',
+                        template_id: 'test',
+                        inputs: {},
+                    },
+                })
+                .build()
+            await insertHogFlow(hogFlow)
 
             const invocations = await processor['createHogFlowInvocations']([globals])
             expect(invocations).toHaveLength(0)
