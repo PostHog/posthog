@@ -153,7 +153,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
     forms(({ actions, values, props }) => ({
         emailTemplate: {
-            defaults: props.defaultValue,
+            defaults: props.defaultValue as EmailTemplate | undefined,
             submit: async (value) => {
                 const editor = values.emailEditorRef?.editor
                 if (!editor || !values.isEmailEditorReady) {
