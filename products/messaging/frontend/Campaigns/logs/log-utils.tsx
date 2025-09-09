@@ -26,8 +26,8 @@ export const renderWorkflowLogMessage = (campaign: HogFlow, message: string): JS
             const actionId = parts[i]
             const action = campaign.actions.find((action) => action.id === actionId)
 
-            const step = action ? getHogFlowStep(action?.type) : undefined
-            const stepName = step ? step.name : actionId
+            const step = action ? getHogFlowStep(action, {}) : undefined
+            const stepName = action?.name
 
             if (actionId) {
                 elements.push(

@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import { IconCheckCircle, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { TRIAL_CANCELLATION_SURVEY_ID, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { toSentenceCase } from 'lib/utils'
@@ -32,14 +32,8 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
         isDataPipelinesDeprecated,
     } = useValues(billingProductLogic({ product: addon, productRef }))
 
-    const {
-        toggleIsPricingModalOpen,
-        reportSurveyShown,
-        setSurveyResponse,
-        initiateProductUpgrade,
-        activateTrial,
-        cancelTrial,
-    } = useActions(billingProductLogic({ product: addon }))
+    const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse, initiateProductUpgrade, activateTrial } =
+        useActions(billingProductLogic({ product: addon }))
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
     const { prorationAmount, isProrated } = useMemo(
         () =>
@@ -97,7 +91,16 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
                 </LemonTag>
             </Tooltip>
             {addon.type !== 'enterprise' && (
-                <LemonButton type="primary" size="small" onClick={cancelTrial} loading={trialLoading} className="mt-1">
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    onClick={() => {
+                        setSurveyResponse('$survey_response_1', addon.type)
+                        reportSurveyShown(TRIAL_CANCELLATION_SURVEY_ID, addon.type)
+                    }}
+                    loading={trialLoading}
+                    className="mt-1"
+                >
                     Cancel trial
                 </LemonButton>
             )}

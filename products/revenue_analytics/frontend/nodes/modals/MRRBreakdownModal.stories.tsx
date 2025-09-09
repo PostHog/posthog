@@ -21,7 +21,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
-        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS, FEATURE_FLAGS.MRR_BREAKDOWN_REVENUE_ANALYTICS],
+        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS],
     },
 }
 export default meta

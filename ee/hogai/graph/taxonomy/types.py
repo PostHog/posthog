@@ -2,25 +2,20 @@ from collections.abc import Sequence
 from enum import Enum, StrEnum
 from typing import Generic, Optional, TypeVar
 
-from langchain_core.agents import AgentAction
 from langchain_core.messages import BaseMessage as LangchainBaseMessage
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
-from ee.hogai.utils.types import AssistantMessageUnion, BaseState
+from ee.hogai.utils.types import AssistantMessageUnion
+from ee.hogai.utils.types.base import BaseStateWithIntermediateSteps
 
 OutputType = TypeVar("OutputType", bound=BaseModel)
 
 
-class TaxonomyAgentState(BaseState, Generic[OutputType]):
+class TaxonomyAgentState(BaseStateWithIntermediateSteps, Generic[OutputType]):
     """
     Partial state class for filter options functionality.
     Only includes fields relevant to filter options generation.
-    """
-
-    intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]] = Field(default=None)
-    """
-    Actions taken by the ReAct agent.
     """
 
     output: Optional[OutputType | str] = Field(default=None)

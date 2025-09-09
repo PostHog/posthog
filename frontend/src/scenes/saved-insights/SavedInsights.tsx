@@ -795,8 +795,7 @@ export function SavedInsights(): JSX.Element {
                 name="Product analytics"
                 description="Track, analyze, and experiment with user behavior."
                 resourceType={{
-                    type: 'insight',
-                    typePlural: 'insights',
+                    type: 'product_analytics',
                 }}
             />
             <SceneDivider />

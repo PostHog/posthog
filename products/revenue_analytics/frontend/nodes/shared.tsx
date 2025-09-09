@@ -3,6 +3,7 @@ import { useMountedLogic, useValues } from 'kea'
 import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import {
     InsightEmptyState,
     InsightErrorState,
@@ -15,7 +16,7 @@ import { LineGraph, LineGraphProps } from 'scenes/insights/views/LineGraph/LineG
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { extractValidationError, isTimeoutError } from '~/queries/nodes/InsightViz/utils'
-import { AnyResponseType } from '~/queries/schema/schema-general'
+import { AnyResponseType, GoalLine, RevenueAnalyticsGoal } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { GraphDataset, GraphType } from '~/types'
 
@@ -35,6 +36,30 @@ export const extractLabelAndDatasets = (results: GraphDataset[]): { labels: stri
             seriesIndex,
         })),
     }
+}
+
+// Helper to build goal lines from revenue goals
+export const goalLinesFromRevenueGoals = (
+    revenueGoals: RevenueAnalyticsGoal[],
+    mode: RevenueAnalyticsGoal['mrr_or_gross']
+): GoalLine[] => {
+    return revenueGoals
+        .filter((goal) => goal.mrr_or_gross === mode)
+        .map((goal) => {
+            const isFuture = dayjs(goal.due_date).isSameOrAfter(dayjs())
+
+            return {
+                label: `${goal.name} (${dayjs(goal.due_date).format('DD MMM YYYY')})`,
+                value: goal.goal,
+                displayLabel: true,
+                borderColor: isFuture ? 'green' : 'red',
+
+                // Only display smaller goals that are in the future
+                // This implies that past goals that have been achieved already
+                // will not be displayed
+                displayIfCrossed: isFuture,
+            }
+        })
 }
 
 interface TileWrapperProps {
@@ -133,6 +158,7 @@ export const RevenueAnalyticsLineGraph = (
             legend={{ display: props.datasets.length > 1, position: 'right' }}
             trendsFilter={{ aggregationAxisFormat: 'numeric' }}
             labelGroupType="none"
+            goalLines={props.goalLines || props.trendsFilter?.goalLines}
             {...props}
         />
     )

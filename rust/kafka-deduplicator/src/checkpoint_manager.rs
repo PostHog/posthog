@@ -1,5 +1,4 @@
 use anyhow::Result;
-use dashmap::DashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinHandle;
@@ -7,12 +6,13 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::kafka::types::Partition;
-use crate::rocksdb::deduplication_store::DeduplicationStore;
+use crate::store::DeduplicationStore;
+use crate::store_manager::StoreManager;
 
 /// Manages checkpointing and periodic flushing for all deduplication stores
 pub struct CheckpointManager {
-    /// Reference to all active stores
-    stores: Arc<DashMap<Partition, DeduplicationStore>>,
+    /// Reference to the store manager
+    store_manager: Arc<StoreManager>,
 
     /// Cancellation token for the flush task
     cancel_token: CancellationToken,
@@ -26,12 +26,9 @@ pub struct CheckpointManager {
 
 impl CheckpointManager {
     /// Create a new checkpoint manager
-    pub fn new(
-        stores: Arc<DashMap<Partition, DeduplicationStore>>,
-        flush_interval: Duration,
-    ) -> Self {
+    pub fn new(store_manager: Arc<StoreManager>, flush_interval: Duration) -> Self {
         Self {
-            stores,
+            store_manager,
             cancel_token: CancellationToken::new(),
             flush_task: None,
             flush_interval,
@@ -50,7 +47,7 @@ impl CheckpointManager {
             self.flush_interval
         );
 
-        let stores = self.stores.clone();
+        let store_manager = self.store_manager.clone();
         let cancel = self.cancel_token.child_token();
         let flush_interval = self.flush_interval;
 
@@ -68,6 +65,7 @@ impl CheckpointManager {
                         break;
                     }
                     _ = interval.tick() => {
+                        let stores = store_manager.stores();
                         let store_count = stores.len();
                         if store_count == 0 {
                             debug!("No stores to flush");
@@ -87,11 +85,35 @@ impl CheckpointManager {
 
                         // Flush and update metrics for each store
                         for (partition, store) in snapshot {
+                            // Check if store still exists (might have been removed during rebalancing)
+                            if store_manager.get(partition.topic(), partition.partition_number()).is_none() {
+                                debug!(
+                                    "Skipping flush for removed store {}:{}",
+                                    partition.topic(),
+                                    partition.partition_number()
+                                );
+                                continue;
+                            }
+
                             debug!("Flushing store {}:{}", partition.topic(), partition.partition_number());
 
                             // Flush the store
                             if let Err(e) = store.flush() {
-                                error!("Failed to flush store {}:{}: {}", partition.topic(), partition.partition_number(), e);
+                                // Build the complete error chain
+                                let mut error_chain = vec![format!("{:?}", e)];
+                                let mut source = e.source();
+                                while let Some(err) = source {
+                                    error_chain.push(format!("Caused by: {err:?}"));
+                                    source = err.source();
+                                }
+
+                                error!(
+                                    "Failed to flush store {}:{} - {}",
+                                    partition.topic(),
+                                    partition.partition_number(),
+                                    error_chain.join(" -> ")
+                                );
+
                                 continue;
                             }
 
@@ -135,7 +157,8 @@ impl CheckpointManager {
         info!("Triggering manual flush of all stores");
 
         let snapshot: Vec<(Partition, DeduplicationStore)> = self
-            .stores
+            .store_manager
+            .stores()
             .iter()
             .map(|entry| {
                 let (partition, store) = entry.pair();
@@ -165,7 +188,7 @@ impl CheckpointManager {
     ) -> Result<Vec<String>> {
         let key = Partition::new(topic.to_string(), partition);
 
-        match self.stores.get(&key) {
+        match self.store_manager.stores().get(&key) {
             Some(entry) => {
                 let store = entry.value();
                 info!(
@@ -200,9 +223,9 @@ impl Drop for CheckpointManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rocksdb::deduplication_store::{DeduplicationStore, DeduplicationStoreConfig};
+    use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
     use common_types::RawEvent;
-    use std::collections::HashMap;
+    use std::{collections::HashMap, path::PathBuf};
     use tempfile::TempDir;
 
     fn create_test_store(topic: &str, partition: i32) -> (DeduplicationStore, TempDir) {
@@ -228,7 +251,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_checkpoint_manager_creation() {
-        let stores = Arc::new(DashMap::new());
+        let stores = Arc::new(StoreManager::new(DeduplicationStoreConfig {
+            path: PathBuf::from("test"),
+            max_capacity: 1_000_000,
+        }));
         let manager = CheckpointManager::new(stores.clone(), Duration::from_secs(30));
 
         assert_eq!(manager.flush_interval, Duration::from_secs(30));
@@ -237,7 +263,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_checkpoint_manager_start_stop() {
-        let stores = Arc::new(DashMap::new());
+        let stores = Arc::new(StoreManager::new(DeduplicationStoreConfig {
+            path: PathBuf::from("test"),
+            max_capacity: 1_000_000,
+        }));
         let mut manager = CheckpointManager::new(stores.clone(), Duration::from_secs(30));
 
         // Start the manager
@@ -251,7 +280,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_flush_all_empty() {
-        let stores = Arc::new(DashMap::new());
+        let stores = Arc::new(StoreManager::new(DeduplicationStoreConfig {
+            path: PathBuf::from("test"),
+            max_capacity: 1_000_000,
+        }));
         let manager = CheckpointManager::new(stores.clone(), Duration::from_secs(30));
 
         // Flushing empty stores should succeed
@@ -260,11 +292,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_flush_all_with_stores() {
-        let stores = Arc::new(DashMap::new());
-
         // Add some test stores
         let (store1, _dir1) = create_test_store("topic1", 0);
         let (store2, _dir2) = create_test_store("topic1", 1);
+
+        let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
+            path: _dir1.path().to_path_buf(),
+            max_capacity: 1_000_000,
+        }));
+        let stores = store_manager.stores();
 
         // Add events to the stores
         let event = create_test_event();
@@ -274,7 +310,7 @@ mod tests {
         stores.insert(Partition::new("topic1".to_string(), 0), store1);
         stores.insert(Partition::new("topic1".to_string(), 1), store2);
 
-        let manager = CheckpointManager::new(stores.clone(), Duration::from_secs(30));
+        let manager = CheckpointManager::new(store_manager.clone(), Duration::from_secs(30));
 
         // Flush all should succeed
         assert!(manager.flush_all().await.is_ok());
@@ -282,8 +318,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_checkpoint_partition() {
-        let stores = Arc::new(DashMap::new());
         let (store, temp_dir) = create_test_store("topic1", 0);
+        let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1_000_000,
+        }));
+        let stores = store_manager.stores();
 
         // Add an event to the store
         let event = create_test_event();
@@ -291,7 +331,7 @@ mod tests {
 
         stores.insert(Partition::new("topic1".to_string(), 0), store);
 
-        let manager = CheckpointManager::new(stores.clone(), Duration::from_secs(30));
+        let manager = CheckpointManager::new(store_manager.clone(), Duration::from_secs(30));
 
         // Create checkpoint
         let checkpoint_path = temp_dir.path().join("checkpoint");
@@ -305,7 +345,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_checkpoint_partition_not_found() {
-        let stores = Arc::new(DashMap::new());
+        let stores = Arc::new(StoreManager::new(DeduplicationStoreConfig {
+            path: PathBuf::from("test"),
+            max_capacity: 1_000_000,
+        }));
         let manager = CheckpointManager::new(stores.clone(), Duration::from_secs(30));
 
         let temp_dir = TempDir::new().unwrap();
@@ -321,8 +364,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_periodic_flush_task() {
-        let stores = Arc::new(DashMap::new());
-        let (store, _dir) = create_test_store("topic1", 0);
+        let (store, dir) = create_test_store("topic1", 0);
+        let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
+            path: dir.path().to_path_buf(),
+            max_capacity: 1_000_000,
+        }));
+        let stores = store_manager.stores();
 
         // Add an event
         let event = create_test_event();
@@ -331,7 +378,7 @@ mod tests {
         stores.insert(Partition::new("topic1".to_string(), 0), store);
 
         // Create manager with short interval for testing
-        let mut manager = CheckpointManager::new(stores.clone(), Duration::from_millis(100));
+        let mut manager = CheckpointManager::new(store_manager.clone(), Duration::from_millis(100));
 
         // Start the manager
         manager.start();
@@ -345,7 +392,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_double_start() {
-        let stores = Arc::new(DashMap::new());
+        let stores = Arc::new(StoreManager::new(DeduplicationStoreConfig {
+            path: PathBuf::from("test"),
+            max_capacity: 1_000_000,
+        }));
         let mut manager = CheckpointManager::new(stores.clone(), Duration::from_secs(30));
 
         // Start once
@@ -361,7 +411,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_drop_cancels_task() {
-        let stores = Arc::new(DashMap::new());
+        let stores = Arc::new(StoreManager::new(DeduplicationStoreConfig {
+            path: PathBuf::from("test"),
+            max_capacity: 1_000_000,
+        }));
         let mut manager = CheckpointManager::new(stores.clone(), Duration::from_secs(30));
 
         manager.start();
