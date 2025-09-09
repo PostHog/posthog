@@ -54,6 +54,7 @@ class MainAssistant(BaseAssistant):
         trace_id: Optional[str | UUID] = None,
         billing_context: Optional[MaxBillingContext] = None,
         initial_state: Optional[AssistantState | PartialAssistantState] = None,
+        workflow_id: Optional[str] = None,
     ):
         super().__init__(
             team,
@@ -70,6 +71,7 @@ class MainAssistant(BaseAssistant):
             trace_id=trace_id,
             billing_context=billing_context,
             initial_state=initial_state,
+            workflow_id=workflow_id,
         )
 
     @property
