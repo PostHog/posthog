@@ -222,14 +222,15 @@ def get_source_time_window(
     Returns the time window conditions based on conversion window and date range.
     Pure source-based function that doesn't depend on metric object.
     """
+
     if conversion_window is not None and conversion_window_unit is not None:
-        # Define conversion window as hours after exposure
-        time_window_clause = ast.CompareOperation(
+        # If conversion window is set, limit events to date_to + window
+        date_to = ast.CompareOperation(
             left=left,
             right=ast.Call(
                 name="plus",
                 args=[
-                    ast.Field(chain=["exposure_data", "first_exposure_time"]),
+                    ast.Constant(value=date_range_query.date_to()),
                     ast.Call(
                         name="toIntervalSecond",
                         args=[
@@ -242,8 +243,8 @@ def get_source_time_window(
         )
     else:
         # If no conversion window, just limit to experiment end date
-        time_window_clause = ast.CompareOperation(
-            op=ast.CompareOperationOp.LtEq,
+        date_to = ast.CompareOperation(
+            op=ast.CompareOperationOp.Lt,
             left=left,
             right=ast.Constant(value=date_range_query.date_to()),
         )
@@ -255,13 +256,7 @@ def get_source_time_window(
             left=left,
             right=ast.Constant(value=date_range_query.date_from()),
         ),
-        # Ensure the event occurred after the user was exposed to the experiment
-        ast.CompareOperation(
-            left=left,
-            right=ast.Field(chain=["exposure_data", "first_exposure_time"]),
-            op=ast.CompareOperationOp.GtEq,
-        ),
-        time_window_clause,
+        date_to,
     ]
 
 
@@ -347,7 +342,6 @@ def get_experiment_exposure_query(
 
 def get_source_events_query(
     source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode],
-    exposure_query: ast.SelectQuery,
     team: Team,
     entity_key: str,
     date_range_query: QueryDateRange,
@@ -377,32 +371,10 @@ def get_source_events_query(
                             ]
                         ),
                     ),
-                    ast.Field(chain=["exposure_data", "variant"]),
                     ast.Alias(alias="value", expr=get_source_value_expr(source)),
                 ],
                 select_from=ast.JoinExpr(
                     table=ast.Field(chain=[source.table_name]),
-                    next_join=ast.JoinExpr(
-                        table=exposure_query,
-                        join_type="INNER JOIN",
-                        alias="exposure_data",
-                        constraint=ast.JoinConstraint(
-                            expr=ast.CompareOperation(
-                                left=ast.Field(
-                                    chain=[
-                                        source.table_name,
-                                        *source.data_warehouse_join_key.split("."),
-                                    ]
-                                ),
-                                right=ast.Call(
-                                    name="toString",
-                                    args=[ast.Field(chain=["exposure_data", "exposure_identifier"])],
-                                ),
-                                op=ast.CompareOperationOp.Eq,
-                            ),
-                            constraint_type="ON",
-                        ),
-                    ),
                 ),
                 where=ast.And(
                     exprs=[
@@ -435,25 +407,11 @@ def get_source_events_query(
                 select=[
                     ast.Field(chain=["events", "timestamp"]),
                     ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", entity_key])),
-                    ast.Field(chain=["exposure_data", "variant"]),
                     ast.Field(chain=["events", "event"]),
                     ast.Alias(alias="value", expr=get_source_value_expr(source)),
                 ],
                 select_from=ast.JoinExpr(
                     table=ast.Field(chain=["events"]),
-                    next_join=ast.JoinExpr(
-                        table=exposure_query,
-                        join_type="INNER JOIN",
-                        alias="exposure_data",
-                        constraint=ast.JoinConstraint(
-                            expr=ast.CompareOperation(
-                                left=ast.Field(chain=["events", entity_key]),
-                                right=ast.Field(chain=["exposure_data", "entity_id"]),
-                                op=ast.CompareOperationOp.Eq,
-                            ),
-                            constraint_type="ON",
-                        ),
-                    ),
                 ),
                 where=ast.And(exprs=filters),
             )
@@ -461,7 +419,6 @@ def get_source_events_query(
 
 def get_metric_events_query(
     metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric],
-    exposure_query: ast.SelectQuery,
     team: Team,
     entity_key: str,
     experiment: Experiment,
@@ -476,9 +433,7 @@ def get_metric_events_query(
 
     if isinstance(metric, ExperimentFunnelMetric):
         assert source_type is None
-        return _get_metric_events_for_funnel_metric(
-            metric, exposure_query, team, entity_key, experiment, date_range_query
-        )
+        return _get_metric_events_for_funnel_metric(metric, team, entity_key, experiment, date_range_query)
 
     # For ratio metrics, determine which source to use and delegate to source-based function
     if isinstance(metric, ExperimentRatioMetric):
@@ -490,7 +445,6 @@ def get_metric_events_query(
 
     return get_source_events_query(
         source,
-        exposure_query,
         team,
         entity_key,
         date_range_query,
@@ -502,7 +456,6 @@ def get_metric_events_query(
 
 def _get_metric_events_for_funnel_metric(
     metric: ExperimentFunnelMetric,
-    exposure_query: ast.SelectQuery,
     team: Team,
     entity_key: str,
     experiment: Experiment,
@@ -528,7 +481,6 @@ def _get_metric_events_for_funnel_metric(
         select=[
             ast.Field(chain=["events", "timestamp"]),
             ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", entity_key])),
-            ast.Field(chain=["exposure_data", "variant"]),
             ast.Field(chain=["events", "event"]),
             ast.Field(chain=["events", "uuid"]),
             ast.Field(chain=["events", "properties"]),
@@ -536,19 +488,6 @@ def _get_metric_events_for_funnel_metric(
         ],
         select_from=ast.JoinExpr(
             table=ast.Field(chain=["events"]),
-            next_join=ast.JoinExpr(
-                table=exposure_query,
-                join_type="INNER JOIN",
-                alias="exposure_data",
-                constraint=ast.JoinConstraint(
-                    expr=ast.CompareOperation(
-                        left=ast.Field(chain=["events", entity_key]),
-                        right=ast.Field(chain=["exposure_data", "entity_id"]),
-                        op=ast.CompareOperationOp.Eq,
-                    ),
-                    constraint_type="ON",
-                ),
-            ),
         ),
         where=ast.And(
             exprs=[

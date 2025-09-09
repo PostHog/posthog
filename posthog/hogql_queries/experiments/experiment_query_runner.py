@@ -25,6 +25,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.base_query_utils import (
+    conversion_window_to_seconds,
     get_experiment_date_range,
     get_experiment_exposure_query,
     get_metric_aggregation_expr,
@@ -131,6 +132,43 @@ class ExperimentQueryRunner(QueryRunner):
             ),
         ]
 
+        # Only include events that occurred after the user was exposed to the experiment
+        metric_time_window = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["metric_events", "timestamp"]),
+                right=ast.Field(chain=["exposures", "first_exposure_time"]),
+                op=ast.CompareOperationOp.GtEq,
+            )
+        ]
+
+        # If conversion window is set, we limit events to that window
+        # Otherwise, metric events are cut off by the metric query itself,
+        # which limits events to the duration of the experiment.
+        if self.metric.conversion_window and self.metric.conversion_window_unit:
+            # Define conversion window as hours after exposure
+            metric_time_window.append(
+                ast.CompareOperation(
+                    left=ast.Field(chain=["metric_events", "timestamp"]),
+                    right=ast.Call(
+                        name="plus",
+                        args=[
+                            ast.Field(chain=["exposures", "first_exposure_time"]),
+                            ast.Call(
+                                name="toIntervalSecond",
+                                args=[
+                                    ast.Constant(
+                                        value=conversion_window_to_seconds(
+                                            self.metric.conversion_window, self.metric.conversion_window_unit
+                                        )
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                    op=ast.CompareOperationOp.Lt,
+                )
+            )
+
         # Build join expression
         join_expr = ast.JoinExpr(
             table=exposure_query,
@@ -153,6 +191,7 @@ class ExperimentQueryRunner(QueryRunner):
                                 right=parse_expr("toString(metric_events.entity_id)"),
                                 op=ast.CompareOperationOp.Eq,
                             ),
+                            *metric_time_window,
                         ]
                     ),
                     constraint_type="ON",
@@ -183,6 +222,43 @@ class ExperimentQueryRunner(QueryRunner):
         # Type assertion - this method is only called for ratio metrics
         assert isinstance(self.metric, ExperimentRatioMetric)
         ratio_metric = self.metric
+
+        # Only include events that occurred after the user was exposed to the experiment
+        metric_time_window = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["metric_events", "timestamp"]),
+                right=ast.Field(chain=["exposures", "first_exposure_time"]),
+                op=ast.CompareOperationOp.GtEq,
+            )
+        ]
+
+        # If conversion window is set, we limit events to that window
+        # Otherwise, metric events are cut off by the metric query itself,
+        # which limits events to the duration of the experiment.
+        if self.metric.conversion_window and self.metric.conversion_window_unit:
+            # Define conversion window as hours after exposure
+            metric_time_window.append(
+                ast.CompareOperation(
+                    left=ast.Field(chain=["metric_events", "timestamp"]),
+                    right=ast.Call(
+                        name="plus",
+                        args=[
+                            ast.Field(chain=["exposures", "first_exposure_time"]),
+                            ast.Call(
+                                name="toIntervalSecond",
+                                args=[
+                                    ast.Constant(
+                                        value=conversion_window_to_seconds(
+                                            self.metric.conversion_window, self.metric.conversion_window_unit
+                                        )
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                    op=ast.CompareOperationOp.Lt,
+                )
+            )
 
         # First, create aggregated numerator query (per entity)
         numerator_aggregated = ast.SelectQuery(
@@ -215,6 +291,7 @@ class ExperimentQueryRunner(QueryRunner):
                                     right=parse_expr("toString(metric_events.entity_id)"),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
+                                *metric_time_window,
                             ]
                         ),
                         constraint_type="ON",
@@ -226,6 +303,43 @@ class ExperimentQueryRunner(QueryRunner):
                 ast.Field(chain=["exposures", "entity_id"]),
             ],
         )
+
+        # Only include events that occurred after the user was exposed to the experiment
+        metric_time_window_denominator = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["denominator_events", "timestamp"]),
+                right=ast.Field(chain=["exposures", "first_exposure_time"]),
+                op=ast.CompareOperationOp.GtEq,
+            )
+        ]
+
+        # If conversion window is set, we limit events to that window
+        # Otherwise, metric events are cut off by the metric query itself,
+        # which limits events to the duration of the experiment.
+        if self.metric.conversion_window and self.metric.conversion_window_unit:
+            # Define conversion window as hours after exposure
+            metric_time_window_denominator.append(
+                ast.CompareOperation(
+                    left=ast.Field(chain=["denominator_events", "timestamp"]),
+                    right=ast.Call(
+                        name="plus",
+                        args=[
+                            ast.Field(chain=["exposures", "first_exposure_time"]),
+                            ast.Call(
+                                name="toIntervalSecond",
+                                args=[
+                                    ast.Constant(
+                                        value=conversion_window_to_seconds(
+                                            self.metric.conversion_window, self.metric.conversion_window_unit
+                                        )
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                    op=ast.CompareOperationOp.Lt,
+                )
+            )
 
         # Second, create aggregated denominator query (per entity)
         denominator_aggregated = ast.SelectQuery(
@@ -258,6 +372,7 @@ class ExperimentQueryRunner(QueryRunner):
                                     right=parse_expr("toString(denominator_events.entity_id)"),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
+                                *metric_time_window_denominator,
                             ]
                         ),
                         constraint_type="ON",
@@ -367,7 +482,6 @@ class ExperimentQueryRunner(QueryRunner):
         # Get all metric events that are relevant to the experiment
         metric_events_query = get_metric_events_query(
             self.metric,
-            exposure_query,
             self.team,
             self.entity_key,
             self.experiment,
@@ -380,7 +494,6 @@ class ExperimentQueryRunner(QueryRunner):
         if self.is_ratio_metric:
             denominator_events_query = get_metric_events_query(
                 self.metric,
-                exposure_query,
                 self.team,
                 self.entity_key,
                 self.experiment,
