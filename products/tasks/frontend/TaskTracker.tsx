@@ -60,7 +60,6 @@ export function TaskTracker(): JSX.Element {
                     description="Manage and track development tasks across all PostHog products"
                     resourceType={{
                         type: 'task',
-                        typePlural: 'tasks',
                     }}
                 />
                 <SceneDivider />

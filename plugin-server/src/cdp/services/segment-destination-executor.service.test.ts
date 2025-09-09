@@ -1,8 +1,9 @@
+import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+
 import { DateTime, Settings } from 'luxon'
 
 import { defaultConfig } from '~/config/config'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { FetchResponse, fetch } from '~/utils/request'
 
 import { createHogFunction } from '../_tests/fixtures'
 import {
@@ -16,7 +17,6 @@ import { SegmentDestinationExecutorService } from './segment-destination-executo
 
 describe('SegmentDestinationExecutorService', () => {
     let service: SegmentDestinationExecutorService
-    let mockFetch: jest.Mock<Promise<FetchResponse>, Parameters<typeof fetch>>
 
     const amplitudePlugin = SEGMENT_DESTINATIONS_BY_ID['segment-actions-amplitude']
     const amplitudeAction = amplitudePlugin.destination.actions['logEventV2']
@@ -28,10 +28,12 @@ describe('SegmentDestinationExecutorService', () => {
     const pipedriveAction = pipedrivePlugin.destination.actions['createUpdatePerson']
 
     beforeEach(() => {
+        mockFetch.mockReset()
+
         Settings.defaultZone = 'UTC'
         service = new SegmentDestinationExecutorService(defaultConfig)
 
-        service.fetch = mockFetch = jest.fn((_url, _options) =>
+        mockFetch.mockImplementation((_url, _options) =>
             Promise.resolve({
                 status: 200,
                 json: () => Promise.resolve({}),

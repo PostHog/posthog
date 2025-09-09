@@ -5,7 +5,7 @@ import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from 
 import { Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
-import { FetchResponse, fetch } from '../../utils/request'
+import { FetchOptions, FetchResponse } from '../../utils/request'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { firstTimeEventTrackerPluginProcessEventAsync } from '../legacy-plugins/_transformations/first-time-event-tracker'
 import { firstTimeEventTrackerPlugin } from '../legacy-plugins/_transformations/first-time-event-tracker/template'
@@ -18,6 +18,7 @@ import {
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { CDP_TEST_ID, createAddLogFunction, isLegacyPluginHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
+import { cdpTrackedFetch } from './hog-executor.service'
 
 const pluginExecutionDuration = new Histogram({
     name: 'cdp_plugin_execution_duration_ms',
@@ -38,17 +39,9 @@ export type PluginState = {
 
 const pluginConfigCheckCache: Record<string, boolean> = {}
 
-export type LegacyPluginExecutorOptions = {
-    fetch?: (...args: Parameters<typeof fetch>) => Promise<FetchResponse>
-}
-
 export class LegacyPluginExecutorService {
     constructor(private hub: Hub) {}
     private pluginState: Record<string, PluginState> = {}
-
-    public async fetch(...args: Parameters<typeof fetch>): Promise<FetchResponse> {
-        return fetch(...args)
-    }
 
     private legacyStorage(teamId: number, pluginConfigId?: number | string): Pick<StorageExtension, 'get' | 'set'> {
         if (!pluginConfigId) {
@@ -112,8 +105,7 @@ export class LegacyPluginExecutorService {
     }
 
     public async execute(
-        invocation: CyclotronJobInvocationHogFunction,
-        options?: LegacyPluginExecutorOptions
+        invocation: CyclotronJobInvocationHogFunction
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
         const addLog = createAddLogFunction(result.logs)
@@ -126,6 +118,20 @@ export class LegacyPluginExecutorService {
         }
 
         const pluginId = isLegacyPluginHogFunction(invocation.hogFunction) ? invocation.hogFunction.template_id : null
+
+        const fetch = async (url: string, fetchParams: FetchOptions): Promise<FetchResponse> => {
+            const { fetchError, fetchResponse } = await cdpTrackedFetch({
+                url,
+                fetchParams,
+                templateId: invocation.hogFunction.template_id ?? '',
+            })
+
+            if (fetchError || !fetchResponse) {
+                throw fetchError ?? new Error('Fetch response is null')
+            }
+
+            return fetchResponse
+        }
 
         try {
             const plugin = pluginId
@@ -178,7 +184,7 @@ export class LegacyPluginExecutorService {
                         setupPromise = plugin.setupPlugin({
                             ...meta,
                             // Setup receives the real fetch always
-                            fetch: this.fetch,
+                            fetch,
                             storage: this.legacyStorage(invocation.hogFunction.team_id, legacyPluginConfigId),
                         })
                     }
@@ -238,7 +244,7 @@ export class LegacyPluginExecutorService {
                     } as FetchResponse
                 }
 
-                return (options?.fetch || this.fetch)(...args)
+                return fetch(...args)
             }
 
             const start = performance.now()

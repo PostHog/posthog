@@ -1,14 +1,13 @@
 import { useActions, useValues } from 'kea'
 
 import { IconExternal } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { urls } from 'scenes/urls'
 
 import { CategorySelect } from 'products/messaging/frontend/OptOuts/CategorySelect'
 
-import { campaignLogic } from '../../campaignLogic'
 import { HogFlowFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
@@ -18,8 +17,6 @@ import { HogFlowAction } from '../types'
 export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     const { selectedNode, categories, categoriesLoading } = useValues(hogFlowEditorLogic)
     const { setCampaignAction } = useActions(hogFlowEditorLogic)
-    const { actionValidationErrorsById } = useValues(campaignLogic)
-    const validationResult = actionValidationErrorsById[selectedNode?.id ?? '']
 
     const Step = useHogFlowStep(selectedNode?.data)
 
@@ -37,22 +34,13 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                 innerClassName="flex flex-col gap-2 p-3"
                 styledScrollbars
             >
-                {validationResult?.schema && (
-                    <div>
-                        {Object.values(validationResult.schema.errors).map(({ path, message }) => (
-                            <LemonBanner type="error" key={path.join('.')}>
-                                {path.join('.')}: {message}
-                            </LemonBanner>
-                        ))}
-                    </div>
-                )}
                 {Step?.renderConfiguration(selectedNode)}
             </ScrollableShadows>
 
             {isOptOutEligibleAction(action) && (
                 <>
                     <LemonDivider className="my-0" />
-                    <div className="flex flex-col p-2">
+                    <div className="flex flex-col px-2 py-1">
                         <LemonLabel htmlFor="Message category" className="flex gap-2 justify-between items-center">
                             <span>Message category</span>
                             <div className="flex gap-2">

@@ -11,6 +11,7 @@ import {
     LemonDivider,
     LemonInput,
     LemonModal,
+    LemonSearchableSelect,
     LemonSelect,
     LemonTag,
 } from '@posthog/lemon-ui'
@@ -124,7 +125,7 @@ export function ViewLinkForm({ mode }: ViewLinkModalProps): JSX.Element {
                                 (selectedJoiningTableName ?? '')
                             ) : (
                                 <Field name="joining_table_name">
-                                    <LemonSelect
+                                    <LemonSearchableSelect
                                         fullWidth
                                         options={tableOptions}
                                         onSelect={selectJoiningTable}

@@ -208,6 +208,7 @@ export const FEATURE_FLAGS = {
     REPLAY_TEMPLATES: 'replay-templates', // owner: @raquelmsmith #team-replay
     MESSAGING: 'messaging', // owner @haven #team-messaging
     MESSAGING_EARLY_ACCESS: 'messaging-product', // owner @haven #team-messaging
+    MESSAGING_TRIGGER_WEBHOOK: 'messaging-trigger-webhook', // owner #team-messaging
     ENVIRONMENTS_ROLLBACK: 'environments-rollback', // owner: @yasen-posthog #team-platform-features
     SELF_SERVE_CREDIT_OVERRIDE: 'self-serve-credit-override', // owner: @zach
     CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: @daibhin
@@ -232,7 +233,7 @@ export const FEATURE_FLAGS = {
     SESSION_RECORDINGS_PLAYLIST_COUNT_COLUMN: 'session-recordings-playlist-count-column', // owner: @pauldambra #team-replay
     WEB_ANALYTICS_PAGE_REPORTS: 'web-analytics-page-reports', // owner: @lricoy #team-web-analytics
     REVENUE_ANALYTICS: 'revenue-analytics-beta', // owner: @rafaeelaudibert #team-revenue-analytics
-    MRR_BREAKDOWN_REVENUE_ANALYTICS: 'mrr-breakdown-revenue-analytics', // owner: @rafaeelaudibert #team-revenue-analytics
+    EMBEDDED_ANALYTICS: 'embedded-analytics', // owner: @sakce #team-clickhouse
     SUPPORT_FORM_IN_ONBOARDING: 'support-form-in-onboarding', // owner: @joshsny #team-growth
     CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @arthurdedeus #team-crm
     CRM_USAGE_METRICS: 'crm-usage-metrics', // owner: @arthurdedeus #team-crm
@@ -258,7 +259,6 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_FRUSTRATING_PAGES_TILE: 'web-analytics-frustrating-pages-tile', // owner: @lricoy #team-web-analytics
     ALWAYS_QUERY_BLOCKING: 'always-query-blocking', // owner: @timgl
     GET_HOG_TEMPLATES_FROM_DB: 'get-hog-templates-from-db', // owner: @meikel #team-
-    BLOCKING_EXPORTS: 'blocking-exports', // owner: @aspicer #team-product-analytics
     SSE_DASHBOARDS: 'sse-dashboards', // owner: @aspicer #team-product-analytics
     LINKS: 'links', // owner: @marconlp #team-link
     GAME_CENTER: 'game-center', // owner: everybody
@@ -297,12 +297,14 @@ export const FEATURE_FLAGS = {
     MAX_SESSION_SUMMARIZATION: 'max-session-summarization', // owner: #team-max-ai
     CDP_NEW_PRICING: 'cdp-new-pricing', // owner: #team-messaging
     IMPROVED_COOKIELESS_MODE: 'improved-cookieless-mode', // owner: @robbie-c #team-web-analytics
-    REPLAY_EXPORT_SHORT_VIDEO: 'replay-export-short-video', // owner: @veryayskiy #team-replay
     REPLAY_EXPORT_FULL_VIDEO: 'replay-export-full-video', // owner: @veryayskiy #team-replay
+    PLATFORM_START_TRIAL_CTA: 'platform-start-trial-cta', // owner: @a-lider #team-platform-features
     LLM_ANALYTICS_DATASETS: 'llm-analytics-datasets', // owner: #team-llm-analytics #team-max-ai
     AMPLITUDE_BATCH_IMPORT_OPTIONS: 'amplitude-batch-import-options', // owner: #team-ingestion
     MAX_DEEP_RESEARCH: 'max-deep-research', // owner: @kappa90 #team-max-ai
     NOTEBOOKS_COLLAPSIBLE_SECTIONS: 'notebooks-collapsible-sections', // owner: @daibhin @benjackwhite
+    QUERY_EXECUTION_DETAILS: 'query-execution-details', // owner: @sakce
+    PASSWORD_PROTECTED_SHARES: 'password-protected-shares', // owner: @aspicer
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
@@ -424,6 +426,7 @@ export const SESSION_REPLAY_MINIMUM_DURATION_OPTIONS: LemonSelectOptions<number 
 
 export const UNSUBSCRIBE_SURVEY_ID = '018b6e13-590c-0000-decb-c727a2b3f462'
 export const SESSION_RECORDING_OPT_OUT_SURVEY_ID = '01985c68-bd25-0000-b7e3-f1ccc987e979'
+export const TRIAL_CANCELLATION_SURVEY_ID = '019923cd-461c-0000-27ed-ed8e422c596e'
 
 export const TAILWIND_BREAKPOINTS = {
     sm: 526,
@@ -436,3 +439,5 @@ export const TAILWIND_BREAKPOINTS = {
 export const INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID = 'insight-alert-firing'
 export const INSIGHT_ALERT_DESTINATION_LOGIC_KEY = 'insightAlertDestination'
 export const INSIGHT_ALERT_FIRING_EVENT_ID = '$insight_alert_firing'
+
+export const COHORT_PERSONS_QUERY_LIMIT = 10000
