@@ -2,7 +2,7 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from django.conf import settings
@@ -25,17 +25,26 @@ def get_max_backup_bandwidth() -> str:
     Get max backup bandwidth based on the current environment.
 
     Returns different bandwidth limits based on CLOUD_DEPLOYMENT:
-    - US: i7ie.metal-48xl instances (192 vCPUs, 768GB RAM) - higher bandwidth
-    - EU: m8g.8xlarge instances (32 vCPUs, 128GB RAM) - conservative bandwidth
+    - US: i7ie.metal-48xl instances (192 vCPUs, 768GB RAM, 100 Gbps network)
+    - EU: m8g.8xlarge instances (32 vCPUs, 128GB RAM, 12 Gbps network)
     - DEV/E2E/None: Conservative limits for development/self-hosted
+
+    Target: Complete backups within ~20 hours while preserving network capacity
     """
     cloud_deployment = getattr(settings, "CLOUD_DEPLOYMENT", None)
 
     if cloud_deployment == "US":
         # i7ie.metal-48xl instances - can handle higher bandwidth
-        return "500000000"  # 500MB/s
+        # 3000 MB/s = 24 Gbps (24% of 100 Gbps network)
+        # For 208TB: ~20 hour backup time
+        return "3000000000"  # 3000MB/s
+    elif cloud_deployment == "EU":
+        # m8g.8xlarge instances - moderate bandwidth
+        # 700 MB/s = 5.6 Gbps (47% of 12 Gbps network)
+        # For 48TB: ~20 hour backup time
+        return "700000000"  # 700MB/s
     else:
-        # EU (m8g.8xlarge) and DEV/self-hosted - conservative limits
+        # DEV/self-hosted - conservative limits
         return "100000000"  # 100MB/s to prevent resource exhaustion
 
 
@@ -378,6 +387,16 @@ def wait_for_backup(
         map_hosts(backup.wait).result().values()
         most_recent_status = get_most_recent_status(map_hosts(backup.status).result().values())
         if most_recent_status and most_recent_status.status != "BACKUP_CREATED":
+            # Check if the backup is stuck (CREATING_BACKUP with no active process)
+            if most_recent_status.status == "CREATING_BACKUP":
+                # Check how old the backup status is
+                time_since_status = datetime.now(UTC) - most_recent_status.event_time_microseconds.replace(tzinfo=UTC)
+                if time_since_status > timedelta(hours=2):
+                    context.log.warning(
+                        f"Backup {backup.path} is stuck in CREATING_BACKUP status for {time_since_status}. "
+                        f"This usually happens when the server was restarted during backup. "
+                        f"Please clean it from S3 and the backup_log table."
+                    )
             raise ValueError(
                 f"Latest backup {backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Please clean it from S3 before running a new backup."
             )
