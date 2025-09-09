@@ -1552,7 +1552,6 @@ export interface QueryRequest {
     /**
      * Name given to a query. It's used to identify the query in the UI.
      * Up to 128 characters for a name.
-     * @maxLength 128
      */
     name?: string
 }

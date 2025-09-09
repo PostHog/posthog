@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum, StrEnum
 from typing import Any, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel, constr
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 
 class SchemaRoot(RootModel[Any]):
@@ -14263,7 +14263,7 @@ class QueryRequest(BaseModel):
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
     )
     filters_override: Optional[DashboardFilter] = None
-    name: Optional[constr(max_length=128)] = Field(
+    name: Optional[str] = Field(
         default=None,
         description=(
             "Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name."
