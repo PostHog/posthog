@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
+import { SessionRecordingPlayerProps } from '../player/SessionRecordingPlayer'
 import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import type { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -46,10 +47,6 @@ export const parseExportedSessionRecording = (fileData: string): ExportedSession
     throw new Error('File version is not supported')
 }
 
-export type PlayerProps = {
-    sessionRecordingId: string
-    playerKey: string
-}
 /**
  * There's a race between loading the file causing the React component to be rendered that mounts the dataLogic
  * and this logic loading the file and wanting to tell the logic about it
@@ -59,7 +56,9 @@ export type PlayerProps = {
  * in practice, it will only wait for 1-2 retries,
  * but a timeout is provided to avoid waiting forever when something breaks
  */
-const waitForDataLogic = async (playerProps: PlayerProps): Promise<BuiltLogic<sessionRecordingDataLogicType>> => {
+const waitForDataLogic = async (
+    playerProps: SessionRecordingPlayerProps
+): Promise<BuiltLogic<sessionRecordingDataLogicType>> => {
     const maxRetries = 20 // 2 seconds / 100 ms per retry
     let retries = 0
     let dataLogic = null
@@ -145,7 +144,7 @@ export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePl
                 ({
                     sessionRecordingId: '',
                     playerKey: 'file-playback-' + fileId,
-                }) as PlayerProps,
+                }) as SessionRecordingPlayerProps,
         ],
         breadcrumbs: [
             () => [],
