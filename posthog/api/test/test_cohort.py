@@ -2211,6 +2211,151 @@ email@example.org,
         cohort_data = response.json()
         self.assertIsNotNone(cohort_data.get("id"))
 
+    def test_create_empty_static_cohort(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": "Empty Static Cohort",
+                "is_static": True,
+                "description": "A cohort with no initial members"
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        cohort_data = response.json()
+
+        self.assertEqual(cohort_data["name"], "Empty Static Cohort")
+        self.assertTrue(cohort_data["is_static"])
+        self.assertEqual(cohort_data["count"], 0)
+        self.assertFalse(cohort_data["is_calculating"])
+        self.assertIsNotNone(cohort_data["last_calculation"])
+
+        cohort = Cohort.objects.get(id=cohort_data["id"])
+        self.assertEqual(cohort.count, 0)
+        self.assertFalse(cohort.is_calculating)
+
+    @patch("posthog.models.cohort.Cohort.insert_users_by_list")
+    def test_add_users_to_static_cohort(self, mock_insert_users):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Static Cohort",
+            is_static=True,
+            count=0,
+            is_calculating=False,
+        )
+
+        Person.objects.create(team=self.team, distinct_ids=["user1"])
+        Person.objects.create(team=self.team, distinct_ids=["user2"])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}/add_users/",
+            {
+                "distinct_ids": ["user1", "user2"]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["success"], True)
+        self.assertIn("Added 2 users to cohort", response.json()["message"])
+
+        mock_insert_users.assert_called_once_with(["user1", "user2"], team_id=self.team.id)
+
+    def test_add_users_to_non_static_cohort_fails(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Dynamic Cohort",
+            is_static=False,
+            groups=[{"properties": [{"key": "email", "value": "test@example.com", "type": "person"}]}],
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}/add_users/",
+            {
+                "distinct_ids": ["user1"]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Can only add users to static cohorts", str(response.json()))
+
+    def test_add_users_missing_distinct_ids_fails(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Static Cohort",
+            is_static=True,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}/add_users/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("distinct_ids is required", str(response.json()))
+
+    def test_add_users_invalid_distinct_ids_type_fails(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Static Cohort",
+            is_static=True,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}/add_users/",
+            {
+                "distinct_ids": "not_a_list"
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("distinct_ids must be a list", str(response.json()))
+
+    def test_add_users_too_many_users_fails(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Static Cohort",
+            is_static=True,
+        )
+
+        distinct_ids = [f"user{i}" for i in range(1001)]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}/add_users/",
+            {
+                "distinct_ids": distinct_ids
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Cannot add more than 1000 users at once", str(response.json()))
+
+    @patch("posthog.models.cohort.Cohort.insert_users_by_list")
+    def test_add_users_backend_error_handling(self, mock_insert_users):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Static Cohort",
+            is_static=True,
+        )
+
+        mock_insert_users.side_effect = Exception("Database connection failed")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}/add_users/",
+            {
+                "distinct_ids": ["user1"]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Failed to add users to cohort", str(response.json()))
+        self.assertIn("Database connection failed", str(response.json()))
+
 
 class TestCalculateCohortCommand(APIBaseTest):
     def test_calculate_cohort_command_success(self):
