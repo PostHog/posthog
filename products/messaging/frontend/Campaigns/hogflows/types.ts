@@ -17,6 +17,7 @@ export const HogFlowSchema = z.object({
     team_id: z.number(),
     version: z.number(),
     name: z.string(),
+    description: z.string().optional(),
     status: z.enum(['active', 'draft', 'archived']),
     trigger: HogFlowTriggerSchema.optional(),
     conversion: z
