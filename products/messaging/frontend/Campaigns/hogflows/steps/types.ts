@@ -98,7 +98,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         type: z.literal('wait_until_condition'),
         config: z.object({
             condition: z.object({
-                filters: ActionFiltersSchema,
+                filters: ActionFiltersSchema.optional().nullable(),
             }),
             max_wait_duration: z.string(),
         }),
