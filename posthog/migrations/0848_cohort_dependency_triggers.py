@@ -25,15 +25,10 @@ class Migration(migrations.Migration):
                     WHERE groups_data IS NOT NULL AND filters_data IS NULL
                 ) _
             )
-            SELECT DISTINCT
-                    CASE
-                    -- Make sure we coerce the id to an integer
-                    -- I'm not sure if this is necessary, but it can't hurt
-                    WHEN jsonb_typeof(cohort_ref_id)='number' THEN (cohort_ref_id::text)::integer
-                    WHEN jsonb_typeof(cohort_ref_id)='string' AND cohort_ref_id::text ~ '^[0-9]+$' THEN (cohort_ref_id::text)::integer
-                    END
+            SELECT DISTINCT (cohort_ref_id::text)::integer AS depends_on_id
             FROM vals
-            WHERE jsonb_typeof(cohort_ref_id) IN ('number','string') AND (cohort_ref_id::text) ~ '^[0-9]+$';
+            -- Filter out non-numeric cohort references. Strings are also valid values, but don't work.
+            WHERE jsonb_typeof(cohort_ref_id) = 'number';
             $$;
             """,
             reverse_sql="DROP FUNCTION IF EXISTS extract_cohort_dependencies(jsonb, jsonb);",
