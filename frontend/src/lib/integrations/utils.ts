@@ -41,19 +41,22 @@ export const ICONS: Record<IntegrationKind, any> = {
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {
-    return kind == 'google-pubsub'
-        ? 'Google Cloud Pub/Sub'
-        : kind == 'google-cloud-storage'
-          ? 'Google Cloud Storage'
-          : kind == 'google-ads'
-            ? 'Google Ads'
-            : kind == 'linkedin-ads'
-              ? 'LinkedIn Ads'
-              : kind == 'reddit-ads'
-                ? 'Reddit Ads'
-                : kind == 'email'
-                  ? 'email'
-                  : kind == 'github'
-                    ? 'GitHub'
-                    : capitalizeFirstLetter(kind)
+    switch (kind) {
+        case 'google-pubsub':
+            return 'Google Cloud Pub/Sub'
+        case 'google-cloud-storage':
+            return 'Google Cloud Storage'
+        case 'google-ads':
+            return 'Google Ads'
+        case 'linkedin-ads':
+            return 'LinkedIn Ads'
+        case 'reddit-ads':
+            return 'Reddit Ads'
+        case 'email':
+            return 'email'
+        case 'github':
+            return 'GitHub'
+        default:
+            return capitalizeFirstLetter(kind)
+    }
 }
