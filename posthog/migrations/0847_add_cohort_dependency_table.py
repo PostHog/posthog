@@ -30,8 +30,8 @@ class Migration(migrations.Migration):
             ],
             options={
                 "indexes": [
-                    models.Index(fields=["depends_on", "team"], name="idx_cohort_dependency_depends_on_team"),
-                    models.Index(fields=["cohort", "team"], name="idx_cohort_dependency_cohort_team"),
+                    models.Index(fields=["depends_on", "team"], name="posthog_coh_depends_8fea91_idx"),
+                    models.Index(fields=["cohort", "team"], name="posthog_coh_cohort__d09744_idx"),
                 ],
                 "unique_together": [["cohort", "depends_on"]],
             },
