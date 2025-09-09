@@ -2,6 +2,7 @@ import { RBTree } from 'bintrees'
 
 import { Dayjs } from 'lib/dayjs'
 
+// Data structure for fast insert and search operations based on timestamps.
 export class TimeTree<T extends { timestamp: Dayjs }> {
     tree: RBTree<T>
 
