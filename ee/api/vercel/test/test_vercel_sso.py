@@ -400,6 +400,7 @@ class TestSSOOrganizationHandling:
         )
         sso_setup["user"].join(organization=other_org, level=OrganizationMembership.Level.ADMIN)
 
+        assert other_installation.integration_id is not None
         with (
             mock_vercel_integration(**MockFactory.successful_sso_flow(other_installation.integration_id)),
             mock_jwt_validation(create_user_claims(other_installation.integration_id)),
