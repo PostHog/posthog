@@ -196,8 +196,9 @@ fn on_permitted_recording_domain(recording_domains: &Vec<String>, headers: &Head
     let origin_hostname = parse_domain(origin);
     let referer_hostname = parse_domain(referer);
 
-    let is_authorized_web_client = hostname_in_allowed_url_list(recording_domains, origin_hostname.as_deref())
-        || hostname_in_allowed_url_list(recording_domains, referer_hostname.as_deref());
+    let is_authorized_web_client =
+        hostname_in_allowed_url_list(recording_domains, origin_hostname.as_deref())
+            || hostname_in_allowed_url_list(recording_domains, referer_hostname.as_deref());
 
     let is_authorized_mobile_client =
         user_agent.is_some_and(|ua| AUTHORIZED_MOBILE_CLIENTS.iter().any(|&kw| ua.contains(kw)));
@@ -241,15 +242,27 @@ mod tests {
     #[test]
     fn test_parse_domain() {
         // Test with full URLs - should extract hostname
-        assert_eq!(parse_domain(Some("https://app.example.com")), Some("app.example.com".to_string()));
-        assert_eq!(parse_domain(Some("https://app.example.com/")), Some("app.example.com".to_string()));
-        assert_eq!(parse_domain(Some("http://localhost:3000")), Some("localhost".to_string()));
-        assert_eq!(parse_domain(Some("https://app.example.com/path")), Some("app.example.com".to_string()));
-        
+        assert_eq!(
+            parse_domain(Some("https://app.example.com")),
+            Some("app.example.com".to_string())
+        );
+        assert_eq!(
+            parse_domain(Some("https://app.example.com/")),
+            Some("app.example.com".to_string())
+        );
+        assert_eq!(
+            parse_domain(Some("http://localhost:3000")),
+            Some("localhost".to_string())
+        );
+        assert_eq!(
+            parse_domain(Some("https://app.example.com/path")),
+            Some("app.example.com".to_string())
+        );
+
         // Test with bare domains
         assert_eq!(parse_domain(Some("app.example.com")), None);
         assert_eq!(parse_domain(Some("example.com")), None);
-        
+
         // Test with empty string and None
         assert_eq!(parse_domain(Some("")), None);
         assert_eq!(parse_domain(None), None);
@@ -260,17 +273,22 @@ mod tests {
         use axum::http::HeaderMap;
 
         let recording_domains = vec!["app.example.com".to_string()];
-        
+
         // Test with Origin header (without trailing slash)
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://app.example.com".parse().unwrap());
         assert!(on_permitted_recording_domain(&recording_domains, &headers));
-        
+
         // Test with Origin header (with trailing slash)
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://app.example.com/".parse().unwrap());
         assert!(on_permitted_recording_domain(&recording_domains, &headers));
-        
+
+        // Test with correct domain with path
+        let mut headers = HeaderMap::new();
+        headers.insert("Origin", "https://app.example.com/path".parse().unwrap());
+        assert!(on_permitted_recording_domain(&recording_domains, &headers));
+
         // Test with wrong domain
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://wrong.example.com".parse().unwrap());
@@ -282,12 +300,15 @@ mod tests {
         use axum::http::HeaderMap;
 
         let recording_domains = vec!["app.example.com".to_string()];
-        
+
         // Test with Referer header
         let mut headers = HeaderMap::new();
-        headers.insert("Referer", "https://app.example.com/some/path".parse().unwrap());
+        headers.insert(
+            "Referer",
+            "https://app.example.com/some/path".parse().unwrap(),
+        );
         assert!(on_permitted_recording_domain(&recording_domains, &headers));
-        
+
         // Test with wrong domain
         let mut headers = HeaderMap::new();
         headers.insert("Referer", "https://wrong.example.com/path".parse().unwrap());
