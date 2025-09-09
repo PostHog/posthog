@@ -29,12 +29,12 @@ import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { retryIfRetriable } from '../utils/retries'
-import { isRedirectResult, isSuccessResult } from '../worker/ingestion/event-pipeline/pipeline-step-result'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
+import { PipelineResultHandler } from '../worker/ingestion/processing-pipeline'
 import { deduplicateEvents } from './deduplication/events'
 import { DeduplicationRedis, createDeduplicationRedis } from './deduplication/redis-client'
 import {
@@ -46,7 +46,6 @@ import {
     createResolveTeamStep,
     createValidateEventUuidStep,
 } from './event-preprocessing'
-import { PreprocessingPipeline } from './preprocessing-pipeline'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
 const ingestionEventOverflowed = new Counter({
@@ -627,7 +626,6 @@ export class IngestionConsumer {
         const preprocessedEvents: IncomingEventWithTeam[] = []
         const pendingOverflowMessages: Array<{ message: Message; preservePartitionLocality?: boolean }> = []
 
-        // Create steps with baked-in context
         const parseHeadersStep = createParseHeadersStep()
         const applyDropRestrictionsStep = createApplyDropRestrictionsStep(this.eventIngestionRestrictionManager)
         const applyForceOverflowRestrictionsStep = createApplyForceOverflowRestrictionsStep(
@@ -645,7 +643,7 @@ export class IngestionConsumer {
 
         for (const message of messages) {
             try {
-                const pipeline = PreprocessingPipeline.of(message)
+                const pipeline = PipelineResultHandler.of(message, this.kafkaProducer!, message, this.dlqTopic)
                     .pipe(parseHeadersStep)
                     .pipe(applyDropRestrictionsStep)
                     .pipe(applyForceOverflowRestrictionsStep)
@@ -653,18 +651,13 @@ export class IngestionConsumer {
                     .pipeAsync(resolveTeamStep)
                     .pipe(applyPersonProcessingRestrictionsStep)
                     .pipeAsync(validateEventUuidStep)
+
                 const result = await pipeline.unwrap()
 
-                // Handle the result
-                if (isSuccessResult(result)) {
-                    preprocessedEvents.push(result.value as IncomingEventWithTeam)
-                } else if (isRedirectResult(result)) {
-                    // Handle redirect case - overflow messages are already queued in pendingOverflowMessages
-                    // We'll emit them after processing all messages
+                if (result) {
+                    preprocessedEvents.push(result as IncomingEventWithTeam)
                 }
-                // Drop and DLQ cases are handled by the steps themselves (metrics, etc.)
             } catch (error) {
-                // Log error but continue processing other messages
                 console.error('Error processing message in pipeline:', error)
             }
         }
