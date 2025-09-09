@@ -105,7 +105,9 @@ function StepTriggerConfigurationEvents({
             <LemonField.Pure error={validationResult?.errors?.filters}>
                 <HogFlowFilters
                     filters={config.filters ?? {}}
-                    setFilters={(filters) => setCampaignActionConfig(action.id, { type: 'event', filters })}
+                    setFilters={(filters) =>
+                        setCampaignActionConfig(action.id, { type: 'event', filters: filters ?? {} })
+                    }
                     typeKey="campaign-trigger"
                     buttonCopy="Add trigger event"
                 />
