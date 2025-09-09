@@ -269,19 +269,7 @@ describe('sessionRecordingDataLogic', () => {
                     'loadEvents',
                     'loadEventsSuccess',
                 ])
-                .toDispatchActions([sessionRecordingEventUsageLogic.actionTypes.reportRecording])
-        })
-
-        it('sends `recording viewed` and `recording analyzed` event on first contentful paint', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadSnapshots()
-            })
-                .toDispatchActions([snapshotLogic.actionTypes.loadSnapshotsForSourceSuccess])
-                .toDispatchActionsInAnyOrder([
-                    sessionRecordingEventUsageLogic.actionTypes.reportRecording, // loaded
-                    sessionRecordingEventUsageLogic.actionTypes.reportRecording, // viewed
-                    sessionRecordingEventUsageLogic.actionTypes.reportRecording, // analyzed
-                ])
+                .toDispatchActions([sessionRecordingEventUsageLogic.actionTypes.reportRecordingLoaded])
         })
     })
 

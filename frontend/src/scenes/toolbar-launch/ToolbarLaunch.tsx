@@ -72,7 +72,6 @@ export function ToolbarLaunch(): JSX.Element {
                     description="PostHog toolbar launches PostHog right in your app or website."
                     resourceType={{
                         type: 'toolbar',
-                        typePlural: 'toolbar',
                         forceIcon: <IconToolbar />,
                     }}
                     docsURL="https://posthog.com/docs/toolbar"

@@ -15,7 +15,15 @@ export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
         type: 'function_email',
         name: 'Email',
         description: 'Send an email to the user.',
-        config: { template_id: 'template-email', inputs: {} },
+        config: {
+            template_id: 'template-email',
+            inputs: {
+                email: {
+                    // Default email inputs to liquid templating
+                    templating: 'liquid',
+                },
+            },
+        },
     },
     {
         type: 'function_sms',
@@ -66,7 +74,7 @@ export const LOGIC_NODES_TO_SHOW: CreateActionType[] = [
     {
         type: 'conditional_branch',
         name: 'Conditional branch',
-        description: 'Branch based on a condition such as the event trigger or a person property.',
+        description: 'Branch using conditions on event or person properties.',
         branchEdges: 1,
         config: {
             conditions: [

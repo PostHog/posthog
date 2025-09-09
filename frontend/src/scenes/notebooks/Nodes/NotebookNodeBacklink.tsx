@@ -14,6 +14,7 @@ import {
     IconLive,
     IconLogomark,
     IconNotebook,
+    IconPeople,
     IconPerson,
     IconPlaylist,
     IconRewindPlay,
@@ -21,7 +22,6 @@ import {
 import { Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { IconCohort } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { openNotebook } from '~/models/notebooksModel'
@@ -112,7 +112,7 @@ const BACKLINK_MAP: BackLinkMapper[] = [
     {
         type: 'cohorts',
         regex: new RegExp(urls.cohort('(.+)')),
-        icon: <IconCohort />,
+        icon: <IconPeople />,
         getTitle: async (path: string) => {
             const id = path.split('/')[2]
             const cohort = await api.cohorts.get(Number(id))

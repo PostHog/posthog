@@ -322,7 +322,6 @@ class SessionRecordingUpdateSerializer(serializers.Serializer):
     viewed = serializers.BooleanField(required=False)
     analyzed = serializers.BooleanField(required=False)
     player_metadata = serializers.JSONField(required=False)
-    durations = serializers.JSONField(required=False)
 
     def validate(self, data):
         if not data.get("viewed") and not data.get("analyzed"):
@@ -687,25 +686,19 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         current_url = request.headers.get("Referer")
         session_id = request.headers.get("X-Posthog-Session-Id")
-        durations = serializer.validated_data.get("durations", {})
         player_metadata = serializer.validated_data.get("player_metadata", {})
 
         event_properties = {
             "$current_url": current_url,
             "cleaned_replay_path": clean_referer_url(current_url),
             "$session_id": session_id,
-            "snapshots_load_time": durations.get("snapshots"),
-            "metadata_load_time": durations.get("metadata"),
-            "events_load_time": durations.get("events"),
-            "duration": player_metadata.get("duration"),
-            "recording_id": player_metadata.get("sessionRecordingId"),
-            "start_time": player_metadata.get("start"),
-            "end_time": player_metadata.get("end"),
-            "page_change_events_length": player_metadata.get("pageChangeEventsLength"),
-            "recording_width": player_metadata.get("recordingWidth"),
+            "duration": player_metadata.get("recording_duration"),
+            "recording_id": player_metadata.get("id"),
+            "start_time": player_metadata.get("start_time"),
+            "end_time": player_metadata.get("end_time"),
             # older recordings did not store this and so "null" is equivalent to web
             # but for reporting we want to distinguish between not loaded and no value to load
-            "snapshot_source": player_metadata.get("snapshotSource", "unknown"),
+            "snapshot_source": player_metadata.get("snapshot_source", "unknown"),
         }
         user: User | AnonymousUser = cast(User | AnonymousUser, request.user)
 

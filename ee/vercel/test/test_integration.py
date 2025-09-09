@@ -1,13 +1,16 @@
 from typing import Any
 
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.db import IntegrityError
 from django.test import TestCase
 
+from parameterized import parameterized
 from rest_framework import exceptions
 from rest_framework.exceptions import NotFound, ValidationError
 
+from posthog.models.experiment import Experiment
+from posthog.models.feature_flag import FeatureFlag
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
@@ -22,6 +25,61 @@ class TestVercelIntegration(TestCase):
     NONEXISTENT_INSTALLATION_ID = "icfg_nonexistent123456789012"
     NEW_INSTALLATION_ID = "icfg_987654321abcdef123456789"
     DIFFERENT_INSTALLATION_ID = "icfg_different123456789012345"
+
+    def make_team_with_vercel(self, org, user):
+        team = Team.objects.create(organization=org, name="Test Team")
+        resource = Integration.objects.create(
+            team=team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(team.pk),
+            config={"productId": "posthog", "name": "Test Resource"},
+            created_by=user,
+        )
+        return team, resource
+
+    def make_feature_flag(self, team, name, description, archived):
+        # archived maps to the deleted field in FeatureFlag model
+        return FeatureFlag.objects.create(
+            team=team,
+            key=name,
+            name=description,
+            deleted=archived,
+        )
+
+    def make_experiment(self, team, name, description, archived):
+        ff = FeatureFlag.objects.create(team=team, key="exp-flag")
+        return Experiment.objects.create(
+            team=team,
+            name=name,
+            description=description,
+            archived=archived,
+            feature_flag=ff,
+        )
+
+    def assert_vercel_item(
+        self, item, result, category, is_archived, slug=None, expected_name=None, expected_description=None
+    ):
+        assert result["id"] == f"{category}_{item.pk}"
+        assert result["slug"] == slug or item.name.lower().replace(" ", "-")
+        assert result["name"] == expected_name or getattr(item, "key", item.name)
+        assert result["description"] == expected_description or getattr(item, "description", item.name)
+        assert result["category"] == category
+        assert result["isArchived"] == is_archived
+        assert "origin" in result
+        assert "createdAt" in result
+
+    def make_vercel_item(self, **overrides):
+        base = {
+            "id": "test_id",
+            "slug": "test-slug",
+            "origin": "https://example.com",
+            "name": "Test Item",
+            "category": "test",
+            "description": "Test Description",
+            "isArchived": False,
+        }
+        base.update(overrides)
+        return base
 
     def setUp(self):
         self.installation_id = self.TEST_INSTALLATION_ID
@@ -224,14 +282,9 @@ class TestVercelIntegration(TestCase):
         assert resource.created_by == self.installation.created_by
 
     def test_get_resource(self):
-        team = Team.objects.create(organization=self.organization, name="Test Team")
-        resource = Integration.objects.create(
-            team=team,
-            kind=Integration.IntegrationKind.VERCEL,
-            integration_id=str(team.pk),
-            config={"productId": "posthog", "name": "Test Resource", "metadata": {}},
-            created_by=self.user,
-        )
+        team, resource = self.make_team_with_vercel(self.organization, self.user)
+        resource.config["metadata"] = {}
+        resource.save()
 
         result = VercelIntegration.get_resource(str(resource.pk))
 
@@ -243,19 +296,15 @@ class TestVercelIntegration(TestCase):
         assert "billingPlan" in result
 
     def test_update_resource(self):
-        team = Team.objects.create(organization=self.organization, name="Test Team")
-        resource = Integration.objects.create(
-            team=team,
-            kind=Integration.IntegrationKind.VERCEL,
-            integration_id=str(team.pk),
-            config={
-                "productId": "posthog",
+        team, resource = self.make_team_with_vercel(self.organization, self.user)
+        resource.config.update(
+            {
                 "name": "Original Name",
                 "metadata": {"old": "value"},
                 "billingPlanId": "free",
-            },
-            created_by=self.user,
+            }
         )
+        resource.save()
 
         update_data = {"name": "Updated Name", "metadata": {"new": "value"}}
         result = VercelIntegration.update_resource(str(resource.pk), update_data)
@@ -268,14 +317,7 @@ class TestVercelIntegration(TestCase):
         assert result["metadata"] == {"new": "value"}
 
     def test_delete_resource(self):
-        team = Team.objects.create(organization=self.organization, name="Test Team")
-        resource = Integration.objects.create(
-            team=team,
-            kind=Integration.IntegrationKind.VERCEL,
-            integration_id=str(team.pk),
-            config={"productId": "posthog", "name": "Test Resource"},
-            created_by=self.user,
-        )
+        team, resource = self.make_team_with_vercel(self.organization, self.user)
         resource_id = str(resource.pk)
         VercelIntegration.delete_resource(resource_id)
         assert not Integration.objects.filter(pk=resource_id).exists()
@@ -305,3 +347,256 @@ class TestVercelIntegration(TestCase):
         assert secrets[0]["value"] == "test_api_token"
         assert secrets[1]["name"] == "POSTHOG_HOST"
         assert secrets[1]["value"].startswith(("https://", "http://"))
+
+    @parameterized.expand(
+        [
+            ("exists", lambda self: self.make_team_with_vercel(self.organization, self.user)[0], True),
+            (
+                "not_found",
+                lambda self: Team.objects.create(organization=self.organization, name="No Vercel Team"),
+                False,
+            ),
+        ]
+    )
+    def test_get_vercel_resource_for_team(self, _, team_factory, should_exist):
+        team = team_factory(self)
+        result = VercelIntegration._get_vercel_resource_for_team(team)
+        assert (result is not None) == should_exist
+
+    @parameterized.expand(
+        [
+            ("exists", lambda self: self.organization, True),
+            ("not_found", lambda self: Organization.objects.create(name="Other Org"), False),
+        ]
+    )
+    def test_get_installation_for_organization(self, _, org_factory, should_exist):
+        org = org_factory(self)
+        result = VercelIntegration._get_installation_for_organization(org)
+        assert (result == self.installation) if should_exist else (result is None)
+
+    @parameterized.expand(
+        [
+            ("success", {"access_token": "test_token"}, "test_token"),
+            ("missing", {}, None),
+        ]
+    )
+    def test_get_access_token(self, _, credentials, expected):
+        self.installation.config["credentials"] = credentials
+        self.installation.save()
+        result = VercelIntegration._get_access_token(self.installation)
+        assert result == expected
+
+    @parameterized.expand(
+        [
+            ("success", False),
+            ("failure", True),
+        ]
+    )
+    @patch("ee.vercel.integration.VercelAPIClient")
+    @patch("ee.vercel.integration.capture_exception")
+    def test_create_vercel_client(self, _, should_fail, mock_capture, mock_client_class):
+        token = "bad_token" if should_fail else "good_token"
+
+        if should_fail:
+            mock_client_class.side_effect = ValueError("Invalid token")
+            assert VercelIntegration._create_vercel_client(token) is None
+            mock_capture.assert_called_once()
+        else:
+            mock_client = Mock()
+            mock_client_class.return_value = mock_client
+            assert VercelIntegration._create_vercel_client(token) == mock_client
+            mock_client_class.assert_called_once_with(bearer_token=token)
+
+    @parameterized.expand(
+        [
+            (
+                "flag",
+                "make_feature_flag",
+                VercelIntegration._convert_feature_flag_to_vercel_item,
+                "flag",
+                "test_flag",
+                "Test Feature Flag",
+                False,
+                "test-flag",
+            ),
+            (
+                "flag_deleted",
+                "make_feature_flag",
+                VercelIntegration._convert_feature_flag_to_vercel_item,
+                "flag",
+                "deleted_flag",
+                "Deleted Flag",
+                True,
+                "deleted-flag",
+            ),
+            (
+                "experiment",
+                "make_experiment",
+                VercelIntegration._convert_experiment_to_vercel_item,
+                "experiment",
+                "Test Experiment",
+                "A test experiment",
+                False,
+                "test-experiment",
+            ),
+            (
+                "experiment_archived",
+                "make_experiment",
+                VercelIntegration._convert_experiment_to_vercel_item,
+                "experiment",
+                "Archived Experiment",
+                "",
+                True,
+                "archived-experiment",
+            ),
+        ]
+    )
+    def test_convert_to_vercel_item(self, _, factory_name, converter, category, name, desc, archived, expected_slug):
+        team, _ = self.make_team_with_vercel(self.organization, self.user)
+        factory = getattr(self, factory_name)
+        item = factory(team, name, desc, archived)
+        result = converter(item)
+        self.assert_vercel_item(item, result, category, archived, expected_slug, name, desc)
+
+    @parameterized.expand(
+        [
+            ("sync_create", "sync", "create_experimentation_items", {"created": True}),
+            ("sync_update", "sync", "update_experimentation_item", {"created": False}),
+            ("sync_no_client", "sync", None, {"created": True, "has_client": False}),
+            ("delete", "delete", "delete_experimentation_item", {}),
+        ]
+    )
+    @patch("ee.vercel.integration.VercelIntegration._setup_vercel_client_for_team")
+    def test_vercel_item_operations(self, _, operation_type, client_method, params, mock_setup):
+        team, _ = self.make_team_with_vercel(self.organization, self.user)
+        has_client = params.get("has_client", True)
+
+        if has_client:
+            mock_client = Mock()
+            mock_api_result = Mock(success=True)
+            getattr(mock_client, client_method).return_value = mock_api_result
+            mock_result = Mock(client=mock_client, integration_config_id="config_id", resource_id="resource_id")
+            mock_setup.return_value = mock_result
+        else:
+            mock_setup.return_value = None
+
+        if operation_type == "sync":
+            vercel_item = self.make_vercel_item()
+            VercelIntegration._sync_item_to_vercel(
+                team=team,
+                item_type="test_item",
+                item_id="123",
+                vercel_item=vercel_item,
+                created=params.get("created", True),
+            )
+        else:
+            VercelIntegration._delete_item_from_vercel(
+                team=team,
+                item_type="test_item",
+                item_id="test_id",
+            )
+
+        if has_client:
+            getattr(mock_client, client_method).assert_called_once()
+        else:
+            mock_setup.assert_called_once_with(team)
+
+    @patch("ee.vercel.integration.VercelIntegration._sync_item_to_vercel")
+    def test_sync_feature_flag_to_vercel(self, mock_sync):
+        team, _ = self.make_team_with_vercel(self.organization, self.user)
+        feature_flag = self.make_feature_flag(team, "test_flag", "Test Flag", False)
+
+        VercelIntegration.sync_feature_flag_to_vercel(feature_flag, created=True)
+        assert mock_sync.call_count >= 1
+
+    @patch("ee.vercel.integration.VercelIntegration._delete_item_from_vercel")
+    def test_delete_feature_flag_from_vercel(self, mock_delete):
+        team, _ = self.make_team_with_vercel(self.organization, self.user)
+        feature_flag = self.make_feature_flag(team, "test_flag", "Test Flag", False)
+
+        VercelIntegration.delete_feature_flag_from_vercel(feature_flag)
+
+        mock_delete.assert_called_once_with(
+            team=team,
+            item_type="feature_flag",
+            item_id=f"flag_{feature_flag.pk}",
+        )
+
+    @patch("ee.vercel.integration.VercelIntegration.delete_feature_flag_from_vercel")
+    def test_feature_flag_post_save_signal_deletes_when_marked_deleted(self, mock_delete):
+        team, _ = self.make_team_with_vercel(self.organization, self.user)
+
+        feature_flag = FeatureFlag.objects.create(
+            team=team,
+            key="test_flag",
+            name="Test Flag",
+            deleted=False,
+        )
+        mock_delete.reset_mock()
+
+        feature_flag.deleted = True
+        feature_flag.save()
+
+        mock_delete.assert_called_once_with(feature_flag)
+
+    @patch("ee.vercel.integration.VercelIntegration.sync_feature_flag_to_vercel")
+    def test_feature_flag_post_save_signal_syncs_when_not_deleted(self, mock_sync):
+        """Test that post_save signal triggers sync when feature flag is not deleted"""
+        team, _ = self.make_team_with_vercel(self.organization, self.user)
+
+        feature_flag = FeatureFlag.objects.create(
+            team=team,
+            key="test_flag",
+            name="Test Flag",
+            deleted=False,
+        )
+
+        mock_sync.assert_called_with(feature_flag, True)
+        mock_sync.reset_mock()
+
+        feature_flag.name = "Updated Test Flag"
+        feature_flag.save()
+
+        mock_sync.assert_called_once_with(feature_flag, False)
+
+    @patch("ee.vercel.integration.VercelIntegration.delete_experiment_from_vercel")
+    def test_experiment_post_save_signal_deletes_when_marked_deleted(self, mock_delete):
+        """Test that post_save signal triggers deletion when experiment is marked as deleted=True"""
+        team, _ = self.make_team_with_vercel(self.organization, self.user)
+
+        feature_flag = FeatureFlag.objects.create(team=team, key="exp-flag")
+
+        experiment = Experiment.objects.create(
+            team=team,
+            name="test_experiment",
+            feature_flag=feature_flag,
+            deleted=False,
+        )
+        mock_delete.reset_mock()
+
+        experiment.deleted = True
+        experiment.save()
+
+        mock_delete.assert_called_once_with(experiment)
+
+    @patch("ee.vercel.integration.VercelIntegration.sync_experiment_to_vercel")
+    def test_experiment_post_save_signal_syncs_when_not_deleted(self, mock_sync):
+        """Test that post_save signal triggers sync when experiment is not deleted"""
+        team, _ = self.make_team_with_vercel(self.organization, self.user)
+
+        feature_flag = FeatureFlag.objects.create(team=team, key="exp-flag")
+
+        experiment = Experiment.objects.create(
+            team=team,
+            name="test_experiment",
+            feature_flag=feature_flag,
+            deleted=False,
+        )
+
+        mock_sync.assert_called_with(experiment, True)
+        mock_sync.reset_mock()
+
+        experiment.name = "Updated Test Experiment"
+        experiment.save()
+
+        mock_sync.assert_called_once_with(experiment, False)

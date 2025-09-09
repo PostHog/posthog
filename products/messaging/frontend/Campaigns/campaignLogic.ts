@@ -21,12 +21,15 @@ export interface CampaignLogicProps {
     id?: string
 }
 
+export const TRIGGER_NODE_ID = 'trigger_node'
+export const EXIT_NODE_ID = 'exit_node'
+
 const NEW_CAMPAIGN: HogFlow = {
     id: 'new',
     name: '',
     actions: [
         {
-            id: 'trigger_node',
+            id: TRIGGER_NODE_ID,
             type: 'trigger',
             name: 'Trigger',
             description: 'User performs an action to start the campaign',
@@ -38,7 +41,7 @@ const NEW_CAMPAIGN: HogFlow = {
             },
         },
         {
-            id: 'exit_node',
+            id: EXIT_NODE_ID,
             type: 'exit',
             name: 'Exit',
             description: 'User moved through the campaign without errors',
@@ -51,8 +54,8 @@ const NEW_CAMPAIGN: HogFlow = {
     ],
     edges: [
         {
-            from: 'trigger_node',
-            to: 'exit_node',
+            from: TRIGGER_NODE_ID,
+            to: EXIT_NODE_ID,
             type: 'continue',
         },
     ],
@@ -222,16 +225,18 @@ export const campaignLogic = kea<campaignLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         loadCampaignSuccess: async ({ originalCampaign }) => {
             actions.resetCampaign(originalCampaign)
         },
         saveCampaignSuccess: async ({ originalCampaign }) => {
             lemonToast.success('Campaign saved')
-            originalCampaign.id &&
+            if (props.id === 'new' && originalCampaign.id) {
                 router.actions.replace(
                     urls.messagingCampaign(originalCampaign.id, campaignSceneLogic.findMounted()?.values.currentTab)
                 )
+            }
+
             actions.resetCampaign(originalCampaign)
         },
         discardChanges: () => {

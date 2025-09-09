@@ -20,6 +20,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -253,7 +254,7 @@ function PageTabs(): JSX.Element {
     return (
         <LemonTabs
             activeKey={tab}
-            className="flex"
+            className={cn('flex', newSceneLayout && 'mt-0')}
             barClassName="mb-0"
             onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
             sceneInset={newSceneLayout}
@@ -278,7 +279,7 @@ function PageTabs(): JSX.Element {
 }
 export function SessionsRecordings(): JSX.Element {
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent forceNewSpacing className="h-full">
             <Header />
             <PageTabs />
             <MainPanel />

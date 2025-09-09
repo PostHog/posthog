@@ -424,7 +424,6 @@ ee/hogai/summarizers/test/test_property_filters.py:0: error: Item "None" of "Pro
 ee/hogai/summarizers/test/test_property_filters.py:0: error: Item "None" of "PropertyFilterTaxonomyEntry | None" has no attribute "key"  [union-attr]
 ee/hogai/test/test_assistant.py:0: error: Invalid index type "str" for "str"; expected type "SupportsIndex | slice[Any, Any, Any]"  [index]
 ee/hogai/test/test_assistant.py:0: error: Statement is unreachable  [unreachable]
-ee/hogai/test/test_assistant.py:0: error: Subclass of "list[str | dict[Any, Any]]" and "str" cannot exist: would have incompatible method signatures  [unreachable]
 ee/hogai/test/test_llm.py:0: error: Argument 1 to "_enrich_messages" of "MaxChatOpenAI" has incompatible type "list[list[HumanMessage]]"; expected "list[list[BaseMessage]]"  [arg-type]
 ee/hogai/test/test_llm.py:0: error: Argument 1 to "agenerate" of "MaxChatOpenAI" has incompatible type "list[list[HumanMessage]]"; expected "list[list[BaseMessage]]"  [arg-type]
 ee/hogai/test/test_llm.py:0: error: Argument 1 to "generate" of "MaxChatOpenAI" has incompatible type "list[list[HumanMessage]]"; expected "list[list[BaseMessage]]"  [arg-type]

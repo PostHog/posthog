@@ -58,7 +58,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CONSUMER_BATCH_SIZE: 500,
         CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: 30_000,
         CONSUMER_LOOP_STALL_THRESHOLD_MS: 60_000, // 1 minute - consider loop stalled after this
-        KAFKA_CONSUMER_LOOP_BASED_HEALTH_CHECK: false, // Use consumer loop monitoring for health checks instead of heartbeats
+        CONSUMER_LOOP_BASED_HEALTH_CHECK: false, // Use consumer loop monitoring for health checks instead of heartbeats
         CONSUMER_MAX_BACKGROUND_TASKS: 1,
         CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: false,
         CONSUMER_AUTO_CREATE_TOPICS: true,
@@ -183,8 +183,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_WATCHER_SEND_EVENTS: isProdEnv() ? false : true,
         CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS: 500,
         CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS: 500,
-        CDP_RATE_LIMITER_BUCKET_SIZE: 10000,
-        CDP_RATE_LIMITER_REFILL_RATE: 10, // per second request rate limit
+        CDP_RATE_LIMITER_BUCKET_SIZE: 100,
+        CDP_RATE_LIMITER_REFILL_RATE: 1, // per second request rate limit
         CDP_RATE_LIMITER_TTL: 60 * 60 * 24, // This is really long as it is essentially only important to make sure the key is eventually deleted
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
         CDP_REDIS_PASSWORD: '',
