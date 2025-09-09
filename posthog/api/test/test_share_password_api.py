@@ -1,6 +1,7 @@
 import json
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from rest_framework import status
 
@@ -263,3 +264,32 @@ class TestSharePasswordAPI(APIBaseTest):
         # Since authentication failed, response is HTML with unlock page text
         response_text = response.content.decode("utf-8")
         self.assertIn('{"type": "unlock"}', response_text)
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled")
+    def test_sharing_view_works_with_rate_limiting_enabled(self, mock_is_rate_limit_enabled):
+        """
+        Test that ensures sharing views work correctly when rate limiting is enabled.
+        This test specifically verifies that request.user is properly set before throttle checks,
+        preventing AttributeError: 'NoneType' object has no attribute 'is_authenticated'
+        """
+        # Force rate limiting to be enabled
+        mock_is_rate_limit_enabled.return_value = True
+
+        password, raw_password = SharePassword.create_password(
+            sharing_configuration=self.sharing_config, created_by=self.user, raw_password="testpass123"
+        )
+
+        # Test that we can authenticate with password (this would fail with 500 error if request.user is None during throttle checks)
+        response = self.client.post(
+            f"/shared/{self.sharing_config.access_token}",
+            data=json.dumps({"password": raw_password}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("shareToken", response.json())
+
+        # Test that we can access the shared content (this would also fail if throttle checks break)
+        response = self.client.get(f"/shared/{self.sharing_config.access_token}")
+        # Should get unlock page (HTML response, not 500 error)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("text/html", response.get("Content-Type", ""))
