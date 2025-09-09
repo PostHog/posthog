@@ -18,6 +18,17 @@ class TestHogFlowAPI(APIBaseTest):
         sync_template_to_db(webhook_template)
 
     def _create_hog_flow_with_action(self, action_config: dict):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
         action = {
             "id": "action_1",
             "name": "action_1",
@@ -27,13 +38,8 @@ class TestHogFlowAPI(APIBaseTest):
 
         hog_flow = {
             "name": "Test Flow",
-            "trigger": {
-                "type": "event",
-                "filters": {
-                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
-                },
-            },
-            "actions": [action],
+            "trigger": trigger_action["config"],
+            "actions": [trigger_action, action],
         }
 
         return hog_flow, action
