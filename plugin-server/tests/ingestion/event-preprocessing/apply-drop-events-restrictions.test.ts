@@ -8,6 +8,7 @@ describe('applyDropEventsRestrictions', () => {
     beforeEach(() => {
         eventIngestionRestrictionManager = {
             applyDropEventsRestrictions: jest.fn(),
+            shouldDropEvent: jest.fn(),
         } as unknown as EventIngestionRestrictionManager
     })
 

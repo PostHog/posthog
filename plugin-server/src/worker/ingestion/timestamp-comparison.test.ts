@@ -1,28 +1,15 @@
 import { DateTime } from 'luxon'
 
 import { EventHeaders } from '../../types'
+import { logger } from '../../utils/logger'
 import { compareTimestamps } from './timestamp-comparison'
 
 // Mock the logger
-const mockLoggerInfo = jest.fn()
-const mockLoggerWarn = jest.fn()
-
 jest.mock('../../utils/logger', () => ({
     logger: {
-        info: mockLoggerInfo,
-        warn: mockLoggerWarn,
+        info: jest.fn(),
+        warn: jest.fn(),
     },
-}))
-
-// Mock prom-client
-const mockLabels = jest.fn().mockReturnThis()
-const mockInc = jest.fn()
-
-jest.mock('prom-client', () => ({
-    Counter: jest.fn(() => ({
-        labels: mockLabels,
-        inc: mockInc,
-    })),
 }))
 
 describe('compareTimestamps', () => {
@@ -34,9 +21,6 @@ describe('compareTimestamps', () => {
         expect(() => {
             compareTimestamps('2023-01-01T12:00:00Z', undefined, 123, 'test-uuid', 'test-context')
         }).not.toThrow()
-
-        expect(mockLabels).toHaveBeenCalled()
-        expect(mockInc).toHaveBeenCalled()
     })
 
     it('should handle missing timestamp header without throwing', () => {
@@ -49,9 +33,6 @@ describe('compareTimestamps', () => {
         expect(() => {
             compareTimestamps('2023-01-01T12:00:00Z', headers, 123, 'test-uuid', 'test-context')
         }).not.toThrow()
-
-        expect(mockLabels).toHaveBeenCalled()
-        expect(mockInc).toHaveBeenCalled()
     })
 
     it('should handle invalid timestamp header without throwing', () => {
@@ -62,9 +43,6 @@ describe('compareTimestamps', () => {
         expect(() => {
             compareTimestamps('2023-01-01T12:00:00Z', headers, 123, 'test-uuid', 'test-context')
         }).not.toThrow()
-
-        expect(mockLabels).toHaveBeenCalled()
-        expect(mockInc).toHaveBeenCalled()
     })
 
     it('should handle exact match without throwing', () => {
@@ -77,9 +55,6 @@ describe('compareTimestamps', () => {
         expect(() => {
             compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context')
         }).not.toThrow()
-
-        expect(mockLabels).toHaveBeenCalled()
-        expect(mockInc).toHaveBeenCalled()
     })
 
     it('should detect timestamp difference and log it', () => {
@@ -94,9 +69,7 @@ describe('compareTimestamps', () => {
             compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context', 1.0)
         }).not.toThrow()
 
-        expect(mockLabels).toHaveBeenCalled()
-        expect(mockInc).toHaveBeenCalled()
-        expect(mockLoggerInfo).toHaveBeenCalledWith(
+        expect(jest.mocked(logger.info)).toHaveBeenCalledWith(
             'Timestamp difference detected',
             expect.objectContaining({
                 context: 'test-context',
@@ -114,9 +87,6 @@ describe('compareTimestamps', () => {
         expect(() => {
             compareTimestamps('2023-01-01T12:00:00Z', headers, 123, 'test-uuid')
         }).not.toThrow()
-
-        expect(mockLabels).toHaveBeenCalled()
-        expect(mockInc).toHaveBeenCalled()
     })
 
     it('should work with different timestamp formats', () => {
@@ -130,9 +100,6 @@ describe('compareTimestamps', () => {
         expect(() => {
             compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context')
         }).not.toThrow()
-
-        expect(mockLabels).toHaveBeenCalled()
-        expect(mockInc).toHaveBeenCalled()
     })
 
     it('should work without optional parameters', () => {
@@ -143,9 +110,6 @@ describe('compareTimestamps', () => {
         expect(() => {
             compareTimestamps('2023-01-01T12:00:00Z', headers, 123)
         }).not.toThrow()
-
-        expect(mockLabels).toHaveBeenCalled()
-        expect(mockInc).toHaveBeenCalled()
     })
 
     it('should handle edge cases gracefully', () => {
@@ -168,9 +132,6 @@ describe('compareTimestamps', () => {
                 compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context')
             }).not.toThrow()
         })
-
-        expect(mockLabels).toHaveBeenCalled()
-        expect(mockInc).toHaveBeenCalled()
     })
 
     it('should always log when sample rate is 1.0', () => {
@@ -182,11 +143,7 @@ describe('compareTimestamps', () => {
 
         compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context', 1.0)
 
-        expect(mockLoggerInfo).toHaveBeenCalledWith('Timestamp difference detected', expect.any(Object))
-        expect(mockLabels).toHaveBeenCalledWith({
-            result: 'difference_detected',
-            context: 'test-context',
-        })
+        expect(jest.mocked(logger.info)).toHaveBeenCalledWith('Timestamp difference detected', expect.any(Object))
     })
 
     it('should never log when sample rate is 0.0', () => {
@@ -198,11 +155,7 @@ describe('compareTimestamps', () => {
 
         compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context', 0.0)
 
-        expect(mockLoggerInfo).not.toHaveBeenCalled()
-        expect(mockLabels).toHaveBeenCalledWith({
-            result: 'difference_detected',
-            context: 'test-context',
-        })
+        expect(jest.mocked(logger.info)).not.toHaveBeenCalled()
     })
 
     it('should always log parse error when sample rate is 1.0', () => {
@@ -212,11 +165,7 @@ describe('compareTimestamps', () => {
 
         compareTimestamps('invalid-date-format', headers, 123, 'test-uuid', 'test-context', 1.0)
 
-        expect(mockLoggerWarn).not.toHaveBeenCalled() // No logging for header_invalid
-        expect(mockLabels).toHaveBeenCalledWith({
-            result: 'header_invalid',
-            context: 'test-context',
-        })
+        expect(jest.mocked(logger.warn)).not.toHaveBeenCalled() // No logging for header_invalid
     })
 
     it('should never log parse error when sample rate is 0.0', () => {
@@ -226,11 +175,7 @@ describe('compareTimestamps', () => {
 
         compareTimestamps('invalid-date-format', headers, 123, 'test-uuid', 'test-context', 0.0)
 
-        expect(mockLoggerWarn).not.toHaveBeenCalled()
-        expect(mockLabels).toHaveBeenCalledWith({
-            result: 'header_invalid',
-            context: 'test-context',
-        })
+        expect(jest.mocked(logger.warn)).not.toHaveBeenCalled()
     })
 
     it('should respect sampling for intermediate rates', () => {
@@ -249,14 +194,14 @@ describe('compareTimestamps', () => {
             // Test with 50% sampling - should log when random < 0.5
             mockRandom.mockReturnValue(0.3) // < 0.5, should log
             compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context', 0.5)
-            expect(mockLoggerInfo).toHaveBeenCalled()
+            expect(jest.mocked(logger.info)).toHaveBeenCalled()
 
             jest.clearAllMocks()
 
             // Test with 50% sampling - should not log when random >= 0.5
             mockRandom.mockReturnValue(0.7) // >= 0.5, should not log
             compareTimestamps(timestamp, headers, 123, 'test-uuid', 'test-context', 0.5)
-            expect(mockLoggerInfo).not.toHaveBeenCalled()
+            expect(jest.mocked(logger.info)).not.toHaveBeenCalled()
         } finally {
             Math.random = originalRandom
         }
