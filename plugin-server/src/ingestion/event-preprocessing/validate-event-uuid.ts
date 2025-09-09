@@ -3,7 +3,7 @@ import { Hub, IncomingEventWithTeam } from '../../types'
 import { UUID } from '../../utils/utils'
 import { drop, success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
-import { AsyncPreprocessingStep } from '../preprocessing-pipeline'
+import { AsyncPreprocessingStep } from '../processing-pipeline'
 
 export async function validateEventUuid(
     eventWithTeam: IncomingEventWithTeam,

@@ -34,7 +34,7 @@ import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
-import { PipelineResultHandler } from '../worker/ingestion/processing-pipeline'
+import { ResultHandlingPipeline } from '../worker/ingestion/result-handling-pipeline'
 import { deduplicateEvents } from './deduplication/events'
 import { DeduplicationRedis, createDeduplicationRedis } from './deduplication/redis-client'
 import {
@@ -643,7 +643,7 @@ export class IngestionConsumer {
 
         for (const message of messages) {
             try {
-                const pipeline = PipelineResultHandler.of(message, this.kafkaProducer!, message, this.dlqTopic)
+                const pipeline = ResultHandlingPipeline.of(message, this.kafkaProducer!, message, this.dlqTopic)
                     .pipe(parseHeadersStep)
                     .pipe(applyDropRestrictionsStep)
                     .pipe(applyForceOverflowRestrictionsStep)

@@ -3,7 +3,7 @@ import { Message } from 'node-rdkafka'
 import { EventHeaders, IncomingEventWithTeam } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
 import { success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
-import { SyncPreprocessingStep } from '../preprocessing-pipeline'
+import { SyncPreprocessingStep } from '../processing-pipeline'
 
 export function applyPersonProcessingRestrictions(
     eventWithTeam: IncomingEventWithTeam,

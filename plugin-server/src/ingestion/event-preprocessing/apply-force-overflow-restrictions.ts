@@ -4,7 +4,7 @@ import { Counter } from 'prom-client'
 import { EventHeaders } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
 import { redirect, success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
-import { SyncPreprocessingStep } from '../preprocessing-pipeline'
+import { SyncPreprocessingStep } from '../processing-pipeline'
 
 export type ForceOverflowDecision = {
     shouldRedirect: boolean

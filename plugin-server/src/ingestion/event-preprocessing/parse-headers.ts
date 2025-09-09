@@ -3,7 +3,7 @@ import { Message } from 'node-rdkafka'
 import { parseEventHeaders } from '../../kafka/consumer'
 import { EventHeaders } from '../../types'
 import { success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
-import { SyncPreprocessingStep } from '../preprocessing-pipeline'
+import { SyncPreprocessingStep } from '../processing-pipeline'
 
 export function createParseHeadersStep(): SyncPreprocessingStep<Message, { message: Message; headers: EventHeaders }> {
     return (message: Message) => {
