@@ -1,6 +1,7 @@
 import hmac
 import json
 import time
+import base64
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -16,6 +17,7 @@ import structlog
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import service_account
 from prometheus_client import Counter
+from requests.auth import HTTPBasicAuth
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -66,6 +68,7 @@ class Integration(models.Model):
         GOOGLE_SHEETS = "google-sheets"
         SNAPCHAT = "snapchat"
         LINKEDIN_ADS = "linkedin-ads"
+        REDDIT_ADS = "reddit-ads"
         INTERCOM = "intercom"
         EMAIL = "email"
         LINEAR = "linear"
@@ -153,6 +156,7 @@ class OauthIntegration:
         "google-sheets",
         "snapchat",
         "linkedin-ads",
+        "reddit-ads",
         "meta-ads",
         "intercom",
         "linear",
@@ -350,6 +354,20 @@ class OauthIntegration:
                 id_path="id",
                 name_path="name",
             )
+        elif kind == "reddit-ads":
+            if not settings.REDDIT_ADS_CLIENT_ID or not settings.REDDIT_ADS_CLIENT_SECRET:
+                raise NotImplementedError("Reddit Ads app not configured")
+
+            return OauthConfig(
+                authorize_url="https://www.reddit.com/api/v1/authorize",
+                token_url="https://www.reddit.com/api/v1/access_token",
+                client_id=settings.REDDIT_ADS_CLIENT_ID,
+                client_secret=settings.REDDIT_ADS_CLIENT_SECRET,
+                scope="read adsread adsconversions history adsedit",
+                id_path="reddit_user_id",  # We'll extract this from JWT
+                name_path="reddit_user_id",  # Same as ID for Reddit
+                additional_authorize_params={"duration": "permanent"},
+            )
         elif kind == "clickup":
             if not settings.CLICKUP_APP_CLIENT_ID or not settings.CLICKUP_APP_CLIENT_SECRET:
                 raise NotImplementedError("ClickUp app not configured")
@@ -370,19 +388,25 @@ class OauthIntegration:
 
     @classmethod
     def redirect_uri(cls, kind: str) -> str:
-        # The redirect uri is fixed but should always be https and include the "next" parameter for the frontend to redirect
-        return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
+        # TEMPORAL CHANGE
+        site_url = "http://posthog.local:8000"
+        return f"{site_url}/integrations/{kind}/callback"
 
     @classmethod
     def authorize_url(cls, kind: str, token: str, next="") -> str:
         oauth_config = cls.oauth_config_for_kind(kind)
+
+        # Create a simpler state parameter that's easier to parse
+
+        state_data = json.dumps({"next": next, "token": token})
+        encoded_state = base64.urlsafe_b64encode(state_data.encode()).decode().rstrip("=")
 
         query_params = {
             "client_id": oauth_config.client_id,
             "scope": oauth_config.scope,
             "redirect_uri": cls.redirect_uri(kind),
             "response_type": "code",
-            "state": urlencode({"next": next, "token": token}),
+            "state": encoded_state,
             **(oauth_config.additional_authorize_params or {}),
         }
 
@@ -393,16 +417,30 @@ class OauthIntegration:
         cls, kind: str, team_id: int, created_by: User, params: dict[str, str]
     ) -> Integration:
         oauth_config = cls.oauth_config_for_kind(kind)
-        res = requests.post(
-            oauth_config.token_url,
-            data={
-                "client_id": oauth_config.client_id,
-                "client_secret": oauth_config.client_secret,
-                "code": params["code"],
-                "redirect_uri": OauthIntegration.redirect_uri(kind),
-                "grant_type": "authorization_code",
-            },
-        )
+
+        # TODO: review this. It didn't work without the User-Agent header or the HTTP Basic Auth
+        if kind == "reddit-ads":
+            res = requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
+                data={
+                    "code": params["code"],
+                    "redirect_uri": OauthIntegration.redirect_uri(kind),
+                    "grant_type": "authorization_code",
+                },
+                headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
+            )
+        else:
+            res = requests.post(
+                oauth_config.token_url,
+                data={
+                    "client_id": oauth_config.client_id,
+                    "client_secret": oauth_config.client_secret,
+                    "code": params["code"],
+                    "redirect_uri": OauthIntegration.redirect_uri(kind),
+                    "grant_type": "authorization_code",
+                },
+            )
 
         config: dict = res.json()
 
@@ -439,9 +477,14 @@ class OauthIntegration:
                     json={"query": oauth_config.token_info_graphql_query},
                 )
             else:
+                # Special handling for Reddit API which requires User-Agent
+                headers = {"Authorization": f"Bearer {config['access_token']}"}
+                if kind == "reddit-ads":
+                    headers["User-Agent"] = "PostHog/1.0 by PostHogTeam"
+
                 token_info_res = requests.get(
                     oauth_config.token_info_url.replace(":access_token", config["access_token"]),
-                    headers={"Authorization": f"Bearer {config['access_token']}"},
+                    headers=headers,
                 )
 
             if token_info_res.status_code == 200:
@@ -451,6 +494,31 @@ class OauthIntegration:
                         config[field] = dot_get(data, field)
 
         integration_id = dot_get(config, oauth_config.id_path)
+
+        # TODO: review this. This worked for me but I need to confirm if it's necessary
+        if kind == "reddit-ads" and not integration_id:
+            try:
+                # Reddit access token is a JWT, extract user ID from it
+                access_token = config.get("access_token")
+                if access_token:
+                    # Split JWT and get payload (middle part)
+                    parts = access_token.split(".")
+                    if len(parts) >= 2:
+                        payload = parts[1]
+                        # Add padding if needed for base64 decoding
+                        padding = "=" * (4 - len(payload) % 4)
+                        payload += padding
+                        # Decode and parse JWT payload
+                        decoded = base64.b64decode(payload)
+                        jwt_data = json.loads(decoded)
+
+                        # Extract user ID from JWT (lid = login ID)
+                        reddit_user_id = jwt_data.get("lid", jwt_data.get("aid"))
+                        if reddit_user_id:
+                            config["reddit_user_id"] = reddit_user_id
+                            integration_id = reddit_user_id  # Set the integration_id directly
+            except Exception as e:
+                logger.exception("Failed to decode Reddit JWT", error=str(e))
 
         if isinstance(integration_id, int):
             integration_id = str(integration_id)
