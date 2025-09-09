@@ -45,7 +45,7 @@ export function AppMetricsTrends({
                     visualizationType={ChartDisplayType.ActionsLineGraph}
                     chartSettings={{
                         showLegend: true,
-                        showTotalRow: true,
+                        showTotalRow: false,
                     }}
                 />
             )}
