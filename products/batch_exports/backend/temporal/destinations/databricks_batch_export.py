@@ -13,6 +13,7 @@ from django.conf import settings
 import pyarrow as pa
 from databricks import sql
 from databricks.sdk.core import Config, oauth_service_principal
+from databricks.sql.client import Connection
 from databricks.sql.exc import OperationalError
 from databricks.sql.types import Row
 from structlog.contextvars import bind_contextvars
@@ -111,7 +112,7 @@ class DatabricksClient:
         self.catalog = catalog
         self.schema = schema
 
-        self._connection: None | sql.Connection = None
+        self._connection: None | Connection = None
 
         self.logger = LOGGER.bind(server_hostname=server_hostname, http_path=http_path)
         self.external_logger = EXTERNAL_LOGGER.bind(server_hostname=server_hostname, http_path=http_path)
@@ -128,8 +129,8 @@ class DatabricksClient:
         )
 
     @property
-    def connection(self) -> sql.Connection:
-        """Raise if a `sql.Connection` hasn't been established, else return it."""
+    def connection(self) -> Connection:
+        """Raise if a `Connection` hasn't been established, else return it."""
         if self._connection is None:
             # this should never happen and inidicates a bug in our code (i.e. trying to execute a query before
             # establishing a connection)
@@ -157,7 +158,7 @@ class DatabricksClient:
                 sql.connect,
                 server_hostname=self.server_hostname,
                 http_path=self.http_path,
-                credentials_provider=self.get_credential_provider(),
+                credentials_provider=self.get_credential_provider,
                 # user agent can be used for usage tracking
                 user_agent_entry="PostHog batch exports",
                 # TODO
