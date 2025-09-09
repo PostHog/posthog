@@ -188,7 +188,7 @@ def format_results(
                 score_line += f", {baseline_comparison}"
             scores_list.append(score_line)
 
-        scores_text = "\n".join(scores_list)
+        scores_text = "\n\n".join(scores_list)
 
         # Format key metrics concisely
         metrics = result.get("metrics", {})

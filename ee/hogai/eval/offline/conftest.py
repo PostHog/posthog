@@ -1,13 +1,19 @@
 import json
 from collections.abc import Generator
-from typing import Annotated
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Annotated, Any
+from uuid import UUID
 
 import pytest
 
 from asgiref.sync import async_to_sync
+from autoevals.llm import LLMClient
 from dagster_pipes import PipesContext, open_dagster_pipes
+from openai import RateLimitError
 from posthoganalytics import Posthog
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
+from posthoganalytics.ai.openai.openai_async import AsyncOpenAI
 from pydantic import BaseModel, ConfigDict, Field, SkipValidation
 
 from posthog.models import Organization, User
@@ -37,22 +43,51 @@ class EvaluationContext(BaseModel):
     dataset_inputs: list[DatasetInput]
     client: Posthog | None = Field(default=None)
 
-    def format_experiment_name(self, test_name: str) -> str:
+    @property
+    def formatted_experiment_name(self) -> str:
         """Generate a unique experiment name for the given test name."""
+        test_name = get_eval_context().test_name
         return f"max-ai-{self.experiment_name}-{test_name}"
 
-    def get_callback_handlers(self, test_name: str) -> list[CallbackHandler] | None:
+    @property
+    def callback_handlers(self) -> list[CallbackHandler] | None:
         return [
             CallbackHandler(
                 self.client,
                 distinct_id="ai_evaluator",
-                properties={
-                    "dataset_id": self.dataset_id,
-                    "dataset_name": self.dataset_name,
-                    "ai_experiment_name": self.format_experiment_name(test_name),
-                },
+                properties=self.properties_for_tracing,
             )
         ]
+
+    @property
+    def properties_for_tracing(self) -> dict[str, Any]:
+        return {
+            "dataset_id": self.dataset_id,
+            "dataset_name": self.dataset_name,
+            "ai_experiment_name": self.formatted_experiment_name,
+        }
+
+    def get_openai_client_for_tracing(self, trace_id: UUID) -> AsyncOpenAI:
+        """Override the OpenAI client to inject tracing parameters."""
+        client = AsyncOpenAI(posthog_client=self.client)
+        original_create = client.chat.completions.create
+
+        async def patched_create(*args, **kwargs):
+            # Inject the tracing parameters
+            kwargs.setdefault("posthog_trace_id", trace_id)
+            kwargs.setdefault("posthog_properties", self.properties_for_tracing)
+            return await original_create(*args, **kwargs)
+
+        client.completions.create = patched_create  # type: ignore
+
+        return LLMClient(
+            openai=client,
+            complete=patched_create,
+            embed=client.embeddings.create,
+            moderation=client.moderations.create,
+            is_async=True,
+            RateLimitError=RateLimitError,
+        )
 
 
 @pytest.fixture(scope="package", autouse=True)
@@ -99,3 +134,25 @@ def eval_ctx(
                     "evaluation_results": [json.loads(line) for line in lines],
                 },
             )
+
+
+class LocalEvaluationContext(EvaluationContext):
+    test_name: str
+
+
+_scoped_eval_context: ContextVar[LocalEvaluationContext] = ContextVar("eval_context")
+
+
+@contextmanager
+def set_eval_context(context: EvaluationContext, test_name: str):
+    """Set the local eval context for the duration of the context manager."""
+    token = _scoped_eval_context.set(LocalEvaluationContext(**context.model_dump(), test_name=test_name))
+    try:
+        yield
+    finally:
+        _scoped_eval_context.reset(token)
+
+
+def get_eval_context() -> LocalEvaluationContext:
+    """Get the local eval context. Raises `LookupError` if no context is set."""
+    return _scoped_eval_context.get()

@@ -2,6 +2,7 @@ import json
 from abc import ABC, abstractmethod
 from collections.abc import Generator, Sequence
 from typing import Any, Generic, Self, TypeVar
+from uuid import UUID
 
 from django.db.models import Model
 
@@ -11,6 +12,7 @@ from pydantic_avro import AvroBase
 from posthog.schema import ActorsPropertyTaxonomyResponse, EventTaxonomyItem, TeamTaxonomyItem
 
 from posthog.models import DataWarehouseTable, GroupTypeMapping, PropertyDefinition, Team
+from posthog.models.utils import uuid7
 
 T = TypeVar("T", bound=Model)
 
@@ -179,6 +181,7 @@ class TeamEvaluationSnapshot(BaseModel):
 
 class DatasetInput(BaseModel):
     team_id: int
+    trace_id: UUID = Field(default_factory=lambda: uuid7())
     input: dict[str, Any] = Field(default_factory=dict)
     expected: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)

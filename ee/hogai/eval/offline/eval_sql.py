@@ -15,7 +15,7 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.eval.base import MaxPrivateEval
-from ee.hogai.eval.offline.conftest import EvaluationContext
+from ee.hogai.eval.offline.conftest import EvaluationContext, get_eval_context, set_eval_context
 from ee.hogai.eval.schema import DatasetInput
 from ee.hogai.eval.scorers.sql import SQLSemanticsCorrectness, SQLSyntaxCorrectness
 from ee.hogai.graph import AssistantGraph
@@ -41,7 +41,7 @@ async def serialize_database(team: Team):
     return await serialize_database_schema(database, context)
 
 
-def call_graph(eval_ctx: EvaluationContext, test_name: str):
+def call_graph(eval_ctx: EvaluationContext):
     async def callable(entry: DatasetInput, *args, **kwargs) -> EvalOutput:
         team = await Team.objects.aget(id=entry.team_id)
         conversation, database_schema = await asyncio.gather(
@@ -53,7 +53,7 @@ def call_graph(eval_ctx: EvaluationContext, test_name: str):
         state = await graph.ainvoke(
             AssistantState(messages=[HumanMessage(content=entry.input["query"])]),
             {
-                "callbacks": eval_ctx.get_callback_handlers(test_name),
+                "callbacks": eval_ctx.callback_handlers,
                 "configurable": {
                     "thread_id": conversation.id,
                     "user": eval_ctx.user,
@@ -77,20 +77,23 @@ def call_graph(eval_ctx: EvaluationContext, test_name: str):
 
 
 async def sql_semantics_scorer(input: DatasetInput, expected: str, output: EvalOutput, **kwargs) -> Score:
-    metric = SQLSemanticsCorrectness()
+    metric = SQLSemanticsCorrectness(client=get_eval_context().get_openai_client_for_tracing(input.trace_id))
     return await metric.eval_async(
-        input=input.input["query"], expected=expected, output=output.sql_query, database_schema=output.database_schema
+        output.sql_query,
+        expected=expected,
+        input=input.input["query"],
+        database_schema=output.database_schema,
     )
 
 
 async def sql_syntax_scorer(input: DatasetInput, expected: str, output: EvalOutput, **kwargs) -> Score:
     metric = SQLSyntaxCorrectness()
     return await metric.eval_async(
-        input=input.input["query"],
+        output.sql_query,
         expected=expected,
-        output=output.sql_query,
-        database_schema=output.database_schema,
+        input=input.input["query"],
         team=await Team.objects.aget(id=input.team_id),
+        database_schema=output.database_schema,
     )
 
 
@@ -102,10 +105,11 @@ def generate_test_cases(eval_ctx: EvaluationContext):
 
 @pytest.mark.django_db
 async def eval_offline_sql(eval_ctx: EvaluationContext, pytestconfig):
-    await MaxPrivateEval(
-        experiment_name=eval_ctx.format_experiment_name(eval_offline_sql.__name__),
-        task=call_graph(eval_ctx, eval_offline_sql.__name__),
-        scores=[sql_syntax_scorer, sql_semantics_scorer],
-        data=generate_test_cases(eval_ctx),
-        pytestconfig=pytestconfig,
-    )
+    with set_eval_context(eval_ctx, eval_offline_sql.__name__):
+        await MaxPrivateEval(
+            experiment_name=eval_ctx.formatted_experiment_name,
+            task=call_graph(eval_ctx),
+            scores=[sql_syntax_scorer, sql_semantics_scorer],
+            data=generate_test_cases(eval_ctx),
+            pytestconfig=pytestconfig,
+        )
