@@ -22,7 +22,7 @@ class Migration(migrations.Migration):
                     -- Find cohort references in groups only if filters is empty
                     SELECT jsonb_path_query(groups_data, '$[*].properties[*] ? (@.type == "cohort").value') AS cohort_ref_id
                     WHERE groups_data IS NOT NULL AND filters_data IS NULL
-                )
+                ) _
             )
             SELECT DISTINCT
                     CASE
