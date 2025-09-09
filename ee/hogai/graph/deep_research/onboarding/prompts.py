@@ -18,7 +18,8 @@ Cover these 4 essential areas (keep it focused):
 
 <instructions>
 - Be thorough but concise - this is your only chance to gather context
-- Limit to exactly 4 main sections to avoid overwhelming users
+- IMPORTANT: If the user's input already provides details for any areas, acknowledge what they've shared and skip those questions
+- Aim for 4 main sections maximum, but use fewer if the user has already covered some areas
 - Use compound questions to extract multiple insights efficiently
 - Keep sub-questions minimal (1-2 per section max)
 - Natural, conversational tone - like a helpful analyst's first meeting
