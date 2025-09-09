@@ -22,7 +22,6 @@ import {
 import { LemonDialog, LemonSegmentedButton, LemonSkeleton, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -672,10 +671,12 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                         </LemonButton>
                                                     )}
                                                     <LemonDivider />
-                                                    <AccessControlledLemonButton
-                                                        userAccessLevel={featureFlag.user_access_level}
-                                                        minAccessLevel={AccessControlLevel.Editor}
-                                                        resourceType={AccessControlResourceType.FeatureFlag}
+                                                    <LemonButton
+                                                        accessControl={{
+                                                            resourceType: AccessControlResourceType.FeatureFlag,
+                                                            minAccessLevel: AccessControlLevel.Editor,
+                                                            userAccessLevel: featureFlag.user_access_level,
+                                                        }}
                                                         data-attr={
                                                             featureFlag.deleted
                                                                 ? 'restore-feature-flag'
@@ -701,7 +702,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                         }
                                                     >
                                                         {featureFlag.deleted ? 'Restore' : 'Delete'} feature flag
-                                                    </AccessControlledLemonButton>
+                                                    </LemonButton>
                                                 </>
                                             }
                                         />
@@ -716,10 +717,12 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             type="secondary"
                                         />
 
-                                        <AccessControlledLemonButton
-                                            userAccessLevel={featureFlag.user_access_level}
-                                            minAccessLevel={AccessControlLevel.Editor}
-                                            resourceType={AccessControlResourceType.FeatureFlag}
+                                        <LemonButton
+                                            accessControl={{
+                                                resourceType: AccessControlResourceType.FeatureFlag,
+                                                minAccessLevel: AccessControlLevel.Editor,
+                                                userAccessLevel: featureFlag.user_access_level,
+                                            }}
                                             data-attr="edit-feature-flag"
                                             type="secondary"
                                             disabledReason={
@@ -734,7 +737,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             }}
                                         >
                                             Edit
-                                        </AccessControlledLemonButton>
+                                        </LemonButton>
                                     </div>
                                 </>
                             }
