@@ -8,15 +8,18 @@ import { HealthCheckResult, HealthCheckResultOk, Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { UUID, UUIDT } from '../../utils/utils'
+import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
-import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
+import { HogWatcherFunctionState, HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
+    HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
     HogFunctionType,
+    MinimalAppMetric,
 } from '../types'
-import { createAddLogFunction } from '../utils'
+import { createAddLogFunction, logEntry } from '../utils'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
@@ -76,7 +79,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hog')
     }
 
-    public async getWebhook(webhookId: string): Promise<{ hogFunction: HogFunctionType; hogFlow?: HogFlow } | null> {
+    public async getWebhook(webhookId: string): Promise<{ hogFlow?: HogFlow; hogFunction: HogFunctionType } | null> {
         if (!UUID.validateString(webhookId, false)) {
             return null
         }
@@ -90,46 +93,15 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         // Otherwise check for hog flows
         const hogFlow = await this.hogFlowManager.getHogFlow(webhookId)
         if (hogFlow && hogFlow.status === 'active' && hogFlow.trigger?.type === 'webhook') {
-            // Build the hog function from the hog flow
             const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(hogFlow, hogFlow.trigger)
 
-            return { hogFunction, hogFlow }
+            return { hogFlow, hogFunction }
         }
 
         return null
     }
 
-    @instrumented('cdpSourceWebhooksConsumer.processWebhook')
-    public async processWebhook(
-        webhookId: string,
-        req: ModifiedRequest
-    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        const [webhook, hogFunctionState] = await Promise.all([
-            this.getWebhook(webhookId),
-            this.hogWatcher.getCachedEffectiveState(webhookId),
-        ])
-
-        if (!webhook) {
-            throw new SourceWebhookError(404, 'Not found')
-        }
-
-        const { hogFunction, hogFlow } = webhook
-        const metricSource = hogFlow ? 'hog_flow' : 'hog_function'
-
-        if (hogFunctionState?.state === HogWatcherState.disabled) {
-            this.hogFunctionMonitoringService.queueAppMetric(
-                {
-                    team_id: hogFunction.team_id,
-                    app_source_id: hogFunction.id,
-                    metric_kind: 'failure',
-                    metric_name: 'disabled_permanently',
-                    count: 1,
-                },
-                metricSource
-            )
-            throw new SourceWebhookError(429, 'Disabled')
-        }
-
+    private buildRequestGlobals(hogFunction: HogFunctionType, req: ModifiedRequest): HogFunctionInvocationGlobals {
         const body: Record<string, any> = req.body
 
         const ipValue = getFirstHeaderValue(req.headers['x-forwarded-for']) || req.socket.remoteAddress || req.ip
@@ -147,7 +119,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             }
         }
 
-        const globals: HogFunctionInvocationGlobals = {
+        return {
             source: {
                 name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
                 url: `${projectUrl}/functions/${hogFunction.id}`,
@@ -173,58 +145,188 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                 stringBody: req.rawBody ?? '',
             },
         }
+    }
+
+    private async executeHogFlow(
+        req: ModifiedRequest,
+        hogFlow: HogFlow,
+        hogFunction: HogFunctionType
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        try {
+            const globals: HogFunctionInvocationGlobals = this.buildRequestGlobals(hogFunction, req)
+            const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
+            const invocation = createInvocation(globalsWithInputs, hogFunction)
+
+            // Slightly different handling for hog flows
+            // Run the initial step - this allows functions not using fetches to respond immediately
+            const functionResult = await this.hogFlowFunctionsService.execute(invocation)
+
+            const addLog = createAddLogFunction(functionResult.logs)
+
+            // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
+            if (!functionResult.finished) {
+                throw new SourceWebhookError(500, 'Delayed processing not supported')
+            }
+
+            const customHttpResponse = getCustomHttpResponse(functionResult)
+            if (customHttpResponse) {
+                const level = customHttpResponse.status >= 400 ? 'warn' : 'info'
+                addLog(level, `Responded with response status - ${customHttpResponse.status}`)
+            }
+
+            const capturedPostHogEvent = functionResult.capturedPostHogEvents[0]
+            const metrics: MinimalAppMetric[] = []
+
+            if (capturedPostHogEvent) {
+                // Invoke the hogflow
+                const triggerGlobals: HogFunctionInvocationGlobals = {
+                    ...invocation.state.globals,
+                    event: {
+                        ...capturedPostHogEvent,
+                        uuid: new UUIDT().toString(),
+                        elements_chain: '',
+                        url: '',
+                    },
+                }
+                const hogFlowInvocation = createHogFlowInvocation(
+                    triggerGlobals,
+                    hogFlow,
+                    {} as HogFunctionFilterGlobals
+                )
+
+                // TODO: Abstract this out somewhere
+                metrics.push({
+                    team_id: hogFlow.team_id,
+                    app_source_id: hogFlow.id,
+                    metric_kind: 'other',
+                    metric_name: 'triggered',
+                    count: 1,
+                })
+
+                metrics.push({
+                    team_id: hogFlow.team_id,
+                    app_source_id: hogFlow.id,
+                    metric_kind: 'billing',
+                    metric_name: 'billable_invocation',
+                    count: 1,
+                })
+
+                await this.cyclotronJobQueue.queueInvocations([hogFlowInvocation])
+            } else {
+                metrics.push({
+                    team_id: hogFlow.team_id,
+                    app_source_id: hogFlow.id,
+                    metric_kind: 'other',
+                    metric_name: 'filtered',
+                    count: 1,
+                })
+            }
+            this.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_flow')
+
+            // Always set to false for hog flows as this triggers the flow to continue so we dont want metrics for this
+            functionResult.finished = false
+
+            return functionResult
+        } catch (error) {
+            logger.error('Error triggering hog flow', { error })
+            // TODO: Add logs and metrics for the flow
+            throw error
+        }
+    }
+
+    private async executeHogFunction(
+        req: ModifiedRequest,
+        hogFunction: HogFunctionType,
+        hogFunctionState: HogWatcherFunctionState | null
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        const globals: HogFunctionInvocationGlobals = this.buildRequestGlobals(hogFunction, req)
+        const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
+        const invocation = createInvocation(globalsWithInputs, hogFunction)
+
+        if (hogFunctionState?.state === HogWatcherState.degraded) {
+            // Degraded functions are not executed immediately
+            invocation.queue = 'hog_overflow'
+            await this.cyclotronJobQueue.queueInvocations([invocation])
+
+            const result = createInvocationResult<CyclotronJobInvocationHogFunction>(
+                invocation,
+                {},
+                {
+                    finished: false,
+                    logs: [
+                        {
+                            level: 'warn',
+                            message: 'Function scheduled for future execution due to degraded state',
+                            timestamp: DateTime.now(),
+                        },
+                    ],
+                }
+            )
+
+            result.execResult = {
+                // TODO: Add support for a default response as an input
+                httpResponse: {
+                    status: 200,
+                    body: '',
+                },
+            }
+            return result
+        }
+        // Run the initial step - this allows functions not using fetches to respond immediately
+        const result = await this.hogExecutor.execute(invocation)
+
+        // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
+        if (!result.finished) {
+            await this.cyclotronJobQueue.queueInvocationResults([result])
+        }
+
+        const customHttpResponse = getCustomHttpResponse(result)
+        if (customHttpResponse) {
+            const level = customHttpResponse.status >= 400 ? 'warn' : 'info'
+            result.logs.push(logEntry(level, `Responded with response status - ${customHttpResponse.status}`))
+        }
+
+        return result
+    }
+
+    @instrumented('cdpSourceWebhooksConsumer.processWebhook')
+    public async processWebhook(
+        webhookId: string,
+        req: ModifiedRequest
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        const [webhook, hogFunctionState] = await Promise.all([
+            this.getWebhook(webhookId),
+            this.hogWatcher.getCachedEffectiveState(webhookId),
+        ])
+
+        if (!webhook) {
+            throw new SourceWebhookError(404, 'Not found')
+        }
+
+        const { hogFunction, hogFlow } = webhook
+
+        if (hogFunctionState?.state === HogWatcherState.disabled) {
+            this.hogFunctionMonitoringService.queueAppMetric(
+                {
+                    team_id: hogFunction.team_id,
+                    app_source_id: hogFunction.id,
+                    metric_kind: 'failure',
+                    metric_name: 'disabled_permanently',
+                    count: 1,
+                },
+                hogFlow ? 'hog_flow' : 'hog_function'
+            )
+            throw new SourceWebhookError(429, 'Disabled')
+        }
 
         let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
 
         try {
             // TODO: Add error handling and logging
-            const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
-
-            const invocation = createInvocation(globalsWithInputs, hogFunction)
-
-            if (hogFunctionState?.state === HogWatcherState.degraded) {
-                // Degraded functions are not executed immediately
-                invocation.queue = 'hog_overflow'
-                await this.cyclotronJobQueue.queueInvocations([invocation])
-
-                result = createInvocationResult(
-                    invocation,
-                    {},
-                    {
-                        finished: false,
-                        logs: [
-                            {
-                                level: 'warn',
-                                message: 'Function scheduled for future execution due to degraded state',
-                                timestamp: DateTime.now(),
-                            },
-                        ],
-                    }
-                )
-
-                result.execResult = {
-                    // TODO: Add support for a default response as an input
-                    httpResponse: {
-                        status: 200,
-                        body: '',
-                    },
-                }
+            if (hogFlow) {
+                result = await this.executeHogFlow(req, hogFlow, hogFunction)
             } else {
-                // Run the initial step - this allows functions not using fetches to respond immediately
-                result = await this.hogExecutor.execute(invocation)
-
-                const addLog = createAddLogFunction(result.logs)
-
-                // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
-                if (!result.finished) {
-                    await this.cyclotronJobQueue.queueInvocationResults([result])
-                }
-
-                const customHttpResponse = getCustomHttpResponse(result)
-                if (customHttpResponse) {
-                    const level = customHttpResponse.status >= 400 ? 'warn' : 'info'
-                    addLog(level, `Responded with response status - ${customHttpResponse.status}`)
-                }
+                result = await this.executeHogFunction(req, hogFunction, hogFunctionState)
             }
         } catch (error) {
             logger.error('Error executing hog function', { error })

@@ -12,7 +12,7 @@ import { CdpSourceWebhooksConsumer, SourceWebhookError } from './consumers/cdp-s
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
-import { HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
+import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
@@ -473,11 +473,7 @@ export class CdpApi {
                 groups: globals.groups,
             })
 
-            const invocation = this.hogFlowExecutor.createHogFlowInvocation(
-                triggerGlobals,
-                compoundConfiguration,
-                filterGlobals
-            )
+            const invocation = createHogFlowInvocation(triggerGlobals, compoundConfiguration, filterGlobals)
 
             invocation.state.currentAction = current_action_id
                 ? {

@@ -29,6 +29,27 @@ import { actionIdForLogging, ensureCurrentAction, findContinueAction, shouldSkip
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
 
+export function createHogFlowInvocation(
+    globals: HogFunctionInvocationGlobals,
+    hogFlow: HogFlow,
+    filterGlobals: HogFunctionFilterGlobals
+): CyclotronJobInvocationHogFlow {
+    return {
+        id: new UUIDT().toString(),
+        state: {
+            event: globals.event,
+            actionStepCount: 0,
+        },
+        teamId: hogFlow.team_id,
+        functionId: hogFlow.id, // TODO: Include version?
+        hogFlow,
+        person: globals.person, // This is outside of state as we don't persist it
+        filterGlobals,
+        queue: 'hogflow',
+        queuePriority: 1,
+    }
+}
+
 export class HogFlowExecutorService {
     private readonly actionHandlers: Record<HogFlowAction['type'], ActionHandler>
 
@@ -49,27 +70,6 @@ export class HogFlowExecutorService {
             function_sms: hogFunctionHandler,
             function_email: hogFunctionHandler,
             exit: new ExitHandler(),
-        }
-    }
-
-    public createHogFlowInvocation(
-        globals: HogFunctionInvocationGlobals,
-        hogFlow: HogFlow,
-        filterGlobals: HogFunctionFilterGlobals
-    ): CyclotronJobInvocationHogFlow {
-        return {
-            id: new UUIDT().toString(),
-            state: {
-                event: globals.event,
-                actionStepCount: 0,
-            },
-            teamId: hogFlow.team_id,
-            functionId: hogFlow.id, // TODO: Include version?
-            hogFlow,
-            person: globals.person, // This is outside of state as we don't persist it
-            filterGlobals,
-            queue: 'hogflow',
-            queuePriority: 1,
         }
     }
 
@@ -106,7 +106,7 @@ export class HogFlowExecutorService {
                 continue
             }
 
-            const invocation = this.createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
+            const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
             invocations.push(invocation)
         }
 
