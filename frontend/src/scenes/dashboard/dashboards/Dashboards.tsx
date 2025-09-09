@@ -76,7 +76,6 @@ export function Dashboards(): JSX.Element {
                 description="Create and manage your dashboards"
                 resourceType={{
                     type: 'dashboard',
-                    typePlural: 'dashboards',
                 }}
             />
             <SceneDivider />

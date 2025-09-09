@@ -117,7 +117,7 @@ export function ExportedInsight({
                     )}
                     {showDetailedResultsTable && (
                         <div className="border-t mt-2">
-                            <InsightsTable filterKey={short_id} isLegend embedded />
+                            <InsightsTable filterKey={short_id} isLegend embedded editMode={false} />
                         </div>
                     )}
                 </div>

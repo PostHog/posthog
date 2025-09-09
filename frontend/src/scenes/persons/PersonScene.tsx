@@ -17,6 +17,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { openInAdminPanel } from 'lib/utils/person-actions'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
@@ -27,6 +28,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { Query } from '~/queries/Query/Query'
 import { ActivityScope, PersonType, PersonsTabType, ProductKey, PropertyDefinitionType } from '~/types'
@@ -120,6 +122,7 @@ export function PersonScene(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
+    const { user } = useValues(userLogic)
 
     if (personError) {
         throw new Error(personError)
@@ -151,6 +154,7 @@ export function PersonScene(): JSX.Element | null {
                             }}
                             type="secondary"
                         />
+                        {user?.is_staff && <OpenInAdminPanelButton />}
                         <LemonButton
                             onClick={() => showPersonDeleteModal(person, () => loadPersons())}
                             disabled={deletedPersonLoading}
@@ -344,5 +348,20 @@ export function PersonScene(): JSX.Element | null {
 
             {splitMergeModalShown && person && <MergeSplitPerson person={person} />}
         </>
+    )
+}
+
+function OpenInAdminPanelButton(): JSX.Element {
+    const { person } = useValues(personsLogic)
+    const disabledReason = !person?.properties.email ? 'Person has no email' : undefined
+
+    return (
+        <LemonButton
+            type="secondary"
+            onClick={() => openInAdminPanel(person?.properties.email)}
+            disabledReason={disabledReason}
+        >
+            Open in Admin Panel
+        </LemonButton>
     )
 }

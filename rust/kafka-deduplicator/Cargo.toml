@@ -22,6 +22,7 @@ envconfig = { workspace = true }
 futures = { workspace = true }
 health = { path = "../common/health" }
 metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
 num_cpus = "1.17.0"
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
@@ -33,7 +34,7 @@ serde_json = { workspace = true }
 serve-metrics = { path = "../common/serve_metrics" }
 time = { workspace = true }
 tokio = { workspace = true }
-tokio-util = { version = "0.7", features = ["rt"] }
+tokio-util = { version = "0.7.16", features = ["rt"] }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }

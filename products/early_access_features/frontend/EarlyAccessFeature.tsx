@@ -244,7 +244,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                                             onClick: () => updateStage(EarlyAccessFeatureStage.Beta),
                                                         },
                                                         {
-                                                            label: 'General availability',
+                                                            label: 'General availability / Archived',
                                                             onClick: () =>
                                                                 updateStage(
                                                                     EarlyAccessFeatureStage.GeneralAvailability
@@ -284,7 +284,6 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                     description={earlyAccessFeature.description}
                     resourceType={{
                         type: 'early_access_feature',
-                        typePlural: 'Early access features',
                     }}
                     canEdit
                     onNameChange={(value) => {
@@ -449,7 +448,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                             },
                                             {
                                                 value: 'general-availability',
-                                                label: 'General availability',
+                                                label: 'General availability / Archived',
                                             },
                                         ]}
                                     />

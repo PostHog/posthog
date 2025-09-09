@@ -5,7 +5,7 @@ from posthog.clickhouse.query_log_archive import ADD_TEAM_ID_ALIAS_COLUMN
 operations = [
     run_sql_with_exceptions(
         ADD_TEAM_ID_ALIAS_COLUMN,
-        node_role=NodeRole.ALL,
+        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
         is_alter_on_replicated_table=True,
     ),
 ]

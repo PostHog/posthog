@@ -34,7 +34,6 @@ import {
     SessionRecordingSnapshotSource,
     SessionRecordingSnapshotSourceResponse,
     SessionRecordingType,
-    SessionRecordingUsageType,
     SnapshotSourceType,
 } from '~/types'
 
@@ -64,7 +63,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     props({} as SessionRecordingDataLogicProps),
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect(() => ({
-        actions: [sessionRecordingEventUsageLogic, ['reportRecording']],
+        actions: [sessionRecordingEventUsageLogic, ['reportRecordingLoaded']],
         values: [
             featureFlagLogic,
             ['featureFlags'],
@@ -599,12 +598,7 @@ AND properties.$lib != 'web'`
         reportUsageIfFullyLoaded: (_, breakpoint) => {
             breakpoint()
             if (values.fullyLoaded) {
-                actions.reportRecording(
-                    values.sessionPlayerData,
-                    SessionRecordingUsageType.LOADED,
-                    values.sessionPlayerMetaData,
-                    0
-                )
+                actions.reportRecordingLoaded(values.sessionPlayerData, values.sessionPlayerMetaData)
             }
         },
 
@@ -740,15 +734,16 @@ AND properties.$lib != 'web'`
         ],
 
         snapshotsLoading: [
-            (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.featureFlags],
+            (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.featureFlags, s.snapshots],
             (
                 snapshotSourcesLoading: boolean,
                 snapshotsForSourceLoading: boolean,
-                featureFlags: FeatureFlagsSet
+                featureFlags: FeatureFlagsSet,
+                snapshots: RecordingSnapshot[]
             ): boolean => {
-                // For v2 recordings, only show loading if we have no snapshots yet
+                // For v2 recordings, only show loading if we have no snapshots AND we're actually loading something.
                 if (featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]) {
-                    return snapshotSourcesLoading || snapshotsForSourceLoading
+                    return snapshots?.length === 0 && (snapshotSourcesLoading || snapshotsForSourceLoading)
                 }
 
                 // Default behavior for non-v2 recordings

@@ -15,6 +15,6 @@ operations = [
     run_sql_with_exceptions(SESSION_REPLAY_EVENTS_V2_TEST_DISTRIBUTED_TABLE_SQL(on_cluster=False)),
     run_sql_with_exceptions(
         SESSION_REPLAY_EVENTS_V2_TEST_DISTRIBUTED_TABLE_SQL(on_cluster=False),
-        node_role=NodeRole.COORDINATOR,
+        node_roles=[NodeRole.COORDINATOR],
     ),
 ]

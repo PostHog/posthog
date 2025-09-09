@@ -1,5 +1,5 @@
 use anyhow::Error;
-use moka::future::Cache;
+use moka::sync::Cache;
 use std::time::Duration;
 
 /// Memory-only implementation of IdentifyCache using moka for when Redis is not available
@@ -41,26 +41,25 @@ impl std::fmt::Debug for MemoryIdentifyCache {
     }
 }
 
-#[async_trait::async_trait]
 impl super::IdentifyCache for MemoryIdentifyCache {
-    async fn has_seen_user_device(
+    fn has_seen_user_device(
         &self,
         team_id: i32,
         user_id: &str,
         device_id: &str,
     ) -> Result<bool, Error> {
         let key = Self::make_key(team_id, user_id, device_id);
-        Ok(self.cache.get(&key).await.is_some())
+        Ok(self.cache.get(&key).is_some())
     }
 
-    async fn mark_seen_user_device(
+    fn mark_seen_user_device(
         &self,
         team_id: i32,
         user_id: &str,
         device_id: &str,
     ) -> Result<(), Error> {
         let key = Self::make_key(team_id, user_id, device_id);
-        self.cache.insert(key, ()).await;
+        self.cache.insert(key, ());
         Ok(())
     }
 }
@@ -69,70 +68,62 @@ impl super::IdentifyCache for MemoryIdentifyCache {
 mod tests {
     use super::*;
     use crate::cache::IdentifyCache;
-    use tokio::time::{sleep, Duration};
+    use std::thread;
 
-    #[tokio::test]
-    async fn test_memory_identify_cache_basic() {
+    #[test]
+    fn test_memory_identify_cache_basic() {
         let cache = MemoryIdentifyCache::new(100, Duration::from_secs(10));
 
         // Should not be seen initially
         let result1 = cache
             .has_seen_user_device(1, "user123", "device456")
-            .await
             .unwrap();
         assert!(!result1);
 
         // Mark as seen
         cache
             .mark_seen_user_device(1, "user123", "device456")
-            .await
             .unwrap();
 
         // Should now be seen
         let result2 = cache
             .has_seen_user_device(1, "user123", "device456")
-            .await
             .unwrap();
         assert!(result2);
     }
 
-    #[tokio::test]
-    async fn test_memory_identify_cache_team_isolation() {
+    #[test]
+    fn test_memory_identify_cache_team_isolation() {
         let cache = MemoryIdentifyCache::new(100, Duration::from_secs(10));
 
         // Mark for team 1
         cache
             .mark_seen_user_device(1, "user123", "device456")
-            .await
             .unwrap();
 
         // Should be seen for team 1
         let result1 = cache
             .has_seen_user_device(1, "user123", "device456")
-            .await
             .unwrap();
         assert!(result1);
 
         // Should not be seen for team 2 (different team)
         let result2 = cache
             .has_seen_user_device(2, "user123", "device456")
-            .await
             .unwrap();
         assert!(!result2);
     }
 
-    #[tokio::test]
-    async fn test_memory_identify_cache_key_encoding() {
+    #[test]
+    fn test_memory_identify_cache_key_encoding() {
         let cache = MemoryIdentifyCache::new(100, Duration::from_secs(10));
 
         // Test with special characters
         cache
             .mark_seen_user_device(1, "user:123", "device@456")
-            .await
             .unwrap();
         let result = cache
             .has_seen_user_device(1, "user:123", "device@456")
-            .await
             .unwrap();
         assert!(result);
 
@@ -142,43 +133,39 @@ mod tests {
         assert_ne!(key1, key2);
     }
 
-    #[tokio::test]
-    async fn test_memory_identify_cache_ttl_expiry() {
+    #[test]
+    fn test_memory_identify_cache_ttl_expiry() {
         let cache = MemoryIdentifyCache::new(100, Duration::from_millis(100));
 
         // Should not be seen initially
         let result1 = cache
             .has_seen_user_device(1, "user123", "device456")
-            .await
             .unwrap();
         assert!(!result1);
 
         // Mark as seen
         cache
             .mark_seen_user_device(1, "user123", "device456")
-            .await
             .unwrap();
 
         // Should now be seen
         let result2 = cache
             .has_seen_user_device(1, "user123", "device456")
-            .await
             .unwrap();
         assert!(result2);
 
         // Wait for TTL expiry
-        sleep(Duration::from_millis(150)).await;
+        thread::sleep(Duration::from_millis(150));
 
         // Should no longer be seen after expiry
         let result3 = cache
             .has_seen_user_device(1, "user123", "device456")
-            .await
             .unwrap();
         assert!(!result3);
     }
 
-    #[tokio::test]
-    async fn test_memory_identify_cache_different_combinations() {
+    #[test]
+    fn test_memory_identify_cache_different_combinations() {
         let cache = MemoryIdentifyCache::new(100, Duration::from_secs(10));
 
         // Test different combinations of user_id and device_id
@@ -193,78 +180,48 @@ mod tests {
             // Should not be seen initially
             let result1 = cache
                 .has_seen_user_device(team_id, user_id, device_id)
-                .await
                 .unwrap();
             assert!(!result1);
 
             // Mark as seen
             cache
                 .mark_seen_user_device(team_id, user_id, device_id)
-                .await
                 .unwrap();
 
             // Should now be seen
             let result2 = cache
                 .has_seen_user_device(team_id, user_id, device_id)
-                .await
                 .unwrap();
             assert!(result2);
         }
 
         // Verify all combinations are isolated from each other
-        assert!(cache
-            .has_seen_user_device(1, "user1", "device1")
-            .await
-            .unwrap());
-        assert!(cache
-            .has_seen_user_device(1, "user1", "device2")
-            .await
-            .unwrap());
-        assert!(cache
-            .has_seen_user_device(1, "user2", "device1")
-            .await
-            .unwrap());
-        assert!(cache
-            .has_seen_user_device(2, "user1", "device1")
-            .await
-            .unwrap());
+        assert!(cache.has_seen_user_device(1, "user1", "device1").unwrap());
+        assert!(cache.has_seen_user_device(1, "user1", "device2").unwrap());
+        assert!(cache.has_seen_user_device(1, "user2", "device1").unwrap());
+        assert!(cache.has_seen_user_device(2, "user1", "device1").unwrap());
 
         // But these combinations should not be seen
-        assert!(!cache
-            .has_seen_user_device(1, "user2", "device2")
-            .await
-            .unwrap());
-        assert!(!cache
-            .has_seen_user_device(2, "user2", "device1")
-            .await
-            .unwrap());
+        assert!(!cache.has_seen_user_device(1, "user2", "device2").unwrap());
+        assert!(!cache.has_seen_user_device(2, "user2", "device1").unwrap());
     }
 
-    #[tokio::test]
-    async fn test_memory_identify_cache_colon_combinations() {
+    #[test]
+    fn test_memory_identify_cache_colon_combinations() {
         let cache = MemoryIdentifyCache::new(100, Duration::from_secs(10));
 
         // Test that different colon combinations result in different cache behavior
         // This ensures that similar-looking IDs with colons are properly isolated
 
         // Mark first combination: "foo:bar" + ":baz"
-        cache
-            .mark_seen_user_device(1, "foo:bar", ":baz")
-            .await
-            .unwrap();
+        cache.mark_seen_user_device(1, "foo:bar", ":baz").unwrap();
 
         // First combination should be seen
-        let result1 = cache
-            .has_seen_user_device(1, "foo:bar", ":baz")
-            .await
-            .unwrap();
+        let result1 = cache.has_seen_user_device(1, "foo:bar", ":baz").unwrap();
         assert!(result1);
 
         // Second combination: "foo:" + "bar:baz" should NOT be seen
-        let result2 = cache
-            .has_seen_user_device(1, "foo:", "bar:baz")
-            .await
-            .unwrap();
+        let result2 = cache.has_seen_user_device(1, "foo:", "bar:baz").unwrap();
         assert!(!result2);
 
         // Verify they produce different keys
@@ -276,24 +233,15 @@ mod tests {
         );
 
         // Mark second combination
-        cache
-            .mark_seen_user_device(1, "foo:", "bar:baz")
-            .await
-            .unwrap();
+        cache.mark_seen_user_device(1, "foo:", "bar:baz").unwrap();
 
         // Now both should be seen
-        assert!(cache
-            .has_seen_user_device(1, "foo:bar", ":baz")
-            .await
-            .unwrap());
-        assert!(cache
-            .has_seen_user_device(1, "foo:", "bar:baz")
-            .await
-            .unwrap());
+        assert!(cache.has_seen_user_device(1, "foo:bar", ":baz").unwrap());
+        assert!(cache.has_seen_user_device(1, "foo:", "bar:baz").unwrap());
     }
 
-    #[tokio::test]
-    async fn test_memory_identify_cache_special_characters() {
+    #[test]
+    fn test_memory_identify_cache_special_characters() {
         let cache = MemoryIdentifyCache::new(100, Duration::from_secs(10));
 
         // Test various special characters that need URL encoding
@@ -307,23 +255,14 @@ mod tests {
 
         for (user_id, device_id) in test_cases {
             // Should not be seen initially
-            let result1 = cache
-                .has_seen_user_device(1, user_id, device_id)
-                .await
-                .unwrap();
+            let result1 = cache.has_seen_user_device(1, user_id, device_id).unwrap();
             assert!(!result1);
 
             // Mark as seen
-            cache
-                .mark_seen_user_device(1, user_id, device_id)
-                .await
-                .unwrap();
+            cache.mark_seen_user_device(1, user_id, device_id).unwrap();
 
             // Should now be seen
-            let result2 = cache
-                .has_seen_user_device(1, user_id, device_id)
-                .await
-                .unwrap();
+            let result2 = cache.has_seen_user_device(1, user_id, device_id).unwrap();
             assert!(result2);
         }
     }

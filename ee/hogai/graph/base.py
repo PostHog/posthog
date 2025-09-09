@@ -1,5 +1,6 @@
+from abc import ABC
 from collections.abc import Sequence
-from typing import Any, Generic
+from typing import Any, Generic, Literal, Union
 from uuid import UUID
 
 from langchain_core.runnables import RunnableConfig
@@ -10,15 +11,23 @@ from posthog.models import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
-from ee.hogai.graph.mixins import AssistantContextMixin
+from ee.hogai.graph.mixins import AssistantContextMixin, ReasoningNodeMixin
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_last_ui_context
+from ee.hogai.utils.state import LangGraphState
+from ee.hogai.utils.types import (
+    AssistantMessageUnion,
+    AssistantState,
+    PartialAssistantState,
+    PartialStateType,
+    StateType,
+)
+from ee.hogai.utils.types.base import BaseStateWithMessages
+from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models import Conversation
 
-from ..utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState, PartialStateType, StateType
 
-
-class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin):
+class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin, ReasoningNodeMixin, ABC):
     def __init__(self, team: Team, user: User):
         self._team = team
         self._user = user
@@ -71,7 +80,7 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         """
         Extracts the UI context from the latest human message.
         """
-        if hasattr(state, "messages"):
+        if isinstance(state, BaseStateWithMessages) and hasattr(state, "messages"):
             return find_last_ui_context(state.messages)
         return None
 
@@ -83,6 +92,14 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         if not billing_context:
             return None
         return MaxBillingContext.model_validate(billing_context)
+
+    def _message_to_langgraph_update(
+        self, message: AssistantMessageUnion, node_name: MaxNodeName
+    ) -> tuple[tuple[()], Literal["messages"], tuple[Union[AssistantMessageUnion, Any], LangGraphState]]:
+        """
+        Converts an assistant message to a custom message langgraph update.
+        """
+        return ((), "messages", (message, {"langgraph_node": node_name}))
 
 
 AssistantNode = BaseAssistantNode[AssistantState, PartialAssistantState]

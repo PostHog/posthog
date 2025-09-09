@@ -46,7 +46,7 @@ export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`
 // CDP topics
 export const KAFKA_CDP_FUNCTION_OVERFLOW = `${prefix}cdp_function_overflow${suffix}`
 export const KAFKA_CDP_INTERNAL_EVENTS = `${prefix}cdp_internal_events${suffix}`
-export const KAFKA_CDP_AGGREGATION_WRITER_EVENTS = `${prefix}cdp_aggregation_writer_events${suffix}`
+export const KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES = `${prefix}clickhouse_behavioral_cohorts_matches${suffix}`
 
 // Error tracking topics
 export const KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT = `${prefix}clickhouse_error_tracking_issue_fingerprint${suffix}`

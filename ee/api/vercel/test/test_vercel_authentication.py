@@ -23,7 +23,7 @@ from ee.api.vercel.types import VercelUser
 class TestVercelAuthentication(SimpleTestCase):
     def setUp(self):
         super().setUp()
-        self.installation_id = "inst_123456789"
+        self.installation_id = "icfg_9bceb8ccT32d3U417ezb5c8p"
         self.account_id = "acc987654321"
         self.user_id = "111222333abc"
 
@@ -131,15 +131,14 @@ class TestVercelAuthentication(SimpleTestCase):
 
     def test_missing_authorization_header(self, mock_get_jwks):
         request = self.factory.get("/", HTTP_X_VERCEL_AUTH="user")
-        result = self.auth.authenticate(request)
-        assert result is None
+        with self.assertRaises(AuthenticationFailed):
+            self.auth.authenticate(request)
 
     def test_missing_vercel_auth_header(self, mock_get_jwks):
         token = self._token()
         request = self.factory.get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
-        with self.assertRaises(AuthenticationFailed) as cm:
+        with self.assertRaises(AuthenticationFailed):
             self.auth.authenticate(request)
-        assert "Missing or invalid X-Vercel-Auth header" in str(cm.exception)
 
     def test_invalid_vercel_auth_header(self, mock_get_jwks):
         token = self._token()

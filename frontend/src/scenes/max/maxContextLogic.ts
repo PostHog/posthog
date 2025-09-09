@@ -57,16 +57,15 @@ export type LoadedEntitiesMap = { dashboard: number[]; insight: string[] }
 export const maxContextLogic = kea<maxContextLogicType>([
     path(['scenes', 'max', 'maxContextLogic']),
     connect(() => ({
-        values: [
-            insightSceneLogic,
-            ['filtersOverride', 'variablesOverride'],
-            sceneLogic,
-            ['activeSceneId', 'activeSceneLogic', 'activeLoadedScene'],
-        ],
+        values: [sceneLogic, ['activeSceneId', 'activeSceneLogic', 'activeLoadedScene']],
         actions: [router, ['locationChanged']],
     })),
     actions({
-        addOrUpdateContextInsight: (data: InsightWithQuery) => ({ data }),
+        addOrUpdateContextInsight: (
+            data: InsightWithQuery,
+            filtersOverride?: DashboardFilter,
+            variablesOverride?: Record<string, HogQLVariable>
+        ) => ({ data, filtersOverride, variablesOverride }),
         addOrUpdateContextDashboard: (data: DashboardType<QueryBasedInsightModel>) => ({ data }),
         addOrUpdateContextEvent: (data: EventDefinition) => ({ data }),
         addOrUpdateContextAction: (data: ActionType) => ({ data }),
@@ -75,7 +74,11 @@ export const maxContextLogic = kea<maxContextLogicType>([
         removeContextEvent: (id: string | number) => ({ id }),
         removeContextAction: (id: string | number) => ({ id }),
         loadAndProcessDashboard: (data: DashboardItemInfo) => ({ data }),
-        loadAndProcessInsight: (data: InsightItemInfo) => ({ data }),
+        loadAndProcessInsight: (
+            data: InsightItemInfo,
+            filtersOverride?: DashboardFilter,
+            variablesOverride?: Record<string, HogQLVariable>
+        ) => ({ data, filtersOverride, variablesOverride }),
         setSelectedContextOption: (value: string) => ({ value }),
         handleTaxonomicFilterChange: (
             value: string | number,
@@ -101,8 +104,8 @@ export const maxContextLogic = kea<maxContextLogicType>([
         contextInsights: [
             [] as MaxInsightContext[],
             {
-                addOrUpdateContextInsight: (state: MaxInsightContext[], { data }: { data: InsightWithQuery }) =>
-                    addOrUpdateEntity(state, insightToMaxContext(data)),
+                addOrUpdateContextInsight: (state: MaxInsightContext[], { data, filtersOverride, variablesOverride }) =>
+                    addOrUpdateEntity(state, insightToMaxContext(data, filtersOverride, variablesOverride)),
                 removeContextInsight: (state: MaxInsightContext[], { id }: { id: string | number }) =>
                     removeEntity(state, id),
                 resetContext: () => [],
@@ -231,11 +234,15 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 actions.addOrUpdateContextDashboard(dashboard)
             }
         },
-        loadAndProcessInsight: async ({ data }: { data: InsightItemInfo }, breakpoint) => {
+        loadAndProcessInsight: async ({ data, filtersOverride, variablesOverride }, breakpoint) => {
             let insight = data.preloaded
 
             if (!insight || !insight.query) {
-                const insightLogicInstance = insightLogic.build({ dashboardItemId: undefined })
+                const insightLogicInstance = insightLogic.build({
+                    dashboardItemId: undefined,
+                    filtersOverride,
+                    variablesOverride,
+                })
                 insightLogicInstance.mount()
 
                 try {
@@ -253,7 +260,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
             }
 
             if (insight) {
-                actions.addOrUpdateContextInsight(insight)
+                actions.addOrUpdateContextInsight(insight, filtersOverride, variablesOverride)
             }
         },
         handleTaxonomicFilterChange: async ({
@@ -331,10 +338,26 @@ export const maxContextLogic = kea<maxContextLogicType>([
 
                 // Handle insight selection
                 if (itemInfo.type === MaxContextType.INSIGHT) {
-                    actions.loadAndProcessInsight({
-                        id: itemInfo.id as InsightShortId,
-                        preloaded: itemInfo.preloaded as QueryBasedInsightModel | null,
-                    })
+                    let filtersOverride: DashboardFilter | undefined = undefined
+                    let variablesOverride: Record<string, HogQLVariable> | undefined = undefined
+
+                    // This is an "on this page" insight selection. Look for and add possible applied filters.
+                    if (groupType === TaxonomicFilterGroupType.MaxAIContext) {
+                        const logic = insightSceneLogic.findAllMounted().find((l) => l.values.insightId === itemInfo.id)
+                        if (logic) {
+                            filtersOverride = logic.values.filtersOverride ?? undefined
+                            variablesOverride = logic.values.variablesOverride ?? undefined
+                        }
+                    }
+
+                    actions.loadAndProcessInsight(
+                        {
+                            id: itemInfo.id as InsightShortId,
+                            preloaded: itemInfo.preloaded as QueryBasedInsightModel | null,
+                        },
+                        filtersOverride,
+                        variablesOverride
+                    )
                 }
             } catch (error) {
                 console.error('Error handling taxonomic filter change:', error)
@@ -375,7 +398,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     .map((item): MaxContextItem | null => {
                         switch (item.type) {
                             case MaxContextType.INSIGHT:
-                                return insightToMaxContext(item.data)
+                                return insightToMaxContext(item.data, item.filtersOverride, item.variablesOverride)
                             case MaxContextType.DASHBOARD:
                                 return dashboardToMaxContext(item.data)
                             case MaxContextType.EVENT:
@@ -450,23 +473,13 @@ export const maxContextLogic = kea<maxContextLogicType>([
             },
         ],
         compiledContext: [
-            (s: any) => [
-                s.hasData,
-                s.contextInsights,
-                s.contextDashboards,
-                s.contextEvents,
-                s.contextActions,
-                s.filtersOverride,
-                s.variablesOverride,
-            ],
+            (s: any) => [s.hasData, s.contextInsights, s.contextDashboards, s.contextEvents, s.contextActions],
             (
                 hasData: boolean,
                 contextInsights: MaxInsightContext[],
                 contextDashboards: MaxDashboardContext[],
                 contextEvents: MaxEventContext[],
-                contextActions: MaxActionContext[],
-                filtersOverride: DashboardFilter,
-                variablesOverride: Record<string, HogQLVariable> | null
+                contextActions: MaxActionContext[]
             ): MaxUIContext | null => {
                 const context: MaxUIContext = {}
 
@@ -492,15 +505,6 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     if (context.insights.length === 0) {
                         delete context.insights
                     }
-                }
-
-                // Add global filters and variables override if present
-                if (filtersOverride) {
-                    context.filters_override = filtersOverride
-                }
-
-                if (variablesOverride) {
-                    context.variables_override = variablesOverride
                 }
 
                 // Deduplicate dashboards by ID
