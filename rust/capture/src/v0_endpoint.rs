@@ -467,7 +467,7 @@ pub fn process_single_event(
             .ok_or(CaptureError::MissingDistinctId)?,
         ip: resolved_ip,
         data,
-        now: context.now.to_rfc3339(),
+        now: context.now.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true),
         sent_at: context.sent_at,
         token: context.token.clone(),
         is_cookieless_mode: event
@@ -664,7 +664,7 @@ pub async fn process_replay_events<'a>(
             }
         })
         .to_string(),
-        now: context.now.to_rfc3339(),
+        now: context.now.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true),
         sent_at: context.sent_at,
         token: context.token.clone(),
         is_cookieless_mode,
