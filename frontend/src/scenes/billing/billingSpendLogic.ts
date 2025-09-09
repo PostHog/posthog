@@ -119,8 +119,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                         ...(interval ? { interval } : {}),
                     }
                     try {
-                        const response = await api.get(`api/billing/spend/?${toParams(params)}`)
-                        return response
+                        return await api.get(`api/billing/spend/?${toParams(params)}`)
                     } catch (error) {
                         lemonToast.error('Failed to load billing spend, please try again or contact support.')
                         throw error

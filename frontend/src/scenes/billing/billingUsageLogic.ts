@@ -121,8 +121,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                         ...(interval ? { interval } : {}),
                     }
                     try {
-                        const response = await api.get(`api/billing/usage/?${toParams(params)}`)
-                        return response
+                        return await api.get(`api/billing/usage/?${toParams(params)}`)
                     } catch (error) {
                         lemonToast.error('Failed to load billing usage. Please try again or contact support.')
                         throw error
