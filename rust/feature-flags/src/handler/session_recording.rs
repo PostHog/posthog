@@ -175,13 +175,29 @@ fn get_linked_flag_value(linked_flag_config: Option<Value>) -> Option<Value> {
     }
 }
 
+fn parse_domain(url: Option<&str>) -> Option<String> {
+    url.and_then(|u| {
+        // Try to parse as URL. If it starts with http:// or https://, this will work
+        if let Ok(parsed) = url::Url::parse(u) {
+            parsed.host_str().map(|h| h.to_string())
+        } else {
+            // If parsing fails (e.g., bare domain without protocol), return None to match Python
+            None
+        }
+    })
+}
+
 fn on_permitted_recording_domain(recording_domains: &Vec<String>, headers: &HeaderMap) -> bool {
     let origin = headers.get("Origin").and_then(|v| v.to_str().ok());
     let referer = headers.get("Referer").and_then(|v| v.to_str().ok());
     let user_agent = headers.get("User-Agent").and_then(|v| v.to_str().ok());
 
-    let is_authorized_web_client = hostname_in_allowed_url_list(recording_domains, origin)
-        || hostname_in_allowed_url_list(recording_domains, referer);
+    // Parse the domain from the Origin and Referer headers
+    let origin_hostname = parse_domain(origin);
+    let referer_hostname = parse_domain(referer);
+
+    let is_authorized_web_client = hostname_in_allowed_url_list(recording_domains, origin_hostname.as_deref())
+        || hostname_in_allowed_url_list(recording_domains, referer_hostname.as_deref());
 
     let is_authorized_mobile_client =
         user_agent.is_some_and(|ua| AUTHORIZED_MOBILE_CLIENTS.iter().any(|&kw| ua.contains(kw)));
@@ -220,5 +236,61 @@ mod tests {
 
         // Empty domains list should allow recording (return false)
         assert!(!session_recording_domain_not_allowed(&team, &headers));
+    }
+
+    #[test]
+    fn test_parse_domain() {
+        // Test with full URLs - should extract hostname
+        assert_eq!(parse_domain(Some("https://app.example.com")), Some("app.example.com".to_string()));
+        assert_eq!(parse_domain(Some("https://app.example.com/")), Some("app.example.com".to_string()));
+        assert_eq!(parse_domain(Some("http://localhost:3000")), Some("localhost".to_string()));
+        assert_eq!(parse_domain(Some("https://app.example.com/path")), Some("app.example.com".to_string()));
+        
+        // Test with bare domains
+        assert_eq!(parse_domain(Some("app.example.com")), None);
+        assert_eq!(parse_domain(Some("example.com")), None);
+        
+        // Test with empty string and None
+        assert_eq!(parse_domain(Some("")), None);
+        assert_eq!(parse_domain(None), None);
+    }
+
+    #[test]
+    fn test_on_permitted_recording_domain_with_origin() {
+        use axum::http::HeaderMap;
+
+        let recording_domains = vec!["app.example.com".to_string()];
+        
+        // Test with Origin header (without trailing slash)
+        let mut headers = HeaderMap::new();
+        headers.insert("Origin", "https://app.example.com".parse().unwrap());
+        assert!(on_permitted_recording_domain(&recording_domains, &headers));
+        
+        // Test with Origin header (with trailing slash)
+        let mut headers = HeaderMap::new();
+        headers.insert("Origin", "https://app.example.com/".parse().unwrap());
+        assert!(on_permitted_recording_domain(&recording_domains, &headers));
+        
+        // Test with wrong domain
+        let mut headers = HeaderMap::new();
+        headers.insert("Origin", "https://wrong.example.com".parse().unwrap());
+        assert!(!on_permitted_recording_domain(&recording_domains, &headers));
+    }
+
+    #[test]
+    fn test_on_permitted_recording_domain_with_referer() {
+        use axum::http::HeaderMap;
+
+        let recording_domains = vec!["app.example.com".to_string()];
+        
+        // Test with Referer header
+        let mut headers = HeaderMap::new();
+        headers.insert("Referer", "https://app.example.com/some/path".parse().unwrap());
+        assert!(on_permitted_recording_domain(&recording_domains, &headers));
+        
+        // Test with wrong domain
+        let mut headers = HeaderMap::new();
+        headers.insert("Referer", "https://wrong.example.com/path".parse().unwrap());
+        assert!(!on_permitted_recording_domain(&recording_domains, &headers));
     }
 }
