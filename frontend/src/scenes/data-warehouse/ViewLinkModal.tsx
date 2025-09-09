@@ -64,7 +64,7 @@ export function ViewLinkModal({ mode }: ViewLinkModalProps): JSX.Element {
 
 const HOGQL_EDITOR_PLACEHOLDER = 'Enter SQL expression, such as:\n- pdi.distinct_id\n- properties.email'
 const HOGQL_EDITOR_PLACEHOLDER_REVENUE_ANALYTICS =
-    "Enter SQL expression, such as:\n- extractJSONString(metadata, 'customer_id')\n- extractJSONString(metadata, 'organization_id')\n- concat(email, ',', customer_id)"
+    "Enter SQL expression, such as:\n- JSONExtractString(metadata, 'customer_id')\n- JSONExtractString(metadata, 'organization_id')\n- concat(email, ',', customer_id)"
 
 export function ViewLinkForm({ mode }: ViewLinkModalProps): JSX.Element {
     const {
