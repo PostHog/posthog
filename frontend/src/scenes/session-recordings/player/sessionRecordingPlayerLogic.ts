@@ -1642,7 +1642,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     }),
 
     afterMount(({ props, actions, cache }) => {
-        if (props.mode === SessionRecordingPlayerMode.Preview) {
+        if (props.mode === SessionRecordingPlayerMode.Preview || props.sessionRecordingId.trim() === '') {
             return
         }
 
