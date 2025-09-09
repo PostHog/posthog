@@ -292,9 +292,6 @@ impl StoreManager {
 
         let start_time = Instant::now();
 
-        // Log folder sizes and assigned partitions
-        self.log_folder_sizes_and_partitions();
-
         // If max_capacity is 0, no cleanup needed (unlimited)
         if self.store_config.max_capacity == 0 {
             return Ok(0);
@@ -385,6 +382,9 @@ impl StoreManager {
 
     /// Check if cleanup is needed based on current global size
     pub fn needs_cleanup(&self) -> bool {
+        // Log folder sizes and assigned partitions
+        self.log_folder_sizes_and_partitions();
+
         if self.store_config.max_capacity == 0 {
             return false;
         }
@@ -420,7 +420,7 @@ impl StoreManager {
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
-                        debug!("Running periodic cleanup check");
+                        info!("Cleanup task tick - running periodic cleanup check");
 
                         if manager.needs_cleanup() {
                             info!("Global capacity exceeded, triggering cleanup");
@@ -436,7 +436,7 @@ impl StoreManager {
                                 }
                             }
                         } else {
-                            debug!("No cleanup needed, stores within capacity");
+                            info!("No cleanup needed, stores within capacity");
                         }
                     }
                     _ = &mut shutdown_rx => {
