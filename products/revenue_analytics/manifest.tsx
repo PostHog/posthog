@@ -49,13 +49,5 @@ export const manifest: ProductManifest = {
             href: urls.revenueSettings(),
             flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
         },
-        {
-            path: 'Marketing settings',
-            category: 'Definitions',
-            iconType: 'revenue_analytics' as FileSystemIconType,
-            iconColor: ['var(--color-product-revenue-analytics-light)', 'var(--color-product-revenue-analytics-dark)'],
-            href: urls.marketingAnalytics(),
-            flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
-        },
     ],
 }
