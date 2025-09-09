@@ -1,7 +1,7 @@
 import { Node } from '@xyflow/react'
 import { useActions } from 'kea'
 
-import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { campaignLogic } from '../../campaignLogic'
 import { HogFlowAction } from '../types'
 import { HogFlowDuration } from './components/HogFlowDuration'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
@@ -14,7 +14,7 @@ export function StepDelayConfiguration({
     const action = node.data
     const { delay_duration } = action.config
 
-    const { setCampaignActionConfig } = useActions(hogFlowEditorLogic)
+    const { setCampaignActionConfig } = useActions(campaignLogic)
 
     return (
         <>

@@ -59,14 +59,6 @@ const NEW_CAMPAIGN: HogFlow = {
             type: 'continue',
         },
     ],
-    trigger: {
-        type: 'event',
-        filters: {
-            events: [],
-            actions: [],
-        },
-    },
-    trigger_masking: { ttl: 0, hash: '', threshold: 0 },
     conversion: { window_minutes: 0, filters: [] },
     exit_condition: 'exit_only_at_end',
     version: 1,
@@ -81,7 +73,11 @@ export const campaignLogic = kea<campaignLogicType>([
     props({ id: 'new' } as CampaignLogicProps),
     key((props) => props.id || 'new'),
     actions({
-        setCampaignActionConfig: (actionId: string, config: Partial<HogFlowAction['config']>) => ({ actionId, config }),
+        partialSetCampaignActionConfig: (actionId: string, config: Partial<HogFlowAction['config']>) => ({
+            actionId,
+            config,
+        }),
+        setCampaignActionConfig: (actionId: string, config: HogFlowAction['config']) => ({ actionId, config }),
         setCampaignAction: (actionId: string, action: HogFlowAction) => ({ actionId, action }),
         setCampaignActionEdges: (actionId: string, edges: HogFlow['edges']) => ({ actionId, edges }),
         // NOTE: This is a wrapper for setCampaignValues, to get around some weird typegen issues
@@ -270,8 +266,16 @@ export const campaignLogic = kea<campaignLogicType>([
                 return
             }
 
-            action.config = { ...action.config, ...config }
+            action.config = { ...config }
             actions.setCampaignValues({ actions: [...values.campaign.actions] })
+        },
+        partialSetCampaignActionConfig: async ({ actionId, config }) => {
+            const action = values.campaign.actions.find((action) => action.id === actionId)
+            if (!action) {
+                return
+            }
+
+            actions.setCampaignActionConfig(actionId, { ...action.config, ...config } as HogFlowAction['config'])
         },
         setCampaignAction: async ({ actionId, action }) => {
             const newActions = values.campaign.actions.map((a) => (a.id === actionId ? action : a))

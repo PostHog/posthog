@@ -9,7 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { WeekdayType } from '~/types'
 
-import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { campaignLogic } from '../../campaignLogic'
 import { HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
 
@@ -104,7 +104,7 @@ export function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<Wait
     const action = node.data
     const { timezone, day, time } = action.config
 
-    const { setCampaignActionConfig } = useActions(hogFlowEditorLogic)
+    const { partialSetCampaignActionConfig } = useActions(campaignLogic)
     const { preflight } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
 
@@ -120,7 +120,7 @@ export function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<Wait
         if (!preflight?.available_timezones) {
             throw new Error('No timezones are available')
         }
-        setCampaignActionConfig(action.id, { timezone: newTimezone[0] })
+        partialSetCampaignActionConfig(action.id, { timezone: newTimezone[0] })
     }
 
     return (
@@ -133,10 +133,10 @@ export function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<Wait
                         isCustomDate={isCustomDate}
                         onDayChange={(value) => {
                             const config = getUpdatedDayConfig(value)
-                            setCampaignActionConfig(action.id, config)
+                            partialSetCampaignActionConfig(action.id, config)
                         }}
                         onCustomDaysChange={(newDays) =>
-                            setCampaignActionConfig(action.id, { day: [...newDays] as WeekdayType[] })
+                            partialSetCampaignActionConfig(action.id, { day: [...newDays] as WeekdayType[] })
                         }
                     />
 
@@ -147,12 +147,12 @@ export function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<Wait
                         isCustomTime={isCustomTimeRange}
                         onTimeChange={(value) => {
                             const config = getUpdatedTimeConfig(value)
-                            setCampaignActionConfig(action.id, config)
+                            partialSetCampaignActionConfig(action.id, config)
                         }}
                         onTimeRangeChange={(newTime, index) => {
                             if (isCustomTimeRange) {
                                 const config = getUpdatedTimeRangeConfig(newTime, index, time)
-                                setCampaignActionConfig(action.id, config)
+                                partialSetCampaignActionConfig(action.id, config)
                             }
                         }}
                     />

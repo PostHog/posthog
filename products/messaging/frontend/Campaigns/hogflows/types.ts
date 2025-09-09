@@ -18,17 +18,12 @@ export const HogFlowSchema = z.object({
     version: z.number(),
     name: z.string(),
     status: z.enum(['active', 'draft', 'archived']),
-    trigger: z.object({
-        type: z.literal('event'),
-        filters: z.any(),
-    }),
-    trigger_masking: z
-        .object({
-            ttl: z.number(),
-            hash: z.string(),
-            threshold: z.number(),
-        })
-        .optional(),
+    // trigger: z
+    //     .object({
+    //         type: z.literal('event'),
+    //         filters: z.any(),
+    //     })
+    //     .optional(),
     conversion: z
         .object({
             window_minutes: z.number(),

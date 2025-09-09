@@ -11,7 +11,6 @@ import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 
 import { campaignLogic } from '../../campaignLogic'
 import { HogFlowFilters } from '../filters/HogFlowFilters'
-import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 
@@ -20,7 +19,7 @@ export function StepTriggerConfiguration({
 }: {
     node: Node<Extract<HogFlowAction, { type: 'trigger' }>>
 }): JSX.Element {
-    const { setCampaignActionConfig } = useActions(hogFlowEditorLogic)
+    const { setCampaignActionConfig } = useActions(campaignLogic)
     const { actionValidationErrorsById } = useValues(campaignLogic)
 
     const type = node.data.config.type
@@ -72,6 +71,7 @@ export function StepTriggerConfiguration({
                             : setCampaignActionConfig(node.id, {
                                   type: 'webhook',
                                   template_id: 'template-source-webhook',
+                                  inputs: {},
                               })
                     }}
                 />
@@ -92,7 +92,7 @@ function StepTriggerConfigurationEvents({
     action: Extract<HogFlowAction, { type: 'trigger' }>
     config: Extract<HogFlowAction['config'], { type: 'event' }>
 }): JSX.Element {
-    const { setCampaignActionConfig } = useActions(hogFlowEditorLogic)
+    const { setCampaignActionConfig } = useActions(campaignLogic)
     const { actionValidationErrorsById } = useValues(campaignLogic)
     const validationResult = actionValidationErrorsById[action.id]
 
@@ -121,7 +121,7 @@ function StepTriggerConfigurationWebhook({
     action: Extract<HogFlowAction, { type: 'trigger' }>
     config: Extract<HogFlowAction['config'], { type: 'webhook' }>
 }): JSX.Element {
-    const { setCampaignActionConfig } = useActions(hogFlowEditorLogic)
+    const { setCampaignActionConfig } = useActions(campaignLogic)
     const { campaign, actionValidationErrorsById } = useValues(campaignLogic)
     const validationResult = actionValidationErrorsById[action.id]
 
@@ -148,7 +148,14 @@ function StepTriggerConfigurationWebhook({
             <HogFlowFunctionConfiguration
                 templateId={config.template_id}
                 inputs={config.inputs}
-                setInputs={(inputs) => setCampaignActionConfig(action.id, { inputs })}
+                setInputs={(inputs) =>
+                    setCampaignActionConfig(action.id, {
+                        type: 'webhook',
+                        inputs,
+                        template_id: config.template_id,
+                        template_uuid: config.template_uuid,
+                    })
+                }
                 errors={validationResult?.errors}
             />
         </>
