@@ -4,8 +4,9 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useState } from 'react'
 
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { ListHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
@@ -153,6 +154,64 @@ export function Cohorts(): JSX.Element {
         },
     ]
 
+    const filtersSection = (
+        <div className="flex justify-between gap-2 flex-wrap">
+            <LemonInput
+                className="w-60"
+                type="search"
+                placeholder="Search for cohorts"
+                onChange={(search) => {
+                    setSearchTerm(search)
+                    setCohortFilters({ search: search || undefined, page: 1 })
+                }}
+                value={searchTerm}
+            />
+            <div className="flex items-center gap-2">
+                <span>
+                    <b>Type</b>
+                </span>
+                <LemonSelect
+                    dropdownMatchSelectWidth={false}
+                    size="small"
+                    onChange={(type) => {
+                        if (type) {
+                            if (type === 'all') {
+                                setCohortFilters({ type: undefined, page: 1 })
+                            } else {
+                                setCohortFilters({ type, page: 1 })
+                            }
+                        }
+                    }}
+                    options={[
+                        { label: 'All', value: 'all' },
+                        { label: 'Static', value: 'static' },
+                        { label: 'Dynamic', value: 'dynamic' },
+                    ]}
+                    value={cohortFilters.type ?? 'all'}
+                    data-attr="cohorts-filter-select-type"
+                />
+                <span className="ml-1">
+                    <b>Created by</b>
+                </span>
+                <MemberSelect
+                    defaultLabel="Any user"
+                    value={cohortFilters.created_by_id ?? null}
+                    onChange={(user) => {
+                        if (!user) {
+                            if (cohortFilters) {
+                                const { created_by_id, ...restFilters } = cohortFilters
+                                setCohortFilters({ ...restFilters, page: 1 }, true)
+                            }
+                        } else {
+                            setCohortFilters({ created_by_id: user.id, page: 1 })
+                        }
+                    }}
+                    data-attr="cohort-filters-select-created-by"
+                />
+            </div>
+        </div>
+    )
+
     return (
         <SceneContent forceNewSpacing>
             <PersonsManagementSceneTabs
@@ -190,17 +249,7 @@ export function Cohorts(): JSX.Element {
                 customHog={ListHog}
             />
 
-            <div className="flex justify-between items-center mb-0 gap-2">
-                <LemonInput
-                    type="search"
-                    placeholder="Search for cohorts"
-                    onChange={(search) => {
-                        setSearchTerm(search)
-                        setCohortFilters({ search: search || undefined, page: 1 })
-                    }}
-                    value={searchTerm}
-                />
-            </div>
+            <div>{filtersSection}</div>
             <LemonTable
                 columns={columns}
                 loading={cohortsLoading}

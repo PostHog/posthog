@@ -19,6 +19,8 @@ import type { cohortsSceneLogicType } from './cohortsSceneLogicType'
 export interface CohortFilters {
     search?: string
     page?: number
+    type?: string
+    created_by_id?: number
 }
 
 const POLL_TIMEOUT = 5000
@@ -26,6 +28,8 @@ const POLL_TIMEOUT = 5000
 const DEFAULT_COHORT_FILTERS: CohortFilters = {
     search: undefined,
     page: 1,
+    type: undefined,
+    created_by_id: undefined,
 }
 
 const COHORTS_PER_PAGE = 100
@@ -36,7 +40,7 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
         actions: [exportsLogic, ['startExport']],
     })),
     actions(() => ({
-        setCohortFilters: (filters: Partial<CohortFilters>) => ({ filters }),
+        setCohortFilters: (filters: Partial<CohortFilters>, replace?: boolean) => ({ filters, replace }),
         deleteCohort: (cohort: Partial<CohortType>) => ({ cohort }),
         exportCohortPersons: (id: CohortType['id'], columns?: string[]) => ({ id, columns }),
         setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
@@ -51,7 +55,10 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
         cohortFilters: [
             DEFAULT_COHORT_FILTERS,
             {
-                setCohortFilters: (state, { filters }) => {
+                setCohortFilters: (state, { filters, replace }) => {
+                    if (replace) {
+                        return { ...filters }
+                    }
                     return { ...state, ...filters }
                 },
             },
@@ -184,14 +191,16 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
     })),
     urlToAction(({ actions }) => ({
         [urls.cohorts()]: (_, searchParams) => {
-            const { page, search } = searchParams
+            const { page, search, type, created_by_id } = searchParams
             const filtersFromUrl: Partial<CohortFilters> = {
                 search,
+                type,
             }
 
             filtersFromUrl.page = page !== undefined ? parseInt(page) : undefined
+            filtersFromUrl.created_by_id = created_by_id !== undefined ? parseInt(created_by_id) : undefined
 
-            actions.setCohortFilters({ ...DEFAULT_COHORT_FILTERS, ...filtersFromUrl })
+            actions.setCohortFilters({ ...DEFAULT_COHORT_FILTERS, ...filtersFromUrl }, true)
         },
     })),
     beforeUnmount(({ values }) => {
