@@ -272,6 +272,10 @@ mod tests {
         assert_eq!(parse_domain(Some("app.example.com")), None);
         assert_eq!(parse_domain(Some("example.com")), None);
 
+        // Test with wildcard domains
+        assert_eq!(parse_domain(Some("https://*.example.com")), Some("*.example.com".to_string()));
+        assert_eq!(parse_domain(Some("*.example.com")), None); 
+
         // Test with empty string and None
         assert_eq!(parse_domain(Some("")), None);
         assert_eq!(parse_domain(None), None);
@@ -321,6 +325,33 @@ mod tests {
         // Test with wrong domain
         let mut headers = HeaderMap::new();
         headers.insert("Referer", "https://wrong.example.com/path".parse().unwrap());
+        assert!(!on_permitted_recording_domain(&recording_domains, &headers));
+    }
+
+    #[test]
+    fn test_on_permitted_recording_domain_with_wildcards() {
+        use axum::http::HeaderMap;
+
+        let recording_domains = vec!["https://*.example.com".to_string()];
+
+        // Test with matching subdomain
+        let mut headers = HeaderMap::new();
+        headers.insert("Origin", "https://app.example.com".parse().unwrap());
+        assert!(on_permitted_recording_domain(&recording_domains, &headers));
+
+        // Test with different subdomain
+        let mut headers = HeaderMap::new();
+        headers.insert("Origin", "https://test.example.com".parse().unwrap());
+        assert!(on_permitted_recording_domain(&recording_domains, &headers));
+
+        // Test with no subdomain - should NOT match
+        let mut headers = HeaderMap::new();
+        headers.insert("Origin", "https://example.com".parse().unwrap());
+        assert!(!on_permitted_recording_domain(&recording_domains, &headers));
+
+        // Test with wrong domain
+        let mut headers = HeaderMap::new();
+        headers.insert("Origin", "https://app.wrong.com".parse().unwrap());
         assert!(!on_permitted_recording_domain(&recording_domains, &headers));
     }
 }
