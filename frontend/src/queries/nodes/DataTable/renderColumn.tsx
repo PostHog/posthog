@@ -293,7 +293,7 @@ export function renderColumn(
         const noPopover = isActorsQuery(query.source)
         const displayProps: PersonDisplayProps = {
             withIcon: true,
-            person: { id: value.id },
+            person: { id: value.id, distinct_id: value.distinct_id },
             displayName: value.display_name,
             noPopover,
         }
