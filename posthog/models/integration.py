@@ -413,7 +413,7 @@ class OauthIntegration:
     ) -> Integration:
         oauth_config = cls.oauth_config_for_kind(kind)
 
-        # TODO: review this. It didn't work without the User-Agent header or the HTTP Basic Auth
+        # Reddit uses HTTP Basic Auth https://github.com/reddit-archive/reddit/wiki/OAuth2 and requires a User-Agent header
         if kind == "reddit-ads":
             res = requests.post(
                 oauth_config.token_url,
@@ -472,14 +472,9 @@ class OauthIntegration:
                     json={"query": oauth_config.token_info_graphql_query},
                 )
             else:
-                # Special handling for Reddit API which requires User-Agent
-                headers = {"Authorization": f"Bearer {config['access_token']}"}
-                if kind == "reddit-ads":
-                    headers["User-Agent"] = "PostHog/1.0 by PostHogTeam"
-
                 token_info_res = requests.get(
                     oauth_config.token_info_url.replace(":access_token", config["access_token"]),
-                    headers=headers,
+                    headers={"Authorization": f"Bearer {config['access_token']}"},
                 )
 
             if token_info_res.status_code == 200:
@@ -490,28 +485,24 @@ class OauthIntegration:
 
         integration_id = dot_get(config, oauth_config.id_path)
 
-        # TODO: review this. This worked for me but I need to confirm if it's necessary
+        # Reddit access token is a JWT, extract user ID from it
         if kind == "reddit-ads" and not integration_id:
             try:
-                # Reddit access token is a JWT, extract user ID from it
                 access_token = config.get("access_token")
                 if access_token:
                     # Split JWT and get payload (middle part)
                     parts = access_token.split(".")
                     if len(parts) >= 2:
                         payload = parts[1]
-                        # Add padding if needed for base64 decoding
-                        padding = "=" * (4 - len(payload) % 4)
-                        payload += padding
-                        # Decode and parse JWT payload
-                        decoded = base64.b64decode(payload)
+                        # Decode JWT payload (handle missing padding)
+                        decoded = base64.urlsafe_b64decode(payload + "===")
                         jwt_data = json.loads(decoded)
 
                         # Extract user ID from JWT (lid = login ID)
                         reddit_user_id = jwt_data.get("lid", jwt_data.get("aid"))
                         if reddit_user_id:
                             config["reddit_user_id"] = reddit_user_id
-                            integration_id = reddit_user_id  # Set the integration_id directly
+                            integration_id = reddit_user_id
             except Exception as e:
                 logger.exception("Failed to decode Reddit JWT", error=str(e))
 

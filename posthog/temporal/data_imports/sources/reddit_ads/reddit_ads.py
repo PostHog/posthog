@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import parse_qs, urlparse
 
 import dlt
 import requests
@@ -71,7 +70,7 @@ def get_resource(
                 "data_selector": "data",
                 "path": f"/ad_accounts/{account_id}/campaigns",
                 "params": {
-                    "limit": 100,
+                    "page.size": 100,
                     "modified_at[after]": {
                         "type": "incremental",
                         "cursor_path": "modified_at",
@@ -97,7 +96,7 @@ def get_resource(
                 "data_selector": "data",
                 "path": f"/ad_accounts/{account_id}/ad_groups",
                 "params": {
-                    "limit": 100,
+                    "page.size": 100,
                     "modified_at[after]": {
                         "type": "incremental",
                         "cursor_path": "modified_at",
@@ -123,7 +122,7 @@ def get_resource(
                 "data_selector": "data",
                 "path": f"/ad_accounts/{account_id}/ads",
                 "params": {
-                    "limit": 100,
+                    "page.size": 100,
                     "modified_at[after]": {
                         "type": "incremental",
                         "cursor_path": "modified_at",
@@ -149,9 +148,7 @@ def get_resource(
                 "data_selector": "data.metrics",
                 "path": f"/ad_accounts/{account_id}/reports",
                 "method": "POST",
-                "params": {
-                    "page.size": 1000  # Maximum allowed page size
-                },
+                "params": {"page.size": 100},
                 "json": {
                     "data": {
                         "breakdowns": ["CAMPAIGN_ID", "DATE"],
@@ -178,9 +175,7 @@ def get_resource(
                 "data_selector": "data.metrics",
                 "path": f"/ad_accounts/{account_id}/reports",
                 "method": "POST",
-                "params": {
-                    "page.size": 1000  # Maximum allowed page size
-                },
+                "params": {"page.size": 100},
                 "json": {
                     "data": {
                         "breakdowns": ["AD_GROUP_ID", "DATE"],
@@ -207,9 +202,7 @@ def get_resource(
                 "data_selector": "data.metrics",
                 "path": f"/ad_accounts/{account_id}/reports",
                 "method": "POST",
-                "params": {
-                    "page.size": 1000  # Maximum allowed page size
-                },
+                "params": {"page.size": 100},
                 "json": {
                     "data": {
                         "breakdowns": ["AD_ID", "DATE"],
@@ -244,30 +237,15 @@ class RedditAdsPaginator(BasePaginator):
 
             self._has_next_page = bool(self._next_url)
 
-        except Exception:
+        except Exception as e:
+            logger.exception("Failed to parse pagination response", error=str(e))
             self._next_url = None
             self._has_next_page = False
 
     def update_request(self, request: Request) -> None:
+        """Update request with next page URL"""
         if self._next_url:
-            try:
-                parsed_url = urlparse(self._next_url)
-                query_params = parse_qs(parsed_url.query)
-
-                page_token = query_params.get("page.token", [None])[0]
-
-                if page_token:
-                    if request.method.upper() == "POST":
-                        # Ensure params exist and clean them
-                        if not hasattr(request, "params") or request.params is None:
-                            request.params = {"page.token": page_token}
-
-                    elif request.method.upper() == "GET":
-                        request.params = request.params or {}
-                        request.params["page.token"] = page_token
-
-            except Exception as e:
-                logger.exception("Failed to parse next_url", error=str(e), next_url=self._next_url)
+            request.url = self._next_url
 
 
 def get_reddit_ads_access_token(reddit_integration_id: int, team_id: int) -> str:
