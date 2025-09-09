@@ -90,7 +90,10 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         // Otherwise check for hog flows
         const hogFlow = await this.hogFlowManager.getHogFlow(webhookId)
         if (hogFlow && hogFlow.status === 'active' && hogFlow.trigger?.type === 'webhook') {
-            return { hogFunction: hogFlow as HogFunctionType, hogFlow }
+            // Build the hog function from the hog flow
+            const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(hogFlow, hogFlow.trigger)
+
+            return { hogFunction, hogFlow }
         }
 
         return null
@@ -101,14 +104,17 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         webhookId: string,
         req: ModifiedRequest
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        const [hogFunction, hogFunctionState] = await Promise.all([
+        const [webhook, hogFunctionState] = await Promise.all([
             this.getWebhook(webhookId),
             this.hogWatcher.getCachedEffectiveState(webhookId),
         ])
 
-        if (!hogFunction) {
+        if (!webhook) {
             throw new SourceWebhookError(404, 'Not found')
         }
+
+        const { hogFunction, hogFlow } = webhook
+        const metricSource = hogFlow ? 'hog_flow' : 'hog_function'
 
         if (hogFunctionState?.state === HogWatcherState.disabled) {
             this.hogFunctionMonitoringService.queueAppMetric(
@@ -119,7 +125,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                     metric_name: 'disabled_permanently',
                     count: 1,
                 },
-                'hog_function'
+                metricSource
             )
             throw new SourceWebhookError(429, 'Disabled')
         }

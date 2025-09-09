@@ -1,15 +1,12 @@
 import { DateTime } from 'luxon'
 
 import { HogFlowAction } from '../../../../schema/hogflow'
-import { Hub } from '../../../../types'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
-    HogFunctionInvocationGlobals,
     MinimalLogEntry,
 } from '../../../types'
-import { HogExecutorService } from '../../hog-executor.service'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
@@ -21,8 +18,6 @@ type Action = Extract<HogFlowAction, { type: FunctionActionType }>
 
 export class HogFunctionHandler implements ActionHandler {
     constructor(
-        private hub: Hub,
-        private hogFunctionExecutor: HogExecutorService,
         private hogFlowFunctionsService: HogFlowFunctionsService,
         private recipientPreferencesService: RecipientPreferencesService
     ) {}
@@ -62,33 +57,15 @@ export class HogFunctionHandler implements ActionHandler {
         invocation: CyclotronJobInvocationHogFlow,
         action: Action
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action)
-        const teamId = invocation.hogFlow.team_id
-        const projectUrl = `${this.hub.SITE_URL}/project/${teamId}`
-
-        const globals: HogFunctionInvocationGlobals = {
-            source: {
-                name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
-                url: `${projectUrl}/functions/${hogFunction.id}`,
-            },
-            project: {
-                id: hogFunction.team_id,
-                name: '',
-                url: '',
-            },
-            event: invocation.state.event,
-            person: invocation.person,
-        }
-
-        const hogFunctionInvocation: CyclotronJobInvocationHogFunction = {
-            ...invocation,
+        const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config)
+        const hogFunctionInvocation = await this.hogFlowFunctionsService.buildHogFunctionInvocation(
+            invocation,
             hogFunction,
-            state: invocation.state.currentAction?.hogFunctionState ?? {
-                globals: await this.hogFunctionExecutor.buildInputsWithGlobals(hogFunction, globals),
-                timings: [],
-                attempts: 0,
-            },
-        }
+            {
+                event: invocation.state.event,
+                person: invocation.person,
+            }
+        )
 
         if (await this.recipientPreferencesService.shouldSkipAction(hogFunctionInvocation, action)) {
             return {
@@ -106,6 +83,6 @@ export class HogFunctionHandler implements ActionHandler {
             }
         }
 
-        return this.hogFunctionExecutor.executeWithAsyncFunctions(hogFunctionInvocation)
+        return this.hogFlowFunctionsService.executeWithAsyncFunctions(hogFunctionInvocation)
     }
 }

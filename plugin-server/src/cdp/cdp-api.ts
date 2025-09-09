@@ -13,6 +13,7 @@ import { HogTransformerService } from './hog-transformations/hog-transformer.ser
 import { createCdpRedisPool } from './redis'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
+import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
@@ -40,6 +41,7 @@ export class CdpApi {
     private recipientsManager: RecipientsManagerService
 
     private hogFlowExecutor: HogFlowExecutorService
+    private hogFlowFunctionsService: HogFlowFunctionsService
     private hogWatcher: HogWatcherService
     private hogTransformer: HogTransformerService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
@@ -54,13 +56,15 @@ export class CdpApi {
         this.hogFlowManager = new HogFlowManagerService(hub)
         this.recipientsManager = new RecipientsManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
-
+        this.hogFlowFunctionsService = new HogFlowFunctionsService(
+            hub,
+            this.hogFunctionTemplateManager,
+            this.hogExecutor
+        )
         this.recipientPreferencesService = new RecipientPreferencesService(this.recipientsManager)
         this.recipientTokensService = new RecipientTokensService(hub)
         this.hogFlowExecutor = new HogFlowExecutorService(
-            hub,
-            this.hogExecutor,
-            this.hogFunctionTemplateManager,
+            this.hogFlowFunctionsService,
             this.recipientPreferencesService
         )
         this.nativeDestinationExecutorService = new NativeDestinationExecutorService(hub)

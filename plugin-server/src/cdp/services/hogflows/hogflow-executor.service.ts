@@ -1,7 +1,6 @@
 import { DateTime } from 'luxon'
 
 import { HogFlow, HogFlowAction } from '../../../schema/hogflow'
-import { Hub } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { UUIDT } from '../../../utils/utils'
 import {
@@ -16,7 +15,6 @@ import {
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
-import { HogExecutorService } from '../hog-executor.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { ActionHandler } from './actions/action.interface'
 import { ConditionalBranchHandler } from './actions/conditional_branch'
@@ -35,17 +33,10 @@ export class HogFlowExecutorService {
     private readonly actionHandlers: Record<HogFlowAction['type'], ActionHandler>
 
     constructor(
-        private hub: Hub,
-        hogFunctionExecutor: HogExecutorService,
         hogFlowFunctionsService: HogFlowFunctionsService,
         recipientPreferencesService: RecipientPreferencesService
     ) {
-        const hogFunctionHandler = new HogFunctionHandler(
-            this.hub,
-            hogFunctionExecutor,
-            hogFlowFunctionsService,
-            recipientPreferencesService
-        )
+        const hogFunctionHandler = new HogFunctionHandler(hogFlowFunctionsService, recipientPreferencesService)
 
         this.actionHandlers = {
             trigger: new TriggerHandler(),
