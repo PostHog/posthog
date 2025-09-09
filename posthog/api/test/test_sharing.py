@@ -32,12 +32,12 @@ def mock_exporter_template(test_func):
     """
 
     @wraps(test_func)
-    @patch("posthog.utils.render_template")
+    @patch("posthog.api.sharing.render_template")
     def wrapper(self, mock_render_template, *args, **kwargs):
         def mock_render_side_effect(template_name, request, context, **kwargs):
             from django.http import HttpResponse
 
-            if template_name == "exporter.html" and context.get("exported_data"):
+            if template_name == "exporter.html" and context and context.get("exported_data"):
                 exported_data_str = context["exported_data"]
                 # Create a simplified version of the exporter template
                 html_content = f"""<!doctype html>
@@ -56,7 +56,7 @@ def mock_exporter_template(test_func):
         </script>
     </head>
     <body>
-        <div>"{exported_data_str}"</div>
+        <div>{exported_data_str}</div>
         <div id="root"></div>
     </body>
 </html>"""
