@@ -683,6 +683,7 @@ export class IngestionConsumer {
                 }
             } catch (error) {
                 console.error('Error processing message in pipeline:', error)
+                throw error
             }
         }
 
