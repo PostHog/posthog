@@ -6,14 +6,16 @@ import pytest
 
 from asgiref.sync import async_to_sync
 from dagster_pipes import PipesContext, open_dagster_pipes
-from pydantic import BaseModel, ConfigDict, SkipValidation
+from posthoganalytics.ai.langchain.callbacks import CallbackHandler
+from pydantic import BaseModel, ConfigDict, Field, SkipValidation
 
 from posthog.models import Organization, User
+from posthog.ph_client import get_client
 
 # We want the PostHog set_up_evals fixture here
 from ee.hogai.eval.conftest import set_up_evals  # noqa: F401
 from ee.hogai.eval.offline.snapshot_loader import SnapshotLoader
-from ee.hogai.eval.schema import DatasetInput
+from ee.hogai.eval.schema import DatasetInput, EvalsDockerImageConfig
 
 
 @pytest.fixture(scope="package")
@@ -29,11 +31,28 @@ class EvaluationContext(BaseModel):
     organization: Annotated[Organization, SkipValidation]
     user: Annotated[User, SkipValidation]
     experiment_name: str
+    dataset_id: str
+    dataset_name: str
     dataset_inputs: list[DatasetInput]
+    callback_handler: CallbackHandler | None = Field(default=None)
 
     def format_experiment_name(self, test_name: str) -> str:
         """Generate a unique experiment name for the given test name."""
         return f"max-ai-{self.experiment_name}-{test_name}"
+
+    def get_callback_handlers(self, test_name: str) -> list[CallbackHandler] | None:
+        client = get_client("US")
+        return [
+            CallbackHandler(
+                client,
+                distinct_id="ai_evaluator",
+                properties={
+                    "dataset_id": self.dataset_id,
+                    "dataset_name": self.dataset_name,
+                    "ai_experiment_name": self.format_experiment_name(test_name),
+                },
+            )
+        ]
 
 
 @pytest.fixture(scope="package", autouse=True)
@@ -50,15 +69,18 @@ def eval_ctx(
     with django_db_blocker.unblock():
         dagster_context.log.info(f"Loading Postgres and ClickHouse snapshots...")
 
-        loader = SnapshotLoader(dagster_context)
-        org, user, dataset = async_to_sync(loader.load_snapshots)()
+        config = EvalsDockerImageConfig.model_validate(dagster_context.extras)
+        loader = SnapshotLoader(dagster_context, config)
+        org, user = async_to_sync(loader.load_snapshots)()
 
         dagster_context.log.info(f"Running tests...")
         yield EvaluationContext(
             organization=org,
             user=user,
             experiment_name=loader.config.experiment_name,
-            dataset_inputs=dataset,
+            dataset_id=config.dataset_id,
+            dataset_name=config.dataset_name,
+            dataset_inputs=config.dataset_inputs,
         )
 
         dagster_context.log.info(f"Cleaning up...")

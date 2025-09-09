@@ -204,6 +204,14 @@ class EvalsDockerImageConfig(BaseModel):
     """
     Name of the experiment.
     """
+    dataset_id: str
+    """
+    ID of the dataset.
+    """
+    dataset_name: str
+    """
+    Name of the dataset.
+    """
     dataset_inputs: list[DatasetInput]
     """
     Parsed dataset.

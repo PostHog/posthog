@@ -1,4 +1,6 @@
+import json
 import base64
+import urllib.parse
 from typing import Any, cast
 from uuid import UUID
 
@@ -200,10 +202,18 @@ def format_results(
         else:
             metrics_text = "No metrics reported"
 
+        traces_filter = [
+            {
+                "key": "ai_experiment_name",
+                "value": [result.get("project_name", "")],
+                "operator": "exact",
+                "type": "event",
+            }
+        ]
         summary_parts = [
             f"**Experiment**: {result.get('project_name', '')}",
             scores_text,
-            "Baseline: Previous run",
+            f"Baseline: Previous run 🔍 [Traces](https://us.posthog.com/llm-analytics/traces?filters={urllib.parse.quote(json.dumps(traces_filter))})",
             f"Avg. case performance: {metrics_text}",
         ]
         experiment_summaries.append("\n\n".join(summary_parts))
@@ -247,6 +257,8 @@ def spawn_evaluation_container(
             for team_id, postgres, clickhouse in zip(team_ids, postgres_snapshots, clickhouse_snapshots)
         ],
         experiment_name=f"dataset-{prepared_dataset.dataset_id}",
+        dataset_id=str(prepared_dataset.dataset_id),
+        dataset_name=prepared_dataset.dataset_name,
         dataset_inputs=prepared_dataset.dataset_inputs,
     )
 
@@ -270,7 +282,6 @@ def spawn_evaluation_container(
             "PPLX_API_KEY": settings.PPLX_API_KEY,
             "AZURE_INFERENCE_ENDPOINT": settings.AZURE_INFERENCE_ENDPOINT,
             "AZURE_INFERENCE_CREDENTIAL": settings.AZURE_INFERENCE_CREDENTIAL,
-            "BRAINTRUST_API_KEY": settings.BRAINTRUST_API_KEY,
         },
         extras=evaluation_config.model_dump(exclude_unset=True),
         registry=get_registry_credentials(),

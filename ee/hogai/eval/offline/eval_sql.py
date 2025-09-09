@@ -41,8 +41,7 @@ async def serialize_database(team: Team):
     return await serialize_database_schema(database, context)
 
 
-@pytest.fixture
-def call_graph(eval_ctx: EvaluationContext):
+def call_graph(eval_ctx: EvaluationContext, test_name: str):
     async def callable(entry: DatasetInput, *args, **kwargs) -> EvalOutput:
         team = await Team.objects.aget(id=entry.team_id)
         conversation, database_schema = await asyncio.gather(
@@ -54,12 +53,13 @@ def call_graph(eval_ctx: EvaluationContext):
         state = await graph.ainvoke(
             AssistantState(messages=[HumanMessage(content=entry.input["query"])]),
             {
+                "callbacks": eval_ctx.get_callback_handlers(test_name),
                 "configurable": {
                     "thread_id": conversation.id,
                     "user": eval_ctx.user,
                     "team": team,
                     "distinct_id": eval_ctx.user.distinct_id,
-                }
+                },
             },
         )
         maybe_viz_message = find_last_message_of_type(state["messages"], VisualizationMessage)
