@@ -32,6 +32,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
         }),
         deleteIntegration: (id: number) => ({ id }),
         openNewIntegrationModal: (kind: IntegrationKind) => ({ kind }),
+        reverifyEmailIntegration: (id: number) => ({ id }),
         closeNewIntegrationModal: true,
         openSetupModal: (integration?: IntegrationType, channelType?: ChannelType) => ({ integration, channelType }),
         closeSetupModal: true,
@@ -212,6 +213,20 @@ export const integrationsLogic = kea<integrationsLogicType>([
                     children: 'No thanks',
                 },
             })
+        },
+
+        reverifyEmailIntegration: async ({ id }) => {
+            const integration = values.integrations?.find((x) => x.id === id)
+            if (!integration) {
+                return
+            }
+
+            try {
+                await api.integrations.verifyEmail(id)
+                lemonToast.success('Verification email re-sent.')
+            } catch {
+                lemonToast.error('Something went wrong. Please try again.')
+            }
         },
     })),
     afterMount(({ actions }) => {

@@ -1018,7 +1018,8 @@ class EmailIntegration:
         mailjet = MailjetProvider()
 
         # TODO: Look for integration belonging to the team with the same domain
-        mailjet.create_email_sender(email_address, team_id=team_id)
+        mailjet.create_email_domain(domain, team_id=team_id)
+        mailjet.create_email_address(email_address, team_id=team_id)
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,

@@ -92,37 +92,37 @@ class TestMailjetProvider(TestCase):
 
     @patch("requests.post")
     @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
-    def test_create_email_sender_success(self, mock_post):
+    def test_create_email_domain_success(self, mock_post):
         mock_response = MagicMock()
         mock_response.json.return_value = {"Count": 1, "Data": [{"Success": True}], "Total": 1}
         mock_response.raise_for_status.return_value = None
         mock_post.return_value = mock_response
 
         provider = MailjetProvider()
-        provider.create_email_sender(self.email, self.team.id)
+        provider.create_email_domain(self.email, self.team.id)
         mock_post.assert_called_once()
 
     @patch("requests.post")
     @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
-    def test_create_email_sender_invalid_email(self, mock_post):
+    def test_create_email_domain_invalid_email(self, mock_post):
         provider = MailjetProvider()
         invalid_emails = ["", "invalid email", "no-tld@", "@example.com"]
 
         for email in invalid_emails:
             with self.assertRaises(exceptions.ValidationError):
-                provider.create_email_sender(email, self.team.id)
+                provider.create_email_domain(email, self.team.id)
 
         mock_post.assert_not_called()
 
     @patch("requests.post")
     @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
-    def test_create_email_sender_request_exception(self, mock_post):
+    def test_create_email_domain_request_exception(self, mock_post):
         mock_post.side_effect = Exception("API Error")
 
         provider = MailjetProvider()
 
         with self.assertRaises(Exception):
-            provider.create_email_sender(self.email, self.team.id)
+            provider.create_email_domain(self.email, self.team.id)
 
     @patch("requests.get")
     @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")

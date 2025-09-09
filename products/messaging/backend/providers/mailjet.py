@@ -134,29 +134,29 @@ class MailjetProvider:
                 return
 
             response.raise_for_status()
-            return MailjetResponse(**response.json()).get_first_item()
+            return response.json()
         except requests.exceptions.RequestException as e:
             logger.exception(f"Mailjet API error creating sender email: {e}")
             raise
 
-    def create_email_sender(self, sender: str, team_id: int):
+    def create_email_domain(self, domain: str, team_id: int):
         """
         Create a new sender domain in Mailjet
 
         Reference: https://dev.mailjet.com/email/reference/sender-addresses-and-domains/sender/#v3_post_sender
         """
-        # Validate the domain contains valid characters for an email address
-        EMAIL_REGEX = r"(?i)^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-        if not re.match(EMAIL_REGEX, sender):
-            raise exceptions.ValidationError("Please enter a valid email address.")
+        # Validate the domain contains valid characters for a domain name
+        DOMAIN_REGEX = r"(?i)^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
+        if not re.match(DOMAIN_REGEX, domain):
+            raise exceptions.ValidationError("Please enter a valid domain name.")
 
         url = f"{MailjetConfig.API_BASE_URL_V3}{MailjetConfig.SENDER_ENDPOINT}"
 
         # Use the team ID and domain to create a unique sender name on Mailjet side.
         # This isn't used by PostHog, but can be helpful when looking at senders in the Mailjet console.
-        delimited_sender_name = f"{team_id}|{sender}"
+        delimited_sender_name = f"{team_id}|{domain}"
         # EmailType = "unknown" as both transactional and campaign emails may be sent from this domain
-        payload = {"EmailType": "unknown", "Email": sender, "Name": delimited_sender_name}
+        payload = {"EmailType": "unknown", "Email": domain, "Name": delimited_sender_name}
 
         try:
             response = requests.post(
@@ -176,6 +176,43 @@ class MailjetProvider:
             logger.exception(f"Mailjet API error creating sender domain: {e}")
             raise
 
+    def create_email_address(self, sender: str, team_id: int):
+        """
+        Create a new sender email address in Mailjet
+
+        Reference: https://dev.mailjet.com/email/reference/sender-addresses-and-domains/sender/#v3_post_sender
+        """
+        # Validate the email contains valid characters for an email address
+        EMAIL_REGEX = r"(?i)^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+        if not re.match(EMAIL_REGEX, sender):
+            raise exceptions.ValidationError("Please enter a valid email address.")
+
+        url = f"{MailjetConfig.API_BASE_URL_V3}{MailjetConfig.SENDER_ENDPOINT}"
+
+        # Use the team ID and email to create a unique sender name on Mailjet side.
+        # This isn't used by PostHog, but can be helpful when looking at senders in the Mailjet console.
+        delimited_sender_name = f"{team_id}|{sender}"
+        # EmailType = "unknown" as both transactional and campaign emails may be sent from this address
+        payload = {"EmailType": "unknown", "Email": sender, "Name": delimited_sender_name}
+
+        try:
+            response = requests.post(
+                url, auth=(self.api_key, self.api_secret), headers=MailjetConfig.DEFAULT_HEADERS, json=payload
+            )
+
+            if (
+                response.status_code == 400
+                and "There is an already existing" in response.text
+                and "sender with the same email" in response.text
+            ):
+                # If the email address already exists, we can return without raising exception
+                return
+
+            response.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            logger.exception(f"Mailjet API error creating sender email: {e}")
+            raise
+
     def verify_email_domain(self, domain: str):
         """
         Verify the email domain by checking DNS records status.
@@ -190,12 +227,8 @@ class MailjetProvider:
         With Mailjet, verification emails are sent to email addresses when they are added as senders.
         This function checks the verification status of the individual email address apart from domain DNS validation.
         """
-        email_address_status = self._check_email_address(email)
-        if (
-            not email_address_status
-            or email_address_status.get("Emails", False)
-            or email_address_status.get("GlobalError", False)
-        ):
+        email_address_status = self._check_email_address(email) or {}
+        if email_address_status.get("ValidationMethod", False) == "ActivationEmail":
             return {"status": "pending"}
 
         return {"status": "success"}
