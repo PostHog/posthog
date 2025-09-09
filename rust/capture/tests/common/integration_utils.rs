@@ -958,7 +958,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
     let liveness = HealthRegistry::new("integration_tests");
     let sink = MemorySink::default();
     let timesource = FixedTime {
-        time: DateTime::parse_from_rfc3339(&unit.fixed_time)
+        time: DateTime::parse_from_rfc3339(unit.fixed_time)
             .expect("Invalid fixed time format in test case")
             .with_timezone(&Utc),
     };
