@@ -5,8 +5,12 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconFullScreen } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
 import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
-import { CommentOnRecordingButton } from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
+import {
+    CommentOnRecordingButton,
+    EmojiCommentOnRecordingButton,
+} from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
 import {
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
@@ -97,19 +101,22 @@ function CinemaMode(): JSX.Element {
     )
 }
 
-function Screenshot(): JSX.Element {
+export function Screenshot({ className }: { className?: string }): JSX.Element {
     const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
 
     return (
         <LemonButton
             size="xsmall"
-            onClick={takeScreenshot}
+            onClick={(e) => {
+                e.stopPropagation()
+                takeScreenshot()
+            }}
             tooltip={
                 <>
                     Take a screenshot of this point in the recording <KeyboardShortcut s />
                 </>
             }
-            icon={<IconCamera className="text-xl" />}
+            icon={<IconCamera className={cn('text-xl', className)} />}
             data-attr="replay-screenshot-png"
             tooltipPlacement="top"
         />
@@ -141,6 +148,7 @@ export function PlayerController(): JSX.Element {
                     {!isCinemaMode && playerMode === SessionRecordingPlayerMode.Standard && (
                         <>
                             <CommentOnRecordingButton />
+                            <EmojiCommentOnRecordingButton />
                             <Screenshot />
                             <ClipRecording />
                             {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}

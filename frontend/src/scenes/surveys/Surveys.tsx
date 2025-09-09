@@ -168,7 +168,6 @@ function Surveys(): JSX.Element {
                 description="Create surveys to collect feedback from your users"
                 resourceType={{
                     type: 'survey',
-                    typePlural: 'surveys',
                 }}
                 docsURL="https://posthog.com/docs/surveys?utm_medium=in-product&utm_campaign=new-survey"
             />

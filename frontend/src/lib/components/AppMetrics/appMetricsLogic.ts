@@ -71,7 +71,7 @@ export const loadAppMetricsTotals = async (
     if (request.appSourceId) {
         query = (query + hogql`\nAND app_source_id = ${request.appSourceId}`) as HogQLQueryString
     }
-    if (request.instanceId) {
+    if (typeof request.instanceId === 'string') {
         query = (query + hogql`\nAND instance_id = ${request.instanceId}`) as HogQLQueryString
     }
     if (request.metricName) {
@@ -172,7 +172,7 @@ const loadAppMetricsTimeSeries = async (
     if (request.appSourceId) {
         query = (query + hogql`\nAND app_source_id = ${request.appSourceId}`) as HogQLQueryString
     }
-    if (request.instanceId) {
+    if (typeof request.instanceId === 'string') {
         query = (query + hogql`\nAND instance_id = ${request.instanceId}`) as HogQLQueryString
     }
     if (request.metricName) {
@@ -241,6 +241,8 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
     })),
     actions({
         setParams: (params: Partial<AppMetricsCommonParams>) => ({ params }),
+        loadAppMetricsTrends: true,
+        loadAppMetricsTrendsPreviousPeriod: true,
     }),
     reducers(({ props }) => ({
         params: [
@@ -259,7 +261,8 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
         appMetricsTrends: [
             null as AppMetricsTimeSeriesResponse | null,
             {
-                loadAppMetricsTrends: async () => {
+                loadAppMetricsTrends: async (_, breakpoint) => {
+                    await breakpoint(10)
                     const dateRange = values.getDateRangeAbsolute()
                     const params: AppMetricsTimeSeriesRequest = {
                         ...values.params,
@@ -267,14 +270,18 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
                         dateTo: dateRange.dateTo.toISOString(),
                     }
 
-                    return await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC')
+                    const result = await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC')
+                    await breakpoint(10)
+
+                    return result
                 },
             },
         ],
         appMetricsTrendsPreviousPeriod: [
             null as AppMetricsTimeSeriesResponse | null,
             {
-                loadAppMetricsTrendsPreviousPeriod: async () => {
+                loadAppMetricsTrendsPreviousPeriod: async (_, breakpoint) => {
+                    await breakpoint(10)
                     const dateRange = values.getDateRangeAbsolute()
                     const params: AppMetricsTimeSeriesRequest = {
                         ...values.params,
@@ -282,7 +289,10 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
                         dateTo: dateRange.dateTo.subtract(dateRange.diffMs).toISOString(),
                     }
 
-                    return await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC')
+                    const result = await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC')
+                    await breakpoint(10)
+
+                    return result
                 },
             },
         ],

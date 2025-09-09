@@ -118,7 +118,6 @@ export function Info(): JSX.Element {
                 description={null}
                 resourceType={{
                     type: 'experiment',
-                    typePlural: 'experiments',
                 }}
                 isLoading={experimentLoading}
                 onNameChange={(name) => updateExperiment({ name })}

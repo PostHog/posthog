@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
-import { IconCopy, IconTrash } from '@posthog/icons'
+import { IconCopy, IconInfo, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonDivider, LemonFileInput, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -224,8 +224,6 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         resourceType={{
                             to: urls.cohorts(),
                             type: RESOURCE_TYPE,
-                            typePlural: 'cohorts',
-                            tooltip: 'Go to all cohorts',
                         }}
                         isLoading={cohortLoading}
                         onNameChange={(value) => {
@@ -382,12 +380,37 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     {({ onChange }) => (
                                         <>
                                             {!newSceneLayout && !isNewCohort && (
-                                                <span>
-                                                    Upload a CSV file to add users to your cohort. For single-column
-                                                    files, include one distinct ID per row (all rows will be processed
-                                                    as data). Fo`r multi-column files, include a header row with a
-                                                    'distinct_id' column containing the user identifiers.
-                                                </span>
+                                                <div className="flex items-center gap-2">
+                                                    <span>
+                                                        Upload a CSV file to add users to your cohort using distinct IDs
+                                                        or person UUIDs.
+                                                    </span>
+                                                    <Tooltip
+                                                        title={
+                                                            <>
+                                                                <div className="space-y-2">
+                                                                    <div>
+                                                                        <strong>Distinct IDs:</strong> Use "
+                                                                        <code>distinct_id</code>" (or "
+                                                                        <code>distinct-id</code>") as the column header
+                                                                        (for multi-column CSV uploads) or include one
+                                                                        distinct ID per row (no header needed) for a
+                                                                        single-column CSV.
+                                                                    </div>
+                                                                    <div>
+                                                                        <strong>Person UUIDs:</strong> Use "
+                                                                        <code>person_id</code>" (or "
+                                                                        <code>person-id</code>" or "
+                                                                        <code>Person .id</code>") as the column header
+                                                                        (for single-column or multi-column CSV uploads).
+                                                                    </div>
+                                                                </div>
+                                                            </>
+                                                        }
+                                                    >
+                                                        <IconInfo className="text-secondary text-lg" />
+                                                    </Tooltip>
+                                                </div>
                                             )}
                                             <LemonFileInput
                                                 accept=".csv"
