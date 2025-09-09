@@ -1,7 +1,6 @@
 import { DateTime } from 'luxon'
 
 import { HogFlow, HogFlowAction } from '../../../schema/hogflow'
-import { Hub } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { UUIDT } from '../../../utils/utils'
 import {
@@ -16,8 +15,6 @@ import {
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
-import { HogExecutorService } from '../hog-executor.service'
-import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { ActionHandler } from './actions/action.interface'
 import { ConditionalBranchHandler } from './actions/conditional_branch'
@@ -27,25 +24,40 @@ import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
 import { TriggerHandler } from './actions/trigger.handler'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
+import { HogFlowFunctionsService } from './hogflow-functions.service'
 import { actionIdForLogging, ensureCurrentAction, findContinueAction, shouldSkipAction } from './hogflow-utils'
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
+
+export function createHogFlowInvocation(
+    globals: HogFunctionInvocationGlobals,
+    hogFlow: HogFlow,
+    filterGlobals: HogFunctionFilterGlobals
+): CyclotronJobInvocationHogFlow {
+    return {
+        id: new UUIDT().toString(),
+        state: {
+            event: globals.event,
+            actionStepCount: 0,
+        },
+        teamId: hogFlow.team_id,
+        functionId: hogFlow.id, // TODO: Include version?
+        hogFlow,
+        person: globals.person, // This is outside of state as we don't persist it
+        filterGlobals,
+        queue: 'hogflow',
+        queuePriority: 1,
+    }
+}
 
 export class HogFlowExecutorService {
     private readonly actionHandlers: Record<HogFlowAction['type'], ActionHandler>
 
     constructor(
-        private hub: Hub,
-        private hogFunctionExecutor: HogExecutorService,
-        private hogFunctionTemplateManager: HogFunctionTemplateManagerService,
-        private recipientPreferencesService: RecipientPreferencesService
+        hogFlowFunctionsService: HogFlowFunctionsService,
+        recipientPreferencesService: RecipientPreferencesService
     ) {
-        const hogFunctionHandler = new HogFunctionHandler(
-            this.hub,
-            this.hogFunctionExecutor,
-            this.hogFunctionTemplateManager,
-            this.recipientPreferencesService
-        )
+        const hogFunctionHandler = new HogFunctionHandler(hogFlowFunctionsService, recipientPreferencesService)
 
         this.actionHandlers = {
             trigger: new TriggerHandler(),
@@ -58,27 +70,6 @@ export class HogFlowExecutorService {
             function_sms: hogFunctionHandler,
             function_email: hogFunctionHandler,
             exit: new ExitHandler(),
-        }
-    }
-
-    public createHogFlowInvocation(
-        globals: HogFunctionInvocationGlobals,
-        hogFlow: HogFlow,
-        filterGlobals: HogFunctionFilterGlobals
-    ): CyclotronJobInvocationHogFlow {
-        return {
-            id: new UUIDT().toString(),
-            state: {
-                event: globals.event,
-                actionStepCount: 0,
-            },
-            teamId: hogFlow.team_id,
-            functionId: hogFlow.id, // TODO: Include version?
-            hogFlow,
-            person: globals.person, // This is outside of state as we don't persist it
-            filterGlobals,
-            queue: 'hogflow',
-            queuePriority: 1,
         }
     }
 
@@ -115,7 +106,7 @@ export class HogFlowExecutorService {
                 continue
             }
 
-            const invocation = this.createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
+            const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
             invocations.push(invocation)
         }
 
@@ -181,7 +172,7 @@ export class HogFlowExecutorService {
         let conversionMatch: boolean | undefined = undefined
 
         // Use the same filter evaluation as in buildHogFlowInvocations
-        if (hogFlow.trigger.filters && person) {
+        if (hogFlow.trigger.type === 'event' && hogFlow.trigger.filters && person) {
             const filterResult = await filterFunctionInstrumented({
                 fn: hogFlow,
                 filters: hogFlow.trigger.filters,

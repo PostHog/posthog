@@ -198,7 +198,7 @@ export function Info(): JSX.Element {
                     </div>
 
                     <div className="w-[500px]">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 mt-2">
                             <Label intent="menu">Hypothesis</Label>
                             <LemonButton
                                 type="secondary"

@@ -5,7 +5,6 @@ import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 
 import { insertHogFunctionTemplate } from '../../_tests/fixtures'
-import { compileHog } from '../../templates/compiler'
 import { HogFunctionTemplateManagerService } from './hog-function-template-manager.service'
 
 describe('HogFunctionTemplateManager', () => {
@@ -32,7 +31,6 @@ describe('HogFunctionTemplateManager', () => {
                     },
                 ],
                 code: 'fetch(inputs.url)',
-                bytecode: await compileHog('fetch(inputs.url)'),
             })
         )
     })
