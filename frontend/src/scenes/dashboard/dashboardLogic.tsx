@@ -1520,7 +1520,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 values.urlFilters,
                                 values.urlVariables,
                                 Math.floor(performance.now() - insightRefreshStartTime),
-                                true
+                                false
                             )
                         } else {
                             actions.setRefreshError(insight.short_id)
