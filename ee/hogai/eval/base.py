@@ -19,10 +19,13 @@ async def BaseMaxEval(
     is_public: bool = False,
     no_send_logs: bool = True,
 ):
-    # We need to specify a separate project for each MaxEval() suite for comparison to baseline to work
-    # That's the way Braintrust folks recommended - Braintrust projects are much more lightweight than PostHog ones
-    project_name = f"max-ai-{experiment_name}"
-    init_logger(project_name)
+    if is_public and not no_send_logs:
+        # We need to specify a separate project for each MaxEval() suite for comparison to baseline to work
+        # That's the way Braintrust folks recommended - Braintrust projects are much more lightweight than PostHog ones
+        project_name = f"max-ai-{experiment_name}"
+        init_logger(project_name)
+    else:
+        project_name = experiment_name
 
     # Filter by --case <eval_case_name_part> pytest flag
     case_filter = pytestconfig.option.eval

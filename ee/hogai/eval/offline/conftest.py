@@ -6,6 +6,7 @@ import pytest
 
 from asgiref.sync import async_to_sync
 from dagster_pipes import PipesContext, open_dagster_pipes
+from posthoganalytics import Posthog
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel, ConfigDict, Field, SkipValidation
 
@@ -34,17 +35,16 @@ class EvaluationContext(BaseModel):
     dataset_id: str
     dataset_name: str
     dataset_inputs: list[DatasetInput]
-    callback_handler: CallbackHandler | None = Field(default=None)
+    client: Posthog | None = Field(default=None)
 
     def format_experiment_name(self, test_name: str) -> str:
         """Generate a unique experiment name for the given test name."""
         return f"max-ai-{self.experiment_name}-{test_name}"
 
     def get_callback_handlers(self, test_name: str) -> list[CallbackHandler] | None:
-        client = get_client("US")
         return [
             CallbackHandler(
-                client,
+                self.client,
                 distinct_id="ai_evaluator",
                 properties={
                     "dataset_id": self.dataset_id,
@@ -69,6 +69,8 @@ def eval_ctx(
     with django_db_blocker.unblock():
         dagster_context.log.info(f"Loading Postgres and ClickHouse snapshots...")
 
+        posthog_client = get_client("US")
+
         config = EvalsDockerImageConfig.model_validate(dagster_context.extras)
         loader = SnapshotLoader(dagster_context, config)
         org, user = async_to_sync(loader.load_snapshots)()
@@ -82,6 +84,8 @@ def eval_ctx(
             dataset_name=config.dataset_name,
             dataset_inputs=config.dataset_inputs,
         )
+
+        posthog_client.shutdown()
 
         dagster_context.log.info(f"Cleaning up...")
         loader.cleanup()

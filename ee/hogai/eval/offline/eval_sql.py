@@ -90,7 +90,7 @@ async def sql_syntax_scorer(input: DatasetInput, expected: str, output: EvalOutp
         expected=expected,
         output=output.sql_query,
         database_schema=output.database_schema,
-        team=Team.objects.get(id=input.team_id),
+        team=await Team.objects.aget(id=input.team_id),
     )
 
 
@@ -101,10 +101,10 @@ def generate_test_cases(eval_ctx: EvaluationContext):
 
 
 @pytest.mark.django_db
-async def eval_offline_sql(eval_ctx: EvaluationContext, call_graph, pytestconfig):
+async def eval_offline_sql(eval_ctx: EvaluationContext, pytestconfig):
     await MaxPrivateEval(
         experiment_name=eval_ctx.format_experiment_name(eval_offline_sql.__name__),
-        task=call_graph,
+        task=call_graph(eval_ctx, eval_offline_sql.__name__),
         scores=[sql_syntax_scorer, sql_semantics_scorer],
         data=generate_test_cases(eval_ctx),
         pytestconfig=pytestconfig,
