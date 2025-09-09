@@ -694,7 +694,7 @@ export class IngestionConsumer {
         })
 
         const results = await Promise.all(pipelinePromises)
-        return results.filter((result) => result !== null)
+        return results.filter((result): result is IncomingEventWithTeam => result !== null)
     }
 
     private groupEventsByDistinctId(messages: IncomingEventWithTeam[]): IncomingEventsByDistinctId {
