@@ -2,7 +2,7 @@ use anyhow::Result;
 use rdkafka::message::OwnedMessage;
 use rdkafka::Message;
 use tokio::sync::OwnedSemaphorePermit;
-use tracing::{error, info, warn};
+use tracing::{debug, error, warn};
 
 use crate::kafka::metrics_consts::MESSAGES_AUTO_NACKED;
 use crate::kafka::tracker::{MessageCompletion, MessageHandle};
@@ -54,7 +54,7 @@ impl AckableMessage {
         self.handle.complete(MessageResult::Success).await;
         self.acked = true;
 
-        info!(
+        debug!(
             "Acked message: id={}, offset={}",
             self.handle.message_id, offset
         );
@@ -73,7 +73,7 @@ impl AckableMessage {
             .await;
         self.acked = true;
 
-        info!(
+        debug!(
             "Nacked message: id={}, offset={}, error={}",
             self.handle.message_id, offset, error
         );

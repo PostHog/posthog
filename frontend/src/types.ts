@@ -299,6 +299,7 @@ export enum AccessControlResourceType {
     Insight = 'insight',
     Dashboard = 'dashboard',
     Notebook = 'notebook',
+    SessionRecording = 'session_recording',
 }
 
 interface UserBaseType {
@@ -4349,6 +4350,7 @@ export interface SharingConfigurationType {
     enabled: boolean
     access_token: string
     created_at: string
+    password_required: boolean
     settings?: SharingConfigurationSettings
 }
 
