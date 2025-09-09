@@ -161,13 +161,13 @@ export function SharingModalContent({
                                 fullWidth
                                 loading={sharingConfigurationLoading}
                                 accessControl={{
-                                    userLevel: userAccessLevel,
-                                    minLevel: AccessControlLevel.Editor,
-                                    resource: dashboardId
+                                    resourceType: dashboardId
                                         ? AccessControlResourceType.Dashboard
                                         : insightShortId
                                           ? AccessControlResourceType.Insight
                                           : AccessControlResourceType.Project,
+                                    minAccessLevel: AccessControlLevel.Editor,
+                                    userAccessLevel: userAccessLevel,
                                 }}
                             />
                         )}
