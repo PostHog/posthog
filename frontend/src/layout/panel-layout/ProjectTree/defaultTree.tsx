@@ -66,6 +66,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconPiggyBank />,
         iconColor: ['var(--color-product-revenue-analytics-light)', 'var(--color-product-revenue-analytics-dark)'],
     },
+    revenue_analytics_metadata: {
+        icon: <IconPiggyBank />,
+    },
     marketing_settings: {
         icon: <IconHandMoney />,
     },
@@ -126,6 +129,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     data_pipeline: {
         icon: <IconPlug />,
         iconColor: ['var(--color-product-data-pipeline-light)'],
+    },
+    data_pipeline_metadata: {
+        icon: <IconPlug />,
     },
     data_warehouse: {
         icon: <IconDatabase />,
@@ -357,21 +363,21 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         path: `Sources`,
         category: 'Pipeline',
         type: 'hog_function/source',
-        iconType: 'data_pipeline',
+        iconType: 'data_pipeline_metadata',
         href: urls.pipeline(PipelineTab.Sources),
     } as FileSystemImport,
     {
         path: `Transformations`,
         category: 'Pipeline',
         type: 'hog_function/transformation',
-        iconType: 'data_pipeline',
+        iconType: 'data_pipeline_metadata',
         href: urls.pipeline(PipelineTab.Transformations),
     } as FileSystemImport,
     {
         path: `Destinations`,
         category: 'Pipeline',
         type: 'hog_function/destination',
-        iconType: 'data_pipeline',
+        iconType: 'data_pipeline_metadata',
         href: urls.pipeline(PipelineTab.Destinations),
     } as FileSystemImport,
 ]

@@ -68,7 +68,6 @@ export const manifest: ProductManifest = {
             category: 'Definitions',
             href: urls.actions(),
             iconType: 'action' as FileSystemIconType,
-            iconColor: ['var(--color-product-actions-light)'] as FileSystemIconColor,
         },
     ],
 }
