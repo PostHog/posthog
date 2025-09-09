@@ -159,6 +159,7 @@ def LOG_ENTRIES_V3_TABLE_MV_SQL(on_cluster=False):
     _timestamp,
     _offset
     FROM {database}.{from_table}
+    WHERE toDate(timestamp) <= today()
     """.format(
         table_name=LOG_ENTRIES_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
