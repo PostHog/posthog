@@ -191,12 +191,18 @@ fn apply_core_config_fields(response: &mut FlagsResponse, config: &Config, team:
             let mut perf_map = HashMap::new();
             perf_map.insert("network_timing".to_string(), serde_json::json!(network));
             perf_map.insert("web_vitals".to_string(), serde_json::json!(web_vitals));
-            if web_vitals {
-                perf_map.insert(
-                    "web_vitals_allowed_metrics".to_string(),
-                    serde_json::json!(autocapture_web_vitals_allowed_metrics.cloned()),
-                );
-            }
+            // Always include web_vitals_allowed_metrics field for parity with Python decide endpoint
+            // When web_vitals is false, it's null
+            // When web_vitals is true, it's the team's configured metrics (which could also be null)
+            let metrics_value = if web_vitals {
+                autocapture_web_vitals_allowed_metrics.cloned()
+            } else {
+                None
+            };
+            perf_map.insert(
+                "web_vitals_allowed_metrics".to_string(),
+                serde_json::json!(metrics_value),
+            );
             Some(serde_json::json!(perf_map))
         }
     };
@@ -423,7 +429,8 @@ mod tests {
 
         let expected = json!({
             "network_timing": true,
-            "web_vitals": false
+            "web_vitals": false,
+            "web_vitals_allowed_metrics": null
         });
         assert_eq!(response.config.capture_performance, Some(expected));
     }

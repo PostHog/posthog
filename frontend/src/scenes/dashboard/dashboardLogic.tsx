@@ -1135,7 +1135,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (dashboard) => {
                 return dashboard?.user_access_level
                     ? accessLevelSatisfied(AccessControlResourceType.Dashboard, dashboard.user_access_level, 'editor')
-                    : true
+                    : false
             },
         ],
         canRestrictDashboard: [

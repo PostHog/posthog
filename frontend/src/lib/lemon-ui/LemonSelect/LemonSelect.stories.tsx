@@ -2,6 +2,8 @@ import { Meta, StoryFn, StoryObj } from '@storybook/react'
 
 import { capitalizeFirstLetter } from 'lib/utils'
 
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from './LemonSelect'
 
 type Story = StoryObj<typeof LemonSelect>
@@ -133,6 +135,37 @@ export const FullWidth: StoryFn<typeof LemonSelect> = (props: LemonSelectProps<a
     return (
         <div className="items-center w-full border p-4 gap-2">
             <LemonSelect {...props} fullWidth={true} allowClear={true} value="poodle" />
+        </div>
+    )
+}
+
+export const WithAccessControl = (): JSX.Element => {
+    const options = [
+        { value: 'husky', label: 'Husky' },
+        { value: 'poodle', label: 'Poodle' },
+        { value: 'labrador', label: 'Labrador' },
+    ] as LemonSelectOptions<string>
+
+    return (
+        <div className="flex gap-4 items-center">
+            <LemonSelect
+                options={options}
+                placeholder="Enabled (editor ≥ viewer)"
+                accessControl={{
+                    userLevel: AccessControlLevel.Editor,
+                    minLevel: AccessControlLevel.Viewer,
+                    resource: AccessControlResourceType.Dashboard,
+                }}
+            />
+            <LemonSelect
+                options={options}
+                placeholder="Disabled (viewer < editor)"
+                accessControl={{
+                    userLevel: AccessControlLevel.Viewer,
+                    minLevel: AccessControlLevel.Editor,
+                    resource: AccessControlResourceType.Dashboard,
+                }}
+            />
         </div>
     )
 }

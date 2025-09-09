@@ -1304,30 +1304,43 @@ class FileSystemEntry(BaseModel):
 
 
 class FileSystemIconType(StrEnum):
-    PLUG = "plug"
-    COHORT = "cohort"
-    INSIGHT = "insight"
-    DEFINITIONS = "definitions"
-    WARNING = "warning"
-    ERROR_TRACKING = "errorTracking"
-    AI = "ai"
-    CURSOR = "cursor"
+    DASHBOARD = "dashboard"
+    LLM_ANALYTICS = "llm_analytics"
+    PRODUCT_ANALYTICS = "product_analytics"
+    REVENUE_ANALYTICS = "revenue_analytics"
+    SQL_EDITOR = "sql_editor"
+    WEB_ANALYTICS = "web_analytics"
+    ERROR_TRACKING = "error_tracking"
     HEATMAP = "heatmap"
-    DATABASE = "database"
-    FOLDER = "folder"
-    HAND_MONEY = "handMoney"
-    LIVE = "live"
-    NOTIFICATION = "notification"
-    PIE_CHART = "pieChart"
-    PIGGY_BANK = "piggyBank"
-    SQL = "sql"
-    INSIGHT_FUNNEL = "insightFunnel"
-    INSIGHT_TRENDS = "insightTrends"
-    INSIGHT_RETENTION = "insightRetention"
-    INSIGHT_USER_PATHS = "insightUserPaths"
-    INSIGHT_LIFECYCLE = "insightLifecycle"
-    INSIGHT_STICKINESS = "insightStickiness"
-    INSIGHT_HOG_QL = "insightHogQL"
+    SESSION_REPLAY = "session_replay"
+    SURVEY = "survey"
+    USER_INTERVIEW = "user_interview"
+    EARLY_ACCESS_FEATURE = "early_access_feature"
+    EXPERIMENT = "experiment"
+    FEATURE_FLAG = "feature_flag"
+    DATA_PIPELINE = "data_pipeline"
+    DATA_WAREHOUSE = "data_warehouse"
+    TASK = "task"
+    LINK = "link"
+    LOGS = "logs"
+    MESSAGING = "messaging"
+    NOTEBOOK = "notebook"
+    ACTION = "action"
+    COMMENT = "comment"
+    ANNOTATION = "annotation"
+    EVENT_DEFINITION = "event_definition"
+    PROPERTY_DEFINITION = "property_definition"
+    INGESTION_WARNING = "ingestion_warning"
+    PERSON = "person"
+    COHORT = "cohort"
+    GROUP = "group"
+    INSIGHT_FUNNEL = "insight_funnel"
+    INSIGHT_TREND = "insight_trend"
+    INSIGHT_RETENTION = "insight_retention"
+    INSIGHT_USER_PATH = "insight_user_path"
+    INSIGHT_LIFECYCLE = "insight_lifecycle"
+    INSIGHT_STICKINESS = "insight_stickiness"
+    INSIGHT_HOGQL = "insight_hogql"
 
 
 class FileSystemImport(BaseModel):
@@ -1343,6 +1356,7 @@ class FileSystemImport(BaseModel):
     )
     flag: Optional[str] = None
     href: Optional[str] = Field(default=None, description="Object's URL")
+    iconColor: Optional[list[str]] = Field(default=None, description="Color of the icon")
     iconType: Optional[FileSystemIconType] = None
     id: Optional[str] = None
     meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
@@ -4528,6 +4542,9 @@ class SavedInsightNode(BaseModel):
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResults: Optional[bool] = None
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
+    showSavedFilters: Optional[bool] = Field(
+        default=None, description="Show saved filters feature for this table (requires uniqueKey)"
+    )
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
     showTable: Optional[bool] = None
@@ -13973,6 +13990,9 @@ class DataTableNode(BaseModel):
     )
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
+    showSavedFilters: Optional[bool] = Field(
+        default=None, description="Show saved filters feature for this table (requires uniqueKey)"
+    )
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
     showTestAccountFilters: Optional[bool] = Field(default=None, description="Show filter to exclude test accounts")

@@ -856,8 +856,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 name={defaultInsightName || ''}
                 description={insight?.description || ''}
                 resourceType={{
-                    type: 'insight',
-                    typePlural: 'insights',
+                    type: 'product_analytics',
                 }}
                 onNameChange={(name) => {
                     setInsightMetadata({ name })

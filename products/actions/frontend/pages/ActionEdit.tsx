@@ -326,8 +326,6 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                     resourceType={{
                         to: urls.actions(),
                         type: RESOURCE_TYPE,
-                        tooltip: 'Go to all actions',
-                        typePlural: 'actions',
                     }}
                     markdown={true}
                     isLoading={actionLoading}
