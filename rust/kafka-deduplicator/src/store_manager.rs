@@ -195,7 +195,8 @@ impl StoreManager {
     /// Cleanup old entries across all stores to maintain global capacity
     ///
     /// This method checks the total size across all stores and triggers cleanup
-    /// on individual stores if the global capacity is exceeded.
+    /// on individual stores if the global capacity is exceeded. Cleanup is distributed
+    /// across all stores by removing a percentage of each store's time range.
     pub fn cleanup_old_entries_if_needed(&self) -> Result<u64> {
         let start_time = Instant::now();
 
@@ -228,17 +229,23 @@ impl StoreManager {
         let target_size = (self.store_config.max_capacity as f64 * 0.8) as u64;
         let bytes_to_free = total_size.saturating_sub(target_size);
 
-        // Cleanup stores proportionally or by age
+        // Calculate cleanup percentage based on how much we need to free
+        // If we need to free 20% of total size, clean up 20% of time range from each store
+        let cleanup_percentage = (bytes_to_free as f64 / total_size as f64).min(0.3); // Cap at 30% max
+
+        info!(
+            "Cleaning up {:.1}% of time range from each store (need to free {} bytes)",
+            cleanup_percentage * 100.0,
+            bytes_to_free
+        );
+
+        // Cleanup stores with the calculated percentage
         let mut total_bytes_freed = 0u64;
 
-        // Iterate through stores and trigger cleanup until we've freed enough
+        // Clean up all stores with the same percentage to ensure fair distribution
         for entry in self.stores.iter() {
-            if total_bytes_freed >= bytes_to_free {
-                break;
-            }
-
             let store = entry.value();
-            match store.cleanup_old_entries() {
+            match store.cleanup_old_entries_with_percentage(cleanup_percentage) {
                 Ok(bytes_freed) => {
                     total_bytes_freed += bytes_freed;
                     if bytes_freed > 0 {
