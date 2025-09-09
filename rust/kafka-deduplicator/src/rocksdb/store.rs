@@ -5,9 +5,10 @@ use std::{
 
 use anyhow::{Context, Result};
 use num_cpus;
+use once_cell::sync::Lazy;
 use rocksdb::{
-    checkpoint::Checkpoint, BlockBasedOptions, BoundColumnFamily, ColumnFamilyDescriptor,
-    DBWithThreadMode, MultiThreaded, Options, WriteBatch, WriteOptions,
+    checkpoint::Checkpoint, BlockBasedOptions, BoundColumnFamily, Cache, ColumnFamilyDescriptor,
+    DBWithThreadMode, MultiThreaded, Options, WriteBatch, WriteBufferManager, WriteOptions,
 };
 use std::time::Instant;
 
@@ -20,6 +21,27 @@ pub struct RocksDbStore {
     path_location: PathBuf,
     metrics: MetricsHelper,
 }
+
+// Shared block cache for all RocksDB instances (1GB default)
+static SHARED_BLOCK_CACHE: Lazy<Arc<Cache>> = Lazy::new(|| {
+    let cache_size = std::env::var("ROCKSDB_SHARED_CACHE_SIZE")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(2048 * 1024 * 1024); // 2GB default
+    
+    Arc::new(Cache::new_lru_cache(cache_size))
+});
+
+// Shared write buffer manager to limit total memory used for write buffers
+static SHARED_WRITE_BUFFER_MANAGER: Lazy<Arc<WriteBufferManager>> = Lazy::new(|| {
+    let total_write_buffer_size = std::env::var("ROCKSDB_TOTAL_WRITE_BUFFER_SIZE")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(2048 * 1024 * 1024); // 2GB total for ALL stores
+    
+    // false = don't allow stall (we'll handle backpressure at Kafka level)
+    Arc::new(WriteBufferManager::new_write_buffer_manager(total_write_buffer_size, false))
+});
 
 fn rocksdb_options() -> Options {
     let num_threads = std::cmp::max(2, num_cpus::get()); // Avoid setting to 0 or 1
@@ -40,12 +62,18 @@ fn rocksdb_options() -> Options {
     block_opts.set_bloom_filter(10.0, false);
     block_opts.set_cache_index_and_filter_blocks(true);
     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
+    
+    // CRITICAL: Use shared block cache across all stores
+    block_opts.set_block_cache(&SHARED_BLOCK_CACHE);
 
     opts.set_block_based_table_factory(&block_opts);
+    
+    // CRITICAL: Use shared write buffer manager to limit total memory
+    opts.set_write_buffer_manager(&SHARED_WRITE_BUFFER_MANAGER);
 
-    // Memory budget
-    opts.set_write_buffer_size(64 * 1024 * 1024); // 64MB memtable
-    opts.set_max_write_buffer_number(4); // up to 256MB in memtables
+    // Reduced memory budget per store (with 50 partitions per pod)
+    opts.set_write_buffer_size(8 * 1024 * 1024); // Reduced to 8MB per memtable
+    opts.set_max_write_buffer_number(2); // Max 2 buffers = 16MB per partition
     opts.set_target_file_size_base(64 * 1024 * 1024); // SST files ~64MB
 
     // Parallelism
@@ -54,11 +82,11 @@ fn rocksdb_options() -> Options {
 
     // Reduce background IO impact
     opts.set_disable_auto_compactions(false);
-    opts.set_max_open_files(500); // tweak as needed
+    opts.set_max_open_files(100); // Reduced from 500 for 50 partitions per pod
 
-    // Faster startup for large DBs
-    opts.set_allow_mmap_reads(true);
-    opts.set_allow_mmap_writes(true);
+    // CRITICAL: Disable mmap with many partitions to avoid virtual memory explosion
+    opts.set_allow_mmap_reads(false);
+    opts.set_allow_mmap_writes(false);
 
     opts
 }
