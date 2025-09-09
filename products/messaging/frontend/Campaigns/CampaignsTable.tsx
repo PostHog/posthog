@@ -79,6 +79,17 @@ export function CampaignsTable(): JSX.Element {
         },
 
         {
+            title: 'Trigger',
+            width: 0,
+            render: (_, item) => {
+                return (
+                    <Link to={urls.messagingCampaign(item.id, 'workflow') + '?node=trigger_node'}>
+                        <LemonTag type="default">{capitalizeFirstLetter(item.trigger?.type ?? 'unknown')}</LemonTag>
+                    </Link>
+                )
+            },
+        },
+        {
             title: 'Actions',
             width: 0,
             render: (_, item) => {
