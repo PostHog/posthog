@@ -287,6 +287,9 @@ impl StoreManager {
             }
         }
 
+        // Log folder sizes and assigned partitions
+        self.log_folder_sizes_and_partitions();
+
         // Check if we're under capacity
         if total_size <= self.store_config.max_capacity {
             return Ok(0); // Under capacity, no cleanup needed
@@ -296,9 +299,6 @@ impl StoreManager {
             "Global store size {} exceeds max capacity {}, triggering cleanup",
             total_size, self.store_config.max_capacity
         );
-
-        // Log folder sizes and assigned partitions
-        self.log_folder_sizes_and_partitions();
 
         // We need to clean up - target 80% of max capacity
         let target_size = (self.store_config.max_capacity as f64 * 0.8) as u64;
