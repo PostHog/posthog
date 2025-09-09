@@ -35,7 +35,7 @@ import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
-import { ResultHandlingPipeline } from '../worker/ingestion/result-handling-pipeline'
+import { PipelineConfig, ResultHandlingPipeline } from '../worker/ingestion/result-handling-pipeline'
 import { deduplicateEvents } from './deduplication/events'
 import { DeduplicationRedis, createDeduplicationRedis } from './deduplication/redis-client'
 import {
@@ -130,6 +130,10 @@ export class IngestionConsumer {
         IncomingEventWithTeam
     >
     private validateEventUuidStep: AsyncPreprocessingStep<IncomingEventWithTeam, IncomingEventWithTeam>
+    private applyForceOverflowRestrictionsStep: SyncPreprocessingStep<
+        { message: Message; headers: EventHeaders },
+        { message: Message; headers: EventHeaders }
+    >
 
     constructor(
         private hub: Hub,
@@ -200,6 +204,15 @@ export class IngestionConsumer {
             this.eventIngestionRestrictionManager
         )
         this.validateEventUuidStep = createValidateEventUuidStep(this.hub)
+        this.applyForceOverflowRestrictionsStep = createApplyForceOverflowRestrictionsStep(
+            this.eventIngestionRestrictionManager,
+            {
+                overflowEnabled: this.overflowEnabled(),
+                overflowTopic: this.overflowTopic || '',
+                consumerGroupId: this.groupId,
+                preservePartitionLocality: this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
+            }
+        )
     }
 
     public get service(): PluginServerService {
@@ -656,22 +669,21 @@ export class IngestionConsumer {
 
     private async preprocessEvents(messages: Message[]): Promise<IncomingEventWithTeam[]> {
         const preprocessedEvents: IncomingEventWithTeam[] = []
-        const pendingOverflowMessages: Array<{ message: Message; preservePartitionLocality?: boolean }> = []
 
-        // Create a new force overflow step for this batch with the pendingOverflowMessages array
-        const applyForceOverflowRestrictionsStep = createApplyForceOverflowRestrictionsStep(
-            this.eventIngestionRestrictionManager,
-            this.overflowEnabled(),
-            forcedOverflowEventsCounter,
-            pendingOverflowMessages
-        )
+        // Create pipeline config
+        const pipelineConfig: PipelineConfig = {
+            kafkaProducer: this.kafkaProducer!,
+            dlqTopic: this.dlqTopic,
+            consumerGroupId: this.groupId,
+            promiseScheduler: this.promiseScheduler,
+        }
 
         for (const message of messages) {
             try {
-                const pipeline = ResultHandlingPipeline.of(message, this.kafkaProducer!, message, this.dlqTopic)
+                const pipeline = ResultHandlingPipeline.of(message, message, pipelineConfig)
                     .pipe(this.parseHeadersStep)
                     .pipe(this.applyDropRestrictionsStep)
-                    .pipe(applyForceOverflowRestrictionsStep)
+                    .pipe(this.applyForceOverflowRestrictionsStep)
                     .pipe(this.parseKafkaMessageStep)
                     .pipeAsync(this.resolveTeamStep)
                     .pipe(this.applyPersonProcessingRestrictionsStep)
@@ -684,13 +696,6 @@ export class IngestionConsumer {
             } catch (error) {
                 console.error('Error processing message in pipeline:', error)
                 throw error
-            }
-        }
-
-        // Emit all pending overflow messages
-        if (pendingOverflowMessages.length > 0) {
-            for (const { message, preservePartitionLocality } of pendingOverflowMessages) {
-                void this.promiseScheduler.schedule(this.emitToOverflow([message], preservePartitionLocality))
             }
         }
 

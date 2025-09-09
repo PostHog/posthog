@@ -1,9 +1,11 @@
 import { Message } from 'node-rdkafka'
 
+import { addBreadcrumbsToHeaders } from '../../ingestion/event-preprocessing/breadcrumb-helpers'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PipelineEvent } from '../../types'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
+import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { droppedEventCounter, pipelineStepDLQCounter } from './event-pipeline/metrics'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from './utils'
 
@@ -74,7 +76,9 @@ export async function redirectEventToTopic(
     kafkaProducer: KafkaProducerWrapper,
     originalEvent: PipelineEvent,
     topic: string,
-    stepName?: string
+    stepName?: string,
+    preserveKey: boolean = true,
+    awaitAck: boolean = true
 ): Promise<void> {
     const step = stepName || 'unknown'
     const teamId = originalEvent.team_id || 0
@@ -88,15 +92,19 @@ export async function redirectEventToTopic(
     })
 
     try {
-        await kafkaProducer.produce({
+        const producePromise = kafkaProducer.produce({
             topic: topic,
-            key: `${teamId}:${originalEvent.distinct_id}`,
+            key: preserveKey ? `${teamId}:${originalEvent.distinct_id}` : null,
             value: Buffer.from(JSON.stringify(originalEvent)),
             headers: {
                 distinct_id: originalEvent.distinct_id || 'unknown',
                 team_id: teamId.toString(),
             },
         })
+
+        if (awaitAck) {
+            await producePromise
+        }
 
         logger.info('Event successfully redirected to topic', {
             team_id: teamId,
@@ -236,9 +244,13 @@ export async function sendMessageToDLQ(
  */
 export async function redirectMessageToTopic(
     kafkaProducer: KafkaProducerWrapper,
+    promiseScheduler: PromiseScheduler,
     originalMessage: Message,
     topic: string,
-    stepName?: string
+    stepName?: string,
+    preserveKey: boolean = true,
+    awaitAck: boolean = true,
+    consumerGroupId?: string
 ): Promise<void> {
     const step = stepName || 'unknown'
     const messageInfo = getEventMetadata(originalMessage)
@@ -252,15 +264,45 @@ export async function redirectMessageToTopic(
     })
 
     try {
-        await kafkaProducer.produce({
-            topic: topic,
-            value: originalMessage.value,
-            key: originalMessage.key ?? null,
-            headers: copyAndExtendHeaders(originalMessage, {
+        // Add breadcrumbs for overflow topics
+        let headers = copyAndExtendHeaders(originalMessage, {
+            'redirect-step': step,
+            'redirect-timestamp': new Date().toISOString(),
+        })
+
+        // If this is an overflow topic and we have a consumer group ID, add breadcrumbs
+        if (topic.includes('overflow') && consumerGroupId) {
+            const headersWithBreadcrumbs = addBreadcrumbsToHeaders(originalMessage, consumerGroupId)
+            // Convert MessageHeader[] to Record<string, string> for merging
+            const breadcrumbHeaders: Record<string, string> = {}
+            for (const header of headersWithBreadcrumbs) {
+                if (header.key && header.value !== undefined) {
+                    const key = typeof header.key === 'string' ? header.key : header.key.toString()
+                    const value = header.value instanceof Buffer ? header.value.toString() : String(header.value)
+                    breadcrumbHeaders[key] = value
+                }
+            }
+            // Merge with redirect headers
+            headers = copyAndExtendHeaders(originalMessage, {
+                ...breadcrumbHeaders,
                 'redirect-step': step,
                 'redirect-timestamp': new Date().toISOString(),
-            }),
+            })
+        }
+
+        const producePromise = kafkaProducer.produce({
+            topic: topic,
+            value: originalMessage.value,
+            key: preserveKey ? (originalMessage.key ?? null) : null,
+            headers: headers,
         })
+
+        // Always register the promise with the scheduler
+        const promise = promiseScheduler.schedule(producePromise)
+
+        if (awaitAck) {
+            await promise
+        }
 
         logger.info('Event successfully redirected to topic', {
             team_id: messageInfo.teamId,

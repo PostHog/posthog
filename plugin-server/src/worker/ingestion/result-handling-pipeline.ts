@@ -8,6 +8,7 @@ import {
     SyncPreprocessingStep,
 } from '../../ingestion/processing-pipeline'
 import { KafkaProducerWrapper } from '../../kafka/producer'
+import { PromiseScheduler } from '../../utils/promise-scheduler'
 import {
     PipelineStepResultType,
     isDlqResult,
@@ -16,6 +17,13 @@ import {
     isSuccessResult,
 } from './event-pipeline/pipeline-step-result'
 import { logDroppedMessage, redirectMessageToTopic, sendMessageToDLQ } from './pipeline-helpers'
+
+export type PipelineConfig = {
+    kafkaProducer: KafkaProducerWrapper
+    dlqTopic: string
+    consumerGroupId?: string
+    promiseScheduler: PromiseScheduler
+}
 
 /**
  * Wrapper around ProcessingPipeline that automatically handles result types (DLQ, DROP, REDIRECT)
@@ -26,19 +34,18 @@ import { logDroppedMessage, redirectMessageToTopic, sendMessageToDLQ } from './p
 export class ResultHandlingPipeline<T> {
     private constructor(
         private pipeline: ProcessingPipeline<T>,
-        private kafkaProducer: KafkaProducerWrapper,
         private originalMessage: Message,
-        private dlqTopic: string
+        private config: PipelineConfig
     ) {}
 
     pipe<U>(step: SyncPreprocessingStep<T, U>, _stepName?: string): ResultHandlingPipeline<U> {
         const newPipeline = this.pipeline.pipe(step)
-        return new ResultHandlingPipeline(newPipeline, this.kafkaProducer, this.originalMessage, this.dlqTopic)
+        return new ResultHandlingPipeline(newPipeline, this.originalMessage, this.config)
     }
 
     pipeAsync<U>(step: AsyncPreprocessingStep<T, U>, _stepName?: string): AsyncResultHandlingPipeline<U> {
         const newPipeline = this.pipeline.pipeAsync(step)
-        return new AsyncResultHandlingPipeline(newPipeline, this.kafkaProducer, this.originalMessage, this.dlqTopic)
+        return new AsyncResultHandlingPipeline(newPipeline, this.originalMessage, this.config)
     }
 
     async unwrap(): Promise<T | null> {
@@ -65,11 +72,11 @@ export class ResultHandlingPipeline<T> {
 
     private async handleDlqResult(result: { reason: string; error?: unknown }): Promise<void> {
         await sendMessageToDLQ(
-            this.kafkaProducer,
+            this.config.kafkaProducer,
             this.originalMessage,
             result.error || new Error(result.reason),
             'pipeline_result_handler',
-            this.dlqTopic
+            this.config.dlqTopic
         )
     }
 
@@ -77,27 +84,35 @@ export class ResultHandlingPipeline<T> {
         logDroppedMessage(this.originalMessage, result.reason, 'pipeline_result_handler')
     }
 
-    private async handleRedirectResult(result: { reason: string; topic: string }): Promise<void> {
-        await redirectMessageToTopic(this.kafkaProducer, this.originalMessage, result.topic, 'pipeline_result_handler')
+    private async handleRedirectResult(result: {
+        reason: string
+        topic: string
+        preserveKey?: boolean
+        awaitAck?: boolean
+    }): Promise<void> {
+        await redirectMessageToTopic(
+            this.config.kafkaProducer,
+            this.config.promiseScheduler,
+            this.originalMessage,
+            result.topic,
+            'pipeline_result_handler',
+            result.preserveKey ?? true,
+            result.awaitAck ?? true,
+            this.config.consumerGroupId
+        )
     }
 
-    static of<T>(
-        value: T,
-        kafkaProducer: KafkaProducerWrapper,
-        originalMessage: Message,
-        dlqTopic: string
-    ): ResultHandlingPipeline<T> {
+    static of<T>(value: T, originalMessage: Message, config: PipelineConfig): ResultHandlingPipeline<T> {
         const pipeline = ProcessingPipeline.of(value)
-        return new ResultHandlingPipeline(pipeline, kafkaProducer, originalMessage, dlqTopic)
+        return new ResultHandlingPipeline(pipeline, originalMessage, config)
     }
 
     static fromPipeline<T>(
         pipeline: ProcessingPipeline<T>,
-        kafkaProducer: KafkaProducerWrapper,
         originalMessage: Message,
-        dlqTopic: string
+        config: PipelineConfig
     ): ResultHandlingPipeline<T> {
-        return new ResultHandlingPipeline(pipeline, kafkaProducer, originalMessage, dlqTopic)
+        return new ResultHandlingPipeline(pipeline, originalMessage, config)
     }
 }
 
@@ -110,19 +125,18 @@ export class ResultHandlingPipeline<T> {
 export class AsyncResultHandlingPipeline<T> {
     constructor(
         private pipeline: AsyncProcessingPipeline<T>,
-        private kafkaProducer: KafkaProducerWrapper,
         private originalMessage: Message,
-        private dlqTopic: string
+        private config: PipelineConfig
     ) {}
 
     pipe<U>(step: SyncPreprocessingStep<T, U>, _stepName?: string): AsyncResultHandlingPipeline<U> {
         const newPipeline = this.pipeline.pipe(step)
-        return new AsyncResultHandlingPipeline(newPipeline, this.kafkaProducer, this.originalMessage, this.dlqTopic)
+        return new AsyncResultHandlingPipeline(newPipeline, this.originalMessage, this.config)
     }
 
     pipeAsync<U>(step: AsyncPreprocessingStep<T, U>, _stepName?: string): AsyncResultHandlingPipeline<U> {
         const newPipeline = this.pipeline.pipeAsync(step)
-        return new AsyncResultHandlingPipeline(newPipeline, this.kafkaProducer, this.originalMessage, this.dlqTopic)
+        return new AsyncResultHandlingPipeline(newPipeline, this.originalMessage, this.config)
     }
 
     async unwrap(): Promise<T | null> {
@@ -149,11 +163,11 @@ export class AsyncResultHandlingPipeline<T> {
 
     private async handleDlqResult(result: { reason: string; error?: unknown }): Promise<void> {
         await sendMessageToDLQ(
-            this.kafkaProducer,
+            this.config.kafkaProducer,
             this.originalMessage,
             result.error || new Error(result.reason),
             'async_pipeline_result_handler',
-            this.dlqTopic
+            this.config.dlqTopic
         )
     }
 
@@ -161,33 +175,36 @@ export class AsyncResultHandlingPipeline<T> {
         logDroppedMessage(this.originalMessage, result.reason, 'async_pipeline_result_handler')
     }
 
-    private async handleRedirectResult(result: { reason: string; topic: string }): Promise<void> {
+    private async handleRedirectResult(result: {
+        reason: string
+        topic: string
+        preserveKey?: boolean
+        awaitAck?: boolean
+    }): Promise<void> {
         await redirectMessageToTopic(
-            this.kafkaProducer,
+            this.config.kafkaProducer,
+            this.config.promiseScheduler,
             this.originalMessage,
             result.topic,
-            'async_pipeline_result_handler'
+            'async_pipeline_result_handler',
+            result.preserveKey ?? true,
+            result.awaitAck ?? true,
+            this.config.consumerGroupId
         )
     }
 
-    static of<T>(
-        value: T,
-        kafkaProducer: KafkaProducerWrapper,
-        originalMessage: Message,
-        dlqTopic: string
-    ): AsyncResultHandlingPipeline<T> {
+    static of<T>(value: T, originalMessage: Message, config: PipelineConfig): AsyncResultHandlingPipeline<T> {
         const pipeline = ProcessingPipeline.of(value).pipeAsync((v) =>
             Promise.resolve({ type: PipelineStepResultType.OK, value: v })
         )
-        return new AsyncResultHandlingPipeline(pipeline, kafkaProducer, originalMessage, dlqTopic)
+        return new AsyncResultHandlingPipeline(pipeline, originalMessage, config)
     }
 
     static fromPipeline<T>(
         pipeline: AsyncProcessingPipeline<T>,
-        kafkaProducer: KafkaProducerWrapper,
         originalMessage: Message,
-        dlqTopic: string
+        config: PipelineConfig
     ): AsyncResultHandlingPipeline<T> {
-        return new AsyncResultHandlingPipeline(pipeline, kafkaProducer, originalMessage, dlqTopic)
+        return new AsyncResultHandlingPipeline(pipeline, originalMessage, config)
     }
 }
