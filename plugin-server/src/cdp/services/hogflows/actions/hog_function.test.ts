@@ -5,7 +5,6 @@ import { DateTime } from 'luxon'
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
-import { compileHog } from '~/cdp/templates/compiler'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
@@ -50,12 +49,11 @@ describe('HogFunctionHandler', () => {
         hogFunctionHandler = new HogFunctionHandler(mockHogFlowFunctionsService, mockRecipientPreferencesService)
 
         // Simple hog function that prints the inputs
-        const exampleHog = `fetch('http://localhost/test', { 'method': 'POST', 'body': inputs })`
 
         const template = await insertHogFunctionTemplate(hub.postgres, {
             id: 'template-test-hogflow-executor',
             name: 'Test Template',
-            code: exampleHog,
+            code: `fetch('http://localhost/test', { 'method': 'POST', 'body': inputs })`,
             inputs_schema: [
                 {
                     key: 'name',
@@ -68,7 +66,6 @@ describe('HogFunctionHandler', () => {
                     required: true,
                 },
             ],
-            bytecode: await compileHog(exampleHog),
         })
 
         await insertIntegration(hub.postgres, team.id, {

@@ -154,6 +154,11 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         hogFlow: HogFlow,
         hogFunction: HogFunctionType
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        logger.info('Executing hog flow trigger', {
+            id: hogFlow.id,
+            template_id: hogFunction.template_id,
+            team_id: hogFlow.team_id,
+        })
         const invocationId = new UUIDT().toString()
         const triggerActionId = hogFlow.actions.find((action) => action.type === 'trigger')?.id ?? 'trigger_node'
 
@@ -165,7 +170,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                         log_source: 'hog_flow',
                         log_source_id: hogFlow.id,
                         instance_id: invocationId,
-                        ...logEntry(level, actionIdForLogging({ id: triggerActionId }), message),
+                        ...logEntry(level, `${actionIdForLogging({ id: triggerActionId })} ${message}`),
                     },
                 ],
                 'hog_flow'
@@ -191,6 +196,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             // Slightly different handling for hog flows
             // Run the initial step - this allows functions not using fetches to respond immediately
             const functionResult = await this.hogFlowFunctionsService.execute(invocation)
+            functionResult.logs.forEach((log) => addLog(log.level, log.message))
+            functionResult.logs = []
 
             // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
             if (!functionResult.finished) {
@@ -205,7 +212,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
 
             const capturedPostHogEvent = functionResult.capturedPostHogEvents[0]
             // Add all logs to the result
-            functionResult.logs.forEach((log) => addLog(log.level, log.message))
 
             if (capturedPostHogEvent) {
                 // Invoke the hogflow
@@ -239,8 +245,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                 await this.cyclotronJobQueue.queueInvocations([hogFlowInvocation])
             } else {
                 addMetric({
-                    metric_kind: 'other',
-                    metric_name: 'filtered',
+                    metric_kind: 'failure',
+                    metric_name: 'trigger_failed',
                     count: 1,
                 })
             }
@@ -256,14 +262,14 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                 count: 1,
             })
 
-            addLog('error', `${actionIdForLogging({ id: triggerActionId })} Error triggering flow: ${error.message}`)
+            addLog('error', `Error triggering flow: ${error.message}`)
 
             // NOTE: We only return a hog function result. We track out own logs and errors here
             return createInvocationResult(
                 createInvocation({} as any, hogFunction),
                 {},
                 {
-                    finished: true,
+                    finished: false,
                     error: error.message,
                 }
             )
@@ -275,6 +281,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         hogFunction: HogFunctionType,
         hogFunctionState: HogWatcherFunctionState | null
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
+
         try {
             const globals: HogFunctionInvocationGlobals = this.buildRequestGlobals(hogFunction, req)
             const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
@@ -285,7 +293,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                 invocation.queue = 'hog_overflow'
                 await this.cyclotronJobQueue.queueInvocations([invocation])
 
-                const result = createInvocationResult<CyclotronJobInvocationHogFunction>(
+                result = createInvocationResult<CyclotronJobInvocationHogFunction>(
                     invocation,
                     {},
                     {
@@ -307,26 +315,24 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                         body: '',
                     },
                 }
-                return result
-            }
-            // Run the initial step - this allows functions not using fetches to respond immediately
-            const result = await this.hogExecutor.execute(invocation)
+            } else {
+                // Run the initial step - this allows functions not using fetches to respond immediately
+                result = await this.hogExecutor.execute(invocation)
 
-            // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
-            if (!result.finished) {
-                await this.cyclotronJobQueue.queueInvocationResults([result])
-            }
+                // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
+                if (!result.finished) {
+                    await this.cyclotronJobQueue.queueInvocationResults([result])
+                }
 
-            const customHttpResponse = getCustomHttpResponse(result)
-            if (customHttpResponse) {
-                const level = customHttpResponse.status >= 400 ? 'warn' : 'info'
-                result.logs.push(logEntry(level, `Responded with response status - ${customHttpResponse.status}`))
+                const customHttpResponse = getCustomHttpResponse(result)
+                if (customHttpResponse) {
+                    const level = customHttpResponse.status >= 400 ? 'warn' : 'info'
+                    result.logs.push(logEntry(level, `Responded with response status - ${customHttpResponse.status}`))
+                }
             }
-
-            return result
         } catch (error) {
             logger.error('Error executing hog function', { error })
-            return createInvocationResult(
+            result = createInvocationResult(
                 createInvocation({} as any, hogFunction),
                 {},
                 {
@@ -336,6 +342,9 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                 }
             )
         }
+
+        await this.hogFunctionMonitoringService.queueInvocationResults([result])
+        return result
     }
 
     @instrumented('cdpSourceWebhooksConsumer.processWebhook')
@@ -373,12 +382,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             : await this.executeHogFunction(req, hogFunction, hogFunctionState)
 
         void this.promiseScheduler.schedule(
-            Promise.all([
-                this.hogFunctionMonitoringService.queueInvocationResults([result]).then(() => {
-                    return this.hogFunctionMonitoringService.flush()
-                }),
-                this.hogWatcher.observeResultsBuffered(result),
-            ])
+            Promise.all([this.hogFunctionMonitoringService.flush(), this.hogWatcher.observeResultsBuffered(result)])
         )
 
         return result

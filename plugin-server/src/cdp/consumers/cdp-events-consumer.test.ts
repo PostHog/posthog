@@ -540,9 +540,11 @@ describe('hog flow processing', () => {
             const hogFlow = await insertHogFlow(
                 new FixtureHogFlowBuilder()
                     .withTeamId(team.id)
-                    .withTrigger({
-                        type: 'event',
-                        filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
+                        },
                     })
                     .build()
             )

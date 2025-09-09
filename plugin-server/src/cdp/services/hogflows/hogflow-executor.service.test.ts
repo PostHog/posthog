@@ -61,14 +61,12 @@ describe('Hogflow Executor', () => {
         const recipientsManager = new RecipientsManagerService(hub)
         const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
 
-        const exampleHog = `
-            print(f'Hello, {inputs.name}!')
-            print('Fetch 1', fetch('https://posthog.com').status)`
-
         await insertHogFunctionTemplate(hub.postgres, {
             id: 'template-test-hogflow-executor',
             name: 'Test Template',
-            code: exampleHog,
+            code: `
+            print(f'Hello, {inputs.name}!')
+            print('Fetch 1', fetch('https://posthog.com').status)`,
             inputs_schema: [
                 {
                     key: 'name',
@@ -76,20 +74,17 @@ describe('Hogflow Executor', () => {
                     required: true,
                 },
             ],
-            bytecode: await compileHog(exampleHog),
         })
-
-        const exampleHogMultiFetch = `
-            print(f'Hello, {inputs.name}!')
-            print('Fetch 1', fetch('https://posthog.com').status)
-            print('Fetch 2', fetch('https://posthog.com').status)
-            print('Fetch 3', fetch('https://posthog.com').status)
-            print('All fetches done!')`
 
         await insertHogFunctionTemplate(hub.postgres, {
             id: 'template-test-hogflow-executor-async',
             name: 'Test template multi fetch',
-            code: exampleHogMultiFetch,
+            code: `
+            print(f'Hello, {inputs.name}!')
+            print('Fetch 1', fetch('https://posthog.com').status)
+            print('Fetch 2', fetch('https://posthog.com').status)
+            print('Fetch 3', fetch('https://posthog.com').status)
+            print('All fetches done!')`,
             inputs_schema: [
                 {
                     key: 'name',
@@ -97,7 +92,6 @@ describe('Hogflow Executor', () => {
                     required: true,
                 },
             ],
-            bytecode: await compileHog(exampleHogMultiFetch),
         })
 
         executor = new HogFlowExecutorService(hogFlowFunctionsService, recipientPreferencesService)
