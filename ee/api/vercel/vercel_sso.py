@@ -52,7 +52,9 @@ class VercelSSORedirectSerializer(serializers.Serializer):
             if parsed.scheme not in {"http", "https"}:
                 raise serializers.ValidationError("URL must use http or https scheme")
 
-            netloc = parsed.hostname or ""
+            netloc = parsed.hostname
+            if not netloc or netloc not in KNOWN_ORIGINS:
+                raise serializers.ValidationError("URL domain is not allowed")
             if netloc not in KNOWN_ORIGINS:
                 raise serializers.ValidationError("URL domain is not allowed")
 
