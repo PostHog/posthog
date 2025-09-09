@@ -5,6 +5,7 @@ import { IconBolt, IconWebhooks } from '@posthog/icons'
 import { LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 
@@ -13,7 +14,6 @@ import { HogFlowFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
-import { StepSchemaErrors } from './components/StepSchemaErrors'
 
 export function StepTriggerConfiguration({
     node,
@@ -26,10 +26,14 @@ export function StepTriggerConfiguration({
     const type = node.data.config.type
     const validationResult = actionValidationErrorsById[node.id]
 
+    const webhookTriggerEnabled = useFeatureFlag('MESSAGING_TRIGGER_WEBHOOK')
+
+    if (!webhookTriggerEnabled && node.data.config.type === 'event') {
+        return <StepTriggerConfigurationEvents action={node.data} config={node.data.config} />
+    }
+
     return (
         <>
-            <StepSchemaErrors />
-
             <LemonField.Pure label="Trigger type" error={validationResult?.errors?.type}>
                 <LemonSelect
                     options={[
