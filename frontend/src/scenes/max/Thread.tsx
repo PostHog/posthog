@@ -130,9 +130,12 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
 
                         // Find the final notebook message with stage_notebooks data
                         const finalMessages = threadGrouped[threadGrouped.length - 1] || []
-                        const finalNotebookMessage = finalMessages
-                            .filter(isNotebookUpdateMessage)
-                            .find((msg) => msg.stage_notebooks && msg.stage_notebooks.length > 0)
+                        const notebookMessages = finalMessages.filter(
+                            isNotebookUpdateMessage
+                        ) as (NotebookUpdateMessage & { status: MessageStatus })[]
+                        const finalNotebookMessage = notebookMessages.find(
+                            (msg) => msg.stage_notebooks && msg.stage_notebooks.length > 0
+                        )
 
                         if (!finalNotebookMessage?.stage_notebooks) {
                             return null
