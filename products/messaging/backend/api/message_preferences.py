@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import MessageCategory, MessageRecipientPreference
 from posthog.models.message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus
+from posthog.plugins import plugin_server_api
 
 
 class MessagePreferencesSerializer(serializers.ModelSerializer):
@@ -67,11 +68,7 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         identifier = request.data.get("recipient", user.email)
 
-        # Get or create preferences for the user's email
-        recipient = MessageRecipientPreference.get_or_create_for_identifier(team_id=self.team_id, identifier=identifier)
-
-        # Generate the preferences token
-        token = recipient.generate_preferences_token()
+        token = plugin_server_api.generate_messaging_preferences_token(self.team_id, identifier)
 
         # Build the full URL
         preferences_url = f"{request.build_absolute_uri('/')[:-1]}/messaging-preferences/{token}/"

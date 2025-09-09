@@ -144,6 +144,11 @@ function NativeEmailIntegrationChoice({
     const integrationsOfKind = integrations?.filter((x) => x.kind === 'email')
 
     const onChangeIntegration = (integrationId: number): void => {
+        if (integrationId === -1) {
+            // Open new integration modal
+            window.open(urls.messaging('channels'), '_blank')
+            return
+        }
         const integration = integrationsOfKind?.find((x) => x.id === integrationId)
         onChange({
             integrationId,
@@ -173,15 +178,31 @@ function NativeEmailIntegrationChoice({
     return (
         <>
             <LemonSelect
-                className="m-1"
+                className="m-1 flex-1"
+                type="tertiary"
                 placeholder="Choose email sender"
                 loading={integrationsLoading}
-                options={(integrationsOfKind || []).map((integration) => ({
-                    label: integration.display_name,
-                    value: integration.id,
-                }))}
+                options={[
+                    {
+                        title: 'Email senders',
+                        options: (integrationsOfKind || []).map((integration) => ({
+                            label: integration.display_name,
+                            value: integration.id,
+                        })),
+                    },
+                    {
+                        options: [
+                            {
+                                label: 'Add new email sender',
+                                icon: <IconExternal />,
+                                value: -1,
+                            },
+                        ],
+                    },
+                ]}
                 value={value?.integrationId}
                 size="small"
+                fullWidth
                 onChange={onChangeIntegration}
             />
         </>
@@ -246,47 +267,48 @@ function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Elem
                     </LemonField>
                 ))}
 
-                {isMessagingProductEnabled && (
-                    <div className="flex gap-2 items-center m-2">
-                        <LemonLabel>Start from a template (optional)</LemonLabel>
-                        <LemonSelect
-                            size="small"
-                            placeholder="Choose template"
-                            loading={templatesLoading}
-                            value={appliedTemplate?.id}
-                            options={templates.map((template) => ({
-                                label: template.name,
-                                value: template.id,
-                            }))}
-                            onChange={(id) => {
-                                const template = templates.find((t) => t.id === id)
-                                if (template) {
-                                    applyTemplate(template)
-                                }
-                            }}
-                            data-attr="email-template-selector"
-                            disabledReason={templates.length > 0 ? undefined : 'No templates created yet'}
-                        />
-                    </div>
-                )}
-
                 {mode === 'full' ? (
-                    <EmailEditor
-                        ref={(r) => setEmailEditorRef(r)}
-                        onReady={() => onEmailEditorReady()}
-                        minHeight={20}
-                        options={{
-                            mergeTags,
-                            displayMode: 'email',
-                            features: {
-                                preview: true,
-                                imageEditor: true,
-                                stockImages: false,
-                            },
-                            projectId: unlayerEditorProjectId,
-                            customJS: isMessagingProductEnabled ? [unsubscribeLinkToolCustomJs] : [],
-                        }}
-                    />
+                    <>
+                        {isMessagingProductEnabled && (
+                            <div className="flex gap-2 items-center px-2 py-1 border-b">
+                                <span className="flex-1">Start from a template (optional)</span>
+                                <LemonSelect
+                                    size="xsmall"
+                                    placeholder="Choose template"
+                                    loading={templatesLoading}
+                                    value={appliedTemplate?.id}
+                                    options={templates.map((template) => ({
+                                        label: template.name,
+                                        value: template.id,
+                                    }))}
+                                    onChange={(id) => {
+                                        const template = templates.find((t) => t.id === id)
+                                        if (template) {
+                                            applyTemplate(template)
+                                        }
+                                    }}
+                                    data-attr="email-template-selector"
+                                    disabledReason={templates.length > 0 ? undefined : 'No templates created yet'}
+                                />
+                            </div>
+                        )}
+                        <EmailEditor
+                            ref={(r) => setEmailEditorRef(r)}
+                            onReady={() => onEmailEditorReady()}
+                            minHeight={20}
+                            options={{
+                                mergeTags,
+                                displayMode: 'email',
+                                features: {
+                                    preview: true,
+                                    imageEditor: true,
+                                    stockImages: false,
+                                },
+                                projectId: unlayerEditorProjectId,
+                                customJS: isMessagingProductEnabled ? [unsubscribeLinkToolCustomJs] : [],
+                            }}
+                        />
+                    </>
                 ) : (
                     <LemonField name="html" className="flex relative flex-col">
                         {({ value }) => (

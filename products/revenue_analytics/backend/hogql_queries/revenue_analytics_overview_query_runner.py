@@ -118,7 +118,17 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner[RevenueAna
                 ),
                 view,
             ),
-            where=ast.And(exprs=[self.timestamp_where_clause(["timestamp"]), *self.where_property_exprs(view)]),
+            where=ast.And(
+                exprs=[
+                    self.timestamp_where_clause(["timestamp"]),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["amount"]),
+                        right=ZERO_DECIMAL,
+                    ),
+                    *self.where_property_exprs(view),
+                ]
+            ),
         )
 
         return query

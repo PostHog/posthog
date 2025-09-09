@@ -219,7 +219,7 @@ export function ExperimentMetricForm({
                         typeKey="experiment-metric"
                         buttonCopy="Add step"
                         showSeriesIndicator={false}
-                        hideRename={true}
+                        hideRename={false}
                         hideDeleteBtn={hideDeleteBtn}
                         sortable={true}
                         showNestedArrow={true}

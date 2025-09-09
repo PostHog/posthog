@@ -144,7 +144,7 @@ fn create_stateful_kafka_consumer_with_pool(
 
     kafka_consumer.inner_consumer().subscribe(&[topic])?;
 
-    Ok((kafka_consumer, pool_handles, shutdown_tx))
+    Ok((kafka_consumer, pool_handles.0, shutdown_tx))
 }
 
 /// Helper to send test messages

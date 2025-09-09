@@ -165,8 +165,7 @@ const Header = (): JSX.Element => {
                 name="Error tracking"
                 description="Track and analyze errors in your website or application to understand and fix issues."
                 resourceType={{
-                    type: 'errorTracking',
-                    typePlural: 'Error Tracking',
+                    type: 'error_tracking',
                 }}
             />
             <SceneDivider />
@@ -176,7 +175,6 @@ const Header = (): JSX.Element => {
 
 const IngestionStatusCheck = (): JSX.Element | null => {
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-
     return (
         <LemonBanner type="warning" className={cn(!newSceneLayout && 'mb-4')}>
             <p>

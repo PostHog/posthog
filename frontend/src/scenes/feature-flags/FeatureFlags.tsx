@@ -587,7 +587,6 @@ export function FeatureFlags(): JSX.Element {
                 description="Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once."
                 resourceType={{
                     type: 'feature_flag',
-                    typePlural: 'Feature flags',
                 }}
             />
             <SceneDivider />

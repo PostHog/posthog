@@ -2,7 +2,9 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
+
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'LLM Analytics',
@@ -112,7 +114,8 @@ export const manifest: ProductManifest = {
         {
             path: 'LLM analytics',
             category: 'Analytics',
-            iconType: 'ai',
+            iconType: 'llm_analytics' as FileSystemIconType,
+            iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
             href: urls.llmAnalyticsDashboard(),
         },
     ],

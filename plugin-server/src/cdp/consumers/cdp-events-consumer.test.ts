@@ -201,36 +201,60 @@ describe.each([
                 expect(
                     mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
                 ).toMatchObject(
-                    hogType !== 'destination'
-                        ? []
-                        : [
-                              {
-                                  key: expect.any(String),
-                                  topic: 'clickhouse_app_metrics2_test',
-                                  value: {
-                                      app_source: 'hog_function',
-                                      app_source_id: fnFetchNoFilters.id,
-                                      count: 1,
-                                      metric_kind: 'billing',
-                                      metric_name: 'billable_invocation',
-                                      team_id: 2,
-                                      timestamp: expect.any(String),
-                                  },
-                              },
-                              {
-                                  key: expect.any(String),
-                                  topic: 'clickhouse_app_metrics2_test',
-                                  value: {
-                                      app_source: 'hog_function',
-                                      app_source_id: fnPrinterPageviewFilters.id,
-                                      count: 1,
-                                      metric_kind: 'billing',
-                                      metric_name: 'billable_invocation',
-                                      team_id: 2,
-                                      timestamp: expect.any(String),
-                                  },
-                              },
-                          ]
+                    [
+                        {
+                            key: expect.any(String),
+                            topic: 'clickhouse_app_metrics2_test',
+                            value: {
+                                app_source: 'hog_function',
+                                app_source_id: fnFetchNoFilters.id,
+                                count: 1,
+                                metric_kind: 'other',
+                                metric_name: 'triggered',
+                                team_id: 2,
+                                timestamp: expect.any(String),
+                            },
+                        },
+                        hogType === 'destination' && {
+                            key: expect.any(String),
+                            topic: 'clickhouse_app_metrics2_test',
+                            value: {
+                                app_source: 'hog_function',
+                                app_source_id: fnFetchNoFilters.id,
+                                count: 1,
+                                metric_kind: 'billing',
+                                metric_name: 'billable_invocation',
+                                team_id: 2,
+                                timestamp: expect.any(String),
+                            },
+                        },
+                        {
+                            key: expect.any(String),
+                            topic: 'clickhouse_app_metrics2_test',
+                            value: {
+                                app_source: 'hog_function',
+                                app_source_id: fnPrinterPageviewFilters.id,
+                                count: 1,
+                                metric_kind: 'other',
+                                metric_name: 'triggered',
+                                team_id: 2,
+                                timestamp: expect.any(String),
+                            },
+                        },
+                        hogType === 'destination' && {
+                            key: expect.any(String),
+                            topic: 'clickhouse_app_metrics2_test',
+                            value: {
+                                app_source: 'hog_function',
+                                app_source_id: fnPrinterPageviewFilters.id,
+                                count: 1,
+                                metric_kind: 'billing',
+                                metric_name: 'billable_invocation',
+                                team_id: 2,
+                                timestamp: expect.any(String),
+                            },
+                        },
+                    ].filter((x) => !!x)
                 )
             })
 
@@ -258,6 +282,19 @@ describe.each([
                             count: 1,
                             metric_kind: 'other',
                             metric_name: 'filtered',
+                            team_id: 2,
+                            timestamp: expect.any(String),
+                        },
+                    },
+                    {
+                        key: expect.any(String),
+                        topic: 'clickhouse_app_metrics2_test',
+                        value: {
+                            app_source: 'hog_function',
+                            app_source_id: fnFetchNoFilters.id,
+                            count: 1,
+                            metric_kind: 'other',
+                            metric_name: 'triggered',
                             team_id: 2,
                             timestamp: expect.any(String),
                         },
