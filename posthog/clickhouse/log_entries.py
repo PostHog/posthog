@@ -96,7 +96,7 @@ TRUNCATE_LOG_ENTRIES_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {LOG_ENTRIES_TABLE} 
 # Log entries rework
 
 
-def LOG_ENTRIES_SHARDED_TABLE_SQL(on_cluster=False):
+def LOG_ENTRIES_SHARDED_TABLE_SQL():
     return (
         LOG_ENTRIES_TABLE_BASE_SQL
         + """PARTITION BY toYYYYMMDD(timestamp) ORDER BY (team_id, log_source, log_source_id, instance_id, timestamp)
@@ -105,32 +105,30 @@ SETTINGS index_granularity=1024, ttl_only_drop_parts = 1
 """
     ).format(
         table_name=LOG_ENTRIES_SHARDED_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
         extra_fields=KAFKA_COLUMNS,
         engine=LOG_ENTRIES_TABLE_ENGINE(LOG_ENTRIES_SHARDED_TABLE, replication_scheme=ReplicationScheme.SHARDED),
         ttl_period=ttl_period("timestamp", LOG_ENTRIES_TTL_DAYS, unit="DAY"),
     )
 
 
-def LOG_ENTRIES_DISTRIBUTED_TABLE_SQL(on_cluster=False):
+def LOG_ENTRIES_DISTRIBUTED_TABLE_SQL():
     return (LOG_ENTRIES_TABLE_BASE_SQL).format(
         table_name=LOG_ENTRIES_DISTRIBUTED_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         extra_fields=KAFKA_COLUMNS,
         engine=Distributed(data_table=LOG_ENTRIES_SHARDED_TABLE, cluster=CLICKHOUSE_CLUSTER, sharding_key="rand()"),
     )
 
 
-def LOG_ENTRIES_WRITABLE_TABLE_SQL(on_cluster=False):
+def LOG_ENTRIES_WRITABLE_TABLE_SQL():
     return (LOG_ENTRIES_TABLE_BASE_SQL).format(
         table_name=LOG_ENTRIES_WRITABLE_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         extra_fields=KAFKA_COLUMNS,
         engine=Distributed(data_table=LOG_ENTRIES_SHARDED_TABLE, cluster=CLICKHOUSE_CLUSTER, sharding_key="rand()"),
     )
 
 
-def KAFKA_LOG_ENTRIES_V3_TABLE_SQL(on_cluster=False):
+def KAFKA_LOG_ENTRIES_V3_TABLE_SQL():
     return (
         LOG_ENTRIES_TABLE_BASE_SQL
         + """
@@ -138,15 +136,14 @@ def KAFKA_LOG_ENTRIES_V3_TABLE_SQL(on_cluster=False):
     """
     ).format(
         table_name=f"kafka_{LOG_ENTRIES_TABLE}_v3",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=kafka_engine(topic=KAFKA_LOG_ENTRIES, group="clickhouse_log_entries"),
         extra_fields="",
     )
 
 
-def LOG_ENTRIES_V3_TABLE_MV_SQL(on_cluster=False):
+def LOG_ENTRIES_V3_TABLE_MV_SQL():
     return """
-    CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name}_v3_mv {on_cluster_clause}
+    CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name}_v3_mv
     TO {database}.{to_table}
     AS SELECT
     team_id,
@@ -162,7 +159,6 @@ def LOG_ENTRIES_V3_TABLE_MV_SQL(on_cluster=False):
     WHERE toDate(timestamp) <= today()
     """.format(
         table_name=LOG_ENTRIES_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         to_table=LOG_ENTRIES_WRITABLE_TABLE,
         from_table=f"kafka_{LOG_ENTRIES_TABLE}_v3",
         database=CLICKHOUSE_DATABASE,
