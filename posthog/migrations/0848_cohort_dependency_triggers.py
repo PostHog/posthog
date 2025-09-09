@@ -10,6 +10,7 @@ class Migration(migrations.Migration):
         # Create function to extract cohort dependencies
         migrations.RunSQL(
             """
+            -- This function extracts cohort dependencies from the filters and groups JSONB fields
             CREATE OR REPLACE FUNCTION extract_cohort_dependencies(filters_data jsonb, groups_data jsonb)
             RETURNS TABLE(depends_on_id integer)
             LANGUAGE sql AS $$
@@ -40,29 +41,37 @@ class Migration(migrations.Migration):
         # Create trigger function to update dependencies
         migrations.RunSQL(
             """
+            -- This trigger syncs cohort dependencies
             CREATE OR REPLACE FUNCTION update_cohort_dependencies()
             RETURNS trigger
             LANGUAGE plpgsql AS $$
             BEGIN
+                -- Detect and apply changes. We could simply drop and recreate all dependencies,
+                -- however, consider cases where properties change but cohort references do not.
+                -- In such a case, this will effectively be a no-op.
                 IF TG_OP = 'DELETE' THEN
                     DELETE FROM posthog_cohortdependency WHERE cohort_id = OLD.id;
                     RETURN OLD;
                 END IF;
+                -- Parse out existing cohort references from filters/groups
                 WITH new_deps AS (
                     SELECT depends_on_id
                     FROM extract_cohort_dependencies(NEW.filters, NEW.groups)
                 ),
+                -- Fetch the existing set of dependencies for this cohort
                 existing AS (
                     SELECT depends_on_id
                     FROM posthog_cohortdependency
                     WHERE cohort_id = NEW.id
                 ),
+                -- Identify which existing dependencies are no longer used
                 to_delete AS (
                     SELECT e.depends_on_id
                     FROM existing e
                     LEFT JOIN new_deps n USING (depends_on_id)
                     WHERE n.depends_on_id IS NULL
                 ),
+                -- Remove the (now) unreferenced cohort dependencies
                 del AS (
                     -- Deleting here allows us to keep the CTEs in scope when we insert later
                     DELETE FROM posthog_cohortdependency d
@@ -71,12 +80,14 @@ class Migration(migrations.Migration):
                     AND d.depends_on_id = x.depends_on_id
                     RETURNING 1
                 ),
+                -- Identify which dependencies are new and not yet indexed
                 to_insert AS (
                     SELECT n.depends_on_id
                     FROM new_deps n
                     LEFT JOIN existing e USING (depends_on_id)
                     WHERE e.depends_on_id IS NULL
                 )
+                -- Insert the new dependencies
                 INSERT INTO posthog_cohortdependency (cohort_id, depends_on_id, team_id)
                 SELECT NEW.id, dep.id, NEW.team_id
                 FROM to_insert i
