@@ -25,9 +25,9 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.base_query_utils import (
-    conversion_window_to_seconds,
     get_experiment_date_range,
     get_experiment_exposure_query,
+    get_exposure_time_window_constraints,
     get_metric_aggregation_expr,
     get_metric_events_query,
     get_source_aggregation_expr,
@@ -132,42 +132,12 @@ class ExperimentQueryRunner(QueryRunner):
             ),
         ]
 
-        # Only include events that occurred after the user was exposed to the experiment
-        metric_time_window = [
-            ast.CompareOperation(
-                left=ast.Field(chain=["metric_events", "timestamp"]),
-                right=ast.Field(chain=["exposures", "first_exposure_time"]),
-                op=ast.CompareOperationOp.GtEq,
-            )
-        ]
-
-        # If conversion window is set, we limit events to that window
-        # Otherwise, metric events are cut off by the metric query itself,
-        # which limits events to the duration of the experiment.
-        if self.metric.conversion_window and self.metric.conversion_window_unit:
-            # Define conversion window as hours after exposure
-            metric_time_window.append(
-                ast.CompareOperation(
-                    left=ast.Field(chain=["metric_events", "timestamp"]),
-                    right=ast.Call(
-                        name="plus",
-                        args=[
-                            ast.Field(chain=["exposures", "first_exposure_time"]),
-                            ast.Call(
-                                name="toIntervalSecond",
-                                args=[
-                                    ast.Constant(
-                                        value=conversion_window_to_seconds(
-                                            self.metric.conversion_window, self.metric.conversion_window_unit
-                                        )
-                                    ),
-                                ],
-                            ),
-                        ],
-                    ),
-                    op=ast.CompareOperationOp.Lt,
-                )
-            )
+        # Get time window constraints for events relative to exposure time
+        metric_time_window = get_exposure_time_window_constraints(
+            self.metric,
+            ast.Field(chain=["metric_events", "timestamp"]),
+            ast.Field(chain=["exposures", "first_exposure_time"]),
+        )
 
         # Build join expression
         join_expr = ast.JoinExpr(
@@ -223,42 +193,12 @@ class ExperimentQueryRunner(QueryRunner):
         assert isinstance(self.metric, ExperimentRatioMetric)
         ratio_metric = self.metric
 
-        # Only include events that occurred after the user was exposed to the experiment
-        metric_time_window = [
-            ast.CompareOperation(
-                left=ast.Field(chain=["metric_events", "timestamp"]),
-                right=ast.Field(chain=["exposures", "first_exposure_time"]),
-                op=ast.CompareOperationOp.GtEq,
-            )
-        ]
-
-        # If conversion window is set, we limit events to that window
-        # Otherwise, metric events are cut off by the metric query itself,
-        # which limits events to the duration of the experiment.
-        if self.metric.conversion_window and self.metric.conversion_window_unit:
-            # Define conversion window as hours after exposure
-            metric_time_window.append(
-                ast.CompareOperation(
-                    left=ast.Field(chain=["metric_events", "timestamp"]),
-                    right=ast.Call(
-                        name="plus",
-                        args=[
-                            ast.Field(chain=["exposures", "first_exposure_time"]),
-                            ast.Call(
-                                name="toIntervalSecond",
-                                args=[
-                                    ast.Constant(
-                                        value=conversion_window_to_seconds(
-                                            self.metric.conversion_window, self.metric.conversion_window_unit
-                                        )
-                                    ),
-                                ],
-                            ),
-                        ],
-                    ),
-                    op=ast.CompareOperationOp.Lt,
-                )
-            )
+        # Get time window constraints for events relative to exposure time
+        metric_time_window = get_exposure_time_window_constraints(
+            self.metric,
+            ast.Field(chain=["metric_events", "timestamp"]),
+            ast.Field(chain=["exposures", "first_exposure_time"]),
+        )
 
         # First, create aggregated numerator query (per entity)
         numerator_aggregated = ast.SelectQuery(
@@ -304,42 +244,12 @@ class ExperimentQueryRunner(QueryRunner):
             ],
         )
 
-        # Only include events that occurred after the user was exposed to the experiment
-        metric_time_window_denominator = [
-            ast.CompareOperation(
-                left=ast.Field(chain=["denominator_events", "timestamp"]),
-                right=ast.Field(chain=["exposures", "first_exposure_time"]),
-                op=ast.CompareOperationOp.GtEq,
-            )
-        ]
-
-        # If conversion window is set, we limit events to that window
-        # Otherwise, metric events are cut off by the metric query itself,
-        # which limits events to the duration of the experiment.
-        if self.metric.conversion_window and self.metric.conversion_window_unit:
-            # Define conversion window as hours after exposure
-            metric_time_window_denominator.append(
-                ast.CompareOperation(
-                    left=ast.Field(chain=["denominator_events", "timestamp"]),
-                    right=ast.Call(
-                        name="plus",
-                        args=[
-                            ast.Field(chain=["exposures", "first_exposure_time"]),
-                            ast.Call(
-                                name="toIntervalSecond",
-                                args=[
-                                    ast.Constant(
-                                        value=conversion_window_to_seconds(
-                                            self.metric.conversion_window, self.metric.conversion_window_unit
-                                        )
-                                    ),
-                                ],
-                            ),
-                        ],
-                    ),
-                    op=ast.CompareOperationOp.Lt,
-                )
-            )
+        # Get time window constraints for denominator events relative to exposure time
+        metric_time_window_denominator = get_exposure_time_window_constraints(
+            self.metric,
+            ast.Field(chain=["denominator_events", "timestamp"]),
+            ast.Field(chain=["exposures", "first_exposure_time"]),
+        )
 
         # Second, create aggregated denominator query (per entity)
         denominator_aggregated = ast.SelectQuery(

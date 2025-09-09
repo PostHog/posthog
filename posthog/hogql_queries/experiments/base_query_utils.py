@@ -271,6 +271,66 @@ def get_metric_time_window(
     return get_source_time_window(date_range_query, left, metric.conversion_window, metric.conversion_window_unit)
 
 
+def get_exposure_time_window_constraints(
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric],
+    timestamp_field: ast.Field,
+    exposure_time_field: ast.Field,
+) -> list[ast.CompareOperation]:
+    """
+    Returns time window constraints for events relative to exposure time.
+
+    This function creates constraints that ensure:
+    1. Events occurred after the user was exposed to the experiment
+    2. If a conversion window is set, events are within that window after exposure
+
+    Args:
+        metric: The experiment metric containing conversion window settings
+        timestamp_field: The field representing event timestamp (e.g., metric_events.timestamp)
+        exposure_time_field: The field representing first exposure time (e.g., exposures.first_exposure_time)
+
+    Returns:
+        List of AST compare operations to be used in WHERE or JOIN ON clauses
+    """
+    constraints = [
+        # Only include events that occurred after the user was exposed to the experiment
+        ast.CompareOperation(
+            left=timestamp_field,
+            right=exposure_time_field,
+            op=ast.CompareOperationOp.GtEq,
+        )
+    ]
+
+    # If conversion window is set, we limit events to that window
+    # Otherwise, metric events are cut off by the metric query itself,
+    # which limits events to the duration of the experiment.
+    if metric.conversion_window and metric.conversion_window_unit:
+        # Define conversion window as hours after exposure
+        constraints.append(
+            ast.CompareOperation(
+                left=timestamp_field,
+                right=ast.Call(
+                    name="plus",
+                    args=[
+                        exposure_time_field,
+                        ast.Call(
+                            name="toIntervalSecond",
+                            args=[
+                                ast.Constant(
+                                    value=conversion_window_to_seconds(
+                                        metric.conversion_window, metric.conversion_window_unit
+                                    )
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+                op=ast.CompareOperationOp.Lt,
+            )
+        )
+
+    return constraints
+
+
 def get_experiment_exposure_query(
     experiment: Experiment,
     feature_flag,
