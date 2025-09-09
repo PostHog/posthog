@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum, StrEnum
 from typing import Any, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import BaseModel, ConfigDict, Field, RootModel, constr
 
 
 class SchemaRoot(RootModel[Any]):
@@ -1294,14 +1294,6 @@ class FileSystemEntry(BaseModel):
     visualOrder: Optional[float] = Field(default=None, description="Order of object in tree")
 
 
-class FileSystemIconColor1(RootModel[list[str]]):
-    root: list[str] = Field(..., max_length=1, min_length=1)
-
-
-class FileSystemIconColor2(RootModel[list[str]]):
-    root: list[str] = Field(..., max_length=2, min_length=2)
-
-
 class FileSystemIconType(StrEnum):
     DASHBOARD = "dashboard"
     LLM_ANALYTICS = "llm_analytics"
@@ -1355,9 +1347,7 @@ class FileSystemImport(BaseModel):
     )
     flag: Optional[str] = None
     href: Optional[str] = Field(default=None, description="Object's URL")
-    iconColor: Optional[Union[FileSystemIconColor1, FileSystemIconColor2]] = Field(
-        default=None, description="Color of the icon"
-    )
+    iconColor: Optional[list[str]] = Field(default=None, description="Color of the icon")
     iconType: Optional[FileSystemIconType] = None
     id: Optional[str] = None
     meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
@@ -1449,16 +1439,12 @@ class FunnelStepsResults(RootModel[list[dict[str, Any]]]):
     root: list[dict[str, Any]]
 
 
-class Bin(RootModel[list[int]]):
-    root: list[int] = Field(..., max_length=2, min_length=2)
-
-
 class FunnelTimeToConvertResults(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     average_conversion_time: Optional[float] = None
-    bins: list[Bin]
+    bins: list[list[int]]
 
 
 class FunnelTrendsResults(RootModel[list[dict[str, Any]]]):
@@ -1724,10 +1710,6 @@ class MarketingAnalyticsHelperForColumnNames(StrEnum):
 class MarketingAnalyticsOrderByEnum(StrEnum):
     ASC = "ASC"
     DESC = "DESC"
-
-
-class MarketingAnalyticsOrderBy(RootModel[list[Union[str, MarketingAnalyticsOrderByEnum]]]):
-    root: list[Union[str, MarketingAnalyticsOrderByEnum]] = Field(..., max_length=2, min_length=2)
 
 
 class MarketingAnalyticsSchemaFieldTypes(StrEnum):
@@ -2389,15 +2371,11 @@ class SessionAttributionGroupBy(StrEnum):
     INITIAL_URL = "InitialURL"
 
 
-class Event(RootModel[list]):
-    root: list = Field(..., max_length=0, min_length=0)
-
-
 class SessionEventsItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    events: list[Event] = Field(
+    events: list[list] = Field(
         ...,
         description="List of events for this session, each event is a list of field values matching the query columns",
     )
@@ -10806,9 +10784,7 @@ class WebExternalClicksTableQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = Field(
-        default=None, max_length=2, min_length=2
-    )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebExternalClicksTableQueryResponse] = None
     sampling: Optional[WebAnalyticsSampling] = None
@@ -10833,9 +10809,7 @@ class WebGoalsQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = Field(
-        default=None, max_length=2, min_length=2
-    )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebGoalsQueryResponse] = None
     sampling: Optional[WebAnalyticsSampling] = None
@@ -10858,9 +10832,7 @@ class WebOverviewQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = Field(
-        default=None, max_length=2, min_length=2
-    )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebOverviewQueryResponse] = None
     sampling: Optional[WebAnalyticsSampling] = None
@@ -10884,9 +10856,7 @@ class WebPageURLSearchQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = Field(
-        default=None, max_length=2, min_length=2
-    )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebPageURLSearchQueryResponse] = None
     sampling: Optional[WebAnalyticsSampling] = None
@@ -10916,9 +10886,7 @@ class WebStatsTableQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
-    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = Field(
-        default=None, max_length=2, min_length=2
-    )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
     sampling: Optional[WebAnalyticsSampling] = None
@@ -11697,7 +11665,7 @@ class MarketingAnalyticsTableQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = Field(default=None, description="Number of rows to skip before returning rows")
-    orderBy: Optional[list[MarketingAnalyticsOrderBy]] = Field(
+    orderBy: Optional[list[list[Union[str, MarketingAnalyticsOrderByEnum]]]] = Field(
         default=None, description="Columns to order by - similar to EventsQuery format"
     )
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
@@ -12083,9 +12051,7 @@ class WebTrendsQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = None
-    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = Field(
-        default=None, max_length=2, min_length=2
-    )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebTrendsQueryResponse] = None
     sampling: Optional[WebAnalyticsSampling] = None
@@ -12109,9 +12075,7 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = Field(
-        default=None, max_length=2, min_length=2
-    )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     percentile: WebVitalsPercentile
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebVitalsPathBreakdownQueryResponse] = None
@@ -13629,9 +13593,7 @@ class WebVitalsQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = Field(
-        default=None, max_length=2, min_length=2
-    )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebGoalsQueryResponse] = None
     sampling: Optional[WebAnalyticsSampling] = None
@@ -14301,12 +14263,11 @@ class QueryRequest(BaseModel):
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
     )
     filters_override: Optional[DashboardFilter] = None
-    name: Optional[str] = Field(
+    name: Optional[constr(max_length=128)] = Field(
         default=None,
         description=(
             "Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name."
         ),
-        max_length=128,
     )
     query: Union[
         EventsNode,
