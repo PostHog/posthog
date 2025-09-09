@@ -74,7 +74,7 @@ class TestCohortDependency(BaseTest):
         cohort_a = self._create_cohort(name="Test Cohort A")
         cohort_b = self._create_cohort(name="Test Cohort B")
         cohort_c = self._create_cohort(
-            name="Test Cohort B", filters={"properties": {"values": [{"type": "cohort", "value": cohort_a.id}]}}
+            name="Test Cohort C", filters={"properties": {"values": [{"type": "cohort", "value": cohort_a.id}]}}
         )
 
         self._assert_depends_on(cohort_c, cohort_a)
