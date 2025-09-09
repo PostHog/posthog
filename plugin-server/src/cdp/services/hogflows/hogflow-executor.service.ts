@@ -17,7 +17,6 @@ import {
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { HogExecutorService } from '../hog-executor.service'
-import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { ActionHandler } from './actions/action.interface'
 import { ConditionalBranchHandler } from './actions/conditional_branch'
@@ -27,6 +26,7 @@ import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
 import { TriggerHandler } from './actions/trigger.handler'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
+import { HogFlowFunctionsService } from './hogflow-functions.service'
 import { actionIdForLogging, ensureCurrentAction, findContinueAction, shouldSkipAction } from './hogflow-utils'
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
@@ -36,15 +36,15 @@ export class HogFlowExecutorService {
 
     constructor(
         private hub: Hub,
-        private hogFunctionExecutor: HogExecutorService,
-        private hogFunctionTemplateManager: HogFunctionTemplateManagerService,
-        private recipientPreferencesService: RecipientPreferencesService
+        hogFunctionExecutor: HogExecutorService,
+        hogFlowFunctionsService: HogFlowFunctionsService,
+        recipientPreferencesService: RecipientPreferencesService
     ) {
         const hogFunctionHandler = new HogFunctionHandler(
             this.hub,
-            this.hogFunctionExecutor,
-            this.hogFunctionTemplateManager,
-            this.recipientPreferencesService
+            hogFunctionExecutor,
+            hogFlowFunctionsService,
+            recipientPreferencesService
         )
 
         this.actionHandlers = {
@@ -181,7 +181,7 @@ export class HogFlowExecutorService {
         let conversionMatch: boolean | undefined = undefined
 
         // Use the same filter evaluation as in buildHogFlowInvocations
-        if (hogFlow.trigger.filters && person) {
+        if (hogFlow.trigger.type === 'event' && hogFlow.trigger.filters && person) {
             const filterResult = await filterFunctionInstrumented({
                 fn: hogFlow,
                 filters: hogFlow.trigger.filters,

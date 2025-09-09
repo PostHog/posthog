@@ -266,7 +266,7 @@ export const campaignLogic = kea<campaignLogicType>([
                 return
             }
 
-            action.config = { ...config }
+            action.config = { ...config } as HogFlowAction['config']
             actions.setCampaignValues({ actions: [...values.campaign.actions] })
         },
         partialSetCampaignActionConfig: async ({ actionId, config }) => {

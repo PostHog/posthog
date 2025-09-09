@@ -60,13 +60,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ],
         actions: [
             campaignLogic(props),
-            [
-                'setCampaignInfo',
-                'setCampaignActionConfig',
-                'setCampaignAction',
-                'setCampaignActionEdges',
-                'loadCampaignSuccess',
-            ],
+            ['setCampaignInfo', 'setCampaignAction', 'setCampaignActionEdges', 'loadCampaignSuccess'],
             optOutCategoriesLogic(),
             ['loadCategories'],
         ],

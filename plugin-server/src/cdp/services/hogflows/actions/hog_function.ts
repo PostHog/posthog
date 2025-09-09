@@ -7,12 +7,11 @@ import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionInvocationGlobals,
-    HogFunctionType,
     MinimalLogEntry,
 } from '../../../types'
 import { HogExecutorService } from '../../hog-executor.service'
-import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
+import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerResult } from './action.interface'
 
@@ -24,7 +23,7 @@ export class HogFunctionHandler implements ActionHandler {
     constructor(
         private hub: Hub,
         private hogFunctionExecutor: HogExecutorService,
-        private hogFunctionTemplateManager: HogFunctionTemplateManagerService,
+        private hogFlowFunctionsService: HogFlowFunctionsService,
         private recipientPreferencesService: RecipientPreferencesService
     ) {}
 
@@ -63,27 +62,7 @@ export class HogFunctionHandler implements ActionHandler {
         invocation: CyclotronJobInvocationHogFlow,
         action: Action
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(action.config.template_id)
-
-        if (!template) {
-            throw new Error(`Template '${action.config.template_id}' not found`)
-        }
-
-        const hogFunction: HogFunctionType = {
-            id: invocation.hogFlow.id,
-            team_id: invocation.teamId,
-            name: `${invocation.hogFlow.name} - ${template.name}`,
-            enabled: true,
-            type: 'destination',
-            deleted: false,
-            hog: '<<TEMPLATE>>',
-            bytecode: template.bytecode,
-            inputs: action.config.inputs,
-            inputs_schema: template.inputs_schema,
-            created_at: '',
-            updated_at: '',
-        }
-
+        const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action)
         const teamId = invocation.hogFlow.team_id
         const projectUrl = `${this.hub.SITE_URL}/project/${teamId}`
 

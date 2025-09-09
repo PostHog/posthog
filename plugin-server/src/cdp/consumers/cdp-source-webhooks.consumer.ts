@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 
 import { ModifiedRequest } from '~/api/router'
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { HogFlow } from '~/schema/hogflow'
 
 import { HealthCheckResult, HealthCheckResultOk, Hub } from '../../types'
 import { logger } from '../../utils/logger'
@@ -75,18 +76,24 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hog')
     }
 
-    public async getWebhook(webhookId: string): Promise<HogFunctionType | null> {
+    public async getWebhook(webhookId: string): Promise<{ hogFunction: HogFunctionType; hogFlow?: HogFlow } | null> {
         if (!UUID.validateString(webhookId, false)) {
             return null
         }
 
+        // Check for hog functions
         const hogFunction = await this.hogFunctionManager.getHogFunction(webhookId)
-
-        if (hogFunction?.type !== 'source_webhook' || !hogFunction.enabled) {
-            return null
+        if (hogFunction?.type === 'source_webhook' && hogFunction?.enabled) {
+            return { hogFunction }
         }
 
-        return hogFunction
+        // Otherwise check for hog flows
+        const hogFlow = await this.hogFlowManager.getHogFlow(webhookId)
+        if (hogFlow && hogFlow.status === 'active' && hogFlow.trigger?.type === 'webhook') {
+            return { hogFunction: hogFlow as HogFunctionType, hogFlow }
+        }
+
+        return null
     }
 
     @instrumented('cdpSourceWebhooksConsumer.processWebhook')
