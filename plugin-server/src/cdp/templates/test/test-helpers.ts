@@ -41,7 +41,7 @@ export function propagateTemplatingFromSchema(template: any, input: any): any {
                     if (!templatedInputs[field.key] || typeof templatedInputs[field.key] !== 'object') {
                         templatedInputs[field.key] = { value: templatedInputs[field.key] }
                     }
-                    templatedInputs[field.key]['templating'] = 'liquid'
+                    templatedInputs[field.key]['templating'] = 'hog'
                 }
                 // If False, do not set templating field
             } else {
@@ -63,18 +63,22 @@ export type DeepPartialHogFunctionInvocationGlobals = {
     request?: HogFunctionInvocationGlobals['request']
 }
 
-const compileObject = async (obj: any, globals?: any): Promise<any> => {
+const compileObject = async (
+    obj: any,
+    globals?: any,
+    templating_engine: boolean | 'hog' | 'liquid' = 'hog'
+): Promise<any> => {
     if (Array.isArray(obj)) {
-        return Promise.all(obj.map((item) => compileObject(item, globals)))
+        return Promise.all(obj.map((item) => compileObject(item, globals, templating_engine)))
     } else if (typeof obj === 'object' && obj !== null) {
         const res: Record<string, any> = {}
         for (const [key, value] of Object.entries(obj)) {
-            res[key] = await compileObject(value, globals)
+            res[key] = await compileObject(value, globals, templating_engine)
         }
         return res
     } else if (typeof obj === 'string') {
         // If the string looks like a Liquid template, render it first
-        if (obj.includes('{{')) {
+        if (templating_engine === 'liquid') {
             const rendered = formatLiquidInput(obj, globals || createGlobals())
             return await compileHog(`return f'${rendered}'`)
         }
@@ -108,7 +112,7 @@ export const compileInputs = async (
             if (schema?.templating === false) {
                 return [key, value]
             }
-            return [key, await compileObject(value, globals)]
+            return [key, await compileObject(value, globals, schema?.templating || 'hog')]
         })
     )
 
