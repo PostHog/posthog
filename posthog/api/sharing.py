@@ -507,12 +507,16 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         """Override to ensure we don't apply any session authentication."""
         # Save and clear any existing user to ensure we start fresh
         self._original_user = getattr(request, "user", None)
-        request.user = None
-        super().initial(request, *args, **kwargs)
-        # If no sharing auth succeeded, ensure user is anonymous
-        if not request.user:
-            from django.contrib.auth.models import AnonymousUser
 
+        # Set user to AnonymousUser before calling super() to ensure throttle checks work
+        from django.contrib.auth.models import AnonymousUser
+
+        request.user = AnonymousUser()
+
+        super().initial(request, *args, **kwargs)
+
+        # If no sharing auth succeeded, ensure user remains anonymous
+        if not request.user:
             request.user = AnonymousUser()
 
     def get_object(self) -> Optional[SharingConfiguration | ExportedAsset]:
