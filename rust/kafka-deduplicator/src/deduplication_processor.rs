@@ -176,7 +176,7 @@ impl MessageProcessor for DeduplicationProcessor {
         let partition = message.kafka_message().partition();
         let offset = message.kafka_message().offset();
 
-        info!(
+        debug!(
             "Processing message from topic {} partition {} offset {}",
             topic, partition, offset
         );
