@@ -558,6 +558,16 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 logger.exception("Failed to save cohort state on retry", cohort_id=self.id, team_id=team_id)
                 # If both attempts fail, the cohort may remain in an inconsistent state
 
+    @property
+    def dependent_cohorts(self) -> models.QuerySet["Cohort"]:
+        """Return cohorts that this cohort depends on"""
+        return Cohort.objects.filter(referenced_by__cohort=self)
+
+    @property
+    def referencing_cohorts(self) -> models.QuerySet["Cohort"]:
+        """Return cohorts that reference this cohort"""
+        return Cohort.objects.filter(dependencies__depends_on=self)
+
     __repr__ = sane_repr("id", "name", "last_calculation")
 
 
@@ -569,3 +579,24 @@ class CohortPeople(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=["cohort_id", "person_id"])]
+
+
+class CohortDependency(models.Model):
+    """
+    Tracks which cohorts depend on other cohorts.
+    This enables fast lookups for finding all cohorts that reference a given cohort.
+    """
+
+    id = models.BigAutoField(primary_key=True)
+    cohort = models.ForeignKey("Cohort", on_delete=models.CASCADE, related_name="dependencies")
+    depends_on = models.ForeignKey("Cohort", on_delete=models.CASCADE, related_name="referenced_by")
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+
+    class Meta:
+        unique_together = [["cohort", "depends_on"]]
+        indexes = [
+            # Fast lookup for "what cohorts depend on cohort X"
+            models.Index(fields=["depends_on", "team"]),
+            # Fast lookup for "what cohorts does cohort X depend on"
+            models.Index(fields=["cohort", "team"]),
+        ]
