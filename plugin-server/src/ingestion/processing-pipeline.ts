@@ -12,7 +12,7 @@ export class AsyncProcessingPipeline<T> {
     pipe<U>(step: (value: T) => ProcessingResult<U>): AsyncProcessingPipeline<U> {
         const nextResultPromise = this.resultPromise.then((currentResult) => {
             if (!isSuccessResult(currentResult)) {
-                return currentResult as ProcessingResult<U>
+                return currentResult
             }
 
             return step(currentResult.value)
@@ -24,7 +24,7 @@ export class AsyncProcessingPipeline<T> {
     pipeAsync<U>(step: (value: T) => Promise<ProcessingResult<U>>): AsyncProcessingPipeline<U> {
         const nextResultPromise = this.resultPromise.then(async (currentResult) => {
             if (!isSuccessResult(currentResult)) {
-                return currentResult as ProcessingResult<U>
+                return currentResult
             }
 
             return await step(currentResult.value)
@@ -43,7 +43,7 @@ export class ProcessingPipeline<T> {
 
     pipe<U>(step: (value: T) => ProcessingResult<U>): ProcessingPipeline<U> {
         if (!isSuccessResult(this.result)) {
-            return new ProcessingPipeline(this.result as ProcessingResult<U>)
+            return new ProcessingPipeline(this.result)
         }
 
         const stepResult = step(this.result.value)
@@ -52,7 +52,7 @@ export class ProcessingPipeline<T> {
 
     pipeAsync<U>(step: (value: T) => Promise<ProcessingResult<U>>): AsyncProcessingPipeline<U> {
         if (!isSuccessResult(this.result)) {
-            const failurePromise = Promise.resolve(this.result as ProcessingResult<U>)
+            const failurePromise = Promise.resolve(this.result)
             return new AsyncProcessingPipeline(failurePromise)
         }
 
