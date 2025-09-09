@@ -99,7 +99,7 @@ TRUNCATE_LOG_ENTRIES_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {LOG_ENTRIES_TABLE} 
 def LOG_ENTRIES_SHARDED_TABLE_SQL(on_cluster=False):
     return (
         LOG_ENTRIES_TABLE_BASE_SQL
-        + """PARTITION BY toStartOfDay(timestamp) ORDER BY (team_id, log_source, log_source_id, instance_id, timestamp)
+        + """PARTITION BY toYYYYMMDD(timestamp) ORDER BY (team_id, log_source, log_source_id, instance_id, timestamp)
 {ttl_period}
 SETTINGS index_granularity=1024, ttl_only_drop_parts = 1
 """
