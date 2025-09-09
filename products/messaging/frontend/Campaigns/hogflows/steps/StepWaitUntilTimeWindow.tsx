@@ -11,6 +11,7 @@ import { WeekdayType } from '~/types'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'
+import { StepSchemaErrors } from './components/StepSchemaErrors'
 
 type DayConfig = 'any' | 'weekday' | 'weekend' | WeekdayType[]
 type TimeConfig = 'any' | [string, string]
@@ -123,45 +124,48 @@ export function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<Wait
     }
 
     return (
-        <div className="flex flex-col gap-4">
-            <div className="flex flex-wrap">
-                <DayConfiguration
-                    day={day}
-                    isCustomDate={isCustomDate}
-                    onDayChange={(value) => {
-                        const config = getUpdatedDayConfig(value)
-                        setCampaignActionConfig(action.id, config)
-                    }}
-                    onCustomDaysChange={(newDays) =>
-                        setCampaignActionConfig(action.id, { day: [...newDays] as WeekdayType[] })
-                    }
-                />
-
-                <LemonDivider vertical />
-
-                <TimeConfiguration
-                    time={time}
-                    isCustomTime={isCustomTimeRange}
-                    onTimeChange={(value) => {
-                        const config = getUpdatedTimeConfig(value)
-                        setCampaignActionConfig(action.id, config)
-                    }}
-                    onTimeRangeChange={(newTime, index) => {
-                        if (isCustomTimeRange) {
-                            const config = getUpdatedTimeRangeConfig(newTime, index, time)
+        <>
+            <StepSchemaErrors />
+            <div className="flex flex-col gap-4">
+                <div className="flex flex-wrap">
+                    <DayConfiguration
+                        day={day}
+                        isCustomDate={isCustomDate}
+                        onDayChange={(value) => {
+                            const config = getUpdatedDayConfig(value)
                             setCampaignActionConfig(action.id, config)
+                        }}
+                        onCustomDaysChange={(newDays) =>
+                            setCampaignActionConfig(action.id, { day: [...newDays] as WeekdayType[] })
                         }
-                    }}
+                    />
+
+                    <LemonDivider vertical />
+
+                    <TimeConfiguration
+                        time={time}
+                        isCustomTime={isCustomTimeRange}
+                        onTimeChange={(value) => {
+                            const config = getUpdatedTimeConfig(value)
+                            setCampaignActionConfig(action.id, config)
+                        }}
+                        onTimeRangeChange={(newTime, index) => {
+                            if (isCustomTimeRange) {
+                                const config = getUpdatedTimeRangeConfig(newTime, index, time)
+                                setCampaignActionConfig(action.id, config)
+                            }
+                        }}
+                    />
+                </div>
+
+                <TimezoneConfiguration
+                    timezone={timezone}
+                    currentTeamTimezone={currentTeam?.timezone}
+                    timezoneOptions={timezoneOptions}
+                    onTimezoneChange={handleTimezoneChange}
                 />
             </div>
-
-            <TimezoneConfiguration
-                timezone={timezone}
-                currentTeamTimezone={currentTeam?.timezone}
-                timezoneOptions={timezoneOptions}
-                onTimezoneChange={handleTimezoneChange}
-            />
-        </div>
+        </>
     )
 }
 

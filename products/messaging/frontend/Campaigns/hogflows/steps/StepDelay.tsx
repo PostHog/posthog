@@ -4,6 +4,7 @@ import { useActions } from 'kea'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'
 import { HogFlowDuration } from './components/HogFlowDuration'
+import { StepSchemaErrors } from './components/StepSchemaErrors'
 
 export function StepDelayConfiguration({
     node,
@@ -17,6 +18,8 @@ export function StepDelayConfiguration({
 
     return (
         <>
+            <StepSchemaErrors />
+
             <p className="mb-0">Wait for a specified duration.</p>
             <HogFlowDuration
                 value={delay_duration}

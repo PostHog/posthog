@@ -114,7 +114,9 @@ export const campaignLogic = kea<campaignLogicType>([
             {} as Record<string, HogFunctionTemplateType>,
             {
                 loadHogFunctionTemplatesById: async () => {
-                    const allTemplates = await api.hogFunctions.listTemplates({ types: ['destination'] })
+                    const allTemplates = await api.hogFunctions.listTemplates({
+                        types: ['destination', 'source_webhook'],
+                    })
 
                     const allTemplatesById = allTemplates.results.reduce(
                         (acc, template) => {
@@ -132,16 +134,9 @@ export const campaignLogic = kea<campaignLogicType>([
     forms(({ actions, values }) => ({
         campaign: {
             defaults: NEW_CAMPAIGN,
-            errors: ({ name, trigger, actions }) => {
+            errors: ({ name, actions }) => {
                 const errors = {
                     name: !name ? 'Name is required' : undefined,
-                    trigger: {
-                        type: trigger.type === 'event' ? undefined : 'Invalid trigger type',
-                        filters:
-                            trigger.filters.events.length === 0 && trigger.filters.actions.length === 0
-                                ? 'At least one event or action is required'
-                                : undefined,
-                    },
                     actions: actions.some((action) => !(values.actionValidationErrorsById[action.id]?.valid ?? true))
                         ? 'Some fields need work'
                         : undefined,
@@ -214,6 +209,16 @@ export const campaignLogic = kea<campaignLogicType>([
                                 )
                                 result.valid = configValidation.valid
                                 result.errors = configValidation.errors
+                            }
+                        } else if (action.type === 'trigger') {
+                            // custom validation here that we can't easily express in the schema
+                            if (action.config.type === 'event') {
+                                if (!action.config.filters.events?.length && !action.config.filters.actions?.length) {
+                                    result.valid = false
+                                    result.errors = {
+                                        filters: 'At least one event or action is required',
+                                    }
+                                }
                             }
                         }
 

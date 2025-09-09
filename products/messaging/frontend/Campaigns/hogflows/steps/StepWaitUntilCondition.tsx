@@ -7,6 +7,7 @@ import { HogFlowFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'
 import { HogFlowDuration } from './components/HogFlowDuration'
+import { StepSchemaErrors } from './components/StepSchemaErrors'
 
 export function StepWaitUntilConditionConfiguration({
     node,
@@ -20,6 +21,8 @@ export function StepWaitUntilConditionConfiguration({
 
     return (
         <>
+            <StepSchemaErrors />
+
             <div>
                 <LemonLabel>Wait time</LemonLabel>
                 <HogFlowDuration
