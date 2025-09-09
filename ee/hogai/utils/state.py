@@ -6,7 +6,7 @@ from structlog import get_logger
 from ee.hogai.graph.deep_research.types import DeepResearchNodeName, PartialDeepResearchState
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState, TaxonomyNodeName
 from ee.hogai.utils.types import PartialAssistantState
-from ee.hogai.utils.types.composed import MaxGraphState, MaxNodeName, MaxPartialGraphState
+from ee.hogai.utils.types.composed import AssistantMaxGraphState, AssistantMaxPartialGraphState, MaxNodeName
 
 # A state update can have a partial state or a LangGraph's reserved dataclasses like Interrupt.
 GraphValueUpdate = dict[MaxNodeName, dict[Any, Any] | Any]
@@ -28,8 +28,8 @@ def is_value_update(update: list[Any]) -> TypeGuard[GraphValueUpdateTuple]:
 
 def validate_value_update(
     update: GraphValueUpdate,
-) -> dict[MaxNodeName, MaxPartialGraphState | Any]:
-    validated_update: dict[MaxNodeName, MaxPartialGraphState | Any] = {}
+) -> dict[MaxNodeName, AssistantMaxPartialGraphState | Any]:
+    validated_update: dict[MaxNodeName, AssistantMaxPartialGraphState | Any] = {}
     for node_name, value in update.items():
         if isinstance(value, dict):
             if isinstance(node_name, TaxonomyNodeName):
@@ -67,7 +67,9 @@ def is_state_update(update: list[Any]) -> TypeGuard[GraphStateUpdateTuple]:
     return len(update) == 2 and update[0] == "values"
 
 
-def validate_state_update(state_update: dict[Any, Any], state_class: type[MaxGraphState]) -> MaxGraphState:
+def validate_state_update(
+    state_update: dict[Any, Any], state_class: type[AssistantMaxGraphState]
+) -> AssistantMaxGraphState:
     return state_class.model_validate(state_update)
 
 

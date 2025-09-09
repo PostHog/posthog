@@ -1,5 +1,7 @@
 import { DateTime } from 'luxon'
 
+import { sanitizeForUTF8 } from '~/utils/strings'
+
 import { ClickHouseTimestamp, RRWebEvent, TimestampFormat } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
@@ -8,16 +10,6 @@ import { activeMilliseconds } from './snapshot-segmenter'
 
 // some properties are technically user submitted data so we'll do a little mild validation ahead of kafka
 const MAX_PROPERTY_LENGTH = 1000
-
-function sanitizeForUTF8(input: string): string {
-    // the JS console truncates some logs...
-    // when it does that it doesn't check if the output is valid UTF-8
-    // and so it can truncate halfway through a UTF-16 pair 🤷
-    // the simplest way to fix this is to convert to a buffer and back
-    // annoyingly Node 20 has `toWellFormed` which might have been useful
-    const buffer = Buffer.from(input)
-    return buffer.toString()
-}
 
 function safeString(payload: (string | null)[]) {
     // the individual strings are sometimes wrapped in quotes... we want to strip those

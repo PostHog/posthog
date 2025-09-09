@@ -19,10 +19,29 @@ from dags.common import JobOwners
 
 NO_SHARD_PATH = "noshard"
 
+
+def get_max_backup_bandwidth() -> str:
+    """
+    Get max backup bandwidth based on the current environment.
+
+    Returns different bandwidth limits based on CLOUD_DEPLOYMENT:
+    - US: i7ie.metal-48xl instances (192 vCPUs, 768GB RAM) - higher bandwidth
+    - EU: m8g.8xlarge instances (32 vCPUs, 128GB RAM) - conservative bandwidth
+    - DEV/E2E/None: Conservative limits for development/self-hosted
+    """
+    cloud_deployment = getattr(settings, "CLOUD_DEPLOYMENT", None)
+
+    if cloud_deployment == "US":
+        # i7ie.metal-48xl instances - can handle higher bandwidth
+        return "500000000"  # 500MB/s
+    else:
+        # EU (m8g.8xlarge) and DEV/self-hosted - conservative limits
+        return "100000000"  # 100MB/s to prevent resource exhaustion
+
+
 SHARDED_TABLES = [
     "sharded_app_metrics",
     "sharded_app_metrics2",
-    "sharded_events",
     "sharded_heatmaps",
     "sharded_ingestion_warnings",
     "sharded_performance_events",
@@ -31,6 +50,7 @@ SHARDED_TABLES = [
     "sharded_session_replay_events",
     "sharded_session_replay_events_v2_test",
     "sharded_sessions",
+    "sharded_events",
 ]
 
 NON_SHARDED_TABLES = [
@@ -112,9 +132,7 @@ class Backup:
     def create(self, client: Client):
         backup_settings = {
             "async": "1",
-            "max_backup_bandwidth": "100000000",  # 100MB/s to limit resource usage
-            "max_backups_io_thread_pool_size": "8",  # Conservative thread count for m8g.8xlarge
-            "max_backups_io_thread_pool_free_size": "2",  # Keep some threads available
+            "max_backup_bandwidth": get_max_backup_bandwidth(),
         }
         if self.base_backup:
             backup_settings["base_backup"] = "S3('{bucket_base_path}/{path}')".format(
