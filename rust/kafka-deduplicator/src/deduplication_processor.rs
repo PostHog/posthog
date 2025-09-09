@@ -8,7 +8,7 @@ use rdkafka::{ClientConfig, Message};
 use serde_json;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
 use crate::kafka::message::{AckableMessage, MessageProcessor};
 use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
@@ -176,7 +176,7 @@ impl MessageProcessor for DeduplicationProcessor {
         let partition = message.kafka_message().partition();
         let offset = message.kafka_message().offset();
 
-        info!(
+        debug!(
             "Processing message from topic {} partition {} offset {}",
             topic, partition, offset
         );
