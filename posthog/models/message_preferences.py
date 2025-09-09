@@ -1,7 +1,5 @@
-import uuid
 from typing import Optional
 
-from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import models
 
 from posthog.models.utils import UUIDTModel
@@ -32,33 +30,6 @@ class MessageRecipientPreference(UUIDTModel):
 
     def __str__(self) -> str:
         return f"Preferences for {self.identifier}"
-
-    def generate_preferences_token(self) -> str:
-        """Generate a secure, time-limited token for accessing preferences"""
-        signer = TimestampSigner()
-        return signer.sign_object({"id": str(self.id), "identifier": self.identifier})
-
-    @classmethod
-    def validate_preferences_token(
-        cls, token: str, max_age: int = 60 * 60 * 24 * 7
-    ) -> tuple[Optional["MessageRecipientPreference"], str]:
-        """
-        Validate a preferences token and return the recipient if valid
-        max_age defaults to 7 days
-        Returns (recipient, error_message). If validation fails, recipient will be None
-        """
-        signer = TimestampSigner()
-        try:
-            data = signer.unsign_object(token, max_age=max_age)
-            return cls.objects.get(id=uuid.UUID(data["id"]), identifier=data["identifier"]), ""
-        except SignatureExpired:
-            return None, "This link has expired. Please request a new one."
-        except BadSignature:
-            return None, "Invalid or tampered preferences link."
-        except cls.DoesNotExist:
-            return None, "Recipient not found."
-        except Exception:
-            return None, "An error occurred validating your preferences link."
 
     def set_preference(self, category_id: str, status: PreferenceStatus) -> None:
         """Set preference for a specific category"""
