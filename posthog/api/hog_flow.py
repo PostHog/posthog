@@ -145,8 +145,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         ]
 
     def validate(self, data):
+        actions = data.get("actions", self.instance.actions if self.instance else [])
         # The trigger is derived from the actions. We can trust the action level validation and pull it out
-        trigger_actions = [action for action in data.get("actions", []) if action.get("type") == "trigger"]
+        trigger_actions = [action for action in actions if action.get("type") == "trigger"]
 
         if len(trigger_actions) != 1:
             raise serializers.ValidationError({"actions": "Exactly one trigger action is required"})
