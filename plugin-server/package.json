@@ -125,8 +125,6 @@
         "@babel/cli": "^7.22.5",
         "@babel/types": "^7.20.2",
         "@segment/actions-core": "^3.151.0",
-        "tsx": "^4.7.0",
-        "ts-jest": "^29.1.0",
         "@types/adm-zip": "^0.4.34",
         "@types/babel__core": "^7.1.19",
         "@types/babel__standalone": "^7.1.4",
@@ -168,9 +166,11 @@
         "pino-pretty": "^9.1.0",
         "prettier": "^3.6.2",
         "supertest": "^7.0.0",
+        "ts-jest": "^29.1.0",
         "ts-node": "^10.9.1",
         "tsc-alias": "^1.8.16",
-        "tsconfig-paths": "^4.2.0"
+        "tsconfig-paths": "^4.2.0",
+        "tsx": "^4.7.0"
     },
     "cyclotron": {
         "//This is a short term workaround to ensure that cyclotron changes trigger a rebuild": true,

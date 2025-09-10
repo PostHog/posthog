@@ -40,6 +40,7 @@ import {
     HumanMessage,
     ReasoningMessage,
     RootAssistantMessage,
+    TaskExecutionStatus,
 } from '~/queries/schema/schema-assistant-messages'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
@@ -54,6 +55,7 @@ import {
     isHumanMessage,
     isNotebookUpdateMessage,
     isReasoningMessage,
+    isTaskExecutionMessage,
 } from './utils'
 import { getRandomThinkingMessage } from './utils/thinkingMessages'
 
@@ -600,29 +602,40 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 if (threadLoading) {
                     const finalMessageSoFar = threadGrouped.at(-1)?.at(-1)
 
+                    // Check if there's an active TaskExecutionMessage
+                    const hasActiveTaskExecution =
+                        isTaskExecutionMessage(finalMessageSoFar) &&
+                        finalMessageSoFar.tasks.some(
+                            (task) =>
+                                task.status === TaskExecutionStatus.Pending ||
+                                task.status === TaskExecutionStatus.InProgress
+                        )
+
                     // Don't show thinking message if there's an active TaskExecutionMessage
-                    const thinkingMessage: ReasoningMessage & ThreadMessage = {
-                        type: AssistantMessageType.Reasoning,
-                        content: getRandomThinkingMessage(),
-                        status: 'completed',
-                        id: 'loader',
-                    }
-
-                    if (finalMessageSoFar?.type === AssistantMessageType.Human || finalMessageSoFar?.id) {
-                        // If now waiting for the current node to start streaming, add "Thinking" message
-                        // so that there's _some_ indication of processing
-                        if (finalMessageSoFar.type === AssistantMessageType.Human) {
-                            // If the last message was human, we need to add a new "ephemeral" AI group
-                            threadGrouped.push([thinkingMessage])
-                        } else {
-                            // Otherwise, add to the last group
-                            threadGrouped[threadGrouped.length - 1].push(thinkingMessage)
+                    if (!hasActiveTaskExecution) {
+                        const thinkingMessage: ReasoningMessage & ThreadMessage = {
+                            type: AssistantMessageType.Reasoning,
+                            content: getRandomThinkingMessage(),
+                            status: 'completed',
+                            id: 'loader',
                         }
-                    }
 
-                    // Special case for the thread in progress
-                    if (threadGrouped.length === 0) {
-                        threadGrouped.push([thinkingMessage])
+                        if (finalMessageSoFar?.type === AssistantMessageType.Human || finalMessageSoFar?.id) {
+                            // If now waiting for the current node to start streaming, add "Thinking" message
+                            // so that there's _some_ indication of processing
+                            if (finalMessageSoFar.type === AssistantMessageType.Human) {
+                                // If the last message was human, we need to add a new "ephemeral" AI group
+                                threadGrouped.push([thinkingMessage])
+                            } else {
+                                // Otherwise, add to the last group
+                                threadGrouped[threadGrouped.length - 1].push(thinkingMessage)
+                            }
+                        }
+
+                        // Special case for the thread in progress
+                        if (threadGrouped.length === 0) {
+                            threadGrouped.push([thinkingMessage])
+                        }
                     }
                 }
 

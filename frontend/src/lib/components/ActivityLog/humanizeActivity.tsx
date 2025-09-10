@@ -153,6 +153,10 @@ export function humanizeScope(scope: ActivityScope | string, singular = false): 
     return output
 }
 
+export function humanizeActivity(activity: string): string {
+    return activity.charAt(0).toUpperCase() + activity.slice(1)
+}
+
 export function defaultDescriber(
     logItem: ActivityLogItem,
     asNotification = false,
@@ -165,6 +169,26 @@ export function defaultDescriber(
             description: (
                 <>
                     <strong>{userNameForLogItem(logItem)}</strong> deleted <b>{resource}</b>
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'created') {
+        return {
+            description: (
+                <>
+                    <strong>{userNameForLogItem(logItem)}</strong> created <b>{resource}</b>
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'updated') {
+        return {
+            description: (
+                <>
+                    <strong>{userNameForLogItem(logItem)}</strong> updated <b>{resource}</b>
                 </>
             ),
         }

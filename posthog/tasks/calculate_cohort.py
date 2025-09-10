@@ -274,7 +274,9 @@ def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id
 
 
 @shared_task(ignore_result=True, max_retries=1)
-def calculate_cohort_from_list(cohort_id: int, items: list[str], team_id: Optional[int] = None) -> None:
+def calculate_cohort_from_list(
+    cohort_id: int, items: list[str], team_id: Optional[int] = None, id_type: str = "distinct_id"
+) -> None:
     """
     team_id is only optional for backwards compatibility with the old celery task signature.
     All new tasks should pass team_id explicitly.
@@ -284,7 +286,11 @@ def calculate_cohort_from_list(cohort_id: int, items: list[str], team_id: Option
     if team_id is None:
         team_id = cohort.team_id
 
-    batch_count = cohort.insert_users_by_list(items, team_id=team_id)
+    batch_count = (
+        cohort.insert_users_by_list(items, team_id=team_id)
+        if id_type == "distinct_id"
+        else cohort.insert_users_list_by_uuid(items, team_id=team_id)
+    )
     logger.warn(
         "Cohort {}: {:,} items in {} batches from CSV completed in {:.2f}s".format(
             cohort.pk, len(items), batch_count, (time.time() - start_time)
@@ -322,6 +328,7 @@ def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> N
     if team_id is None:
         team_id = cohort.team_id
     team = Team.objects.get(pk=team_id)
+    processing_error = None
     try:
         cohort.is_calculating = True
         cohort.save(update_fields=["is_calculating"])
@@ -329,18 +336,21 @@ def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> N
 
         insert_cohort_query_actors_into_ch(cohort, team=team)
         insert_cohort_people_into_pg(cohort, team_id=team_id)
-        cohort.count = get_static_cohort_size(cohort_id=cohort.id, team_id=cohort.team_id)
-        cohort.errors_calculating = 0
-        cohort.last_calculation = timezone.now()
-    except:
-        cohort.errors_calculating = F("errors_calculating") + 1
-        cohort.last_error_at = timezone.now()
+    except Exception as err:
+        processing_error = err
         capture_exception()
         if settings.DEBUG:
             raise
     finally:
-        cohort.is_calculating = False
-        cohort.save()
+        # Always update the count and cohort state, even if processing failed
+        try:
+            cohort.count = get_static_cohort_size(cohort_id=cohort.id, team_id=cohort.team_id)
+        except Exception as count_err:
+            # If count calculation fails, log the error but don't override the processing error
+            logger.exception("Failed to calculate static cohort size", cohort_id=cohort.id, team_id=team_id)
+            capture_exception(count_err, additional_properties={"cohort_id": cohort.id, "team_id": team_id})
+
+        cohort._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
 
 
 @shared_task(ignore_result=True, max_retries=1)

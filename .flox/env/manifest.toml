@@ -155,6 +155,8 @@ bash = '''
     # ensure even with your shell prefs in place we know this is a Flox.dev env
     export PS1="\033[47m(flox)\033[0m $PS1"
   fi
+  # Ensure flox binaries (especially Node.js) take precedence over system binaries
+  export PATH="$FLOX_ENV/bin:$PATH"
   source $UV_PROJECT_ENVIRONMENT/bin/activate
 '''
 zsh = '''
@@ -168,9 +170,13 @@ zsh = '''
   source $UV_PROJECT_ENVIRONMENT/bin/activate
 '''
 fish = '''
+  # Ensure flox binaries (especially Node.js) take precedence over system binaries
+  fish_add_path "$FLOX_ENV/bin"
   source $UV_PROJECT_ENVIRONMENT/bin/activate.fish
 '''
 tcsh = '''
+  # Ensure flox binaries (especially Node.js) take precedence over system binaries
+  setenv PATH "$FLOX_ENV/bin:$PATH"
   source $UV_PROJECT_ENVIRONMENT/bin/activate.csh
 '''
 
