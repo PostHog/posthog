@@ -1,6 +1,7 @@
 import { DateTime, Duration } from 'luxon'
 
 import { CyclotronJobInvocation } from '~/cdp/types'
+import { isHogFlowInvocation } from '~/cdp/utils'
 
 import { PluginsServerConfig } from '../../../types'
 import { CdpRedis } from '../../redis'
@@ -19,17 +20,32 @@ export class CyclotronJobQueueMonitoring {
         return `${REDIS_KEY_QUEUED}/${id}`
     }
 
-    public async markScheduledInvocations(invocations: CyclotronJobInvocation[]) {
-        // TODO: Maybe only observe scheduled ones?
-        // NOTE: Need to add some special handling for hog flow actions to get the current actionID
+    private toObservations(invocations: CyclotronJobInvocation[]) {
+        const now = DateTime.now()
+
         const invocationsByFunctionId = invocations.reduce(
             (acc, x) => {
+                const time = (x.queueScheduledAt ?? now).toMillis()
                 acc[x.functionId] = acc[x.functionId] ?? []
-                acc[x.functionId].push([(x.queueScheduledAt ?? DateTime.now()).toMillis(), x.id])
+                acc[x.functionId].push([time, x.id])
+
+                // Check if the invocation is CyclotronJobInvocationHogFlow and convert it
+                if (isHogFlowInvocation(x) && x.state.currentAction?.id) {
+                    const actionId = `${x.hogFlow.id}:${x.state.currentAction.id}`
+                    acc[actionId] = acc[actionId] ?? []
+                    acc[actionId].push([time, x.id])
+                }
+
                 return acc
             },
             {} as Record<string, [number, string][]>
         )
+
+        return invocationsByFunctionId
+    }
+
+    public async markScheduledInvocations(invocations: CyclotronJobInvocation[]) {
+        const invocationsByFunctionId = this.toObservations(invocations)
 
         await this.redis.usePipeline({ name: 'cyclotron-job-observe', failOpen: true }, (pipeline) => {
             Object.entries(invocationsByFunctionId).forEach(([functionId, invocationIds]) => {
@@ -41,14 +57,7 @@ export class CyclotronJobQueueMonitoring {
     }
 
     public async unmarkScheduledInvocations(invocations: CyclotronJobInvocation[]) {
-        const invocationsByFunctionId = invocations.reduce(
-            (acc, x) => {
-                acc[x.functionId] = acc[x.functionId] ?? []
-                acc[x.functionId].push(x.id)
-                return acc
-            },
-            {} as Record<string, string[]>
-        )
+        const invocationsByFunctionId = this.toObservations(invocations)
 
         await this.redis.usePipeline({ name: 'cyclotron-job-observe', failOpen: true }, (pipeline) => {
             Object.entries(invocationsByFunctionId).forEach(([functionId, invocationIds]) => {

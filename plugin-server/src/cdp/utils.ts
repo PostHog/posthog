@@ -8,7 +8,16 @@ import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { parseJSON } from '../utils/json-parse'
 import { castTimestampOrNow, clickHouseTimestampToISO } from '../utils/utils'
 import { CdpInternalEvent } from './schema'
-import { HogFunctionInvocationGlobals, HogFunctionType, LogEntry, LogEntrySerialized, MinimalLogEntry } from './types'
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFlow,
+    CyclotronJobInvocationHogFunction,
+    HogFunctionInvocationGlobals,
+    HogFunctionType,
+    LogEntry,
+    LogEntrySerialized,
+    MinimalLogEntry,
+} from './types'
 
 // ID of functions that are hidden from normal users and used by us for special testing
 // For example, transformations use this to only run if in comparison mode
@@ -258,4 +267,16 @@ export const createAddLogFunction = (logs: MinimalLogEntry[]) => {
             message: sanitizeLogMessage(args),
         })
     }
+}
+
+export const isHogFunctionInvocation = (
+    invocation: CyclotronJobInvocation
+): invocation is CyclotronJobInvocationHogFunction => {
+    return 'hogFunction' in invocation
+}
+
+export const isHogFlowInvocation = (
+    invocation: CyclotronJobInvocation
+): invocation is CyclotronJobInvocationHogFlow => {
+    return 'hogFlow' in invocation
 }
