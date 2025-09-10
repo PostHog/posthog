@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { SessionRecordingSnapshotSource } from '~/types'
+import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
 import { hasAnyWireframes, parseEncodedSnapshots, processAllSnapshots } from './process-all-snapshots'
 import { keyForSource } from './source-key'
@@ -53,8 +53,62 @@ describe('process all snapshots', () => {
             )
             const end = performance.now()
             const duration = end - start
-            expect(results.length).toBe(99)
+            expect(results).toHaveLength(100)
             expect(duration).toBeLessThan(10)
+        })
+
+        it('deduplicates snapshot', async () => {
+            const sessionId = '1234'
+            const source = {
+                source: 'blob_v2',
+                blob_key: '0',
+            } as SessionRecordingSnapshotSource
+            const key = keyForSource(source)
+            const results = processAllSnapshots(
+                [
+                    {
+                        source: 'blob_v2',
+                        blob_key: '0',
+                    },
+                ],
+                {
+                    [key]: {
+                        snapshots: [
+                            {
+                                windowId: '1',
+                                timestamp: 1234567890,
+                                type: 0,
+                                data: {
+                                    width: '100',
+                                    height: '100',
+                                    href: 'https://example.com',
+                                },
+                            } as RecordingSnapshot,
+                            {
+                                windowId: '1',
+                                timestamp: 1234567890,
+                                type: 0,
+                                data: {
+                                    width: '100',
+                                    height: '100',
+                                    href: 'https://example.com',
+                                },
+                            } as RecordingSnapshot,
+                        ],
+                    },
+                },
+                {},
+                () => {
+                    return {
+                        width: '100',
+                        height: '100',
+                        href: 'https://example.com',
+                    }
+                },
+                sessionId
+            )
+
+            expect(results).toHaveLength(1)
         })
     })
 
