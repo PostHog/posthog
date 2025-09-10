@@ -242,6 +242,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                     count: 1,
                 })
 
+                await this.hogQueueMonitoring.markScheduledInvocations([hogFlowInvocation])
                 await this.cyclotronJobQueue.queueInvocations([hogFlowInvocation])
             } else {
                 addMetric({
@@ -291,9 +292,10 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             if (hogFunctionState?.state === HogWatcherState.degraded) {
                 // Degraded functions are not executed immediately
                 invocation.queue = 'hog_overflow'
-                await this.jobQueueMonitoring.unmarkScheduledInvocations([invocation])
-
-                await this.cyclotronJobQueue.queueInvocations([invocation])
+                await Promise.all([
+                    this.hogQueueMonitoring.markScheduledInvocations([invocation]),
+                    this.cyclotronJobQueue.queueInvocations([invocation]),
+                ])
 
                 result = createInvocationResult<CyclotronJobInvocationHogFunction>(
                     invocation,

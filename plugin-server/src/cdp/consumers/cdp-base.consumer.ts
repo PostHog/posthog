@@ -60,6 +60,7 @@ export abstract class CdpConsumerBase {
         this.hogFlowManager = new HogFlowManagerService(hub)
         this.hogWatcher = new HogWatcherService(hub, this.redis)
         this.hogMasker = new HogMaskerService(this.redis)
+        this.hogQueueMonitoring = new HogQueueMonitoring(this.redis)
         this.hogExecutor = new HogExecutorService(this.hub)
         this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(this.hub)
         this.hogFlowFunctionsService = new HogFlowFunctionsService(
