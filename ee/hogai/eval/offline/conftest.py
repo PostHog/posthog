@@ -8,7 +8,7 @@ from uuid import UUID
 import pytest
 
 from asgiref.sync import async_to_sync
-from autoevals.llm import LLMClient
+from autoevals.oai import LLMClient
 from dagster_pipes import PipesContext, open_dagster_pipes
 from openai import RateLimitError
 from posthoganalytics import Posthog
@@ -37,6 +37,7 @@ class EvaluationContext(BaseModel):
 
     organization: Annotated[Organization, SkipValidation]
     user: Annotated[User, SkipValidation]
+    experiment_id: str
     experiment_name: str
     dataset_id: str
     dataset_name: str
@@ -50,7 +51,7 @@ class EvaluationContext(BaseModel):
         return f"max-ai-{self.experiment_name}-{test_name}"
 
     @property
-    def callback_handlers(self) -> list[CallbackHandler] | None:
+    def callback_handlers(self) -> list[CallbackHandler]:
         return [
             CallbackHandler(
                 self.client,
@@ -64,10 +65,11 @@ class EvaluationContext(BaseModel):
         return {
             "dataset_id": self.dataset_id,
             "dataset_name": self.dataset_name,
+            "ai_experiment_id": self.experiment_id,
             "ai_experiment_name": self.formatted_experiment_name,
         }
 
-    def get_openai_client_for_tracing(self, trace_id: UUID) -> AsyncOpenAI:
+    def get_openai_client_for_tracing(self, trace_id: UUID | str) -> AsyncOpenAI:
         """Override the OpenAI client to inject tracing parameters."""
         client = AsyncOpenAI(posthog_client=self.client)
         original_create = client.chat.completions.create
@@ -114,10 +116,12 @@ def eval_ctx(
         yield EvaluationContext(
             organization=org,
             user=user,
-            experiment_name=loader.config.experiment_name,
+            experiment_id=config.experiment_id,
+            experiment_name=config.experiment_name,
             dataset_id=config.dataset_id,
             dataset_name=config.dataset_name,
             dataset_inputs=config.dataset_inputs,
+            client=posthog_client,
         )
 
         posthog_client.shutdown()

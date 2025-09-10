@@ -2,7 +2,6 @@ import json
 from abc import ABC, abstractmethod
 from collections.abc import Generator, Sequence
 from typing import Any, Generic, Self, TypeVar
-from uuid import UUID
 
 from django.db.models import Model
 
@@ -181,7 +180,7 @@ class TeamEvaluationSnapshot(BaseModel):
 
 class DatasetInput(BaseModel):
     team_id: int
-    trace_id: UUID = Field(default_factory=lambda: uuid7())
+    trace_id: str = Field(default_factory=lambda: str(uuid7()))
     input: dict[str, Any] = Field(default_factory=dict)
     expected: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -202,11 +201,17 @@ class EvalsDockerImageConfig(BaseModel):
     team_snapshots: list[TeamEvaluationSnapshot]
     """
     Raw snapshots for all projects.
+
+    """
+    experiment_id: str
+    """
+    ID of the experiment.
     """
     experiment_name: str
     """
     Name of the experiment.
     """
+
     dataset_id: str
     """
     ID of the dataset.

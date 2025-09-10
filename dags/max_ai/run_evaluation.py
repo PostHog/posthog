@@ -143,7 +143,11 @@ def get_last_dataset_materialization_metadata(
 
 
 def format_results(
-    dataset_id: UUID, dataset_name: str, results: EvaluationResults, prev_results: EvaluationResults | None = None
+    dataset_id: UUID,
+    dataset_name: str,
+    experiment_id: str,
+    results: EvaluationResults,
+    prev_results: EvaluationResults | None = None,
 ) -> tuple[list[dict[str, Any]], str]:
     experiment_summaries = []
     for result in results:
@@ -208,7 +212,13 @@ def format_results(
                 "value": [result.get("project_name", "")],
                 "operator": "exact",
                 "type": "event",
-            }
+            },
+            {
+                "key": "ai_experiment_id",
+                "value": [experiment_id],
+                "operator": "exact",
+                "type": "event",
+            },
         ]
         summary_parts = [
             f"**Experiment**: {result.get('project_name', '')}",
@@ -256,6 +266,7 @@ def spawn_evaluation_container(
             TeamEvaluationSnapshot(team_id=team_id, postgres=postgres, clickhouse=clickhouse).model_dump()
             for team_id, postgres, clickhouse in zip(team_ids, postgres_snapshots, clickhouse_snapshots)
         ],
+        experiment_id=context.run_id,
         experiment_name=f"dataset-{prepared_dataset.dataset_id}",
         dataset_id=str(prepared_dataset.dataset_id),
         dataset_name=prepared_dataset.dataset_name,
@@ -295,7 +306,7 @@ def spawn_evaluation_container(
         raise ValueError("No new evaluation results found")
 
     blocks, formatted_markdown = format_results(
-        prepared_dataset.dataset_id, prepared_dataset.dataset_name, new_results, previous_results
+        prepared_dataset.dataset_id, prepared_dataset.dataset_name, context.run_id, new_results, previous_results
     )
     try:
         slack.get_client().chat_postMessage(channel="#evals-max-ai", blocks=blocks)

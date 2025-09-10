@@ -41,39 +41,37 @@ async def serialize_database(team: Team):
     return await serialize_database_schema(database, context)
 
 
-def call_graph(eval_ctx: EvaluationContext):
-    async def callable(entry: DatasetInput, *args, **kwargs) -> EvalOutput:
-        team = await Team.objects.aget(id=entry.team_id)
-        conversation, database_schema = await asyncio.gather(
-            Conversation.objects.acreate(team=team, user=eval_ctx.user),
-            serialize_database(team),
-        )
-        graph = AssistantGraph(team, eval_ctx.user).compile_full_graph()
+async def call_graph(entry: DatasetInput, *args):
+    eval_ctx = get_eval_context()
+    team = await Team.objects.aget(id=entry.team_id)
+    conversation, database_schema = await asyncio.gather(
+        Conversation.objects.acreate(team=team, user=eval_ctx.user),
+        serialize_database(team),
+    )
+    graph = AssistantGraph(team, eval_ctx.user).compile_full_graph()
 
-        state = await graph.ainvoke(
-            AssistantState(messages=[HumanMessage(content=entry.input["query"])]),
-            {
-                "callbacks": eval_ctx.callback_handlers,
-                "configurable": {
-                    "thread_id": conversation.id,
-                    "user": eval_ctx.user,
-                    "team": team,
-                    "distinct_id": eval_ctx.user.distinct_id,
-                },
+    state = await graph.ainvoke(
+        AssistantState(messages=[HumanMessage(content=entry.input["query"])]),
+        {
+            "callbacks": eval_ctx.callback_handlers,
+            "configurable": {
+                "thread_id": conversation.id,
+                "user": eval_ctx.user,
+                "team": team,
+                "distinct_id": eval_ctx.user.distinct_id,
             },
+        },
+    )
+    maybe_viz_message = find_last_message_of_type(state["messages"], VisualizationMessage)
+    if maybe_viz_message:
+        return EvalOutput(
+            database_schema=database_schema,
+            query_kind=maybe_viz_message.answer.kind,
+            sql_query=maybe_viz_message.answer.query
+            if isinstance(maybe_viz_message.answer, AssistantHogQLQuery)
+            else None,
         )
-        maybe_viz_message = find_last_message_of_type(state["messages"], VisualizationMessage)
-        if maybe_viz_message:
-            return EvalOutput(
-                database_schema=database_schema,
-                query_kind=maybe_viz_message.answer.kind,
-                sql_query=maybe_viz_message.answer.query
-                if isinstance(maybe_viz_message.answer, AssistantHogQLQuery)
-                else None,
-            )
-        return EvalOutput(database_schema=database_schema)
-
-    return callable
+    return EvalOutput(database_schema=database_schema)
 
 
 async def sql_semantics_scorer(input: DatasetInput, expected: str, output: EvalOutput, **kwargs) -> Score:
@@ -108,7 +106,7 @@ async def eval_offline_sql(eval_ctx: EvaluationContext, pytestconfig):
     with set_eval_context(eval_ctx, eval_offline_sql.__name__):
         await MaxPrivateEval(
             experiment_name=eval_ctx.formatted_experiment_name,
-            task=call_graph(eval_ctx),
+            task=call_graph,
             scores=[sql_syntax_scorer, sql_semantics_scorer],
             data=generate_test_cases(eval_ctx),
             pytestconfig=pytestconfig,
