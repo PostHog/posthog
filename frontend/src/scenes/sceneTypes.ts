@@ -10,6 +10,7 @@ import { SettingSectionId } from './settings/types'
 export enum Scene {
     Action = 'Action',
     Actions = 'Actions',
+    AdvancedActivityLogs = 'AdvancedActivityLogs',
     AsyncMigrations = 'AsyncMigrations',
     BatchExport = 'BatchExport',
     BatchExportNew = 'BatchExportNew',
