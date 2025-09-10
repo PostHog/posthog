@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Optional, Union
+from typing import Any, Literal, Optional, Union
 
 from posthog.temporal.data_imports.sources.common.schema import IncrementalField
 from posthog.warehouse.types import IncrementalFieldType
@@ -18,6 +18,11 @@ class EndpointConfig:
     incremental_fields: Optional[list[IncrementalField]] = None
     table_format: str = "delta"
     is_stats: bool = False
+    # Partitioning configuration
+    partition_keys: Optional[list[str]] = None
+    partition_mode: Optional[Literal["md5", "numerical", "datetime"]] = None
+    partition_format: Optional[Literal["month", "day"]] = None
+    partition_size: int = 1
 
 
 REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
@@ -36,6 +41,10 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
                 field_type=IncrementalFieldType.DateTime,
             )
         ],
+        partition_keys=["modified_at"],
+        partition_mode="datetime",
+        partition_format="month",
+        partition_size=1,
     ),
     "ad_groups": EndpointConfig(
         name="ad_groups",
@@ -52,6 +61,10 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
                 field_type=IncrementalFieldType.DateTime,
             )
         ],
+        partition_keys=["modified_at"],
+        partition_mode="datetime",
+        partition_format="month",
+        partition_size=1,
     ),
     "ads": EndpointConfig(
         name="ads",
@@ -68,6 +81,10 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
                 field_type=IncrementalFieldType.DateTime,
             )
         ],
+        partition_keys=["modified_at"],
+        partition_mode="datetime",
+        partition_format="month",
+        partition_size=1,
     ),
     "campaign_metrics": EndpointConfig(
         name="campaign_metrics",
@@ -95,6 +112,10 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
             )
         ],
         is_stats=True,
+        partition_keys=["date"],
+        partition_mode="datetime",
+        partition_format="month",
+        partition_size=1,
     ),
     "ad_group_metrics": EndpointConfig(
         name="ad_group_metrics",
@@ -122,6 +143,10 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
             )
         ],
         is_stats=True,
+        partition_keys=["date"],
+        partition_mode="datetime",
+        partition_format="month",
+        partition_size=1,
     ),
     "ad_metrics": EndpointConfig(
         name="ad_metrics",
@@ -149,5 +174,9 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
             )
         ],
         is_stats=True,
+        partition_keys=["date"],
+        partition_mode="datetime",
+        partition_format="month",
+        partition_size=1,
     ),
 }

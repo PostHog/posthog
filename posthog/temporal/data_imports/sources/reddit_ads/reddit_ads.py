@@ -171,10 +171,16 @@ def reddit_ads_source(
     assert len(resources) == 1
     resource = resources[0]
 
+    endpoint_config = REDDIT_ADS_CONFIG[endpoint]
+
     return SourceResponse(
         name=endpoint,
         items=resource,
         primary_keys=_get_primary_keys(resource),
         column_hints=_get_column_hints(resource),
-        partition_count=None,
+        partition_count=1,
+        partition_size=endpoint_config.partition_size,
+        partition_mode=endpoint_config.partition_mode,
+        partition_format=endpoint_config.partition_format,
+        partition_keys=endpoint_config.partition_keys,
     )
