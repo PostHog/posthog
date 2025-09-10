@@ -42,7 +42,7 @@ export const isKnownBotUserAgent = (value: unknown): boolean => {
         return false
     }
 
-    const userAgent = value as string
+    const userAgent = (value as string).toLowerCase()
     return KNOWN_BOT_UA_LIST.some((bot) => userAgent.includes(bot))
 }
 
