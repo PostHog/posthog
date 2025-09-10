@@ -392,8 +392,6 @@ export function FormulaSummary({ query }: { query: TrendsQuery }): JSX.Element |
             ))}
         </>
     )
-
-    return null
 }
 
 export function PropertiesSummary({

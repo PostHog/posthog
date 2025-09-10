@@ -46,6 +46,11 @@ TrendsWorldMap.args = {
     insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'),
 }
 
+export const TrendsFormulas = Template.bind({})
+TrendsFormulas.args = {
+    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsFormulas.json'),
+}
+
 export const Funnel = Template.bind({})
 Funnel.args = {
     insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'),
