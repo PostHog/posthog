@@ -3,6 +3,7 @@ from collections.abc import Awaitable, Callable, Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import wraps
+from pathlib import Path
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -202,3 +203,26 @@ def capture_score(func: Callable[..., Awaitable[Score]]):
         return score
 
     return wrapper
+
+
+def with_eval_context(func):
+    """Decorator that sets the evaluation context for the test."""
+
+    @wraps(func)
+    async def wrapper(eval_ctx: EvaluationContext, *args, **kwargs):
+        with set_eval_context(eval_ctx, func.__name__):
+            return await func(eval_ctx, *args, **kwargs)
+
+    return wrapper
+
+
+# Apply decorators to all tests in the package.
+def pytest_collection_modifyitems(items):
+    """
+    One test file might contain multiple evaluation tests cases.
+    This hook will automatically apply the local evaluation context to all of them.
+    """
+    current_dir = Path(__file__).parent
+    for item in items:
+        if Path(item.fspath).is_relative_to(current_dir):
+            item.obj = with_eval_context(item.obj)

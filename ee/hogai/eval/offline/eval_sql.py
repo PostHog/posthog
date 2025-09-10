@@ -15,7 +15,7 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.eval.base import MaxPrivateEval
-from ee.hogai.eval.offline.conftest import EvaluationContext, capture_score, get_eval_context, set_eval_context
+from ee.hogai.eval.offline.conftest import EvaluationContext, capture_score, get_eval_context
 from ee.hogai.eval.schema import DatasetInput
 from ee.hogai.eval.scorers.sql import SQLSemanticsCorrectness, SQLSyntaxCorrectness
 from ee.hogai.graph import AssistantGraph
@@ -105,11 +105,10 @@ def generate_test_cases(eval_ctx: EvaluationContext):
 
 @pytest.mark.django_db
 async def eval_offline_sql(eval_ctx: EvaluationContext, pytestconfig):
-    with set_eval_context(eval_ctx, eval_offline_sql.__name__):
-        await MaxPrivateEval(
-            experiment_name=eval_ctx.formatted_experiment_name,
-            task=call_graph,
-            scores=[sql_syntax_scorer, sql_semantics_scorer],
-            data=generate_test_cases(eval_ctx),
-            pytestconfig=pytestconfig,
-        )
+    await MaxPrivateEval(
+        experiment_name=eval_ctx.formatted_experiment_name,
+        task=call_graph,
+        scores=[sql_syntax_scorer, sql_semantics_scorer],
+        data=generate_test_cases(eval_ctx),
+        pytestconfig=pytestconfig,
+    )
