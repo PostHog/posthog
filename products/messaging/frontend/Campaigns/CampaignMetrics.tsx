@@ -1,27 +1,49 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useMemo } from 'react'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
+import { getColorVar } from 'lib/colors'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
+import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
-
-import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
-import { ChartDisplayType } from '~/types'
 
 import { campaignLogic } from './campaignLogic'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 
-const METRICS_INFO = {
-    succeeded: 'Total number of events processed successfully',
-    failed: 'Total number of events that had errors during processing',
-    filtered: 'Total number of events that were filtered out',
-    dropped: 'Total number of events that were dropped during processing',
-    disabled_temporarily:
-        'Total number of events that were skipped due to the destination being temporarily disabled (due to issues such as the destination being down or rate-limited)',
-    disabled_permanently:
-        'Total number of events that were skipped due to the destination being permanently disabled (due to prolonged issues with the destination)',
+export const CAMPAIGN_METRICS_INFO: Record<string, { name: string; description: string; color: string }> = {
+    succeeded: {
+        name: 'Success',
+        description: 'Total number of events processed successfully',
+        color: getColorVar('success'),
+    },
+    failed: {
+        name: 'Failure',
+        description: 'Total number of events that had errors during processing',
+        color: getColorVar('danger'),
+    },
+    filtered: {
+        name: 'Filtered',
+        description: 'Total number of events that were filtered out',
+        color: getColorVar('muted'),
+    },
+    disabled_permanently: {
+        name: 'Disabled',
+        description:
+            'Total number of events that were skipped due to the destination being permanently disabled (due to prolonged issues with the destination)',
+        color: getColorVar('danger'),
+    },
+    rate_limited: {
+        name: 'Rate Limited',
+        description: 'Total number of events that were rate limited',
+        color: getColorVar('danger'),
+    },
+    triggered: {
+        name: 'Triggered',
+        description: 'Total number of events that were triggered',
+        color: getColorVar('success'),
+    },
 }
 
 export type CampaignMetricsProps = {
@@ -37,24 +59,32 @@ export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
         forceParams: {
             appSource: 'hog_flow',
             appSourceId: id,
-            // metricName: ['succeeded', 'failed', 'filtered', 'disabled_permanently'],
             breakdownBy: 'metric_name',
         },
     })
 
-    const { campaign } = useValues(campaignLogic({ id }))
+    const { campaign, hogFunctionTemplatesById } = useValues(campaignLogic({ id }))
 
     const { appMetricsTrendsLoading, getSingleTrendSeries, appMetricsTrends, params } = useValues(logic)
-    const { loadAppMetricsTrends, loadAppMetricsTrendsPreviousPeriod, setParams } = useActions(logic)
+    const { setParams } = useActions(logic)
 
-    useEffect(() => {
-        loadAppMetricsTrends()
-        loadAppMetricsTrendsPreviousPeriod()
-    }, [loadAppMetricsTrends, loadAppMetricsTrendsPreviousPeriod])
+    const modifiedAppMetricsTrends = useMemo(
+        () =>
+            appMetricsTrends
+                ? {
+                      ...appMetricsTrends,
+                      series: appMetricsTrends.series.map((series) => ({
+                          ...series,
+                          color: CAMPAIGN_METRICS_INFO[series.name as keyof typeof CAMPAIGN_METRICS_INFO]?.color,
+                      })),
+                  }
+                : null,
+        [appMetricsTrends]
+    )
 
     return (
-        <div>
-            <div className="flex flex-row gap-2 flex-wrap justify-between mb-2">
+        <div className="flex flex-col gap-2">
+            <div className="flex flex-row gap-2 flex-wrap justify-between">
                 <div>
                     <LemonSelect
                         size="small"
@@ -70,14 +100,17 @@ export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
                             },
                             {
                                 title: 'Workflow steps',
-                                options: campaign.actions.map((action) => ({
-                                    label: (
-                                        <span className="flex items-center gap-1">
-                                            {getHogFlowStep(action.type)?.icon} {getHogFlowStep(action.type)?.name}
-                                        </span>
-                                    ),
-                                    value: action.id,
-                                })),
+                                options: campaign.actions.map((action) => {
+                                    const Step = getHogFlowStep(action, hogFunctionTemplatesById)
+                                    return {
+                                        label: (
+                                            <span className="flex items-center gap-1">
+                                                {Step?.icon} {action.name}
+                                            </span>
+                                        ),
+                                        value: action.id,
+                                    }
+                                }),
                             },
                         ]}
                         value={params.instanceId ?? null}
@@ -87,73 +120,22 @@ export function CampaignMetrics({ id }: CampaignMetricsProps): JSX.Element {
                 <AppMetricsFilters logicKey={logicKey} />
             </div>
 
-            <div className="flex flex-row gap-2 mb-2 flex-wrap justify-center">
-                <AppMetricSummary
-                    name="Success"
-                    description={METRICS_INFO.succeeded}
-                    loading={appMetricsTrendsLoading}
-                    timeSeries={getSingleTrendSeries('succeeded')}
-                    previousPeriodTimeSeries={getSingleTrendSeries('succeeded', true)}
-                />
-
-                <AppMetricSummary
-                    name="Failure"
-                    description={METRICS_INFO.failed}
-                    loading={appMetricsTrendsLoading}
-                    timeSeries={getSingleTrendSeries('failed')}
-                    previousPeriodTimeSeries={getSingleTrendSeries('failed', true)}
-                />
-
-                <AppMetricSummary
-                    name="Filtered"
-                    description={METRICS_INFO.filtered}
-                    loading={appMetricsTrendsLoading}
-                    timeSeries={getSingleTrendSeries('filtered')}
-                    previousPeriodTimeSeries={getSingleTrendSeries('filtered', true)}
-                />
-
-                <AppMetricSummary
-                    name="Disabled"
-                    description={METRICS_INFO.disabled_permanently}
-                    loading={appMetricsTrendsLoading}
-                    timeSeries={getSingleTrendSeries('disabled_permanently')}
-                    previousPeriodTimeSeries={getSingleTrendSeries('disabled_permanently', true)}
-                />
-            </div>
-
-            <div className="border rounded min-h-[20rem] h-[70vh] bg-white">
-                {appMetricsTrends && (
-                    <LineGraph
-                        className="p-2"
-                        xData={{
-                            column: {
-                                name: 'date',
-                                type: {
-                                    name: 'DATE',
-                                    isNumerical: false,
-                                },
-                                label: 'Date',
-                                dataIndex: 0,
-                            },
-                            data: appMetricsTrends.labels,
-                        }}
-                        yData={appMetricsTrends.series.map((x) => ({
-                            column: {
-                                name: x.name,
-                                type: { name: 'INTEGER', isNumerical: true },
-                                label: x.name,
-                                dataIndex: 0,
-                            },
-                            data: x.values,
-                        }))}
-                        visualizationType={ChartDisplayType.ActionsLineGraph}
-                        chartSettings={{
-                            showLegend: true,
-                            showTotalRow: true,
-                        }}
+            <div className="flex flex-row gap-2 flex-wrap justify-center">
+                {['succeeded', 'failed', 'filtered', 'disabled_permanently'].map((key) => (
+                    <AppMetricSummary
+                        key={key}
+                        name={CAMPAIGN_METRICS_INFO[key].name}
+                        description={CAMPAIGN_METRICS_INFO[key].description}
+                        loading={appMetricsTrendsLoading}
+                        timeSeries={getSingleTrendSeries(key)}
+                        previousPeriodTimeSeries={getSingleTrendSeries(key, true)}
+                        color={CAMPAIGN_METRICS_INFO[key].color}
+                        colorIfZero={getColorVar('muted')}
                     />
-                )}
+                ))}
             </div>
+
+            <AppMetricsTrends appMetricsTrends={modifiedAppMetricsTrends} loading={appMetricsTrendsLoading} />
         </div>
     )
 }

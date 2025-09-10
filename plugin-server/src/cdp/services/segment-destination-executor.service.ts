@@ -4,14 +4,13 @@ import { ReadableStream } from 'stream/web'
 import { PluginsServerConfig } from '~/types'
 
 import { parseJSON } from '../../utils/json-parse'
-import { FetchOptions, FetchResponse, Response, fetch } from '../../utils/request'
-import { tryCatch } from '../../utils/try-catch'
+import { FetchOptions, FetchResponse, Response } from '../../utils/request'
 import { LegacyPluginLogger } from '../legacy-plugins/types'
 import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { CDP_TEST_ID, createAddLogFunction, isSegmentPluginHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
-import { getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
+import { cdpTrackedFetch, getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
 
 const pluginExecutionDuration = new Histogram({
     name: 'cdp_segment_execution_duration_ms',
@@ -97,10 +96,6 @@ const convertFetchResponse = <Data = unknown>(response: FetchResponse, text: str
 
 export class SegmentDestinationExecutorService {
     constructor(private serverConfig: PluginsServerConfig) {}
-
-    public async fetch(...args: Parameters<typeof fetch>): Promise<FetchResponse> {
-        return fetch(...args)
-    }
 
     public async execute(
         invocation: CyclotronJobInvocationHogFunction
@@ -200,19 +195,19 @@ export class SegmentDestinationExecutorService {
                         body,
                     }
 
+                    result.metrics!.push({
+                        team_id: invocation.hogFunction.team_id,
+                        app_source_id: invocation.hogFunction.id,
+                        metric_kind: 'other',
+                        metric_name: 'fetch',
+                        count: 1,
+                    })
+
                     if (isTestFunction && options?.method?.toUpperCase() !== 'GET') {
                         // For testing we mock out all non-GET requests
                         addLog('info', 'Fetch called but mocked due to test function', {
                             url: endpoint,
                             options: fetchOptions,
-                        })
-
-                        result.metrics!.push({
-                            team_id: invocation.hogFunction.team_id,
-                            app_source_id: invocation.hogFunction.id,
-                            metric_kind: 'other',
-                            metric_name: 'fetch',
-                            count: 1,
                         })
                         // Simulate a mini bit of fetch delay
                         await new Promise((resolve) => setTimeout(resolve, 200))
@@ -232,9 +227,13 @@ export class SegmentDestinationExecutorService {
                         addLog('debug', 'fetchOptions', fetchOptions)
                     }
 
-                    const [fetchError, fetchResponse] = await tryCatch(() =>
-                        this.fetch(`${endpoint}${params.toString() ? '?' + params.toString() : ''}`, fetchOptions)
-                    )
+                    const url = `${endpoint}${params.toString() ? '?' + params.toString() : ''}`
+                    const { fetchError, fetchResponse } = await cdpTrackedFetch({
+                        url,
+                        fetchParams: fetchOptions,
+                        templateId: invocation.hogFunction.template_id ?? '',
+                    })
+
                     const fetchResponseText = (await fetchResponse?.text()) ?? 'unknown'
 
                     if (fetchError || !fetchResponse || fetchResponse.status >= 400) {

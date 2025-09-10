@@ -59,7 +59,6 @@ const ExperimentFormFields = (): JSX.Element => {
                 description={null}
                 resourceType={{
                     type: 'experiment',
-                    typePlural: 'experiments',
                 }}
                 canEdit
                 onNameChange={(name) => {

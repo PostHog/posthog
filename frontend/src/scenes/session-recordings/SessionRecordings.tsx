@@ -20,6 +20,8 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -28,7 +30,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { ProductKey, ReplayTab, ReplayTabs } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ProductKey, ReplayTab, ReplayTabs } from '~/types'
 
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { createPlaylist } from './playlist/playlistUtils'
@@ -84,6 +86,14 @@ function Header(): JSX.Element {
                                 onClick={(e) => newPlaylistHandler.onEvent?.(e)}
                                 data-attr="save-recordings-playlist-button"
                                 loading={newPlaylistHandler.loading}
+                                accessControl={{
+                                    resourceType: AccessControlResourceType.SessionRecording,
+                                    minAccessLevel: AccessControlLevel.Editor,
+                                    userAccessLevel:
+                                        getAppContext()?.resource_access_control?.[
+                                            AccessControlResourceType.SessionRecording
+                                        ],
+                                }}
                             >
                                 New collection
                             </LemonButton>
@@ -253,7 +263,7 @@ function PageTabs(): JSX.Element {
     return (
         <LemonTabs
             activeKey={tab}
-            className="flex"
+            className={cn('flex', newSceneLayout && 'mt-0')}
             barClassName="mb-0"
             onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
             sceneInset={newSceneLayout}
@@ -278,7 +288,7 @@ function PageTabs(): JSX.Element {
 }
 export function SessionsRecordings(): JSX.Element {
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent forceNewSpacing className="h-full">
             <Header />
             <PageTabs />
             <MainPanel />

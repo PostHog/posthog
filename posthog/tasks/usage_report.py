@@ -11,7 +11,7 @@ from typing import Any, Literal, Optional, TypedDict, Union
 
 from django.conf import settings
 from django.db import connection
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, F, Q, Sum
 
 import requests
 import structlog
@@ -25,7 +25,7 @@ from retry import retry
 from posthog.schema import AIEventType
 
 from posthog import version_requirement
-from posthog.batch_exports.models import BatchExportRun
+from posthog.batch_exports.models import BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tags_context
@@ -940,10 +940,10 @@ def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> li
             finished_at__gte=begin,
             finished_at__lte=end,
             status=BatchExportRun.Status.COMPLETED,
-            batch_export__model=BatchExport.Model.EVENTS,
             batch_export__deleted=False,
         )
-        .values("batch_export__team_id")
+        .exclude(batch_export__destination__type=BatchExportDestination.Destination.HTTP)
+        .values(team_id=F("batch_export__team_id"))
         .annotate(total=Sum("records_completed"))
     )
 

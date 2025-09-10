@@ -156,7 +156,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Login]: { onlyUnauthenticated: true },
     [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw', hideProjectNotice: true },
     [Scene.MoveToPostHogCloud]: { name: 'Move to PostHog Cloud', hideProjectNotice: true },
-    [Scene.NewTab]: { projectBased: true, name: 'New tab' },
+    [Scene.NewTab]: { projectBased: true, name: 'New tab', hideProjectNotice: true, layout: 'app-raw' },
     [Scene.Notebook]: {
         projectBased: true,
         hideProjectNotice: true,
@@ -267,12 +267,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Session replay',
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
+        hideProjectNotice: true,
     },
     [Scene.RevenueAnalytics]: {
         projectBased: true,
         name: 'Revenue analytics',
         layout: 'app-container',
-        defaultDocsPath: '/docs/web-analytics/revenue-analytics',
+        defaultDocsPath: '/docs/revenue-analytics',
     },
     [Scene.SQLEditor]: {
         projectBased: true,
@@ -336,6 +337,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Web analytics',
         layout: 'app-container',
         defaultDocsPath: '/docs/web-analytics',
+    },
+    [Scene.EmbeddedAnalytics]: {
+        projectBased: true,
+        name: 'Embedded analytics',
+        layout: 'app-container',
     },
     [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },
     ...productConfiguration,
@@ -443,6 +449,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
     [urls.webAnalyticsMarketing()]: [Scene.WebAnalytics, 'webAnalyticsMarketing'],
     [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
+    [urls.embeddedAnalytics()]: [Scene.EmbeddedAnalytics, 'embeddedAnalytics'],
     [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
     [urls.marketingAnalytics()]: [Scene.DataManagement, 'marketingAnalytics'],

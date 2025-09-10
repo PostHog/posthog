@@ -44,7 +44,6 @@ import {
     ResultCustomizationByValue,
     RetentionQuery,
     RevenueAnalyticsGrossRevenueQuery,
-    RevenueAnalyticsGrowthRateQuery,
     RevenueAnalyticsMRRQuery,
     RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsOverviewQuery,
@@ -160,12 +159,6 @@ export function isRevenueAnalyticsGrossRevenueQuery(
     node?: Record<string, any> | null
 ): node is RevenueAnalyticsGrossRevenueQuery {
     return node?.kind === NodeKind.RevenueAnalyticsGrossRevenueQuery
-}
-
-export function isRevenueAnalyticsGrowthRateQuery(
-    node?: Record<string, any> | null
-): node is RevenueAnalyticsGrowthRateQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsGrowthRateQuery
 }
 
 export function isRevenueAnalyticsMetricsQuery(
@@ -460,6 +453,8 @@ export const getShowValuesOnSeries = (query: InsightQueryNode): boolean | undefi
         return query.stickinessFilter?.showValuesOnSeries
     } else if (isTrendsQuery(query)) {
         return query.trendsFilter?.showValuesOnSeries
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.showValuesOnSeries
     }
     return undefined
 }

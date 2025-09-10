@@ -16,7 +16,6 @@ import {
 import { DataVisualizationLogicProps } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
-import { ItemMode } from '~/types'
 
 import { ViewLinkModal } from '../ViewLinkModal'
 import { QueryWindow } from './QueryWindow'
@@ -71,7 +70,7 @@ export function EditorScene(): JSX.Element {
         query: sourceQuery,
         dashboardId: undefined,
         dataNodeCollectionId: dataLogicKey,
-        insightMode: ItemMode.Edit,
+        editMode: true,
         loadPriority: undefined,
         cachedResults: undefined,
         variablesOverride: undefined,

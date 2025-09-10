@@ -41,6 +41,7 @@ export enum Scene {
     ErrorTrackingConfiguration = 'ErrorTrackingConfiguration',
     ErrorTrackingImpact = 'ErrorTrackingImpact',
     ErrorTrackingIssue = 'ErrorTrackingIssue',
+    ErrorTrackingIssueFingerprints = 'ErrorTrackingIssueFingerprints',
     EventDefinition = 'EventDefinition',
     EventDefinitionEdit = 'EventDefinitionEdit',
     Experiment = 'Experiment',
@@ -115,6 +116,7 @@ export enum Scene {
     WebAnalyticsMarketing = 'WebAnalyticsMarketing',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
+    EmbeddedAnalytics = 'EmbeddedAnalytics',
     Wizard = 'Wizard',
 }
 
@@ -219,4 +221,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Notebooks
     [Scene.Notebook]: AccessControlResourceType.Notebook,
     [Scene.Notebooks]: AccessControlResourceType.Notebook,
+
+    // Session recordings
+    [Scene.Replay]: AccessControlResourceType.SessionRecording,
+    [Scene.ReplaySingle]: AccessControlResourceType.SessionRecording,
+    [Scene.ReplayPlaylist]: AccessControlResourceType.SessionRecording,
 }

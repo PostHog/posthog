@@ -655,7 +655,7 @@ export const WebGoalsTile = ({ query, insightProps }: QueryWithInsightProps<Data
                 description="Use actions to combine events that you want to have tracked together or to make detailed Autocapture events easier to reuse."
                 docsURL="https://posthog.com/docs/data/actions"
                 actionElementOverride={
-                    <NewActionButton onSelectOption={() => updateHasSeenProductIntroFor(ProductKey.ACTIONS, true)} />
+                    <NewActionButton onSelectOption={() => updateHasSeenProductIntroFor(ProductKey.ACTIONS)} />
                 }
             />
         )

@@ -128,11 +128,16 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 max_timestamp=max_timestamp,
                 extra_summary_context=extra_summary_context,
             )
+            summary_title = "API generated"
             summary_content = generate_notebook_content_from_summary(
-                summary=summary, session_ids=session_ids, project_name=self.team.name, team_id=self.team.id
+                summary=summary,
+                session_ids=session_ids,
+                project_name=self.team.name,
+                team_id=self.team.id,
+                summary_title=summary_title,
             )
             async_to_sync(create_notebook_from_summary_content)(
-                user=user, team=self.team, summary_content=summary_content
+                user=user, team=self.team, summary_content=summary_content, summary_title=summary_title
             )
             return Response(summary.model_dump(exclude_none=True, mode="json"), status=status.HTTP_200_OK)
         except Exception as err:

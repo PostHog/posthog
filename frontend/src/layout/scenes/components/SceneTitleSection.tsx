@@ -11,23 +11,19 @@ import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 
-import { fileSystemTypes } from '~/products'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { FileSystemIconColor } from '~/types'
 
 import '../../panel-layout/ProjectTree/defaultTree'
-import { ProductIconWrapper } from '../../panel-layout/ProjectTree/defaultTree'
-import { iconForType } from '../../panel-layout/ProjectTree/defaultTree'
+import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/defaultTree'
 
 type ResourceType = {
     to?: string
-    tooltip?: string
-    /** example: 'action' */
-    type: keyof typeof fileSystemTypes | string
-    /** example: 'actions' */
-    typePlural: string
+    /** pass in a value from the FileSystemIconType enum, or a string if not available */
+    type: FileSystemIconType | string
     /** If your resource type matches a product in fileSystemTypes, you can use this to override the icon */
     forceIcon?: JSX.Element
-    /** If your resource type matches a product in fileSystemTypes, you can use this to override the product's icon color */
+    /** If your resource type matches a product in fileSystemTypes and has a color defined, you can use this to override the product's icon color */
     forceIconColorOverride?: FileSystemIconColor
 }
 
@@ -85,7 +81,7 @@ export function SceneTitleSection({
             {resourceType.forceIcon}
         </ProductIconWrapper>
     ) : (
-        iconForType(resourceType.type)
+        iconForType(resourceType.type ? (resourceType.type as FileSystemIconType) : undefined)
     )
     return (
         <div className="@container/scene-title-section">
@@ -114,14 +110,6 @@ export function SceneTitleSection({
                     </div>
                     {description !== null && (description || canEdit) && (
                         <div className="flex gap-2 [&_svg]:size-6 items-center">
-                            {/* <span
-                                className={buttonPrimitiveVariants({
-                                    size: 'base',
-                                    iconOnly: true,
-                                    inert: true,
-                                })}
-                                aria-hidden
-                            /> */}
                             <SceneDescription
                                 description={description}
                                 markdown={markdown}
@@ -139,7 +127,7 @@ export function SceneTitleSection({
                         <Link
                             to={`${docsURL}?utm_medium=in-product&utm_campaign=scene-title-section-docs-link`}
                             buttonProps={{ variant: 'panel', className: 'rounded-sm' }}
-                            tooltip={`View docs for ${resourceType.typePlural}`}
+                            tooltip={`View docs for ${resourceType.type}`}
                             className="hidden @lg:block"
                         >
                             <IconDocument /> Read the docs
@@ -147,7 +135,7 @@ export function SceneTitleSection({
                         <Link
                             to={`${docsURL}?utm_medium=in-product&utm_campaign=scene-title-section-docs-link`}
                             buttonProps={{ variant: 'panel', className: 'rounded-sm', size: 'lg' }}
-                            tooltip={`View docs for ${resourceType.typePlural}`}
+                            tooltip={`View docs for ${resourceType.type}`}
                             className="@lg:hidden"
                         >
                             <IconDocument />

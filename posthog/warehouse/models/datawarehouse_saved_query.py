@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
@@ -80,6 +80,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     table = models.ForeignKey("posthog.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
     # The name of the view at the time of soft deletion
     deleted_name = models.CharField(max_length=128, default=None, null=True, blank=True)
+    is_materialized = models.BooleanField(default=False, blank=True, null=True)
 
     class Meta:
         constraints = [
@@ -92,6 +93,28 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     @property
     def name_chain(self) -> list[str]:
         return self.name.split(".")
+
+    def revert_materialization(self):
+        from posthog.warehouse.data_load.saved_query_service import delete_saved_query_schedule
+        from posthog.warehouse.models import DataWarehouseModelPath
+
+        with transaction.atomic():
+            self.sync_frequency_interval = None
+            self.last_run_at = None
+            self.latest_error = None
+            self.status = None
+            self.is_materialized = False
+
+            # delete the materialized table reference
+            if self.table is not None:
+                self.table.soft_delete()
+                self.table_id = None
+
+            delete_saved_query_schedule(str(self.id))
+
+            self.save()
+
+            DataWarehouseModelPath.objects.filter(team=self.team, path__lquery=f"*{{1,}}.{self.id.hex}").delete()
 
     def soft_delete(self):
         self.deleted = True
@@ -174,12 +197,6 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
 
         return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
-
-    @property
-    def is_materialized(self):
-        return self.table is not None and (
-            self.status == DataWarehouseSavedQuery.Status.COMPLETED or self.last_run_at is not None
-        )
 
     def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> Union[SavedQuery, S3Table]:
         if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:

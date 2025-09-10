@@ -1135,7 +1135,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (dashboard) => {
                 return dashboard?.user_access_level
                     ? accessLevelSatisfied(AccessControlResourceType.Dashboard, dashboard.user_access_level, 'editor')
-                    : true
+                    : false
             },
         ],
         canRestrictDashboard: [
@@ -1257,6 +1257,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 if (props.dashboard) {
                     // If we already have dashboard data, use it. Should the data turn out to be stale,
                     // the loadDashboardSuccess listener will initiate a refresh
+                    // Ensure loading state is properly initialized for shared dashboards
+                    actions.loadingDashboardItemsStarted(DashboardLoadAction.InitialLoad)
                     actions.loadDashboardSuccess(props.dashboard)
                 } else {
                     if (!(SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams)) {
@@ -1518,7 +1520,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 values.urlFilters,
                                 values.urlVariables,
                                 Math.floor(performance.now() - insightRefreshStartTime),
-                                true
+                                false
                             )
                         } else {
                             actions.setRefreshError(insight.short_id)
@@ -1593,6 +1595,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 values.dashboard?.persisted_filters?.date_to !== values.effectiveEditBarFilters.date_to
             ) {
                 eventUsageLogic.actions.reportDashboardDateRangeChanged(
+                    values.dashboard,
                     values.effectiveEditBarFilters.date_from,
                     values.effectiveEditBarFilters.date_to
                 )
@@ -1601,7 +1604,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 JSON.stringify(values.dashboard?.persisted_filters?.properties) !==
                 JSON.stringify(values.effectiveEditBarFilters.properties)
             ) {
-                eventUsageLogic.actions.reportDashboardPropertiesChanged()
+                eventUsageLogic.actions.reportDashboardPropertiesChanged(values.dashboard)
             }
         },
         setDashboardMode: async ({ mode, source }) => {
@@ -1640,7 +1643,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             if (mode) {
-                eventUsageLogic.actions.reportDashboardModeToggled(mode, source)
+                eventUsageLogic.actions.reportDashboardModeToggled(values.dashboard, mode, source)
             }
         },
         setAutoRefresh: () => {
