@@ -15,6 +15,7 @@ from django.conf import settings
 from django.test import override_settings
 
 import aioboto3
+import pyarrow.ipc as ipc
 import botocore.exceptions
 from flaky import flaky
 from temporalio import activity
@@ -190,6 +191,10 @@ async def assert_files_in_s3(s3_compatible_client, bucket_name, key_prefix, file
         if file_format == "Parquet":
             s3_data.extend(await read_parquet_from_s3(bucket_name, key, json_columns))
 
+        elif file_format == "Arrow":
+            s3_object = await s3_compatible_client.get_object(Bucket=bucket_name, Key=key)
+            data = await s3_object["Body"].read()
+            s3_data.extend(ipc.RecordBatchStreamReader(data))
         elif file_format == "JSONLines":
             s3_object = await s3_compatible_client.get_object(Bucket=bucket_name, Key=key)
             data = await s3_object["Body"].read()

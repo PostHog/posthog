@@ -61,6 +61,7 @@ NON_RETRYABLE_ERROR_TYPES = (
 FILE_FORMAT_EXTENSIONS = {
     "Parquet": "parquet",
     "JSONLines": "jsonl",
+    "Arrow": "arrow",
 }
 
 COMPRESSION_EXTENSIONS = {
