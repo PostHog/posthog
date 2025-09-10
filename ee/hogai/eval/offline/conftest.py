@@ -63,7 +63,7 @@ class EvaluationContext(BaseModel):
         test_name = get_eval_context().test_name
         return f"max-ai-{self.experiment_name}-{test_name}"
 
-    def get_callback_handlers(self, trace_id: UUID | str) -> list[CallbackHandler]:
+    def get_callback_handlers(self, trace_id: UUID | str | None) -> list[CallbackHandler]:
         return [
             CallbackHandler(
                 self.client,
@@ -82,7 +82,7 @@ class EvaluationContext(BaseModel):
             "ai_experiment_name": self.formatted_experiment_name,
         }
 
-    def get_openai_client_for_tracing(self, trace_id: UUID | str) -> AsyncOpenAI:
+    def get_openai_client_for_tracing(self, trace_id: UUID | str | None) -> AsyncOpenAI:
         """Override the OpenAI client to inject tracing parameters."""
         client = AsyncOpenAI(posthog_client=self.client)
         original_create = client.chat.completions.create
@@ -196,7 +196,7 @@ def capture_score(func: Callable[..., Awaitable[Score]]):
                 properties={
                     "$ai_trace_id": input.trace_id,
                     "$ai_metric_name": score.name,
-                    "$ai_metric_value": score.score,
+                    "$ai_metric_value": str(score.score) if score.score is not None else "None",
                     "ai_score_metadata": score.metadata,
                 },
             )
