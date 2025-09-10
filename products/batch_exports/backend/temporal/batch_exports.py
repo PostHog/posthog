@@ -31,6 +31,7 @@ from posthog.batch_exports.service import (
     update_batch_export_run,
 )
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
+from posthog.models.team.team import Team
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseClient
@@ -47,6 +48,8 @@ from products.batch_exports.backend.temporal.sql import (
     SELECT_FROM_EVENTS_VIEW_RECENT,
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
 )
+
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
@@ -345,9 +348,20 @@ class StartBatchExportRunInputs:
     # this can be removed once all backfills are finished
     is_backfill: bool = False
     backfill_id: str | None = None
+    check_billing: bool = dataclasses.field(default_factory=lambda: settings.BATCH_EXPORTS_ENABLE_BILLING_CHECK)
 
 
 BatchExportRunId = str
+
+
+class OverBillingLimitError(Exception):
+    """Exception raised when team is over billing limit.
+
+    Batch export should not run when this is raised.
+    """
+
+    def __init__(self, team_id: int):
+        super().__init__(f"Team {team_id} is over billing limit for batch exports")
 
 
 @activity.defn
@@ -372,15 +386,58 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExpo
         inputs.data_interval_end,
     )
 
-    run = await database_sync_to_async(create_batch_export_run)(
-        batch_export_id=uuid.UUID(inputs.batch_export_id),
-        data_interval_start=inputs.data_interval_start,
-        data_interval_end=inputs.data_interval_end,
-        status=BatchExportRun.Status.STARTING,
-        backfill_id=uuid.UUID(inputs.backfill_id) if inputs.backfill_id else None,
+    if inputs.check_billing is True:
+        is_over_limit = await check_is_over_limit(inputs.team_id)
+    else:
+        is_over_limit = False
+
+    if is_over_limit:
+        run = await database_sync_to_async(create_batch_export_run)(
+            batch_export_id=uuid.UUID(inputs.batch_export_id),
+            data_interval_start=inputs.data_interval_start,
+            data_interval_end=inputs.data_interval_end,
+            status=BatchExportRun.Status.FAILED_BILLING,
+            backfill_id=uuid.UUID(inputs.backfill_id) if inputs.backfill_id else None,
+        )
+
+        logger.info("Over billing limit")
+        EXTERNAL_LOGGER.warning("Batch export run failed due to exceeding billing limits. No data has been exported.")
+
+        await try_produce_app_metrics(
+            status=BatchExportRun.Status.FAILED_BILLING,
+            team_id=inputs.team_id,
+            batch_export_id=inputs.batch_export_id,
+            batch_export_run_id=str(run.id),
+            rows_exported=0,
+        )
+
+        raise OverBillingLimitError(inputs.team_id)
+    else:
+        run = await database_sync_to_async(create_batch_export_run)(
+            batch_export_id=uuid.UUID(inputs.batch_export_id),
+            data_interval_start=inputs.data_interval_start,
+            data_interval_end=inputs.data_interval_end,
+            status=BatchExportRun.Status.STARTING,
+            backfill_id=uuid.UUID(inputs.backfill_id) if inputs.backfill_id else None,
+        )
+        return str(run.id)
+
+
+async def check_is_over_limit(team_id: int) -> bool:
+    """Check if team has exceeded billing limits.
+
+    If so, the batch export should not run.
+    """
+    team: Team = await Team.objects.aget(id=team_id)
+
+    limited_team_tokens_rows_synced = await asyncio.to_thread(
+        list_limited_team_attributes, QuotaResource.ROWS_EXPORTED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
     )
 
-    return str(run.id)
+    if team.api_token in limited_team_tokens_rows_synced:
+        return True
+
+    return False
 
 
 @dataclasses.dataclass
@@ -569,6 +626,9 @@ async def try_produce_app_metrics(
         case BatchExportRun.Status.CANCELLED:
             metric_kind = "cancellation"
             metric_name = "canceled"
+        case BatchExportRun.Status.FAILED_BILLING:
+            metric_kind = "failure"
+            metric_name = "failed_billing"
         case _:
             metric_kind = "failure"
             metric_name = "failed"

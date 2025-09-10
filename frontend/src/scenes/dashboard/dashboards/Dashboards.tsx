@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -55,20 +56,21 @@ export function Dashboards(): JSX.Element {
             <DeleteDashboardModal />
             <PageHeader
                 buttons={
-                    <AccessControlledLemonButton
+                    <LemonButton
                         data-attr="new-dashboard"
                         onClick={() => {
                             showNewDashboardModal()
                         }}
                         type="primary"
-                        minAccessLevel={AccessControlLevel.Editor}
-                        resourceType={AccessControlResourceType.Dashboard}
-                        userAccessLevel={
-                            getAppContext()?.resource_access_control?.[AccessControlResourceType.Dashboard]
-                        }
+                        accessControl={{
+                            resourceType: AccessControlResourceType.Dashboard,
+                            minAccessLevel: AccessControlLevel.Editor,
+                            userAccessLevel:
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.Dashboard],
+                        }}
                     >
                         New dashboard
-                    </AccessControlledLemonButton>
+                    </LemonButton>
                 }
             />
             <SceneTitleSection

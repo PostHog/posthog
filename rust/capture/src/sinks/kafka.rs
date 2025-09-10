@@ -298,6 +298,9 @@ impl KafkaSink {
             }
         };
 
+        // Use the computed event timestamp for Kafka timestamp header
+        let computed_timestamp = metadata.computed_timestamp.map(|ts| ts.timestamp_millis());
+
         match self.producer.send_result(FutureRecord {
             topic,
             payload: Some(&payload),
@@ -313,6 +316,10 @@ impl KafkaSink {
                     .insert(Header {
                         key: "distinct_id",
                         value: Some(&distinct_id),
+                    })
+                    .insert(Header {
+                        key: "timestamp",
+                        value: computed_timestamp.map(|ts| ts.to_string()).as_deref(),
                     }),
             ),
         }) {
@@ -493,6 +500,7 @@ mod tests {
         let metadata = ProcessedEventMetadata {
             data_type: DataType::AnalyticsMain,
             session_id: None,
+            computed_timestamp: None,
         };
 
         let event = ProcessedEvent {
