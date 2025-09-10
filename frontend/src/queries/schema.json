@@ -25080,6 +25080,9 @@
                     "default": "",
                     "type": "string"
                 },
+                "short_id": {
+                    "$ref": "#/definitions/InsightShortId"
+                },
                 "type": {
                     "const": "ai/viz",
                     "type": "string"
