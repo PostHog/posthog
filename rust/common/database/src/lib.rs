@@ -42,7 +42,7 @@ pub async fn get_pool(url: &str, max_connections: u32) -> Result<PgPool, sqlx::E
     PgPoolOptions::new()
         .max_connections(max_connections)
         .acquire_timeout(Duration::from_secs(1))
-        .test_before_acquire(true)
+        .test_before_acquire(false)
         .connect(url)
         .await
 }
