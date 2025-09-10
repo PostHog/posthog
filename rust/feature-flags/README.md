@@ -1,4 +1,3 @@
-
 # Testing
 
 First, make sure docker compose is running (from main posthog repo), and test database exists:
@@ -50,3 +49,4 @@ RUST_LOG=debug cargo run --bin feature-flags
 ```sh
 cargo fmt --package feature-flags
 ```
+
