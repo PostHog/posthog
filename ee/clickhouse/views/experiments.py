@@ -505,18 +505,20 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
                 queryset = queryset.order_by(f"{'-' if order.startswith('-') else ''}computed_duration")
             elif order in ["status", "-status"]:
                 # Status ordering: Draft (no start) -> Running (no end) -> Complete (has end)
-                # For ascending: Draft < Running < Complete
-                # For descending: Complete < Running < Draft
+                # Annotate with numeric status values for clear ordering
+                queryset = queryset.annotate(
+                    computed_status=Case(
+                        When(start_date__isnull=True, then=Value(0)),  # Draft
+                        When(end_date__isnull=True, then=Value(1)),  # Running
+                        default=Value(2),  # Complete
+                    )
+                )
                 if order.startswith("-"):
                     # Descending: Complete -> Running -> Draft
-                    queryset = queryset.order_by(
-                        F("start_date").desc(nulls_last=True), F("end_date").desc(nulls_last=True)
-                    )
+                    queryset = queryset.order_by(F("computed_status").desc())
                 else:
                     # Ascending: Draft -> Running -> Complete
-                    queryset = queryset.order_by(
-                        F("start_date").asc(nulls_first=True), F("end_date").asc(nulls_first=True)
-                    )
+                    queryset = queryset.order_by(F("computed_status").asc())
             else:
                 queryset = queryset.order_by(order)
 
