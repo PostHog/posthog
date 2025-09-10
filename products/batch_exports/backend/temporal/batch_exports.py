@@ -392,7 +392,7 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExpo
         is_over_limit = False
 
     if is_over_limit:
-        _ = await database_sync_to_async(create_batch_export_run)(
+        run = await database_sync_to_async(create_batch_export_run)(
             batch_export_id=uuid.UUID(inputs.batch_export_id),
             data_interval_start=inputs.data_interval_start,
             data_interval_end=inputs.data_interval_end,
@@ -403,8 +403,12 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExpo
         logger.info("Over billing limit")
         EXTERNAL_LOGGER.warning("Batch export run failed due to exceeding billing limits. No data has been exported.")
 
-        await try_produce_run_status_app_metrics(
-            status=BatchExportRun.Status.FAILED_BILLING, team_id=inputs.team_id, batch_export_id=inputs.batch_export_id
+        await try_produce_app_metrics(
+            status=BatchExportRun.Status.FAILED_BILLING,
+            team_id=inputs.team_id,
+            batch_export_id=inputs.batch_export_id,
+            batch_export_run_id=str(run.id),
+            rows_exported=0,
         )
 
         raise OverBillingLimitError(inputs.team_id)
