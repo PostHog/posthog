@@ -436,3 +436,34 @@ class TestSSOOrganizationHandling:
             sso_setup["installation"].refresh_from_db()
             user_mappings = sso_setup["installation"].config.get("user_mappings", {})
             assert "mapped_user_123" not in user_mappings
+
+    def test_sso_redirect_allows_access_for_user_with_valid_membership_levels(self, sso_setup):
+        from posthog.models.organization import OrganizationMembership
+
+        levels_to_test = [
+            OrganizationMembership.Level.MEMBER,
+            OrganizationMembership.Level.ADMIN,
+            OrganizationMembership.Level.OWNER,
+        ]
+
+        for i, level in enumerate(levels_to_test):
+            user_id = f"mapped_user_{level.value}_{i}"
+            sso_setup["installation"].config["user_mappings"] = {user_id: sso_setup["user"].pk}
+            sso_setup["installation"].save()
+
+            membership = OrganizationMembership.objects.get(
+                user=sso_setup["user"], organization=sso_setup["organization"]
+            )
+            membership.level = level
+            membership.save()
+
+            with (
+                mock_vercel_integration(**MockFactory.successful_sso_flow(sso_setup["installation_id"])),
+                mock_jwt_validation(create_user_claims(sso_setup["installation_id"], user_id)),
+            ):
+                response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"])
+                assert response.status_code == status.HTTP_302_FOUND, f"Failed for level {level}"
+
+                sso_setup["installation"].refresh_from_db()
+                user_mappings = sso_setup["installation"].config.get("user_mappings", {})
+                assert user_id in user_mappings, f"Mapping removed for level {level}"
