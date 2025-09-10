@@ -484,22 +484,28 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         for schema in (
             ExternalDataSchema.objects.exclude(deleted=True)
-            .filter(team_id=self.team_id, source_id=instance.id, should_sync=True)
+            .filter(team_id=self.team_id, source_id=instance.id)
+            .select_related("table")
             .all()
         ):
+            # Delete data from S3 if it exists
             try:
                 delete_data_import_folder(schema.folder_path())
             except Exception as e:
                 logger.exception(f"Could not clean up data import folder: {schema.folder_path()}", exc_info=e)
                 pass
+
+            # Delete temporal schedule
             delete_external_data_schedule(str(schema.id))
 
+            # Soft delete postgres models
+            schema.delete_table()
+            schema.soft_delete()
+
+        # Delete the old source schedule if it still exists
         delete_external_data_schedule(str(instance.id))
 
-        for schema in instance.schemas.all():
-            if schema.table:
-                schema.table.soft_delete()
-            schema.soft_delete()
+        # Soft delete the source model
         instance.soft_delete()
 
         return Response(status=status.HTTP_204_NO_CONTENT)
