@@ -5,6 +5,7 @@ import { IconCalendar } from '@posthog/icons'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { cn } from 'lib/utils/css-classes'
@@ -24,7 +25,7 @@ export function SavedInsightsFilters({
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
-    const { tab, createdBy, insightType, dateFrom, dateTo, dashboardId, search } = filters
+    const { tab, createdBy, insightType, dateFrom, dateTo, dashboardId, search, hideFeatureFlagInsights } = filters
 
     return (
         <div className={cn('flex justify-between gap-2 mb-2 items-center flex-wrap', newSceneLayout && 'mb-0')}>
@@ -89,6 +90,12 @@ export function SavedInsightsFilters({
                         />
                     </div>
                 ) : null}
+                <LemonCheckbox
+                    checked={hideFeatureFlagInsights || false}
+                    onChange={(checked) => setFilters({ hideFeatureFlagInsights: checked })}
+                    label="Hide auto-generated feature flag insights"
+                    size="small"
+                />
             </div>
         </div>
     )
