@@ -164,7 +164,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     new Promise<any>((res) => editor.exportPlainText(res)),
                 ])
 
-                const finalValues = {
+                const finalValues: EmailTemplate = {
                     ...value,
                     html: escapeHTMLStringCurlies(htmlData.html),
                     text: textData.text,
