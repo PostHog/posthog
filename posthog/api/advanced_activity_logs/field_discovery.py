@@ -47,16 +47,16 @@ class AdvancedActivityLogFieldDiscovery:
         }
 
     def _get_available_users(self, queryset: QuerySet) -> list[dict[str, str]]:
-        users_query = queryset.values("user__id", "user__first_name", "user__last_name", "user__email").distinct()
+        users_query = queryset.values("user__uuid", "user__first_name", "user__last_name", "user__email").distinct()
         seen_users = set()
         unique_users = []
 
         for user in users_query:
-            if user["user__id"] and user["user__id"] not in seen_users:
-                seen_users.add(user["user__id"])
+            if user["user__uuid"] and user["user__uuid"] not in seen_users:
+                seen_users.add(user["user__uuid"])
                 unique_users.append(
                     {
-                        "value": str(user["user__id"]),
+                        "value": str(user["user__uuid"]),
                         "label": f"{user['user__first_name']} {user['user__last_name']}".strip() or user["user__email"],
                     }
                 )
