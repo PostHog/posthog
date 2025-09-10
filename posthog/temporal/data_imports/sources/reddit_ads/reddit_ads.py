@@ -71,7 +71,7 @@ def get_resource(
     # Handle incremental parameters for non-metrics endpoints
     if should_use_incremental_field and not config.is_stats and config.incremental_fields:
         incremental_field = config.incremental_fields[0]  # Use first incremental field
-        if incremental_field.field == "modified_at":
+        if incremental_field["field"] == "modified_at":
             endpoint_config["params"]["modified_at[after]"] = {
                 "type": "incremental",
                 "cursor_path": "modified_at",

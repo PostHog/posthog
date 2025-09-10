@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import Any, Literal, Optional, Union
 
-from posthog.temporal.data_imports.sources.common.schema import IncrementalField
 from posthog.warehouse.types import IncrementalFieldType
 
 
@@ -15,7 +14,7 @@ class EndpointConfig:
     method: str = "GET"
     params: Optional[dict[str, Any]] = None
     json_body_template: Optional[dict[str, Any]] = None  # Template for POST body
-    incremental_fields: Optional[list[IncrementalField]] = None
+    incremental_fields: Optional[list[dict[str, Any]]] = None
     table_format: str = "delta"
     is_stats: bool = False
     # Partitioning configuration
@@ -34,12 +33,12 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
         path_template="/ad_accounts/{account_id}/campaigns",
         params={"page.size": 100},
         incremental_fields=[
-            IncrementalField(
-                label="modified_at",
-                type=IncrementalFieldType.DateTime,
-                field="modified_at",
-                field_type=IncrementalFieldType.DateTime,
-            )
+            {
+                "label": "modified_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "modified_at",
+                "field_type": IncrementalFieldType.DateTime,
+            }
         ],
         partition_keys=["modified_at"],
         partition_mode="datetime",
@@ -54,12 +53,12 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
         path_template="/ad_accounts/{account_id}/ad_groups",
         params={"page.size": 100},
         incremental_fields=[
-            IncrementalField(
-                label="modified_at",
-                type=IncrementalFieldType.DateTime,
-                field="modified_at",
-                field_type=IncrementalFieldType.DateTime,
-            )
+            {
+                "label": "modified_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "modified_at",
+                "field_type": IncrementalFieldType.DateTime,
+            }
         ],
         partition_keys=["modified_at"],
         partition_mode="datetime",
@@ -74,12 +73,12 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
         path_template="/ad_accounts/{account_id}/ads",
         params={"page.size": 100},
         incremental_fields=[
-            IncrementalField(
-                label="modified_at",
-                type=IncrementalFieldType.DateTime,
-                field="modified_at",
-                field_type=IncrementalFieldType.DateTime,
-            )
+            {
+                "label": "modified_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "modified_at",
+                "field_type": IncrementalFieldType.DateTime,
+            }
         ],
         partition_keys=["modified_at"],
         partition_mode="datetime",
@@ -104,12 +103,12 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
             }
         },
         incremental_fields=[
-            IncrementalField(
-                label="date",
-                type=IncrementalFieldType.Date,
-                field="date",
-                field_type=IncrementalFieldType.Date,
-            )
+            {
+                "label": "date",
+                "type": IncrementalFieldType.Date,
+                "field": "date",
+                "field_type": IncrementalFieldType.Date,
+            }
         ],
         is_stats=True,
         partition_keys=["date"],
@@ -135,12 +134,12 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
             }
         },
         incremental_fields=[
-            IncrementalField(
-                label="date",
-                type=IncrementalFieldType.Date,
-                field="date",
-                field_type=IncrementalFieldType.Date,
-            )
+            {
+                "label": "date",
+                "type": IncrementalFieldType.Date,
+                "field": "date",
+                "field_type": IncrementalFieldType.Date,
+            }
         ],
         is_stats=True,
         partition_keys=["date"],
@@ -166,12 +165,12 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
             }
         },
         incremental_fields=[
-            IncrementalField(
-                label="date",
-                type=IncrementalFieldType.Date,
-                field="date",
-                field_type=IncrementalFieldType.Date,
-            )
+            {
+                "label": "date",
+                "type": IncrementalFieldType.Date,
+                "field": "date",
+                "field_type": IncrementalFieldType.Date,
+            }
         ],
         is_stats=True,
         partition_keys=["date"],
