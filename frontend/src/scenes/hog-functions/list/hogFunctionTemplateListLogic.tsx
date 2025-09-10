@@ -42,6 +42,7 @@ export type HogFunctionTemplateListLogicProps = {
     configurationOverrides?: Pick<HogFunctionTemplateType, 'filters'>
     syncFiltersWithUrl?: boolean
     manualTemplates?: HogFunctionTemplateType[] | null
+    manualTemplatesLoading?: boolean
 }
 
 export const shouldShowHogFunctionTemplate = (
@@ -132,7 +133,9 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                         }
                     }
                 }
-                return templates.filter((x) => shouldShowHogFunctionTemplate(x, user))
+                return templates
+                    .filter((x) => shouldShowHogFunctionTemplate(x, user))
+                    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
             },
         ],
 

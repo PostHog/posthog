@@ -58,7 +58,12 @@ export function DataPipelinesNewScene(): JSX.Element {
     const { kind } = logicProps
 
     const { availableSources } = useValues(availableSourcesDataLogic)
-    const { hogFunctionTemplatesDataWarehouseSources, hogFunctionTemplatesBatchExports } = useValues(
+    const {
+        hogFunctionTemplatesDataWarehouseSources,
+        hogFunctionTemplatesBatchExports,
+        hogFunctionTemplatesDataWarehouseSourcesLoading,
+        hogFunctionTemplatesBatchExportsLoading,
+    } = useValues(
         nonHogFunctionTemplatesLogic({
             availableSources: availableSources ?? {},
         })
@@ -68,7 +73,13 @@ export function DataPipelinesNewScene(): JSX.Element {
         return <HogFunctionTemplateList type="transformation" />
     }
     if (kind === 'destination') {
-        return <HogFunctionTemplateList type="destination" manualTemplates={hogFunctionTemplatesBatchExports} />
+        return (
+            <HogFunctionTemplateList
+                type="destination"
+                manualTemplates={hogFunctionTemplatesBatchExports}
+                manualTemplatesLoading={hogFunctionTemplatesBatchExportsLoading}
+            />
+        )
     }
     if (kind === 'site_app') {
         return <HogFunctionTemplateList type="site_app" />
@@ -76,7 +87,11 @@ export function DataPipelinesNewScene(): JSX.Element {
 
     if (kind === 'source') {
         return (
-            <HogFunctionTemplateList type="source_webhook" manualTemplates={hogFunctionTemplatesDataWarehouseSources} />
+            <HogFunctionTemplateList
+                type="source_webhook"
+                manualTemplates={hogFunctionTemplatesDataWarehouseSources}
+                manualTemplatesLoading={hogFunctionTemplatesDataWarehouseSourcesLoading}
+            />
         )
     }
 
