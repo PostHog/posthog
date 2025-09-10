@@ -41,6 +41,90 @@ def _wait_for_page_ready(page, url_to_render: str, wait_for_css_selector: str) -
         pass
 
 
+def _convert_to_mp4(
+    tmp_webm: str, image_path: str, pre_roll: float, recording_duration: int, playback_speed: int
+) -> None:
+    """Convert WebM to MP4 using ffmpeg."""
+    # Slow down video if it was recorded at high speed
+    video_filter = f"setpts={playback_speed}*PTS" if playback_speed > 1.0 else None
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-ss",
+        f"{pre_roll:.2f}",
+        "-i",
+        tmp_webm,
+        "-t",
+        f"{float(recording_duration):.2f}",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "23",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        "-f",
+        "mp4",
+    ]
+    if video_filter:
+        cmd.extend(["-vf", video_filter])
+    cmd.append(image_path)
+
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as e:
+        error_msg = f"ffmpeg failed with exit code {e.returncode}"
+        if e.stderr:
+            error_msg += f": {e.stderr.strip()}"
+        raise RuntimeError(error_msg) from e
+
+
+def _convert_to_gif(
+    tmp_webm: str, image_path: str, pre_roll: float, recording_duration: int, measured_width: Optional[int]
+) -> None:
+    """Convert WebM to GIF using ffmpeg."""
+    vf_parts = ["fps=12"]
+    if measured_width is not None:
+        vf_parts.append(f"scale={measured_width}:-2:flags=lanczos")
+    vf = ",".join(vf_parts)
+
+    try:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-ss",
+                f"{pre_roll:.2f}",
+                "-t",
+                f"{float(recording_duration):.2f}",
+                "-i",
+                tmp_webm,
+                "-vf",
+                f"{vf},split[s0][s1];[s0]palettegen=stats_mode=single[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle",
+                "-loop",
+                "0",
+                "-f",
+                "gif",
+                image_path,
+            ],
+            check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        error_msg = f"ffmpeg failed with exit code {e.returncode}"
+        if e.stderr:
+            error_msg += f": {e.stderr.strip()}"
+        raise RuntimeError(error_msg) from e
+
+
 def detect_recording_resolution(
     browser: Browser,
     url_to_render: str,
@@ -214,77 +298,9 @@ def record_replay_to_file(
                 shutil.move(src, tmp_webm)
             try:
                 if ext == ".mp4":
-                    # Slow down video if it was recorded at high speed
-                    video_filter = f"setpts={playback_speed}*PTS" if playback_speed > 1.0 else None
-                    cmd = [
-                        "ffmpeg",
-                        "-hide_banner",
-                        "-loglevel",
-                        "error",
-                        "-y",
-                        "-ss",
-                        f"{pre_roll:.2f}",
-                        "-i",
-                        tmp_webm,
-                        "-t",
-                        f"{float(recording_duration):.2f}",
-                        "-c:v",
-                        "libx264",
-                        "-preset",
-                        "veryfast",
-                        "-crf",
-                        "23",
-                        "-pix_fmt",
-                        "yuv420p",
-                        "-movflags",
-                        "+faststart",
-                        "-f",
-                        "mp4",
-                    ]
-                    if video_filter:
-                        cmd.extend(["-vf", video_filter])
-                    cmd.append(image_path)
-                    try:
-                        subprocess.run(cmd, check=True, capture_output=True, text=True)
-                    except subprocess.CalledProcessError as e:
-                        error_msg = f"ffmpeg failed with exit code {e.returncode}"
-                        if e.stderr:
-                            error_msg += f": {e.stderr.strip()}"
-                        raise RuntimeError(error_msg) from e
+                    _convert_to_mp4(tmp_webm, image_path, pre_roll, recording_duration, playback_speed)
                 elif ext == ".gif":
-                    vf_parts = ["fps=12"]
-                    if measured_width is not None:
-                        vf_parts.append(f"scale={measured_width}:-2:flags=lanczos")
-                    vf = ",".join(vf_parts)
-                    try:
-                        subprocess.run(
-                            [
-                                "ffmpeg",
-                                "-hide_banner",
-                                "-loglevel",
-                                "error",
-                                "-y",
-                                "-ss",
-                                f"{pre_roll:.2f}",
-                                "-t",
-                                f"{float(recording_duration):.2f}",
-                                "-i",
-                                tmp_webm,
-                                "-vf",
-                                f"{vf},split[s0][s1];[s0]palettegen=stats_mode=single[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle",
-                                "-loop",
-                                "0",
-                                "-f",
-                                "gif",
-                                image_path,
-                            ],
-                            check=True,
-                        )
-                    except subprocess.CalledProcessError as e:
-                        error_msg = f"ffmpeg failed with exit code {e.returncode}"
-                        if e.stderr:
-                            error_msg += f": {e.stderr.strip()}"
-                        raise RuntimeError(error_msg) from e
+                    _convert_to_gif(tmp_webm, image_path, pre_roll, recording_duration, measured_width)
                 else:
                     shutil.move(tmp_webm, image_path)
             finally:
