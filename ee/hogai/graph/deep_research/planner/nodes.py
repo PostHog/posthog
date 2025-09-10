@@ -18,12 +18,9 @@ from posthog.schema import (
     MultiVisualizationMessage,
     PlanningMessage,
     PlanningStep,
-    ProsemirrorJSONContent,
     ReasoningMessage,
     VisualizationItem,
 )
-
-from posthog.models.notebook import Notebook
 
 from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode
 from ee.hogai.graph.deep_research.planner.prompts import (
@@ -47,7 +44,6 @@ from ee.hogai.graph.deep_research.types import (
     PartialDeepResearchState,
     TaskExecutionItem,
 )
-from ee.hogai.notebook.notebook_serializer import NotebookSerializer
 from ee.hogai.utils.helpers import extract_content_from_ai_message
 from ee.hogai.utils.types import WithCommentary
 from ee.hogai.utils.types.base import BaseState, BaseStateWithMessages
@@ -136,14 +132,7 @@ class DeepResearchPlannerNode(DeepResearchNode):
             else:
                 raise ValueError("Unexpected message type.")
         else:
-            notebook = await Notebook.objects.aget(short_id=state.notebook_short_id)
-            if not notebook:
-                raise ValueError("Notebook not found.")
-
-            serializer = NotebookSerializer()
-            notebook_content = ProsemirrorJSONContent.model_validate(notebook.content)
-            markdown = serializer.from_json_to_markdown(notebook_content)
-            messages = [("human", markdown)]
+            messages = [("human", "Please proceed with the research, based on the plan you created.")]
 
         prompt = ChatPromptTemplate.from_messages(messages)
         model = self._get_model(instructions, state.previous_response_id).bind_tools(

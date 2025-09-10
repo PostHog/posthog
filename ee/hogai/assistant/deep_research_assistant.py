@@ -101,7 +101,8 @@ class DeepResearchAssistant(BaseAssistant):
                 messages=[self._latest_message],
                 start_id=self._latest_message.id,
                 graph_status=None,
-                notebook_short_id=None,
+                planning_notebook_short_id=None,
+                final_report_notebook_short_id=None,
             )
         else:
             return DeepResearchState(messages=[])

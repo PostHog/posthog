@@ -78,7 +78,7 @@ class DeepResearchReportNode(DeepResearchNode):
 
         context = self._create_context(all_artifacts)
 
-        notebook_update_message = await self._astream_notebook(
+        notebook_update_message, response_id = await self._astream_notebook(
             chain,
             config,
             DeepResearchNodeName.REPORT,
@@ -91,6 +91,7 @@ class DeepResearchReportNode(DeepResearchNode):
 
         return PartialDeepResearchState(
             messages=[notebook_update_message],
+            previous_response_id=response_id,
         )
 
     def _collect_all_artifacts(self, state: DeepResearchState) -> list[InsightArtifact]:

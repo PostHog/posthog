@@ -44,7 +44,7 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
             ),
             id=str(uuid4()),
         )
-        mock_astream.return_value = mock_notebook_message
+        mock_astream.return_value = mock_notebook_message, "test-response-id"
 
         state = DeepResearchState(messages=[HumanMessage(content="Create a research plan for user engagement")])
 
@@ -54,7 +54,7 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
         self.assertEqual(len(result.messages), 1)
         self.assertEqual(result.messages[0], mock_notebook_message)
         self.assertIsNone(result.previous_response_id)
-        self.assertEqual(result.notebook_short_id, "test-notebook-123")
+        self.assertEqual(result.planning_notebook_short_id, "test-notebook-123")
 
         mock_core_memory.assert_called_once()
         mock_astream.assert_called_once()
@@ -83,14 +83,14 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
         mock_notebook_message = NotebookUpdateMessage(
             notebook_id="test-notebook", content=ProsemirrorJSONContent(type="doc", content=[]), id=str(uuid4())
         )
-        mock_astream.return_value = mock_notebook_message
+        mock_astream.return_value = mock_notebook_message, "test-response-id"
 
         state = DeepResearchState(messages=[HumanMessage(content=message_content)])
 
         result = await self.node.arun(state, self.config)
 
         self.assertIsInstance(result, PartialDeepResearchState)
-        self.assertEqual(result.notebook_short_id, "test-notebook")
+        self.assertEqual(result.planning_notebook_short_id, "test-notebook")
 
     async def test_arun_raises_error_when_last_message_not_human(self):
         """Test that arun raises ValueError when last message is **NOT** a human message."""
@@ -120,7 +120,7 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
         mock_notebook_message = NotebookUpdateMessage(
             notebook_id="test-notebook", content=ProsemirrorJSONContent(type="doc", content=[]), id=str(uuid4())
         )
-        mock_astream.return_value = mock_notebook_message
+        mock_astream.return_value = mock_notebook_message, "test-response-id"
 
         previous_response_id = "previous-response-123"
         state = DeepResearchState(
@@ -151,7 +151,7 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
         mock_notebook_message = NotebookUpdateMessage(
             notebook_id=notebook_id, content=ProsemirrorJSONContent(type="doc", content=[]), id=str(uuid4())
         )
-        mock_astream.return_value = mock_notebook_message
+        mock_astream.return_value = mock_notebook_message, "test-response-id"
 
         initial_state = DeepResearchState(
             messages=[HumanMessage(content="Create research plan")],
@@ -160,13 +160,14 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
             task_results=[],
             intermediate_results=[],
             previous_response_id="old-id",
-            notebook_short_id=None,
+            planning_notebook_short_id=None,
+            final_report_notebook_short_id=None,
         )
 
         result = await self.node.arun(initial_state, self.config)
 
         self.assertIsInstance(result, PartialDeepResearchState)
-        self.assertEqual(result.notebook_short_id, notebook_id)
+        self.assertEqual(result.planning_notebook_short_id, notebook_id)
         self.assertIsNone(result.previous_response_id)
         self.assertEqual(len(result.messages), 1)
         self.assertIsInstance(result.messages[0], NotebookUpdateMessage)
@@ -185,7 +186,7 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
         mock_notebook_message = NotebookUpdateMessage(
             notebook_id="test-notebook", content=ProsemirrorJSONContent(type="doc", content=[]), id=str(uuid4())
         )
-        mock_astream_notebook.return_value = mock_notebook_message
+        mock_astream_notebook.return_value = mock_notebook_message, "test-response-id"
 
         state = DeepResearchState(messages=[HumanMessage(content="Create a research plan")])
 
@@ -193,7 +194,7 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
 
         self.assertIsInstance(result, PartialDeepResearchState)
         mock_astream_notebook.assert_called_once()
-        self.assertEqual(result.notebook_short_id, "test-notebook")
+        self.assertEqual(result.planning_notebook_short_id, "test-notebook")
 
     @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._astream_notebook")
     @patch("ee.hogai.graph.deep_research.notebook.nodes.DeepResearchNotebookPlanningNode._aget_core_memory")
@@ -209,7 +210,7 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
         mock_notebook_message = NotebookUpdateMessage(
             notebook_id="test-notebook", content=ProsemirrorJSONContent(type="doc", content=[]), id=str(uuid4())
         )
-        mock_astream_notebook.return_value = mock_notebook_message
+        mock_astream_notebook.return_value = mock_notebook_message, "test-response-id"
 
         state = DeepResearchState(messages=[HumanMessage(content="Create research plan")])
 
@@ -307,7 +308,7 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
                         content=ProsemirrorJSONContent(type="doc", content=[]),
                         id=str(uuid4()),
                     )
-                    mock_astream.return_value = mock_notebook_message
+                    mock_astream.return_value = mock_notebook_message, "test-response-id"
 
                     result = await self.node.arun(state, self.config)
 
@@ -325,7 +326,7 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
         mock_notebook_message = NotebookUpdateMessage(
             notebook_id="test-notebook", content=ProsemirrorJSONContent(type="doc", content=[]), id=str(uuid4())
         )
-        mock_astream.return_value = mock_notebook_message
+        mock_astream.return_value = mock_notebook_message, "test-response-id"
 
         user_message = "Analyze user engagement patterns for mobile users"
         state = DeepResearchState(messages=[HumanMessage(content=user_message)])

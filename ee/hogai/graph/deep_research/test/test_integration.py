@@ -62,7 +62,8 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
         tasks: list[TaskExecutionItem] | None = None,
         task_results: list[DeepResearchSingleTaskResult] | None = None,
         intermediate_results: list[DeepResearchIntermediateResult] | None = None,
-        notebook_short_id: str | None = None,
+        planning_notebook_short_id: str | None = None,
+        final_report_notebook_short_id: str | None = None,
     ) -> DeepResearchState:
         return DeepResearchState(
             messages=messages or [],
@@ -70,7 +71,8 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
             tasks=tasks,
             task_results=task_results or [],
             intermediate_results=intermediate_results or [],
-            notebook_short_id=notebook_short_id,
+            planning_notebook_short_id=planning_notebook_short_id,
+            final_report_notebook_short_id=final_report_notebook_short_id,
         )
 
     def _create_mock_human_message(self, content: str) -> HumanMessage:
@@ -140,10 +142,10 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
     def test_invalid_notebook_reference_handling(self, mock_llm_class, mock_get_model):
         """Test handling of invalid notebook references."""
         # Create state with non-existent notebook ID
-        state = self._create_mock_state(notebook_short_id="nonexistent_nb")
+        state = self._create_mock_state(planning_notebook_short_id="nonexistent_nb")
 
         # Should still create valid state but with invalid reference
-        self.assertEqual(state.notebook_short_id, "nonexistent_nb")
+        self.assertEqual(state.planning_notebook_short_id, "nonexistent_nb")
 
         # Verify notebook doesn't exist in database
         nonexistent_notebook = Notebook.objects.filter(short_id="nonexistent_nb").first()
@@ -216,7 +218,7 @@ class TestDeepResearchE2E(APIBaseTest):
                 AssistantMessage(content="Previous response"),
                 HumanMessage(content="Continue research"),
             ],
-            notebook_short_id=notebook.short_id,
+            planning_notebook_short_id=notebook.short_id,
         )
         routing = onboarding_node.should_run_onboarding_at_start(existing_conversation_state)
         self.assertEqual(routing, "continue")
@@ -253,7 +255,7 @@ class TestDeepResearchE2E(APIBaseTest):
                     id="task_1", description="Test task", result="Test result", status=TaskExecutionStatus.COMPLETED
                 )
             ],
-            notebook_short_id=notebook.short_id,
+            planning_notebook_short_id=notebook.short_id,
         )
 
         # Test serialization roundtrip
@@ -264,7 +266,7 @@ class TestDeepResearchE2E(APIBaseTest):
         todos = cast(list[DeepResearchTodo], deserialized.todos)
         self.assertEqual(len(cast(list[DeepResearchTodo], deserialized.todos)), 1)
         self.assertEqual(len(deserialized.task_results), 1)
-        self.assertEqual(deserialized.notebook_short_id, notebook.short_id)
+        self.assertEqual(deserialized.planning_notebook_short_id, notebook.short_id)
         self.assertEqual(todos[0].description, "Test todo")
         self.assertEqual(deserialized.task_results[0].result, "Test result")
 

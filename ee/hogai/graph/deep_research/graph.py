@@ -7,6 +7,7 @@ from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.deep_research.notebook.nodes import DeepResearchNotebookPlanningNode
 from ee.hogai.graph.deep_research.onboarding.nodes import DeepResearchOnboardingNode
 from ee.hogai.graph.deep_research.planner.nodes import DeepResearchPlannerNode, DeepResearchPlannerToolsNode
+from ee.hogai.graph.deep_research.replan.nodes import DeepResearchReplannerNode
 from ee.hogai.graph.deep_research.report.nodes import DeepResearchReportNode
 from ee.hogai.graph.deep_research.task_executor.nodes import TaskExecutorNode
 from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState
@@ -18,7 +19,8 @@ class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState]):
         super().__init__(team, user, DeepResearchState)
 
     def add_onboarding_node(
-        self, node_map: Optional[dict[Literal["onboarding", "planning", "continue"], DeepResearchNodeName]] = None
+        self,
+        node_map: Optional[dict[Literal["onboarding", "planning", "replan", "continue"], DeepResearchNodeName]] = None,
     ):
         builder = self._graph
         self._has_start_node = True
@@ -31,6 +33,7 @@ class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState]):
             or {
                 "onboarding": DeepResearchNodeName.ONBOARDING,
                 "planning": DeepResearchNodeName.NOTEBOOK_PLANNING,
+                "replan": DeepResearchNodeName.REPLANNER,
                 "continue": DeepResearchNodeName.PLANNER,
             },
         )
@@ -79,6 +82,20 @@ class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState]):
         deep_research_report = DeepResearchReportNode(self._team, self._user)
         builder.add_node(DeepResearchNodeName.REPORT, deep_research_report)
         builder.add_edge(DeepResearchNodeName.REPORT, next_node)
+        return self
+
+    def add_replan_node(self, next_node: DeepResearchNodeName = DeepResearchNodeName.END):
+        builder = self._graph
+        deep_research_replan = DeepResearchReplannerNode(self._team, self._user)
+        builder.add_node(DeepResearchNodeName.REPLANNER, deep_research_replan)
+        builder.add_conditional_edges(
+            DeepResearchNodeName.REPLANNER,
+            deep_research_replan.router,
+            path_map={
+                "end": next_node,
+                "restart": DeepResearchNodeName.NOTEBOOK_PLANNING,
+            },
+        )
         return self
 
     def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):

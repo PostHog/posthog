@@ -87,7 +87,7 @@ class TestDeepResearchPlannerNode(BaseTest):
         mock_serializer_instance.from_json_to_markdown.return_value = "# Test notebook"
         mock_serializer.return_value = mock_serializer_instance
 
-        state = self._create_state(notebook_short_id="test_notebook")
+        state = self._create_state(planning_notebook_short_id="test_notebook")
 
         with (
             patch.object(self.node, "_aget_core_memory", return_value="Test core memory") as _mock_core_memory,
@@ -123,7 +123,7 @@ class TestDeepResearchPlannerNode(BaseTest):
             return None
 
         mock_notebook_get.side_effect = async_none
-        state = self._create_state(notebook_short_id="nonexistent")
+        state = self._create_state(planning_notebook_short_id="nonexistent")
 
         with self.assertRaises(ValueError) as cm:
             await self.node.arun(state, self.config)
