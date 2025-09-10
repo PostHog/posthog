@@ -186,6 +186,11 @@ event_property_group_definitions = {
             lambda key: key.startswith("$feature/"),
             column_type_name="group",
         ),
+        "system": PropertyGroupDefinition(
+            "key LIKE '$%'",
+            lambda key: key.startswith("$"),
+            column_type_name="group",
+        ),
     },
     "person_properties": {
         "custom": PropertyGroupDefinition(
