@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     size Int64,
     event_count Int64,
     message_count Int64,
-    snapshot_source LowCardinality(Nullable(String)),
+    snapshot_source Nullable(String),
     snapshot_library Nullable(String),
     retention_period_days Nullable(Int64),
 ) ENGINE = {engine}
@@ -83,12 +83,16 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     -- because we batch events we expect message_count to be lower than event_count
     event_count SimpleAggregateFunction(sum, Int64),
     -- which source the snapshots came from Mobile or Web. Web if absent
-    snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+    snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
     -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
     snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
     _timestamp SimpleAggregateFunction(max, DateTime),
     -- retention period for this session, in days. Useful to show TTL for the recording
-    retention_period_days Nullable(Int64)
+    retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
+    -- flag marking this recording as deleted
+    is_deleted SimpleAggregateFunction(sum, Int64),
+    -- S3 URI pointing to copy of recording in LTS, will be null for any recording not moved to LTS
+    lts_uri SimpleAggregateFunction(any, Nullable(String)),
 ) ENGINE = {engine}
 """
 
@@ -170,7 +174,7 @@ argMinState(snapshot_library, first_timestamp) as snapshot_library,
 max(_timestamp) as _timestamp,
 -- CH will pick the retention period here, but only if there is a single unique non-null value across all blocks
 -- ...otherwise this column will be NULL
-singleValueOrNull(retention_period_days) as retention_period_days
+max(retention_period_days) as retention_period_days
 FROM {database}.kafka_session_replay_events
 group by session_id, team_id
 """.format(
@@ -194,10 +198,10 @@ group by session_id, team_id
 `console_log_count` Int64, `console_warn_count` Int64,
 `console_error_count` Int64, `size` Int64, `message_count` Int64,
 `event_count` Int64,
-`snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+`snapshot_source` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
 `snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
 `_timestamp` Nullable(DateTime),
-`retention_period_days` Nullable(Int64)
+`retention_period_days` SimpleAggregateFunction(max, Nullable(Int64))
 )""",
     )
 

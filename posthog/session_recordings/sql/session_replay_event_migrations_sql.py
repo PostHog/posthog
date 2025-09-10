@@ -241,6 +241,42 @@ SET_TTL_ONLY_DROP_PARTS_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_
     table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
 )
 
+# migration to add LTS and is_deleted columns and update TTL policy
+ALTER_SESSION_REPLAY_ADD_IS_DELETED_AND_LTS = """
+    ALTER TABLE {table_name}
+        ADD COLUMN IF NOT EXISTS is_deleted SimpleAggregateFunction(sum, Int64),
+        ADD COLUMN IF NOT EXISTS lts_uri SimpleAggregateFunction(any, Nullable(String)),
+        MODIFY COLUMN snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+        MODIFY COLUMN retention_period_days SimpleAggregateFunction(max, Nullable(Int64))
+"""
+
+ADD_IS_DELETED_AND_LTS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_ADD_IS_DELETED_AND_LTS.format(
+        table_name="session_replay_events",
+    )
+)
+
+ADD_IS_DELETED_AND_LTS_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_ADD_IS_DELETED_AND_LTS.format(
+        table_name="writable_session_replay_events",
+    )
+)
+
+ADD_IS_DELETED_AND_LTS_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_IS_DELETED_AND_LTS.format(
+    table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+)
+
+ALTER_SESSION_REPLAY_UPDATE_TTL = """
+    ALTER TABLE {table_name}
+        MODIFY TTL addDays(dateTrunc('day', min_first_timestamp), 1) + toIntervalDay(coalesce(retention_period_days, 365)) WHERE is_deleted = 0,
+                   _timestamp WHERE is_deleted > 0
+"""
+
+UPDATE_TTL_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_UPDATE_TTL.format(
+    table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+)
+
+
 # =========================
 # MIGRATION: Add block columns to support session recording v2 implementation
 # This migration adds block_url to the kafka table, and block_first_timestamps, block_last_timestamps, and block_urls
