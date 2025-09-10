@@ -1,4 +1,3 @@
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import Distributed
 
 # We don't have a typical sharded/distributed/writable setup here.
@@ -20,7 +19,7 @@ DISTRIBUTED_INTERMEDIATE_RESULTS_TABLE = "intermediate_results"
 SHARDED_INTERMEDIATE_RESULTS_TABLE = f"sharded_{DISTRIBUTED_INTERMEDIATE_RESULTS_TABLE}"
 
 INTERMEDIATE_RESULTS_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
     generation_id UInt64,
@@ -32,9 +31,9 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     -- aggregation values
     unique_uuid_0 AggregateFunction(uniq, UUID),
     unique_string_0 AggregateFunction(uniq, String),
-    unique_uint128_0 AggregateFunction(UInt128, String),
+    unique_uint128_0 AggregateFunction(uniq, UInt128),
     sum_uint64_0 AggregateFunction(sum, UInt64),
-    sum_uint64_1 AggregateFunction(sum, Unt64),
+    sum_uint64_1 AggregateFunction(sum, UInt64),
     avg_float64_0 AggregateFunction(avg, Float64),
     avg_float64_1 AggregateFunction(avg, Float64),
 
@@ -45,7 +44,6 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 def SHARDED_INTERMEDIATE_RESULTS_SQL():
     return INTERMEDIATE_RESULTS_BASE_SQL.format(
         table_name=SHARDED_INTERMEDIATE_RESULTS_TABLE,
-        on_cluster_clause="",
         engine="MergeTree() PARTITION BY (team_id, toDate(bucket_timestamp)) ORDER BY (team_id, generation_id, query_hash, bucket_timestamp, breakdown_value) SETTINGS index_granularity=8192",
     )
 
@@ -53,7 +51,6 @@ def SHARDED_INTERMEDIATE_RESULTS_SQL():
 def DISTRIBUTED_INTERMEDIATE_RESULTS_SQL(on_cluster=True):
     return INTERMEDIATE_RESULTS_BASE_SQL.format(
         table_name=DISTRIBUTED_INTERMEDIATE_RESULTS_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
             data_table=SHARDED_INTERMEDIATE_RESULTS_TABLE,
             sharding_key="cityHash64(generation_id)",
