@@ -135,7 +135,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
                 <>
                     <div
                         className={cn(
-                            'scene-layout__content-panel fixed left-[calc(var(--scene-layout-rect-right)-var(--scene-layout-panel-width)+var(--scene-scrollbar-width))] bg-surface-secondary flex flex-col overflow-hidden h-[calc(var(--scene-layout-rect-height)-var(--scene-layout-header-height))] top-[var(--scene-layout-header-height)] min-w-0',
+                            'scene-layout__content-panel fixed left-[calc(var(--scene-layout-rect-right)-var(--scene-layout-panel-width)+var(--scene-layout-scrollbar-width))] bg-surface-secondary flex flex-col overflow-hidden h-[calc(var(--scene-layout-rect-height)-var(--scene-layout-header-height))] top-[var(--scene-layout-header-height)] min-w-0',
                             {
                                 hidden: !scenePanelOpen,
                                 'col-start-2 col-span-1 row-start-1 row-span-2':
