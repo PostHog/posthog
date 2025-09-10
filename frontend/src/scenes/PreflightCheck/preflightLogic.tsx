@@ -207,7 +207,9 @@ export const preflightLogic = kea<preflightLogicType>([
         socialAuthAvailable: [
             (s) => [s.preflight],
             (preflight): boolean =>
-                Boolean(preflight && Object.values(preflight.available_social_auth_providers).filter((i) => i).length),
+                Boolean(
+                    preflight && Object.values(preflight.available_social_auth_providers).filter((i) => i).length
+                ) && window === window.parent,
         ],
         objectStorageAvailable: [
             (s) => [s.preflight],
