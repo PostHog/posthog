@@ -44,6 +44,12 @@ export function DataPipelinesSources({ newUrl }: { newUrl?: string }): JSX.Eleme
                     />
                 ) : null}
 
+                <FlaggedFeature flag="cdp-ingestion-sources">
+                    <div>
+                        <h2>PostHog SDK ingestion</h2>
+                    </div>
+                </FlaggedFeature>
+
                 <FlaggedFeature flag="cdp-hog-sources">
                     <div>
                         <h2 className="flex items-center gap-2">
