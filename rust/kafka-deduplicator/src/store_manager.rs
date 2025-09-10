@@ -67,7 +67,14 @@ impl fmt::Display for CleanupStatus {
         let folders: Vec<String> = self
             .folder_info
             .iter()
-            .map(|fi| format!("{}({} subdirs):{:.2}MB", fi.name, fi.subfolder_count, fi.size_mb()))
+            .map(|fi| {
+                format!(
+                    "{}({} subdirs):{:.2}MB",
+                    fi.name,
+                    fi.subfolder_count,
+                    fi.size_mb()
+                )
+            })
             .collect();
 
         write!(
@@ -535,18 +542,19 @@ impl StoreManager {
                         let partition_folder_name = entry.file_name().to_string_lossy().to_string();
                         let folder_size =
                             StoreManager::get_directory_size(&entry.path()).unwrap_or(0);
-                        
+
                         // Count timestamped subdirectories (actual store instances)
                         let mut timestamped_stores_count = 0;
-                        if let Ok(subentries) = std::fs::read_dir(&entry.path()) {
+                        if let Ok(subentries) = std::fs::read_dir(entry.path()) {
                             timestamped_stores_count = subentries
                                 .flatten()
                                 .filter(|e| {
                                     // Check if it's a directory and looks like a timestamp
-                                    e.metadata().map(|m| m.is_dir()).unwrap_or(false)                                })
+                                    e.metadata().map(|m| m.is_dir()).unwrap_or(false)
+                                })
                                 .count();
                         }
-                        
+
                         total_disk_usage_bytes += folder_size;
                         folder_info.push(FolderInfo {
                             name: partition_folder_name,
