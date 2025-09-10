@@ -352,7 +352,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             (s, p) => [p.product, s.billing, s.freeTier, s.billingLimitAsUsage],
             (product, billing, freeTier, billingLimitAsUsage): BillingGaugeItemType[] => {
                 return [
-                    billingLimitAsUsage && billing?.discount_percent !== 100
+                    billingLimitAsUsage && billing?.discount_percent !== 100 && !isProductVariantPrimary(product.type)
                         ? {
                               type: BillingGaugeItemKind.BillingLimit,
                               text: 'Billing limit',

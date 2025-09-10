@@ -311,11 +311,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         <BillingGauge
                                                             items={
                                                                 isProductVariantPrimary(variant.key)
-                                                                    ? billingGaugeItems.filter(
-                                                                          (item) =>
-                                                                              item.type !==
-                                                                              BillingGaugeItemKind.BillingLimit
-                                                                      )
+                                                                    ? billingGaugeItems
                                                                     : ([
                                                                           ((variant.product.tiers?.[0]
                                                                               ?.unit_amount_usd === '0'
@@ -370,9 +366,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     // For main product variants, use existing billingGaugeItems
                                     // For addon variants, create gauge items from their data
                                     const variantGaugeItems = isProductVariantPrimary(variant.key)
-                                        ? billingGaugeItems.filter(
-                                              (item) => item.type !== BillingGaugeItemKind.BillingLimit
-                                          )
+                                        ? billingGaugeItems
                                         : ([
                                               {
                                                   type: BillingGaugeItemKind.CurrentUsage,
