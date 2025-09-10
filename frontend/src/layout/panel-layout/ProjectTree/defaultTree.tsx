@@ -383,7 +383,7 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
     {
         path: `Activity logs`,
         category: 'Activity',
-        iconType: 'live',
+        iconType: 'logs',
         href: urls.advancedActivityLogs(),
         flag: FEATURE_FLAGS.ADVANCED_ACTIVITY_LOGS,
     } as FileSystemImport,
