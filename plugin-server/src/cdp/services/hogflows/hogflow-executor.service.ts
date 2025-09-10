@@ -136,14 +136,17 @@ export class HogFlowExecutorService {
             result = await this.executeCurrentAction(nextInvocation)
 
             if (result.finished) {
-                this.log(result, 'info', `Workflow completed`)
+                if (result.error) {
+                    this.log(result, 'error', `Workflow encountered an error: ${result.error}`)
+                } else {
+                    this.log(result, 'info', `Workflow completed`)
+                }
             }
 
             logs.push(...result.logs)
             metrics.push(...result.metrics)
 
-            // If we have finished _or_ something has been scheduled to run later _or_ we have reached the max async functions then we break the loop
-            if (result.finished || result.invocation.queueScheduledAt) {
+            if (this.shouldEndHogFlowExecution(result)) {
                 break
             }
         }
@@ -154,6 +157,32 @@ export class HogFlowExecutorService {
         return result
     }
 
+    private shouldEndHogFlowExecution(result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>): boolean {
+        const finishedWithoutError = result.finished && !result.error
+        const delayScheduled = Boolean(result.invocation.queueScheduledAt)
+
+        let shouldAbortAfterError = false
+        if (result.error) {
+            const lastExecutedActionId = result.invocation.state.currentAction?.id
+            const lastExecutedAction = result.invocation.hogFlow.actions.find((a) => a.id === lastExecutedActionId)
+            if (lastExecutedAction?.on_error === 'abort') {
+                shouldAbortAfterError = true
+                this.log(result, 'info', `Workflow is aborting due to the action's error handling setting`)
+            }
+        }
+
+        /**
+         * If one of the following happens:
+         * - we have finished the flow successfully
+         * - something has been scheduled to run later
+         * - there was an error during the action and the action's on_error is set to 'abort'
+         * - we have reached the max async functions count
+         *
+         * then we break the loop
+         */
+        return finishedWithoutError || delayScheduled || shouldAbortAfterError
+    }
+
     /**
      * Determines if the invocation should exit early based on the hogflow's exit condition
      */
@@ -162,16 +191,13 @@ export class HogFlowExecutorService {
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null> {
         let earlyExitResult: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null
 
-        // Respect exit_condition before executing actions
         const { hogFlow, person } = invocation
         let shouldExit = false
         let exitReason = ''
 
-        // Always evaluate both filter matches up front using filterFunctionInstrumented
         let triggerMatch: boolean | undefined = undefined
         let conversionMatch: boolean | undefined = undefined
 
-        // Use the same filter evaluation as in buildHogFlowInvocations
         if (hogFlow.trigger.type === 'event' && hogFlow.trigger.filters && person) {
             const filterResult = await filterFunctionInstrumented({
                 fn: hogFlow,
