@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Annotated, Any, Literal, Optional, Self, TypeVar, Union
+from typing import Annotated, Any, Generic, Literal, Optional, Self, TypeVar, Union
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import BaseMessage as LangchainBaseMessage
@@ -26,7 +26,9 @@ from posthog.schema import (
     PlanningMessage,
     ReasoningMessage,
     RetentionQuery,
+    TaskExecutionItem,
     TaskExecutionMessage,
+    TaskExecutionStatus,
     TrendsQuery,
     VisualizationMessage,
 )
@@ -140,6 +142,20 @@ IntermediateStep = tuple[AgentAction, Optional[str]]
 
 StateType = TypeVar("StateType", bound=BaseModel)
 PartialStateType = TypeVar("PartialStateType", bound=BaseModel)
+
+
+class Insight(BaseModel):
+    """
+    A single insight to be included in a dashboard.
+    This is used to represent an insight in the tool call messages.
+    """
+
+    name: str = Field(
+        description="The short name of the insight to be included in the dashboard, it will be used in the dashboard tile. So keep it short and concise."
+    )
+    description: str = Field(
+        description="The detailed description of the insight to be included in the dashboard. Include all relevant context about the insight from earlier messages too, as the tool won't see that conversation history. Do not forget fiters, properties, event names if the user mentioned them."
+    )
 
 
 class BaseState(BaseModel):
@@ -257,7 +273,7 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The user's queries to search for insights.
     """
-    search_insights_queries: Optional[list[str]] = Field(default=None)
+    search_insights_queries: Optional[list[Insight]] = Field(default=None)
 
 
 class AssistantState(_SharedAssistantState):
@@ -303,6 +319,7 @@ class AssistantNodeName(StrEnum):
     INSIGHTS_SEARCH = "insights_search"
     SESSION_SUMMARIZATION = "session_summarization"
     DASHBOARD_CREATOR = "dashboard_creator"
+    DASHBOARD_CREATOR_TASK_EXECUTOR = "task_executor"
 
 
 class AssistantMode(StrEnum):
@@ -323,7 +340,16 @@ class WithCommentary(BaseModel):
 
 class InsightArtifact(BaseModel):
     """
-    An artifacts created by a task.
+    An artifact created by a task.
+    """
+
+    id: str
+    description: str
+
+
+class InsightCreationArtifact(InsightArtifact):
+    """
+    An artifacts created by an insight creation task.
     """
 
     id: str
@@ -331,12 +357,48 @@ class InsightArtifact(BaseModel):
     description: str
 
 
-class InsightSearchArtifact(BaseModel):
+class InsightSearchArtifact(InsightArtifact):
     """
-    An artifact created by a search task.
+    An artifact created by an insight search task.
+    """
+
+    insight_ids: list[int]
+    selection_reason: str
+
+
+ArtifactType = TypeVar("ArtifactType", bound=InsightArtifact)
+
+
+class TaskExecutionResult(BaseModel, Generic[ArtifactType]):
+    """
+    Generic result of task execution that can be used across different graph types.
     """
 
     id: str
-    insight_ids: list[int]
-    selection_reason: str
     description: str
+    result: str
+    artifacts: list[ArtifactType] = Field(default=[])
+    status: TaskExecutionStatus
+
+
+class InsightCreationTaskExecutionResult(TaskExecutionResult[InsightCreationArtifact]):
+    pass
+
+
+class InsightSearchTaskExecutionResult(TaskExecutionResult[InsightSearchArtifact]):
+    pass
+
+
+class BaseTaskExecutionState(BaseStateWithMessages):
+    """
+    Base state for task execution across different graph types.
+    """
+
+    tasks: Annotated[Optional[list[TaskExecutionItem]], replace] = Field(default=None)
+    """
+    The current tasks to execute.
+    """
+    task_results: Annotated[list[TaskExecutionResult[InsightArtifact]], append] = Field(default=[])
+    """
+    Results of executed tasks.
+    """

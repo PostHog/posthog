@@ -34,7 +34,7 @@ from ee.hogai.graph.deep_research.types import (
     PartialDeepResearchState,
 )
 from ee.hogai.notebook.notebook_serializer import NotebookContext
-from ee.hogai.utils.types import InsightArtifact
+from ee.hogai.utils.types import InsightCreationArtifact
 
 
 class TestDeepResearchReportNode:
@@ -47,7 +47,9 @@ class TestDeepResearchReportNode:
         self.node = DeepResearchReportNode(self.team, self.user)
         self.config = RunnableConfig(configurable={"thread_id": str(uuid4())})
 
-    def create_sample_artifact(self, artifact_id: str = "artifact_1", query_type: str = "trends") -> InsightArtifact:
+    def create_sample_artifact(
+        self, artifact_id: str = "artifact_1", query_type: str = "trends"
+    ) -> InsightCreationArtifact:
         """Sample artifacts for testing."""
         query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
         if query_type == "trends":
@@ -67,11 +69,11 @@ class TestDeepResearchReportNode:
         else:
             query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode()])
 
-        return InsightArtifact(id=artifact_id, query=query, description=f"Sample {query_type} insight")
+        return InsightCreationArtifact(id=artifact_id, query=query, description=f"Sample {query_type} insight")
 
     def create_sample_state(
         self,
-        artifacts: list[InsightArtifact] | None = None,
+        artifacts: list[InsightCreationArtifact] | None = None,
         intermediate_results: list[DeepResearchIntermediateResult] | None = None,
         last_message_content: str = "Report generation complete",
     ) -> DeepResearchState:

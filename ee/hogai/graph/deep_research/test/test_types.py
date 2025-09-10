@@ -16,7 +16,7 @@ from ee.hogai.graph.deep_research.types import (
     PartialDeepResearchState,
     _SharedDeepResearchState,
 )
-from ee.hogai.utils.types import InsightArtifact
+from ee.hogai.utils.types import InsightCreationArtifact
 
 """
 Test suite for type system consistency across multi-node deep research workflow.
@@ -102,7 +102,7 @@ class TestDeepResearchSingleTaskResult(BaseTest):
     def test_task_result_with_artifacts(self):
         """Should create task result with artifacts."""
         mock_query = Mock(spec=AssistantTrendsQuery)
-        artifact = InsightArtifact(id="artifact-1", query=mock_query, description="Test artifact")
+        artifact = InsightCreationArtifact(id="artifact-1", query=mock_query, description="Test artifact")
 
         result = DeepResearchSingleTaskResult(
             id="task-1", description="Test task", result="Task completed", status="completed", artifacts=[artifact]

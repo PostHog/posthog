@@ -15,7 +15,7 @@ from posthog.models import Team, User
 import products
 
 from ee.hogai.graph.mixins import AssistantContextMixin
-from ee.hogai.utils.types import AssistantState
+from ee.hogai.utils.types import AssistantState, Insight
 
 
 # Lower casing matters here. Do not change it.
@@ -120,9 +120,8 @@ class create_dashboard(BaseModel):
     Do not call the `search_insights` tool if this tool is used.
     """
 
-    search_insights_queries: list[str] = Field(
-        description="A short description of the insights that are mentioned by the user and need to be included in the dashboard."
-        "Include all relevant context from earlier messages too, as the tool won't see that conversation history. If the user asks to search for multiple insights, pass a list of insights descriptions. Be concise and to the point."
+    search_insights_queries: list[Insight] = Field(
+        description="A list of insights to be included in the dashboard. Include all the insights that the user mentioned."
     )
     create_dashboard_query: str = Field(
         description=(

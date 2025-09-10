@@ -15,13 +15,13 @@ from posthog.schema import (
 )
 
 from ee.hogai.utils.helpers import cast_assistant_query
-from ee.hogai.utils.types import InsightArtifact
+from ee.hogai.utils.types import InsightCreationArtifact
 
 logger = logging.getLogger(__name__)
 
 
 class NotebookContext(BaseModel):
-    insights: dict[str, InsightArtifact]
+    insights: dict[str, InsightCreationArtifact]
 
 
 class MarkdownTokenizer:

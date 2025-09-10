@@ -32,13 +32,13 @@ from ee.hogai.graph.deep_research.planner.prompts import (
     WRITE_RESULT_TOOL_RESULT,
 )
 from ee.hogai.graph.deep_research.types import DeepResearchSingleTaskResult, DeepResearchState, DeepResearchTodo
-from ee.hogai.utils.types import InsightArtifact
+from ee.hogai.utils.types import InsightCreationArtifact
 
 
 def _create_test_artifact(id: str, description: str, sql_query: str = "SELECT 1"):
     """Helper to create InsightArtifact for testing"""
     hogql_query = AssistantHogQLQuery(query=sql_query)
-    return InsightArtifact(id=id, description=description, query=hogql_query)
+    return InsightCreationArtifact(id=id, description=description, query=hogql_query)
 
 
 @override_settings(IN_UNIT_TESTING=True)

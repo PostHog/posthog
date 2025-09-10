@@ -5,6 +5,7 @@ from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
 from langchain_core.runnables import RunnableConfig
+from langgraph.graph.state import CompiledStateGraph
 from parameterized import parameterized
 from pydantic import BaseModel
 
@@ -19,9 +20,9 @@ from posthog.schema import (
     TaskExecutionStatus,
 )
 
-from ee.hogai.graph.deep_research.task_executor.nodes import TaskExecutorNode
+from ee.hogai.graph.deep_research.task_executor.nodes import DeepResearchTaskExecutorNode
 from ee.hogai.graph.deep_research.types import DeepResearchSingleTaskResult, DeepResearchState, PartialDeepResearchState
-from ee.hogai.utils.types.base import InsightArtifact
+from ee.hogai.utils.types.base import InsightCreationArtifact
 
 
 class TestTaskExecutorNode(TestCase):
@@ -33,9 +34,8 @@ class TestTaskExecutorNode(TestCase):
         self.mock_user = MagicMock()
         self.mock_user.id = 1
         self.mock_user.email = "test@example.com"
-
-        self.mock_insights_subgraph = MagicMock()
-        self.node = TaskExecutorNode(self.mock_team, self.mock_user, self.mock_insights_subgraph)
+        self.mock_insights_subgraph = MagicMock(spec=CompiledStateGraph)
+        self.node = DeepResearchTaskExecutorNode(self.mock_team, self.mock_user, self.mock_insights_subgraph)
 
     def _create_task_execution_item(
         self,
@@ -60,8 +60,8 @@ class TestTaskExecutorNode(TestCase):
         artifact_id: str | None = None,
         description: str = "Test artifact",
         query: str = "Test query",
-    ) -> InsightArtifact:
-        return InsightArtifact(
+    ) -> InsightCreationArtifact:
+        return InsightCreationArtifact(
             id=artifact_id or str(uuid.uuid4()),
             description=description,
             query=query,
@@ -106,7 +106,7 @@ class TestTaskExecutorNodeInitialization(TestTaskExecutorNode):
         self.assertEqual(self.node._team, self.mock_team)
         self.assertEqual(self.node._user, self.mock_user)
         self.assertIsNotNone(self.node._execute_tasks_tool)
-        self.assertEqual(self.node._execute_tasks_tool._insights_subgraph, self.mock_insights_subgraph)
+        self.assertEqual(self.node._execute_tasks_tool._insights_subgraph, self.mock_insights_subgraph)  # type: ignore [attr-defined]
 
 
 class TestTaskExecutorNodeArun(TestTaskExecutorNode):
@@ -473,7 +473,7 @@ class TestTaskExecutorNodeEdgeCases(TestTaskExecutorNode):
         )
         config = RunnableConfig()
 
-        captured_input_tuples: list[tuple[TaskExecutionItem, list[InsightArtifact]]] | None = None
+        captured_input_tuples: list[tuple[TaskExecutionItem, list[InsightCreationArtifact]]] | None = None
 
         async def mock_astream(input_tuples, config):
             nonlocal captured_input_tuples
@@ -491,7 +491,9 @@ class TestTaskExecutorNodeEdgeCases(TestTaskExecutorNode):
 
             # Check that artifact was passed to the task
             self.assertIsNotNone(captured_input_tuples)
-            captured_input_tuples = cast(list[tuple[TaskExecutionItem, list[InsightArtifact]]], captured_input_tuples)
+            captured_input_tuples = cast(
+                list[tuple[TaskExecutionItem, list[InsightCreationArtifact]]], captured_input_tuples
+            )
             self.assertEqual(len(captured_input_tuples), 1)
             task_tuple = captured_input_tuples[0]
             self.assertEqual(len(task_tuple[1]), 1)  # One artifact passed

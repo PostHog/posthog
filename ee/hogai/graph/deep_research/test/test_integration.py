@@ -29,7 +29,7 @@ from ee.hogai.graph.deep_research.notebook.nodes import DeepResearchNotebookPlan
 from ee.hogai.graph.deep_research.onboarding.nodes import DeepResearchOnboardingNode
 from ee.hogai.graph.deep_research.planner.nodes import DeepResearchPlannerNode, DeepResearchPlannerToolsNode
 from ee.hogai.graph.deep_research.report.nodes import DeepResearchReportNode
-from ee.hogai.graph.deep_research.task_executor.nodes import TaskExecutorNode
+from ee.hogai.graph.deep_research.task_executor.nodes import DeepResearchTaskExecutorNode
 from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
     DeepResearchSingleTaskResult,
@@ -228,13 +228,13 @@ class TestDeepResearchE2E(APIBaseTest):
             (DeepResearchPlannerNode, "planner"),
             (DeepResearchPlannerToolsNode, "planner_tools"),
             (DeepResearchReportNode, "report"),
-            (TaskExecutorNode, "task_executor"),
+            (DeepResearchTaskExecutorNode, "task_executor"),
         ]
 
         for node_class, node_name in nodes_to_test:
             with self.subTest(node=node_name):
-                if node_class == TaskExecutorNode:
-                    # TaskExecutorNode requires insights subgraph
+                if node_class == DeepResearchTaskExecutorNode:
+                    # DeepResearchTaskExecutorNode requires insights subgraph
                     insights_graph = InsightsAssistantGraph(self.team, self.user).compile_full_graph()
                     node_instance = node_class(self.team, self.user, insights_graph)
                 else:
