@@ -133,7 +133,10 @@ impl CheckpointWorker {
         Ok(true)
     }
 
-    async fn checkpoint_partition(
+    /// Perform a checkpoint for the given (assumed active) partition and store
+    /// NOTE: this is public for TESTING PURPOSES ONLY. In production
+    /// use attempt_checkpoint to enforce locking constraints
+    pub async fn checkpoint_partition(
         &self,
         partition: Partition,
         store: &DeduplicationStore,
