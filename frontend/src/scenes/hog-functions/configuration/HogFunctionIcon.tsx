@@ -149,7 +149,7 @@ export function HogFunctionIcon({
                 'w-12 h-12 text-6xl': size === 'large',
             })}
         >
-            {!inView ? (
+            {!inView && !loaded ? (
                 <div className="w-full h-full" />
             ) : src ? (
                 <>
