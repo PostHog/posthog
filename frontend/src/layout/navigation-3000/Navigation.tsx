@@ -1,7 +1,7 @@
 import './Navigation.scss'
 
-import { useValues } from 'kea'
-import { ReactNode, useRef } from 'react'
+import { useActions, useValues } from 'kea'
+import { ReactNode, useEffect, useRef } from 'react'
 
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { CommandBar } from 'lib/components/CommandBar/CommandBar'
@@ -17,6 +17,7 @@ import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 import { MaxFloatingInput } from '../../scenes/max/MaxFloatingInput'
 import { ProjectNotice } from '../navigation/ProjectNotice'
 import { navigationLogic } from '../navigation/navigationLogic'
+import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
 import { SceneLayout } from '../scenes/SceneLayout'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { TopBar } from './components/TopBar'
@@ -38,6 +39,23 @@ export function Navigation({
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
     const { currentTeam } = useValues(teamLogic)
+    const { mainContentRect } = useValues(panelLayoutLogic)
+    const { setMainContentRef, setMainContentRect } = useActions(panelLayoutLogic)
+
+    // Set container ref so we can measure the width of the scene layout in logic
+    useEffect(() => {
+        if (mainRef.current) {
+            setMainContentRef(mainRef)
+            // Set main content rect so we can measure the width of the scene layout in logic
+            setMainContentRect(mainRef.current.getBoundingClientRect())
+        }
+    }, [mainRef, setMainContentRef, setMainContentRect])
+
+    useEffect(() => {
+        if (mainRef.current) {
+            setMainContentRef(mainRef)
+        }
+    }, [mainRef, setMainContentRef])
 
     if (mode !== 'full') {
         return (
@@ -69,9 +87,24 @@ export function Navigation({
                 Skip to content
             </a>
 
-            <PanelLayout mainRef={mainRef} />
+            <PanelLayout />
 
-            <main ref={mainRef} role="main" tabIndex={0} id="main-content">
+            <main
+                ref={mainRef}
+                role="main"
+                tabIndex={0}
+                id="main-content"
+                style={
+                    {
+                        '--scene-layout-rect-right': mainContentRect?.right + 'px',
+                        '--scene-layout-rect-width': mainContentRect?.width + 'px',
+                        '--scene-layout-rect-height': mainContentRect?.height + 'px',
+                        '--scene-scrollbar-width': mainRef?.current?.clientWidth
+                            ? mainRef.current.clientWidth - (mainContentRect?.width ?? 0) + 'px'
+                            : '0px',
+                    } as React.CSSProperties
+                }
+            >
                 <FlaggedFeature
                     match={true}
                     flag={FEATURE_FLAGS.NEW_SCENE_LAYOUT}

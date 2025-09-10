@@ -195,7 +195,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
             to={isDragging ? undefined : `${tab.pathname}${tab.search}${tab.hash}`}
             className={cn(
                 'w-full',
-                'h-[37px] p-0.5 flex flex-row items-center gap-1 rounded-tr rounded-tl border border-transparent bottom-[-1px] relative',
+                'relative h-[37px] p-0.5 flex flex-row items-center gap-1 rounded-tr rounded-tl border border-transparent bottom-[-2px]',
                 tab.active
                     ? 'cursor-default text-primary bg-primary border-primary border-b-transparent'
                     : 'cursor-pointer text-secondary bg-transparent hover:bg-surface-primary hover:text-primary-hover',

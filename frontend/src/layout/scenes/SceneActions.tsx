@@ -4,11 +4,12 @@ import { IconEllipsis } from '@posthog/icons'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { cn } from 'lib/utils/css-classes'
 
 import { breadcrumbsLogic } from '../navigation/Breadcrumbs/breadcrumbsLogic'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
 
-export function SceneActions(): JSX.Element | null {
+export function SceneActions({ className }: { className?: string }): JSX.Element | null {
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     const { scenePanelOpen, scenePanelIsPresent, scenePanelIsRelative, forceScenePanelClosedWhenRelative } =
         useValues(sceneLayoutLogic)
@@ -17,7 +18,7 @@ export function SceneActions(): JSX.Element | null {
 
     return !newSceneLayout ? null : (
         <>
-            <div className="flex justify-end gap-1">
+            <div className={cn('flex justify-end gap-1', className)}>
                 <div className="contents" ref={setActionsContainer} />
 
                 {scenePanelIsPresent && (

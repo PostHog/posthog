@@ -29,6 +29,7 @@ import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playli
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneActions } from '~/layout/scenes/SceneActions'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { AccessControlLevel, AccessControlResourceType, ProductKey, ReplayTab, ReplayTabs } from '~/types'
 
@@ -261,29 +262,32 @@ function PageTabs(): JSX.Element {
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     return (
-        <LemonTabs
-            activeKey={tab}
-            className={cn('flex', newSceneLayout && '-mt-4')}
-            barClassName="mb-0"
-            onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
-            sceneInset={newSceneLayout}
-            tabs={ReplayPageTabs.map((replayTab): LemonTab<string> => {
-                return {
-                    label: (
-                        <>
-                            {replayTab.label}
-                            {replayTab.label === ReplayTabs.Templates && shouldShowNewBadge && (
-                                <LemonBadge className="ml-1" size="small" />
-                            )}
-                        </>
-                    ),
-                    key: replayTab.key,
-                    tooltip: replayTab.tooltip,
-                    tooltipDocLink: replayTab.tooltipDocLink,
-                    'data-attr': replayTab['data-attr'],
-                }
-            })}
-        />
+        <div className="flex flex-col gap-2">
+            <LemonTabs
+                activeKey={tab}
+                className={cn('flex', newSceneLayout && '-mt-4')}
+                barClassName="mb-0"
+                onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
+                sceneInset={newSceneLayout}
+                tabs={ReplayPageTabs.map((replayTab): LemonTab<string> => {
+                    return {
+                        label: (
+                            <>
+                                {replayTab.label}
+                                {replayTab.label === ReplayTabs.Templates && shouldShowNewBadge && (
+                                    <LemonBadge className="ml-1" size="small" />
+                                )}
+                            </>
+                        ),
+                        key: replayTab.key,
+                        tooltip: replayTab.tooltip,
+                        tooltipDocLink: replayTab.tooltipDocLink,
+                        'data-attr': replayTab['data-attr'],
+                    }
+                })}
+            />
+            <SceneActions />
+        </div>
     )
 }
 export function SessionsRecordings(): JSX.Element {

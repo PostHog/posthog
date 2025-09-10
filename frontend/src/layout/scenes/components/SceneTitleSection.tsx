@@ -92,8 +92,8 @@ export function SceneTitleSection({
     )
     return (
         <div className="@container/scene-title-section">
-            <div className="scene-title-section w-full flex gap-3 group/colorful-product-icons colorful-product-icons-true items-start">
-                <div className="flex flex-col gap-1 flex-1 -ml-[var(--button-padding-x-sm)]">
+            <div className="scene-title-section w-full flex flex-col lg:flex-row gap-3 group/colorful-product-icons colorful-product-icons-true items-start">
+                <div className="flex flex-col gap-1 flex-1 -ml-[var(--button-padding-x-sm)] order-last lg:order-first">
                     <div className="flex gap-2 [&_svg]:size-6 items-center w-full">
                         <span
                             className={buttonPrimitiveVariants({
@@ -149,7 +149,7 @@ export function SceneTitleSection({
                         </Link>
                     </>
                 )}
-                {actions && <SceneActions />}
+                {actions && <SceneActions className="order-first lg:order-last self-end lg:self-start" />}
             </div>
         </div>
     )

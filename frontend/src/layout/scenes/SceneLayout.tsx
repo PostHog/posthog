@@ -1,7 +1,7 @@
 import './SceneLayout.css'
 
 import { useActions, useValues } from 'kea'
-import React, { PropsWithChildren, useEffect, useRef } from 'react'
+import React, { PropsWithChildren, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconListCheck, IconX } from '@posthog/icons'
@@ -93,24 +93,11 @@ export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren
 8
 
 export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.Element {
-    const {
-        registerScenePanelElement,
-        setScenePanelOpen,
-        setSceneContainerRef,
-        setForceScenePanelClosedWhenRelative,
-        setSceneLayoutConfig,
-    } = useActions(sceneLayoutLogic)
+    const { registerScenePanelElement, setScenePanelOpen, setForceScenePanelClosedWhenRelative, setSceneLayoutConfig } =
+        useActions(sceneLayoutLogic)
     const { useSceneTabs, forceScenePanelClosedWhenRelative } = useValues(sceneLayoutLogic)
 
     const { scenePanelIsPresent, scenePanelOpen, scenePanelIsRelative } = useValues(sceneLayoutLogic)
-    const sceneLayoutContainer = useRef<HTMLDivElement>(null)
-
-    // Set container ref so we can measure the width of the scene layout in logic
-    useEffect(() => {
-        if (sceneLayoutContainer.current) {
-            setSceneContainerRef(sceneLayoutContainer)
-        }
-    }, [sceneLayoutContainer, setSceneContainerRef])
 
     // Set layout config
     useEffect(() => {
@@ -135,7 +122,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
             <div
                 className={cn('relative p-4', {
                     'col-start-1 col-span-1 w-[calc(100%-var(--scene-layout-panel-width))]':
-                        scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
+                        scenePanelIsPresent && scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
                     'p-0': sceneConfig?.layout === 'app-raw-no-header' || sceneConfig?.layout === 'app-raw',
                     'h-[calc(100vh-var(--scene-layout-header-height))]':
                         sceneConfig?.layout === 'app-full-scene-height',
@@ -148,11 +135,10 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
                 <>
                     <div
                         className={cn(
-                            // 'scene-layout__content-panel order-2 fixed left-[calc(var(--scene-layout-rect-right)-var(--scene-layout-panel-width))] bg-surface-secondary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 top-0 h-screen min-w-0',
-                            'scene-layout__content-panel fixed left-[calc(var(--scene-layout-rect-right)-var(--scene-layout-panel-width))] bg-surface-secondary flex flex-col overflow-hidden h-[calc(100vh-var(--scene-layout-header-height))] top-[var(--scene-layout-header-height)] min-w-0',
+                            'scene-layout__content-panel fixed left-[calc(var(--scene-layout-rect-right)-var(--scene-layout-panel-width)+var(--scene-scrollbar-width))] bg-surface-secondary flex flex-col overflow-hidden h-[calc(var(--scene-layout-rect-height)-var(--scene-layout-header-height))] top-[var(--scene-layout-header-height)] min-w-0',
                             {
                                 hidden: !scenePanelOpen,
-                                ' top-0 h-screen col-start-2 col-span-1 row-start-1 row-span-2':
+                                'col-start-2 col-span-1 row-start-1 row-span-2':
                                     scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
                             }
                         )}
