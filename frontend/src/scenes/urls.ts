@@ -7,6 +7,7 @@ import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
 import { ActivityTab, AnnotationType, CommentType, OnboardingStepKey, ProductKey, SDKKey } from '~/types'
 
 import type { BillingSectionId } from './billing/types'
+import { DataPipelinesNewSceneKind } from './data-pipelines/DataPipelinesNewScene'
 import type { DataPipelinesSceneTab } from './data-pipelines/DataPipelinesScene'
 import type { DataWarehouseSourceSceneTab } from './data-warehouse/settings/DataWarehouseSourceScene'
 import type { HogFunctionSceneTab } from './hog-functions/HogFunctionScene'
@@ -144,7 +145,7 @@ export const urls = {
     startups: (referrer?: string): string => `/startups${referrer ? `/${referrer}` : ''}`,
     oauthAuthorize: (): string => '/oauth/authorize',
     dataPipelines: (kind: DataPipelinesSceneTab = 'overview'): string => `/pipeline/${kind}`,
-    dataPipelinesNew: (kind?: string): string => `/pipeline/new/${kind ?? ''}`,
+    dataPipelinesNew: (kind?: DataPipelinesNewSceneKind): string => `/pipeline/new/${kind ?? ''}`,
     dataWarehouseSource: (id: string, tab?: DataWarehouseSourceSceneTab): string =>
         `/data-warehouse/sources/${id}/${tab ?? 'schemas'}`,
     dataWarehouseSourceNew: (kind?: string): string => `/data-warehouse/new-source${kind ? `?kind=${kind}` : ''}`,

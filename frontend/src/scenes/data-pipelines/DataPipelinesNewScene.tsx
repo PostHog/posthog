@@ -12,8 +12,10 @@ import { Breadcrumb } from '~/types'
 import type { dataPipelinesNewSceneLogicType } from './DataPipelinesNewSceneType'
 import { nonHogFunctionTemplatesLogic } from './utils/nonHogFunctionTemplatesLogic'
 
+export type DataPipelinesNewSceneKind = 'transformation' | 'destination' | 'source' | 'site_app'
+
 export type DataPipelinesNewSceneProps = {
-    kind: 'transformation' | 'destination' | 'source' | 'site_app'
+    kind: DataPipelinesNewSceneKind
 }
 
 export const dataPipelinesNewSceneLogic = kea<dataPipelinesNewSceneLogicType>([

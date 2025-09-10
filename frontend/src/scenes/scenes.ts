@@ -403,9 +403,20 @@ export const redirects: Record<
     '/organization/settings': urls.settings('organization'),
     '/pipeline': urls.dataPipelines('overview'),
     '/pipelines': urls.dataPipelines('overview'),
-    '/pipeline/destinations/:id': ({ stage, id }) => {
+    '/pipeline/new/destination': urls.dataPipelinesNew('destination'),
+    '/pipeline/new/source': urls.dataPipelinesNew('source'),
+    '/pipeline/new/site-app': urls.dataPipelinesNew('site_app'),
+    '/pipeline/new/transformation': urls.dataPipelinesNew('transformation'),
+
+    '/pipeline/:stage/:id': ({ stage, id }) => {
         if (id.startsWith('hog-')) {
-            return urls.hogFunction(id)
+            return urls.hogFunction(id.replace('hog-', ''))
+        }
+        return urls.dataPipelines(stage as DataPipelinesSceneTab)
+    },
+    '/pipeline/:stage/:id/:tab': ({ stage, id }) => {
+        if (id.startsWith('hog-')) {
+            return urls.hogFunction(id.replace('hog-', ''))
         }
         return urls.dataPipelines(stage as DataPipelinesSceneTab)
     },
@@ -559,7 +570,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [urls.dataPipelines(':kind' as any)]: [Scene.DataPipelines, 'dataPipelines'],
-    [urls.dataPipelinesNew(':kind')]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
+    [urls.dataPipelinesNew(':kind' as any)]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
     [urls.dataWarehouse()]: [Scene.DataWarehouse, 'dataWarehouse'],
     [urls.dataWarehouseSourceNew()]: [Scene.DataWarehouseSourceNew, 'dataWarehouseSourceNew'],
     [urls.dataWarehouseSource(':id', ':tab' as any)]: [Scene.DataWarehouseSource, 'dataWarehouseSource'],

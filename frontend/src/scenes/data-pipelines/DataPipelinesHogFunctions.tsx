@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { HogFunctionTypeType, ProductKey } from '~/types'
 
+import { DataPipelinesNewSceneKind } from './DataPipelinesNewScene'
 import { nonHogFunctionsLogic } from './utils/nonHogFunctionsLogic'
 
 export type DataPipelinesHogFunctionsProps = {
@@ -62,7 +63,12 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
     }, [kind]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const newButton = (
-        <LemonButton to={urls.dataPipelinesNew(kind)} type="primary" icon={<IconPlusSmall />} size="small">
+        <LemonButton
+            to={urls.dataPipelinesNew(kind as DataPipelinesNewSceneKind)}
+            type="primary"
+            icon={<IconPlusSmall />}
+            size="small"
+        >
             New {humanizedKind}
         </LemonButton>
     )
