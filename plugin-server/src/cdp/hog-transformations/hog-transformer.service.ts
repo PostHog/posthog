@@ -16,7 +16,7 @@ import { HogFunctionMonitoringService } from '../services/monitoring/hog-functio
 import { HogWatcherService, HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
-import { cleanNullValues } from './transformation-functions'
+import { getTransformationFunctions } from './transformation-functions'
 
 export const hogTransformationDroppedEvents = new Counter({
     name: 'hog_transformation_dropped_events',
@@ -102,15 +102,7 @@ export class HogTransformerService {
 
     private async getTransformationFunctions() {
         const geoipLookup = await this.hub.geoipService.get()
-        return {
-            geoipLookup: (val: unknown): any => {
-                return typeof val === 'string' ? geoipLookup.city(val) : null
-            },
-            cleanNullValues,
-            postHogCapture: () => {
-                throw new Error('posthogCapture is not supported in transformations')
-            },
-        }
+        return getTransformationFunctions(geoipLookup)
     }
 
     private createInvocationGlobals(event: PluginEvent): HogFunctionInvocationGlobals {
