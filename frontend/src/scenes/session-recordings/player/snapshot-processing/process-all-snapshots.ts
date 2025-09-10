@@ -55,6 +55,7 @@ export function processAllSnapshots(
     // since it could be large and processed more than once,
     // so we need to do as little as possible, as fast as possible
     for (const source of sources) {
+        // const seenTimestamps: Set<number> = new Set()
         const sourceKey = keyForSource(source)
 
         if (sourceKey in processingCache) {
@@ -73,8 +74,38 @@ export function processAllSnapshots(
         // sorting is very cheap for already sorted lists
         const sourceSnapshots = snapshotsBySource[sourceKey].snapshots || []
         const sourceResult: RecordingSnapshot[] = []
+        const sortedSnapshots = sourceSnapshots.sort((a, b) => a.timestamp - b.timestamp)
+        let snapshotIndex = 0
+        let previousTimestamp = null
+        let seenHashes = new Set<number>()
 
-        for (const snapshot of sourceSnapshots) {
+        while (snapshotIndex < sortedSnapshots.length) {
+            let snapshot = sortedSnapshots[snapshotIndex]
+            let currentTimestamp = snapshot.timestamp
+
+            // Hashing is expensive, so we only do it when events have the same timestamp
+            if (currentTimestamp === previousTimestamp) {
+                if (seenHashes.size === 0) {
+                    seenHashes.add(hashSnapshot(sortedSnapshots[snapshotIndex - 1]))
+                }
+                const snapshotHash = hashSnapshot(snapshot)
+                if (!seenHashes.has(snapshotHash)) {
+                    seenHashes.add(snapshotHash)
+                } else {
+                    throttleCapture(`${sessionRecordingId}-duplicate-snapshot`, () => {
+                        posthog.capture('session recording has duplicate snapshots', {
+                            sessionRecordingId,
+                            sourceKey: sourceKey,
+                        })
+                    })
+                    // Duplicate snapshot found, skip it
+                    snapshotIndex++
+                    continue
+                }
+            } else {
+                seenHashes = new Set<number>()
+            }
+
             if (snapshot.type === EventType.Meta) {
                 metaCount += 1
             }
@@ -106,16 +137,13 @@ export function processAllSnapshots(
                     })
                 }
             }
-
+            result.push(snapshot)
             sourceResult.push(snapshot)
+            previousTimestamp = currentTimestamp
+            snapshotIndex++
         }
 
         processingCache[sourceKey] = sourceResult
-        // doing push.apply to mutate the original array
-        // and avoid a spread on a large array
-        for (const snapshot of sourceResult) {
-            result.push(snapshot)
-        }
     }
 
     // sorting is very cheap for already sorted lists
@@ -150,6 +178,11 @@ export function hasAnyWireframes(snapshotData: Record<string, any>[]): boolean {
     return snapshotData.some((d) => {
         return mobileFullSnapshot(d) || mobileIncrementalUpdate(d)
     })
+}
+
+function hashSnapshot(snapshot: RecordingSnapshot): number {
+    const { delay, ...delayFreeSnapshot } = snapshot
+    return cyrb53(JSON.stringify(delayFreeSnapshot))
 }
 
 /**
@@ -244,4 +277,25 @@ export const parseEncodedSnapshots = async (
     }
 
     return isMobileSnapshots ? patchMetaEventIntoMobileData(parsedLines, sessionId) : parsedLines
+}
+
+/*
+    cyrb53 (c) 2018 bryc (github.com/bryc)
+    License: Public domain. Attribution appreciated.
+    A fast and simple 53-bit string hash function with decent collision resistance.
+    Largely inspired by MurmurHash2/3, but with a focus on speed/simplicity.
+*/
+const cyrb53 = function (str: string, seed = 0): number {
+    let h1 = 0xdeadbeef ^ seed,
+        h2 = 0x41c6ce57 ^ seed
+    for (let i = 0, ch; i < str.length; i++) {
+        ch = str.charCodeAt(i)
+        h1 = Math.imul(h1 ^ ch, 2654435761)
+        h2 = Math.imul(h2 ^ ch, 1597334677)
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507)
+    h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507)
+    h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+    return 4294967296 * (2097151 & h2) + (h1 >>> 0)
 }

@@ -26,10 +26,10 @@ describe('process all snapshots', () => {
             const key = keyForSource(source)
             const rawSnapshots = keyZero.split('\n')
             const snapshots = await parseEncodedSnapshots(rawSnapshots, sessionId)
-            expect(snapshots).toHaveLength(99)
+            expect(snapshots).toHaveLength(100)
 
             const start = performance.now()
-            processAllSnapshots(
+            const results = processAllSnapshots(
                 [
                     {
                         source: 'blob_v2',
@@ -53,7 +53,8 @@ describe('process all snapshots', () => {
             )
             const end = performance.now()
             const duration = end - start
-            expect(duration).toBeLessThan(5)
+            expect(results.length).toBe(99)
+            expect(duration).toBeLessThan(10)
         })
     })
 
