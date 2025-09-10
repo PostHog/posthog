@@ -405,7 +405,6 @@ impl StoreManager {
             "Total size of all stores: {} bytes, max capacity: {} bytes",
             total_size, self.store_config.max_capacity
         );
-
         total_size > self.store_config.max_capacity
     }
 
