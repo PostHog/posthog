@@ -537,6 +537,4 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
         # Doesn't include `name` because it's a property access and not a field
         # TODO: Should *probably* update the code to resolve that type as well
-        self.assertEqual(
-            [notice.message for notice in metadata.notices or []], ["Field 'metadata' is of type 'String'"]
-        )
+        self.assertEqual([notice.message for notice in metadata.notices or []], ["Field 'metadata' is of type 'JSON'"])

@@ -407,6 +407,16 @@ class StringType(ConstantType):
         return "String"
 
 
+class StringJSONType(StringType):
+    def print_type(self) -> str:
+        return "JSON"
+
+
+class StringArrayType(StringType):
+    def print_type(self) -> str:
+        return "Array"
+
+
 @dataclass(kw_only=True)
 class BooleanType(ConstantType):
     data_type: ConstantDataType = field(default="bool", init=False)
