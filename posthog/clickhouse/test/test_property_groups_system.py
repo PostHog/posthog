@@ -14,7 +14,7 @@ class TestSystemPropertyGroup:
         """Test that the system property group correctly identifies $ properties"""
         system_group = property_groups.get_groups()["sharded_events"]["properties"]["system"]
 
-        # Should match properties starting with $
+        # Should match properties starting with $ (but not $ai_ or $feature/)
         assert system_group.contains("$browser")
         assert system_group.contains("$browser_version")
         assert system_group.contains("$os")
@@ -38,6 +38,15 @@ class TestSystemPropertyGroup:
         assert not system_group.contains("utm_source")
         assert not system_group.contains("token")
 
+        # Should not match AI properties (they have their own group)
+        assert not system_group.contains("$ai_language")
+        assert not system_group.contains("$ai_input")
+        assert not system_group.contains("$ai_output_choices")
+
+        # Should not match feature flag properties (they have their own group)
+        assert not system_group.contains("$feature/my-flag")
+        assert not system_group.contains("$feature/test")
+
     def test_system_property_group_column_name(self):
         """Test that the system property group generates the correct column name"""
         system_group = property_groups.get_groups()["sharded_events"]["properties"]["system"]
@@ -45,44 +54,54 @@ class TestSystemPropertyGroup:
         column_name = system_group.get_column_name("properties", "system")
         assert column_name == "properties_group_system"
 
-    def test_system_property_group_overlaps_with_ai_and_feature_flags(self):
-        """Test that system property group includes AI and feature flag properties"""
+    def test_property_groups_are_mutually_exclusive(self):
+        """Test that system, AI, and feature flag property groups are mutually exclusive"""
         system_group = property_groups.get_groups()["sharded_events"]["properties"]["system"]
         ai_group = property_groups.get_groups()["sharded_events"]["properties"]["ai"]
         feature_flags_group = property_groups.get_groups()["sharded_events"]["properties"]["feature_flags"]
 
-        # System group should include AI properties (they start with $)
-        assert system_group.contains("$ai_language")
+        # AI properties should only match AI group, not system
         assert ai_group.contains("$ai_language")
+        assert not system_group.contains("$ai_language")
 
-        # System group should include feature flag properties (they start with $)
-        assert system_group.contains("$feature/my-flag")
+        # Feature flag properties should only match feature_flags group, not system
         assert feature_flags_group.contains("$feature/my-flag")
+        assert not system_group.contains("$feature/my-flag")
 
-        # But system group has broader coverage
+        # Regular $ properties should only match system group
         assert system_group.contains("$browser")
         assert not ai_group.contains("$browser")
         assert not feature_flags_group.contains("$browser")
 
-    def test_get_property_group_columns_returns_system_for_dollar_properties(self):
-        """Test that get_property_group_columns returns system column for $ properties"""
+        # System group acts as catchall for other $ properties
+        assert system_group.contains("$unknown_property")
+        assert not ai_group.contains("$unknown_property")
+        assert not feature_flags_group.contains("$unknown_property")
+
+    def test_get_property_group_columns_returns_correct_groups(self):
+        """Test that get_property_group_columns returns correct columns for different property types"""
+        # Regular system properties should only return system column
         columns = list(property_groups.get_property_group_columns("sharded_events", "properties", "$browser"))
         assert "properties_group_system" in columns
+        assert "properties_group_ai" not in columns
+        assert "properties_group_feature_flags" not in columns
 
         columns = list(property_groups.get_property_group_columns("sharded_events", "properties", "$device_type"))
         assert "properties_group_system" in columns
+        assert "properties_group_ai" not in columns
+        assert "properties_group_feature_flags" not in columns
 
-        # AI properties should return both AI and system columns
+        # AI properties should only return AI column (not system)
         columns = list(property_groups.get_property_group_columns("sharded_events", "properties", "$ai_language"))
         assert "properties_group_ai" in columns
-        assert "properties_group_system" in columns
+        assert "properties_group_system" not in columns
 
-        # Feature flag properties should return both feature_flags and system columns
+        # Feature flag properties should only return feature_flags column (not system)
         columns = list(property_groups.get_property_group_columns("sharded_events", "properties", "$feature/test"))
         assert "properties_group_feature_flags" in columns
-        assert "properties_group_system" in columns
-
-        # Non-$ properties should not return system column
-        columns = list(property_groups.get_property_group_columns("sharded_events", "properties", "custom_prop"))
         assert "properties_group_system" not in columns
+
+        # Non-$ properties should only return custom column
+        columns = list(property_groups.get_property_group_columns("sharded_events", "properties", "custom_prop"))
         assert "properties_group_custom" in columns
+        assert "properties_group_system" not in columns

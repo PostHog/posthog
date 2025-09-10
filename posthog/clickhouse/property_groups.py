@@ -193,8 +193,8 @@ event_property_group_definitions = {
             column_type_name="group",
         ),
         "system": PropertyGroupDefinition(
-            "key LIKE '$%'",
-            lambda key: key.startswith("$"),
+            "key LIKE '$%' AND key NOT LIKE '$ai_%' AND key NOT LIKE '$feature/%'",
+            lambda key: key.startswith("$") and not key.startswith("$ai_") and not key.startswith("$feature/"),
             column_type_name="group",
         ),
     },
