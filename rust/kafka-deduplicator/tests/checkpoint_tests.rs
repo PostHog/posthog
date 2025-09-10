@@ -534,14 +534,12 @@ async fn test_incremental_vs_full_upload() {
 
     let worker = CheckpointWorker::new(
         1,
-        store_manager.clone(),
+        config.clone(),
+        partition.clone(),
+        store.clone(),
         exporter.clone(),
         checkpoint_counters.clone(),
-        is_checkpointing.clone(),
-        config.clone(),
     );
-
-    // TODO(eli): CONTINUE UPDATING THIS TEST!
 
     // Perform multiple checkpoints
     for i in 0..=config.max_local_checkpoints {
