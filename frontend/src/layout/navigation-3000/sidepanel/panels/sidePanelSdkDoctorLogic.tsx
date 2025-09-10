@@ -880,8 +880,11 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     const limitedEvents = recentEvents.slice(0, 15)
 
                     // Filter out PostHog's internal UI events (URLs containing /project/1/)
+                    // In dev mode, also filter out test@posthog.com email events (dev UI interactions)
                     const customerEvents = limitedEvents.filter(
-                        (event) => !event.properties?.$current_url?.includes('/project/1/')
+                        (event) =>
+                            !event.properties?.$current_url?.includes('/project/1/') &&
+                            !(isDemoMode() && event.properties?.email === 'test@posthog.com')
                     )
 
                     // Filter for web events from the last 10 minutes
@@ -1125,10 +1128,12 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
 
                     // Filter out PostHog's internal UI events (URLs containing /project/1/) when in development
                     // Also filter out posthog-js-lite events as requested
+                    // In dev mode, also filter out test@posthog.com email events (dev UI interactions)
                     const customerEvents = limitedEvents.filter(
                         (event) =>
                             !event.properties?.$current_url?.includes('/project/1/') &&
-                            event.properties?.$lib !== 'posthog-js-lite'
+                            event.properties?.$lib !== 'posthog-js-lite' &&
+                            !(isDemoMode() && event.properties?.email === 'test@posthog.com')
                     )
 
                     const webEvents = customerEvents.filter((e) => e.properties?.$lib === 'web')
@@ -1760,13 +1765,13 @@ function checkVersionAgainstLatest(
             }
         }
 
-        const isOutdated = releasesBehind > 2
+        // Basic release count logic first (will be enhanced with time-based logic below)
+        const releaseCountOutdated = releasesBehind > 2
+
         if (IS_DEBUG_MODE) {
             console.info(
-                `[SDK Doctor] Final result: isOutdated=${isOutdated}, releasesAhead=${releasesBehind}, latestVersion=${latestVersion}`
+                `[SDK Doctor] Release count check: releasesBehind=${releasesBehind}, releaseCountOutdated=${releaseCountOutdated}`
             )
-        }
-        if (IS_DEBUG_MODE) {
             console.info(
                 `[SDK Doctor] String comparison: "${version}" === "${latestVersion}" = ${version === latestVersion}`
             )
@@ -1787,9 +1792,43 @@ function checkVersionAgainstLatest(
             isAgeOutdated = weeksOld > DEVICE_CONTEXT_CONFIG.ageThresholds.warnAfterWeeks && releasesBehind > 0
         }
 
-        // Consider outdated if 2+ versions behind (2 or more releases)
+        // NEW: Dual check logic - September 2025 enhancement for web snippet rollout delays
+        // Don't flag as "Outdated" if version released <48 hours ago, even if 2+ releases behind
+        let isRecentRelease = false
+
+        if (daysSinceRelease !== undefined) {
+            // If we have actual release date data, use it
+            isRecentRelease = daysSinceRelease < 2 // Less than 48 hours (2 days)
+            console.info(
+                `[SDK Doctor] Time-based: v${version} daysSinceRelease=${daysSinceRelease}, isRecentRelease=${isRecentRelease}`
+            )
+        } else if (type === 'web' && releasesBehind >= 0 && releasesBehind <= 5) {
+            // Fallback for web SDK: assume versions 0-5 releases behind are "recent" when no date data
+            // This handles the common case of web snippet rollout delays (PostHog can do 6+ releases per day)
+            isRecentRelease = true
+            console.info(
+                `[SDK Doctor] Fallback: web SDK v${version} is ${releasesBehind} releases behind - assuming recent`
+            )
+        } else {
+            console.info(
+                `[SDK Doctor] No fallback: type=${type}, releasesBehind=${releasesBehind}, daysSinceRelease=${daysSinceRelease}`
+            )
+        }
+
+        // Final outdated logic: 3+ releases behind OR (2+ releases behind AND >48h old)
+        const isOutdated = releasesBehind >= 3 || (releasesBehind >= 2 && !isRecentRelease)
+
+        if (IS_DEBUG_MODE) {
+            console.info(
+                `[SDK Doctor] Time-based detection: daysSinceRelease=${daysSinceRelease}, isRecentRelease=${isRecentRelease}`
+            )
+            console.info(
+                `[SDK Doctor] Final result: isOutdated=${isOutdated} (releasesBehind=${releasesBehind}, isAgeOutdated=${isAgeOutdated})`
+            )
+        }
+
         return {
-            isOutdated: isOutdated || isAgeOutdated, // Combine release-count and age-based
+            isOutdated: isOutdated || isAgeOutdated, // Combine dual-check and age-based
             releasesAhead: Math.max(0, releasesBehind),
             latestVersion,
             releaseDate,
