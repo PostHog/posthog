@@ -8,9 +8,7 @@
 
     // These are used in SceneLayout.css
     --scene-layout-panel-width: 300px;
-    --scene-layout-header-height-with-tabs: 80px;
     --scene-layout-header-height: 40px;
-    --scene-layout-header-height-without-padding-y: calc(var(--scene-layout-header-height) - 2rem);
 
     position: relative;
     display: flex;

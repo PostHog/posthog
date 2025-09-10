@@ -263,6 +263,7 @@ function PageTabs(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
+            <SceneActions />
             <LemonTabs
                 activeKey={tab}
                 className={cn('flex', newSceneLayout && '-mt-4')}
@@ -286,7 +287,6 @@ function PageTabs(): JSX.Element {
                     }
                 })}
             />
-            <SceneActions />
         </div>
     )
 }
