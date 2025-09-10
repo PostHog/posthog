@@ -9,7 +9,8 @@ from posthog.schema import (
     AssistantRetentionQuery,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
-    DeepResearchNotebookInfo,
+    DeepResearchNotebook,
+    DeepResearchType,
 )
 
 from posthog.exceptions_capture import capture_exception
@@ -79,7 +80,7 @@ class DeepResearchReportNode(DeepResearchNode):
 
         context = self._create_context(all_artifacts)
 
-        notebook_update_message = await self._astream_notebook(
+        notebook = await self._astream_notebook(
             chain,
             config,
             DeepResearchNodeName.REPORT,
@@ -90,27 +91,46 @@ class DeepResearchReportNode(DeepResearchNode):
             context=context,
         )
 
-        notebook_title = self.notebook.title if self.notebook else "Research Report"
-        current_notebook_info = DeepResearchNotebookInfo(
-            stage=DeepResearchNodeName.REPORT.value,
-            notebook_id=notebook_update_message.notebook_id,
+        notebook_title = notebook.title if notebook else "Research Report"
+        current_notebook_info = DeepResearchNotebook(
+            notebook_type=DeepResearchType.REPORT,
+            notebook_id=notebook.short_id,
             title=notebook_title,
         )
 
-        # Collect all stage notebooks from the entire research process
-        # and add to report update message
-        all_stage_notebooks = [*state.stage_notebooks, current_notebook_info]
+        # Update current run notebooks with the report
+        current_run_notebooks = (state.current_run_notebooks or []) + [current_notebook_info]
 
-        notebook_update_message.stage_notebooks = [
-            DeepResearchNotebookInfo(
-                stage=notebook_info.stage, notebook_id=notebook_info.notebook_id, title=notebook_info.title
-            )
-            for notebook_info in all_stage_notebooks
-        ]
+        # Combine all conversation notebooks with the current report for the final display
+        all_conversation_notebooks = [*state.conversation_notebooks, current_notebook_info]
+
+        # Create and stream the final rich notebook message
+        from uuid import uuid4
+
+        from langgraph.config import get_stream_writer
+
+        from posthog.schema import NotebookUpdateMessage
+
+        notebook_update_message = NotebookUpdateMessage(
+            id=str(uuid4()),
+            notebook_id=notebook.short_id,
+            content=notebook.content,
+            notebook_type="deep_research",
+            conversation_notebooks=all_conversation_notebooks,  # Show all conversation notebooks in UI
+            current_run_notebook_ids=[
+                nb.notebook_id for nb in current_run_notebooks
+            ],  # IDs of notebooks from current run
+        )
+
+        # Stream the final rich message to the UI
+        writer = get_stream_writer()
+        custom_message = self._message_to_langgraph_update(notebook_update_message, DeepResearchNodeName.REPORT)
+        writer(custom_message)
 
         return PartialDeepResearchState(
             messages=[notebook_update_message],
-            stage_notebooks=all_stage_notebooks,
+            conversation_notebooks=[current_notebook_info],  # Add to persistent list
+            current_run_notebooks=current_run_notebooks,  # Update current run list
         )
 
     def _collect_all_artifacts(self, state: DeepResearchState) -> list[InsightArtifact]:

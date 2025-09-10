@@ -10,6 +10,7 @@ import {
     IconExpand,
     IconEye,
     IconHide,
+    IconNotebook,
     IconRefresh,
     IconThumbsDown,
     IconThumbsDownFilled,
@@ -64,11 +65,10 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
-import { ConversationStatus, ConversationType, ProductKey } from '~/types'
+import { ProductKey } from '~/types'
 
 import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
-import { StageNotebooksDisplay } from './components/StageNotebooksDisplay'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { MessageStatus, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
@@ -88,7 +88,7 @@ import {
 } from './utils'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
-    const { conversationLoading, conversationId, conversation } = useValues(maxLogic)
+    const { conversationLoading, conversationId } = useValues(maxLogic)
     const { threadGrouped } = useValues(maxThreadLogic)
 
     return (
@@ -118,31 +118,6 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                             isFinal={index === threadGrouped.length - 1}
                         />
                     ))}
-
-                    {/* Show stage notebooks for completed deep research conversations */}
-                    {(() => {
-                        if (
-                            conversation?.type !== ConversationType.DeepResearch ||
-                            conversation?.status !== ConversationStatus.Idle
-                        ) {
-                            return null
-                        }
-
-                        // Find the final notebook message with stage_notebooks data
-                        const finalMessages = threadGrouped[threadGrouped.length - 1] || []
-                        const notebookMessages = finalMessages.filter(
-                            isNotebookUpdateMessage
-                        ) as (NotebookUpdateMessage & { status: MessageStatus })[]
-                        const finalNotebookMessage = notebookMessages.find(
-                            (msg) => msg.stage_notebooks && msg.stage_notebooks.length > 0
-                        )
-
-                        if (!finalNotebookMessage?.stage_notebooks) {
-                            return null
-                        }
-
-                        return <StageNotebooksDisplay stageNotebooks={finalNotebookMessage.stage_notebooks} />
-                    })()}
                 </>
             ) : (
                 conversationId && (
@@ -461,10 +436,97 @@ interface NotebookUpdateAnswerProps {
 }
 
 function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Element {
-    const handleOpenNotebook = (): void => {
-        openNotebook(message.notebook_id, NotebookTarget.Scene)
+    const handleOpenNotebook = (notebookId?: string): void => {
+        openNotebook(notebookId || message.notebook_id, NotebookTarget.Scene)
     }
 
+    // Only show the full notebook list if this is the final report message from deep research
+    const isReportCompletion =
+        message.notebook_type === 'deep_research' &&
+        message.conversation_notebooks &&
+        message.conversation_notebooks.some((nb) => nb.category === 'deep_research' && nb.notebook_type === 'report')
+
+    const NOTEBOOK_TYPE_DISPLAY_NAMES: Record<string, string> = {
+        planning: 'Planning',
+        task_execution: 'Task Execution',
+        report: 'Final Report',
+        general: 'General',
+    }
+
+    const NOTEBOOK_TYPE_DESCRIPTIONS: Record<string, string> = {
+        planning: 'Initial research plan and objectives',
+        task_execution: 'Task execution and analysis',
+        report: 'Comprehensive analysis and findings',
+        general: 'General notebook',
+    }
+
+    if (isReportCompletion && message.conversation_notebooks) {
+        return (
+            <MessageTemplate type="ai">
+                <div className="bg-bg-light border border-border rounded-lg p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                        <IconCheck className="text-success size-4" />
+                        <h4 className="text-sm font-semibold m-0">Deep Research Complete</h4>
+                    </div>
+
+                    <div className="space-y-2">
+                        <p className="text-xs text-muted mb-3">
+                            Your research has been completed. Each notebook contains detailed analysis:
+                        </p>
+
+                        {message.conversation_notebooks.map((notebook) => {
+                            const displayName =
+                                NOTEBOOK_TYPE_DISPLAY_NAMES[notebook.notebook_type] || notebook.notebook_type
+                            const description =
+                                NOTEBOOK_TYPE_DESCRIPTIONS[notebook.notebook_type] || 'Research documentation'
+                            // Show "New" tag only if there are previous notebooks and this notebook is from the current run
+                            const hasMultipleRuns =
+                                (message.conversation_notebooks?.length || 0) >
+                                (message.current_run_notebook_ids?.length || 0)
+                            const isCurrentRunNotebook = message.current_run_notebook_ids?.includes(
+                                notebook.notebook_id
+                            )
+                            const shouldShowNewTag = hasMultipleRuns && isCurrentRunNotebook
+
+                            return (
+                                <div
+                                    key={notebook.notebook_id}
+                                    className="flex items-center justify-between p-3 bg-bg-3000 rounded border border-border-light"
+                                >
+                                    <div className="flex items-start gap-3">
+                                        <IconNotebook className="size-4 text-primary-alt mt-0.5" />
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-medium text-sm">
+                                                    {notebook.title || `${displayName} Notebook`}
+                                                </span>
+                                                {shouldShowNewTag && (
+                                                    <span className="text-xs bg-success text-success-content px-1.5 py-0.5 rounded-full font-medium">
+                                                        New
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="text-xs text-muted">{description}</div>
+                                        </div>
+                                    </div>
+                                    <LemonButton
+                                        onClick={() => handleOpenNotebook(notebook.notebook_id)}
+                                        size="xsmall"
+                                        type="primary"
+                                        icon={<IconOpenInNew />}
+                                    >
+                                        Open
+                                    </LemonButton>
+                                </div>
+                            )
+                        })}
+                    </div>
+                </div>
+            </MessageTemplate>
+        )
+    }
+
+    // Default single notebook update message
     return (
         <MessageTemplate type="ai">
             <div className="flex items-center justify-between gap-2">
@@ -472,7 +534,7 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
                     <IconCheck className="text-success size-4" />
                     <span>A notebook has been updated</span>
                 </div>
-                <LemonButton onClick={handleOpenNotebook} size="xsmall" type="primary" icon={<IconOpenInNew />}>
+                <LemonButton onClick={() => handleOpenNotebook()} size="xsmall" type="primary" icon={<IconOpenInNew />}>
                     Open notebook
                 </LemonButton>
             </div>

@@ -5567,11 +5567,32 @@ export enum ConversationType {
     DeepResearch = 'deep_research',
 }
 
-export interface DeepResearchNotebookInfo {
-    stage: string
+export enum Category {
+    DEEP_RESEARCH = 'deep_research',
+}
+
+export enum DeepResearchType {
+    PLANNING = 'planning',
+    TASK_EXECUTION = 'task_execution',
+    REPORT = 'report',
+    GENERAL = 'general',
+}
+
+// --- Base fields shared by all notebooks --------------------------------------
+
+interface _NotebookBase {
     notebook_id: string
     title: string
 }
+
+// --- The only supported notebook ---------------------------------------------
+
+export interface DeepResearchNotebook extends _NotebookBase {
+    category: Category.DEEP_RESEARCH
+    notebook_type?: DeepResearchType
+}
+
+export type NotebookInfo = DeepResearchNotebook
 
 export interface Conversation {
     id: string

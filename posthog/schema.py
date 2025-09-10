@@ -917,13 +917,11 @@ class DatetimeDay(RootModel[datetime]):
     root: datetime
 
 
-class DeepResearchNotebookInfo(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    notebook_id: str
-    stage: str
-    title: str
+class DeepResearchType(StrEnum):
+    PLANNING = "planning"
+    TASK_EXECUTION = "task_execution"
+    REPORT = "report"
+    GENERAL = "general"
 
 
 class DefaultChannelTypes(StrEnum):
@@ -3602,6 +3600,16 @@ class Day(RootModel[int]):
     root: int
 
 
+class DeepResearchNotebook(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    category: Literal["deep_research"] = "deep_research"
+    notebook_id: str
+    notebook_type: Optional[DeepResearchType] = None
+    title: str
+
+
 class ElementPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4107,9 +4115,11 @@ class NotebookUpdateMessage(BaseModel):
         extra="forbid",
     )
     content: ProsemirrorJSONContent
+    conversation_notebooks: Optional[list[DeepResearchNotebook]] = None
+    current_run_notebook_ids: Optional[list[str]] = None
     id: Optional[str] = None
     notebook_id: str
-    stage_notebooks: Optional[list[DeepResearchNotebookInfo]] = None
+    notebook_type: Literal["deep_research"] = "deep_research"
     tool_calls: Optional[list[AssistantToolCall]] = None
     type: Literal["ai/notebook"] = "ai/notebook"
 
