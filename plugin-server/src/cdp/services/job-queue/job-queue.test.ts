@@ -1,17 +1,24 @@
+import '~/tests/helpers/mocks/date.mock'
+
 import { DateTime } from 'luxon'
 
+import { deleteKeysWithPrefix } from '~/cdp/_tests/redis'
+import { CdpRedis, createCdpRedisPool } from '~/cdp/redis'
+import { CyclotronJobInvocation } from '~/cdp/types'
 import { defaultConfig } from '~/config/config'
+import { waitForExpect } from '~/tests/helpers/expectations'
 import { PluginsServerConfig } from '~/types'
 
-import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../_tests/examples'
-import { HOG_EXAMPLES } from '../../_tests/examples'
+import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
 import { createInvocation } from '../../utils/invocation-utils'
 import { CyclotronJobQueue, JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS, getProducerMapping } from './job-queue'
+import { BASE_REDIS_KEY, CyclotronJobQueueMonitoring } from './job-queue-monitoring'
 
 describe('CyclotronJobQueue', () => {
     let config: PluginsServerConfig
     let mockConsumeBatch: jest.Mock
+    let redis: CdpRedis
 
     const exampleHogFunction = createHogFunction({
         name: 'Test hog function',
@@ -20,8 +27,18 @@ describe('CyclotronJobQueue', () => {
         ...HOG_FILTERS_EXAMPLES.no_filters,
     })
 
-    beforeEach(() => {
+    const exampleHogFunction2 = createHogFunction({
+        name: 'Test hog function 2',
+        ...HOG_EXAMPLES.simple_fetch,
+        ...HOG_INPUTS_EXAMPLES.simple_fetch,
+        ...HOG_FILTERS_EXAMPLES.no_filters,
+    })
+
+    beforeEach(async () => {
         config = { ...defaultConfig }
+        redis = createCdpRedisPool(config)
+        await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
+
         mockConsumeBatch = jest.fn()
     })
 
@@ -31,7 +48,7 @@ describe('CyclotronJobQueue', () => {
         })
 
         it('should initialise', () => {
-            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
+            const queue = new CyclotronJobQueue(config, redis, 'hog', mockConsumeBatch)
             expect(queue).toBeDefined()
             expect(queue['consumerMode']).toBe('postgres')
         })
@@ -43,7 +60,7 @@ describe('CyclotronJobQueue', () => {
         })
 
         it('should initialise', () => {
-            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
+            const queue = new CyclotronJobQueue(config, redis, 'hog', mockConsumeBatch)
             expect(queue).toBeDefined()
             expect(queue['consumerMode']).toBe('kafka')
         })
@@ -54,7 +71,7 @@ describe('CyclotronJobQueue', () => {
             config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE = 'kafka'
             config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = mapping
             config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING = teamMapping || ''
-            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
+            const queue = new CyclotronJobQueue(config, redis, 'hog', mockConsumeBatch)
             queue['jobQueuePostgres'].startAsProducer = jest.fn()
             queue['jobQueueKafka'].startAsProducer = jest.fn()
             queue['jobQueuePostgres'].queueInvocations = jest.fn()
@@ -167,6 +184,55 @@ describe('CyclotronJobQueue', () => {
 
             expect(queue['jobQueuePostgres'].queueInvocations).toHaveBeenCalledWith([])
             expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith(invocations)
+        })
+    })
+
+    describe('monitoring', () => {
+        let invocations: CyclotronJobInvocation[]
+        let queue: CyclotronJobQueue
+        let monitor: CyclotronJobQueueMonitoring
+
+        beforeEach(async () => {
+            invocations = [
+                {
+                    ...createInvocation({ ...createHogExecutionGlobals(), inputs: {} }, exampleHogFunction),
+                    queueScheduledAt: DateTime.now().plus({
+                        milliseconds: JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS + 10000,
+                    }),
+                },
+                {
+                    ...createInvocation({ ...createHogExecutionGlobals(), inputs: {} }, exampleHogFunction2),
+                },
+
+                {
+                    ...createInvocation({ ...createHogExecutionGlobals(), inputs: {} }, exampleHogFunction2),
+                },
+            ]
+            config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE = 'kafka'
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = '*:kafka'
+            mockConsumeBatch.mockImplementation(() => Promise.resolve({}))
+            queue = new CyclotronJobQueue(config, redis, 'hog', mockConsumeBatch)
+            monitor = queue['jobQueueMonitoring']
+            await queue.start()
+        })
+
+        afterEach(async () => {
+            await queue.stop()
+        })
+
+        it('should observe invocations to redis when queued', async () => {
+            await queue.queueInvocations(invocations)
+            const now = DateTime.now().toMillis()
+
+            expect(await monitor.getFunctionInvocations(exampleHogFunction.id, now)).toEqual({
+                [invocations[0].id]: now + JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS + 10000,
+            })
+            expect(await monitor.getFunctionInvocations(exampleHogFunction2.id, now)).toEqual({
+                [invocations[1].id]: now,
+                [invocations[2].id]: now,
+            })
+
+            await waitForExpect(() => expect(mockConsumeBatch).toHaveBeenCalled(), 2000)
         })
     })
 })

@@ -6,6 +6,8 @@
 import { DateTime } from 'luxon'
 import { Counter, Gauge } from 'prom-client'
 
+import { CdpRedis } from '~/cdp/redis'
+
 import { PluginsServerConfig } from '../../../types'
 import { logger } from '../../../utils/logger'
 import {
@@ -17,6 +19,7 @@ import {
     CyclotronJobQueueSource,
 } from '../../types'
 import { CyclotronJobQueueKafka } from './job-queue-kafka'
+import { CyclotronJobQueueMonitoring } from './job-queue-monitoring'
 import { CyclotronJobQueuePostgres } from './job-queue-postgres'
 
 const cyclotronBatchUtilizationGauge = new Gauge({
@@ -51,9 +54,11 @@ export class CyclotronJobQueue {
     private producerForceScheduledToPostgres: boolean
     private jobQueuePostgres: CyclotronJobQueuePostgres
     private jobQueueKafka: CyclotronJobQueueKafka
+    private jobQueueMonitoring: CyclotronJobQueueMonitoring
 
     constructor(
         private config: PluginsServerConfig,
+        private redis: CdpRedis,
         private queue: CyclotronJobQueueKind,
         private _consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     ) {
@@ -68,6 +73,7 @@ export class CyclotronJobQueue {
         this.jobQueuePostgres = new CyclotronJobQueuePostgres(this.config, this.queue, (invocations) =>
             this.consumeBatch(invocations, 'postgres')
         )
+        this.jobQueueMonitoring = new CyclotronJobQueueMonitoring(this.config, this.redis)
 
         logger.info('🔄', 'CyclotronJobQueue initialized', {
             consumerMode: this.consumerMode,
@@ -84,6 +90,8 @@ export class CyclotronJobQueue {
             .labels({ queue: this.queue, source })
             .set(invocations.length / this.config.CONSUMER_BATCH_SIZE)
 
+        // TODO: we dont need to block on this...
+        await this.jobQueueMonitoring.unmarkScheduledInvocations(invocations)
         const result = await this._consumeBatch!(invocations)
         counterJobsProcessed.inc({ queue: this.queue, source }, invocations.length)
 
@@ -196,6 +204,7 @@ export class CyclotronJobQueue {
         }
 
         await Promise.all([
+            this.jobQueueMonitoring.markScheduledInvocations([...postgresInvocations, ...kafkaInvocations]),
             this.jobQueuePostgres.queueInvocations(postgresInvocations),
             this.jobQueueKafka.queueInvocations(kafkaInvocations),
         ])

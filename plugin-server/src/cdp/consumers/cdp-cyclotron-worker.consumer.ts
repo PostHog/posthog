@@ -30,7 +30,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             throw new Error(`Invalid cyclotron job queue kind: ${this.queue}`)
         }
 
-        this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, (batch) => this.processBatch(batch))
+        this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.redis, this.queue, (batch) => this.processBatch(batch))
     }
 
     @instrumented('cdpConsumer.handleEachBatch.executeInvocations')

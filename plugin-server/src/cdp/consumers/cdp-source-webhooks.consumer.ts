@@ -78,7 +78,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
     constructor(hub: Hub) {
         super(hub)
         this.promiseScheduler = new PromiseScheduler()
-        this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hog')
+        this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.redis, 'hog')
     }
 
     public async getWebhook(webhookId: string): Promise<{ hogFlow?: HogFlow; hogFunction: HogFunctionType } | null> {
