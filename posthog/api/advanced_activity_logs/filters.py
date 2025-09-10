@@ -54,9 +54,14 @@ class AdvancedActivityLogFilterManager:
             operation = filter_config.get("operation", "exact")
             value = filter_config.get("value")
 
+            if value is None:
+                continue
+
             if operation == "exact":
                 queryset = queryset.filter(**{f"detail__{field_path}": value})
             elif operation == "in":
+                if not isinstance(value, list | tuple):
+                    value = [value]
                 queryset = queryset.filter(**{f"detail__{field_path}__in": value})
             elif operation == "contains":
                 queryset = queryset.filter(**{f"detail__{field_path}__icontains": value})
