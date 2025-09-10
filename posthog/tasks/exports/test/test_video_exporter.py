@@ -163,7 +163,7 @@ class TestVideoExporter(APIBaseTest):
                     video_exporter.record_replay_to_file(
                         image_path=tmp_file.name,
                         url_to_render="http://localhost:8000/exporter?token=test",
-                        screenshot_width=0,  # type: ignore[arg-type]  # Intentionally invalid for testing
+                        screenshot_width=0,  # Intentionally invalid for testing
                         wait_for_css_selector=".replayer-wrapper",
                         screenshot_height=600,
                         recording_duration=5,

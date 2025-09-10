@@ -13,6 +13,7 @@ from posthog.exceptions_capture import capture_exception
 
 from playwright.sync_api import (
     Browser,
+    Page,
     TimeoutError as PlaywrightTimeoutError,
     sync_playwright,
 )
@@ -23,7 +24,7 @@ HEIGHT_OFFSET = 85
 PLAYBACK_SPEED_MULTIPLIER = 4  # Speed up playback during recording for long videos
 
 
-def _wait_for_page_ready(page, url_to_render: str, wait_for_css_selector: str) -> None:
+def _wait_for_page_ready(page: Page, url_to_render: str, wait_for_css_selector: str) -> None:
     """Helper function to wait for page to be ready for recording."""
     try:
         page.goto(url_to_render, wait_until="load", timeout=30000)
