@@ -35,6 +35,7 @@ PRODUCTS_APPS = [
     "products.revenue_analytics",
     "products.user_interviews",
     "products.llm_analytics",
+    "products.streamlit",
 ]
 
 INSTALLED_APPS = [
