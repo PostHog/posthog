@@ -78,7 +78,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
     constructor(hub: Hub) {
         super(hub)
         this.promiseScheduler = new PromiseScheduler()
-        this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.redis, 'hog')
+        this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hog')
     }
 
     public async getWebhook(webhookId: string): Promise<{ hogFlow?: HogFlow; hogFunction: HogFunctionType } | null> {
@@ -291,6 +291,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             if (hogFunctionState?.state === HogWatcherState.degraded) {
                 // Degraded functions are not executed immediately
                 invocation.queue = 'hog_overflow'
+                await this.jobQueueMonitoring.unmarkScheduledInvocations([invocation])
+
                 await this.cyclotronJobQueue.queueInvocations([invocation])
 
                 result = createInvocationResult<CyclotronJobInvocationHogFunction>(
@@ -321,6 +323,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
 
                 // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
                 if (!result.finished) {
+                    await this.jobQueueMonitoring.unmarkScheduledInvocations([result.invocation])
                     await this.cyclotronJobQueue.queueInvocationResults([result])
                 }
 

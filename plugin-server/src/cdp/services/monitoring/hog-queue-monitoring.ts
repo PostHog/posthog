@@ -3,18 +3,13 @@ import { DateTime, Duration } from 'luxon'
 import { CyclotronJobInvocation } from '~/cdp/types'
 import { isHogFlowInvocation } from '~/cdp/utils'
 
-import { PluginsServerConfig } from '../../../types'
 import { CdpRedis } from '../../redis'
 
-export const BASE_REDIS_KEY =
-    process.env.NODE_ENV == 'test' ? '@posthog-test/cyclotron-jobs' : '@posthog/cyclotron-jobs'
+export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-queue' : '@posthog/hog-queue'
 const REDIS_KEY_QUEUED = `${BASE_REDIS_KEY}/queue`
 
-export class CyclotronJobQueueMonitoring {
-    constructor(
-        private config: PluginsServerConfig,
-        private redis: CdpRedis
-    ) {}
+export class HogQueueMonitoring {
+    constructor(private redis: CdpRedis) {}
 
     private keyForFunction(id: string) {
         return `${REDIS_KEY_QUEUED}/${id}`
