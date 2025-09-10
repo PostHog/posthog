@@ -12,6 +12,7 @@ import posthoganalytics
 from posthog.exceptions_capture import capture_exception
 
 from playwright.sync_api import (
+    Browser,
     TimeoutError as PlaywrightTimeoutError,
     sync_playwright,
 )
@@ -21,6 +22,74 @@ logger = structlog.get_logger(__name__)
 ScreenWidth = Literal[800, 1920, 1400]
 HEIGHT_OFFSET = 85
 PLAYBACK_SPEED_MULTIPLIER = 4  # Speed up playback during recording for long videos
+
+
+def detect_recording_resolution(
+    browser: Browser,
+    url_to_render: str,
+    wait_for_css_selector: str,
+    default_width: int,
+    default_height: int,
+) -> tuple[int, int]:
+    """
+    Detect the actual recording resolution from sessionRecordingPlayerLogic.
+    Returns:
+        Tuple of (width, height) - either detected from player or default fallback
+    """
+    logger.info("video_exporter.resolution_detection_start")
+
+    # Create temporary context just for resolution detection
+    context = browser.new_context(
+        viewport={"width": default_width, "height": default_height},
+    )
+    page = context.new_page()
+
+    try:
+        # Navigate and wait for player to load
+        try:
+            page.goto(url_to_render, wait_until="load", timeout=30000)
+        except PlaywrightTimeoutError:
+            pass
+
+        try:
+            page.wait_for_selector(wait_for_css_selector, state="visible", timeout=20000)
+        except PlaywrightTimeoutError:
+            pass
+
+        try:
+            page.wait_for_selector(".Spinner", state="detached", timeout=20000)
+        except PlaywrightTimeoutError:
+            pass
+
+        # Wait for resolution to be available from sessionRecordingPlayerLogic global variable
+        try:
+            logger.info("video_exporter.waiting_for_resolution_global")
+            resolution = page.wait_for_function(
+                """
+                () => {
+                  const r = (window).__POSTHOG_RESOLUTION__;
+                  if (!r) return false;
+                  const w = Number(r.width), h = Number(r.height);
+                  return (w > 0 && h > 0) ? {width: w, height: h} : false;
+                }
+                """,
+                timeout=15000,
+            ).json_value()
+
+            detected_width = int(resolution["width"])
+            detected_height = int(resolution["height"])
+            logger.info("video_exporter.resolution_detected", width=detected_width, height=detected_height)
+            return detected_width, detected_height
+
+        except Exception as e:
+            logger.warning("video_exporter.resolution_detection_failed", error=str(e))
+            return default_width, default_height
+
+    finally:
+        # Clean up detection context
+        page.close()
+        context.close()
+        logger.info("video_exporter.resolution_detection_complete")
 
 
 def record_replay_to_file(
@@ -61,8 +130,20 @@ def record_replay_to_file(
                     "--force-device-scale-factor=2",
                 ],
             )
-            width = int(screenshot_width)
-            height = int(screenshot_height)
+
+            # Phase 1: Detect actual recording resolution
+            default_width = int(screenshot_width)
+            default_height = int(screenshot_height)
+
+            width, height = detect_recording_resolution(
+                browser=browser,
+                url_to_render=url_to_render,
+                wait_for_css_selector=wait_for_css_selector,
+                default_width=default_width,
+                default_height=default_height,
+            )
+
+            # Phase 2: Create recording context with exact resolution
             context = browser.new_context(
                 viewport={"width": width, "height": height},
                 record_video_dir=record_dir,
@@ -70,6 +151,9 @@ def record_replay_to_file(
             )
             page = context.new_page()
             record_started = time.monotonic()
+            logger.info("video_exporter.recording_context_created", width=width, height=height)
+
+            # Navigate with correct dimensions
             try:
                 page.goto(url_to_render, wait_until="load", timeout=30000)
             except PlaywrightTimeoutError:
@@ -82,6 +166,7 @@ def record_replay_to_file(
                 page.wait_for_selector(".Spinner", state="detached", timeout=20000)
             except PlaywrightTimeoutError:
                 pass
+
             measured_width: Optional[int] = None
             try:
                 dimensions = page.evaluate("""

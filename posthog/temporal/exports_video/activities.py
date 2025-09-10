@@ -33,7 +33,9 @@ def build_export_context_activity(exported_asset_id: int) -> dict[str, Any]:
     except (ValueError, TypeError):
         ts = 0
 
-    url = absolute_uri(f"/exporter?token={access_token}&t={ts}&fullscreen=true")
+    url = absolute_uri(
+        f"/exporter?token={access_token}&t={ts}&fullscreen=true&inspectorSideBar=false&showInspector=false"
+    )
 
     # Validate CSS selector (basic sanitization)
     css_raw = asset.export_context.get("css_selector", ".replayer-wrapper")
