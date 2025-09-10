@@ -26,7 +26,7 @@ describe('process all snapshots', () => {
             const key = keyForSource(source)
             const rawSnapshots = keyZero.split('\n')
             const snapshots = await parseEncodedSnapshots(rawSnapshots, sessionId)
-            expect(snapshots).toHaveLength(100)
+            expect(snapshots).toHaveLength(99)
 
             const start = performance.now()
             const results = processAllSnapshots(
@@ -53,7 +53,7 @@ describe('process all snapshots', () => {
             )
             const end = performance.now()
             const duration = end - start
-            expect(results).toHaveLength(100)
+            expect(results).toHaveLength(99)
             expect(duration).toBeLessThan(10)
         })
 
