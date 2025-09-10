@@ -2,8 +2,6 @@ name: Update Bot IPs
 
 on:
     pull_request:
-        branches:
-            - bot-lookup-helper
     schedule:
         # Run daily at 2 AM UTC
         - cron: '0 2 * * *'
