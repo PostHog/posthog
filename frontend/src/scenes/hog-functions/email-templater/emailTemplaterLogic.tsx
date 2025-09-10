@@ -153,8 +153,11 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
     forms(({ actions, values, props }) => ({
         emailTemplate: {
-            defaults: props.defaultValue as EmailTemplate | undefined,
-            submit: async (value: EmailTemplate) => {
+            defaults: props.defaultValue as EmailTemplate,
+            submit: async (formValues: EmailTemplate | undefined) => {
+                if (!formValues) {
+                    return
+                }
                 const editor = values.emailEditorRef?.editor
                 if (!editor || !values.isEmailEditorReady) {
                     return
@@ -165,8 +168,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                         new Promise<any>((res) => editor.exportPlainText(res)),
                     ])
 
-                const finalValues = {
-                    ...value,
+                const finalValues: EmailTemplate = {
+                    ...formValues,
                     html: escapeHTMLStringCurlies(htmlData.html),
                     text: textData.text,
                     design: htmlData.design,
