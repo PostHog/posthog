@@ -31,7 +31,7 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v5
 
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
@@ -53,7 +53,7 @@ jobs:
         needs: changes
         runs-on: depot-ubuntu-24.04-4
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v5
               if: needs.changes.outputs.nodejs == 'true'
 
             - name: Install pnpm
@@ -86,7 +86,7 @@ jobs:
         needs: changes
         runs-on: depot-ubuntu-24.04-4
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v5
               if: needs.changes.outputs.nodejs == 'true'
 
             - name: Install pnpm
@@ -143,7 +143,7 @@ jobs:
             - name: Code check out
               # NOTE: We need this check on every step so that it still runs if skipped as we need it to suceed for the CI
               if: needs.changes.outputs.nodejs == 'true'
-              uses: actions/checkout@v4
+              uses: actions/checkout@v5
 
             - name: Stop/Start stack with Docker Compose
               if: needs.changes.outputs.nodejs == 'true'

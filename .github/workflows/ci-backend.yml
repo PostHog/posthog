@@ -52,7 +52,7 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v5
 
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
@@ -105,7 +105,7 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v5
 
             - name: Stop/Start stack with Docker Compose
               run: |
@@ -131,7 +131,7 @@ jobs:
 
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
-              uses: actions/checkout@v4
+              uses: actions/checkout@v5
               with:
                   ref: master
 
@@ -150,7 +150,7 @@ jobs:
 
             # Now we can consider this PR's migrations
             - name: Checkout this PR
-              uses: actions/checkout@v4
+              uses: actions/checkout@v5
 
             - name: Install python dependencies for this PR
               run: |
@@ -431,7 +431,7 @@ jobs:
                   echo "Skipping backend tests - no backend changes detected"
                   exit 0
 
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v5
               if: ${{ needs.changes.outputs.backend == 'true' }}
               with:
                   fetch-depth: 1
@@ -758,7 +758,7 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: 'Checkout repo'
-              uses: actions/checkout@v4
+              uses: actions/checkout@v5
               with:
                   fetch-depth: 1
 

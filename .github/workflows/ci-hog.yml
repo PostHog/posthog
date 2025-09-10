@@ -28,7 +28,7 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v5
 
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
@@ -59,7 +59,7 @@ jobs:
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
 
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v5
               with:
                   fetch-depth: 1
 
@@ -148,7 +148,7 @@ jobs:
             is-new-version: ${{ steps.check-package-version.outputs.is-new-version }}
         steps:
             - name: Checkout the repository
-              uses: actions/checkout@v4
+              uses: actions/checkout@v5
             - name: Check package version and detect an update
               id: check-package-version
               uses: PostHog/check-package-version@v2
@@ -165,7 +165,7 @@ jobs:
             PUBLISHED_VERSION: ${{ needs.check-package-version.outputs.published-version }}
         steps:
             - name: Checkout the repository
-              uses: actions/checkout@v4
+              uses: actions/checkout@v5
               with:
                   fetch-depth: 1
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
