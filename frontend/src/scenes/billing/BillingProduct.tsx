@@ -333,8 +333,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     product: BillingProductV2Type | BillingProductV2AddonType
                                     displayName: string
                                 }) => {
-                                    // For main product variants, use existing billingGaugeItems
-                                    // For addon variants, create gauge items from their data
                                     const variantGaugeItems = isProductVariantPrimary(variant.key)
                                         ? billingGaugeItems
                                         : createGaugeItems(variant.product)
