@@ -24,12 +24,11 @@ import { BillingProductAddon } from './BillingProductAddon'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
 import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
-import { isProductVariantPrimary, summarizeUsage } from './billing-utils'
+import { createGaugeItems, isProductVariantPrimary, summarizeUsage } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 import { REALTIME_DESTINATIONS_BILLING_START_DATE } from './constants'
 import { paymentEntryLogic } from './paymentEntryLogic'
-import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 export const getTierDescription = (
     tiers: BillingTierType[],
@@ -312,36 +311,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                             items={
                                                                 isProductVariantPrimary(variant.key)
                                                                     ? billingGaugeItems
-                                                                    : ([
-                                                                          ((variant.product.tiers?.[0]
-                                                                              ?.unit_amount_usd === '0'
-                                                                              ? variant.product.tiers?.[0]?.up_to
-                                                                              : 0) || 0) > 0 && {
-                                                                              type: BillingGaugeItemKind.FreeTier,
-                                                                              text: 'Free tier limit',
-                                                                              value:
-                                                                                  variant.product.tiers?.[0]
-                                                                                      ?.unit_amount_usd === '0'
-                                                                                      ? variant.product.tiers?.[0]
-                                                                                            ?.up_to || 0
-                                                                                      : 0,
-                                                                          },
-                                                                          variant.product.projected_usage &&
-                                                                              variant.product.projected_usage >
-                                                                                  (variant.product.current_usage ||
-                                                                                      0) && {
-                                                                                  type: BillingGaugeItemKind.ProjectedUsage,
-                                                                                  text: 'Projected',
-                                                                                  value:
-                                                                                      variant.product.projected_usage ||
-                                                                                      0,
-                                                                              },
-                                                                          {
-                                                                              type: BillingGaugeItemKind.CurrentUsage,
-                                                                              text: 'Current',
-                                                                              value: variant.product.current_usage || 0,
-                                                                          },
-                                                                      ].filter(Boolean) as BillingGaugeItemType[])
+                                                                    : createGaugeItems(variant.product)
                                                             }
                                                             product={variant.product}
                                                         />
@@ -367,25 +337,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     // For addon variants, create gauge items from their data
                                     const variantGaugeItems = isProductVariantPrimary(variant.key)
                                         ? billingGaugeItems
-                                        : ([
-                                              {
-                                                  type: BillingGaugeItemKind.CurrentUsage,
-                                                  text: 'Current',
-                                                  value: variant.product.current_usage || 0,
-                                              },
-                                              variant.product.projected_usage &&
-                                                  variant.product.projected_usage >
-                                                      (variant.product.current_usage || 0) && {
-                                                      type: BillingGaugeItemKind.ProjectedUsage,
-                                                      text: 'Projected',
-                                                      value: variant.product.projected_usage || 0,
-                                                  },
-                                              variant.product.free_allocation && {
-                                                  type: BillingGaugeItemKind.FreeTier,
-                                                  text: 'Free tier limit',
-                                                  value: variant.product.free_allocation,
-                                              },
-                                          ].filter(Boolean) as BillingGaugeItemType[])
+                                        : createGaugeItems(variant.product)
 
                                     return (
                                         <div key={variant.key} className="mt-6">

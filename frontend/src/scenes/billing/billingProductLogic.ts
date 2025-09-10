@@ -18,7 +18,7 @@ import {
     SurveyEventName,
 } from '~/types'
 
-import { isAddonVisible, isProductVariantPrimary } from './billing-utils'
+import { calculateFreeTier, createGaugeItems, isAddonVisible, isProductVariantPrimary } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
 import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
@@ -320,18 +320,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 return { currentPlan, upgradePlan }
             },
         ],
-        freeTier: [
-            (_s, p) => [p.product],
-            (product) => {
-                return (
-                    (product.subscribed && product.tiered
-                        ? product.tiers?.[0]?.unit_amount_usd === '0'
-                            ? product.tiers?.[0]?.up_to
-                            : 0
-                        : product.free_allocation) || 0
-                )
-            },
-        ],
+        freeTier: [(_s, p) => [p.product], (product) => calculateFreeTier(product)],
         billingLimitAsUsage: [
             (_, p) => [p.product],
             (product) => {
@@ -349,36 +338,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
             },
         ],
         billingGaugeItems: [
-            (s, p) => [p.product, s.billing, s.freeTier, s.billingLimitAsUsage],
-            (product, billing, freeTier, billingLimitAsUsage): BillingGaugeItemType[] => {
-                return [
-                    billingLimitAsUsage && billing?.discount_percent !== 100 && !isProductVariantPrimary(product.type)
-                        ? {
-                              type: BillingGaugeItemKind.BillingLimit,
-                              text: 'Billing limit',
-                              value: billingLimitAsUsage || 0,
-                          }
-                        : (undefined as any),
-                    freeTier
-                        ? {
-                              type: BillingGaugeItemKind.FreeTier,
-                              text: 'Free tier limit',
-                              value: freeTier,
-                          }
-                        : undefined,
-                    product.projected_usage && product.projected_usage > (product.current_usage || 0)
-                        ? {
-                              type: BillingGaugeItemKind.ProjectedUsage,
-                              text: 'Projected',
-                              value: product.projected_usage || 0,
-                          }
-                        : undefined,
-                    {
-                        type: BillingGaugeItemKind.CurrentUsage,
-                        text: 'Current',
-                        value: product.current_usage || 0,
-                    },
-                ].filter(Boolean)
+            (s, p) => [p.product, s.billing, s.billingLimitAsUsage],
+            (product, billing, billingLimitAsUsage): BillingGaugeItemType[] => {
+                return createGaugeItems(product, {
+                    billing,
+                    billingLimitAsUsage,
+                })
             },
         ],
         isAddonProduct: [
