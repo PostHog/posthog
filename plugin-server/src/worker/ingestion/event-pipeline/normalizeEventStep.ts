@@ -21,7 +21,7 @@ export function normalizeEventStep(
         timestamp = parseEventTimestamp(event)
 
         // Compare timestamp from headers with event.timestamp - they should be equal if implemented correctly
-        if (event.timestamp && headers) {
+        if (headers) {
             compareTimestamps(
                 event.timestamp,
                 headers,

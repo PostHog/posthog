@@ -14,7 +14,14 @@ import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { cookielessRedisErrorCounter, eventDroppedCounter } from '../../main/ingestion-queues/metrics'
-import { CookielessServerHashMode, IncomingEventWithTeam, PipelineEvent, PluginsServerConfig, Team } from '../../types'
+import {
+    CookielessServerHashMode,
+    EventHeaders,
+    IncomingEventWithTeam,
+    PipelineEvent,
+    PluginsServerConfig,
+    Team,
+} from '../../types'
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
 import { TeamManager } from '../../utils/team-manager'
@@ -297,7 +304,7 @@ export class CookielessManager {
         for (const { event, team, message, headers } of events) {
             if (!event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
                 // push the event as is, we don't need to do anything with it, but preserve the ordering
-                eventsWithStatus.push({ event, team, message })
+                eventsWithStatus.push({ event, team, message, headers })
                 continue
             }
 
@@ -400,6 +407,7 @@ export class CookielessManager {
                 event,
                 team,
                 message,
+                headers,
                 firstPass: {
                     timestampMs,
                     eventTimeZone,
@@ -605,7 +613,7 @@ export class CookielessManager {
         }
 
         // remove the extra processing state from the returned object
-        return eventsWithStatus.map(({ event, team, message }) => ({ event, team, message }))
+        return eventsWithStatus.map(({ event, team, message, headers }) => ({ event, team, message, headers }))
     }
 
     dropAllCookielessEvents(events: IncomingEventWithTeam[], dropCause: string): IncomingEventWithTeam[] {
@@ -630,6 +638,7 @@ type EventWithStatus = {
     message: Message
     event: PipelineEvent
     team: Team
+    headers: EventHeaders
     // Store temporary processing state. Nest the passes to make type-checking easier
     firstPass?: {
         timestampMs: number

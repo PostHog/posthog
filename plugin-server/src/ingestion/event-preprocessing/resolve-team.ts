@@ -41,6 +41,6 @@ export async function resolveTeam(
         event,
         team,
         message: incomingEvent.message,
-        headers: incomingEvent.headers,
+        headers: incomingEvent.headers || {},
     }
 }
