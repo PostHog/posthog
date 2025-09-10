@@ -82,6 +82,8 @@ export interface LemonButtonPropsBase
     tooltipArrowOffset?: number
     /** Whether to force the tooltip to be visible. */
     tooltipForceMount?: boolean
+    /** Whether to stop event propagation on click */
+    stopPropagation?: boolean
     /** Access control props for automatic permission checking */
     accessControl?: {
         resourceType: AccessControlResourceType
@@ -160,6 +162,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 buttonWrapper,
                 tooltipDocLink,
                 tooltipForceMount,
+                stopPropagation,
                 accessControl,
                 ...buttonProps
             },
@@ -264,7 +267,16 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         truncate && 'LemonButton--truncate',
                         className
                     )}
-                    onClick={!disabled ? onClick : undefined}
+                    onClick={
+                        !disabled
+                            ? (event) => {
+                                  if (stopPropagation) {
+                                      event.stopPropagation()
+                                  }
+                                  onClick?.(event)
+                              }
+                            : undefined
+                    }
                     // We are using the ARIA disabled instead of native HTML because of this:
                     // https://css-tricks.com/making-disabled-buttons-more-inclusive/
                     aria-disabled={disabled}

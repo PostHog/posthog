@@ -23039,6 +23039,10 @@
                     "description": "Length of recording in seconds.",
                     "type": "number"
                 },
+                "retention_period_days": {
+                    "description": "retention period for this recording",
+                    "type": "number"
+                },
                 "snapshot_source": {
                     "enum": ["web", "mobile", "unknown"],
                     "type": "string"
@@ -25079,6 +25083,9 @@
                 "query": {
                     "default": "",
                     "type": "string"
+                },
+                "short_id": {
+                    "$ref": "#/definitions/InsightShortId"
                 },
                 "type": {
                     "const": "ai/viz",

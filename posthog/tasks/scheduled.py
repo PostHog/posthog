@@ -34,7 +34,6 @@ from posthog.tasks.tasks import (
     clickhouse_send_license_usage,
     count_items_in_playlists,
     delete_expired_exported_assets,
-    ee_persist_finished_recordings,
     ee_persist_finished_recordings_v2,
     find_flags_with_enriched_analytics,
     ingestion_lag,
@@ -294,11 +293,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
         sender.add_periodic_task(crontab(hour="*", minute="55"), schedule_all_subscriptions.s())
 
-        sender.add_periodic_task(
-            crontab(minute="*/2") if settings.DEBUG else crontab(hour="2", minute=str(randrange(0, 40))),
-            ee_persist_finished_recordings.s(),
-            name="persist finished recordings",
-        )
         sender.add_periodic_task(
             crontab(minute="*/2") if settings.DEBUG else crontab(hour="2", minute=str(randrange(0, 40))),
             ee_persist_finished_recordings_v2.s(),

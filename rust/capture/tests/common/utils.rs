@@ -16,6 +16,7 @@ use rand::Rng;
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::config::{ClientConfig, FromClientConfig};
 use rdkafka::consumer::{BaseConsumer, Consumer};
+use rdkafka::message::Headers;
 use rdkafka::util::Timeout;
 use rdkafka::{Message, TopicPartitionList};
 use redis::{Client, Commands};
@@ -307,6 +308,53 @@ impl EphemeralTopic {
                     } else {
                         return Ok(None);
                     }
+                }
+                Some(Err(err)) => {
+                    // Check if it's a transient error that should be retried
+                    let err_str = err.to_string();
+                    if (err_str.contains("NotCoordinator") || err_str.contains("Unknown partition"))
+                        && retries < MAX_RETRIES
+                    {
+                        retries += 1;
+                        std::thread::sleep(Duration::from_millis(100));
+                        continue;
+                    }
+                    bail!("kafka read error: {}", err);
+                }
+                None => bail!("kafka read timeout"),
+            }
+        }
+    }
+
+    pub fn next_message_with_headers(
+        &self,
+    ) -> anyhow::Result<(serde_json::Value, std::collections::HashMap<String, String>)> {
+        use std::collections::HashMap;
+
+        // Retry on transient Kafka errors like NotCoordinator
+        let mut retries = 0;
+        const MAX_RETRIES: u32 = 10;
+
+        loop {
+            match self.consumer.poll(self.read_timeout) {
+                Some(Ok(message)) => {
+                    // Parse the payload
+                    let body = message.payload().expect("empty kafka message");
+                    let event = serde_json::from_slice(body)?;
+
+                    // Parse the headers
+                    let mut headers = HashMap::new();
+                    if let Some(message_headers) = message.headers() {
+                        for header in message_headers.iter() {
+                            if let Some(value) = header.value {
+                                if let Ok(value_str) = std::str::from_utf8(value) {
+                                    headers.insert(header.key.to_string(), value_str.to_string());
+                                }
+                            }
+                        }
+                    }
+
+                    return Ok((event, headers));
                 }
                 Some(Err(err)) => {
                     // Check if it's a transient error that should be retried
