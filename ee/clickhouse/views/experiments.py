@@ -1,8 +1,9 @@
 from enum import Enum
 from typing import Any, Literal
 
-from django.db.models import Q, QuerySet
+from django.db.models import Case, F, Q, QuerySet, Value, When
 from django.dispatch import receiver
+from django.utils import timezone
 
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -491,7 +492,33 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         # Ordering
         order = self.request.query_params.get("order")
         if order:
-            queryset = queryset.order_by(order)
+            # Handle computed field sorting
+            if order in ["duration", "-duration"]:
+                # Duration = end_date - start_date (or now() - start_date if running)
+                queryset = queryset.annotate(
+                    computed_duration=Case(
+                        When(start_date__isnull=True, then=Value(None)),
+                        When(end_date__isnull=False, then=F("end_date") - F("start_date")),
+                        default=Value(timezone.now()) - F("start_date"),
+                    )
+                )
+                queryset = queryset.order_by(f"{'-' if order.startswith('-') else ''}computed_duration")
+            elif order in ["status", "-status"]:
+                # Status ordering: Draft (no start) -> Running (no end) -> Complete (has end)
+                # For ascending: Draft < Running < Complete
+                # For descending: Complete < Running < Draft
+                if order.startswith("-"):
+                    # Descending: Complete -> Running -> Draft
+                    queryset = queryset.order_by(
+                        F("start_date").desc(nulls_last=True), F("end_date").desc(nulls_last=True)
+                    )
+                else:
+                    # Ascending: Draft -> Running -> Complete
+                    queryset = queryset.order_by(
+                        F("start_date").asc(nulls_first=True), F("end_date").asc(nulls_first=True)
+                    )
+            else:
+                queryset = queryset.order_by(order)
 
         return queryset
 
