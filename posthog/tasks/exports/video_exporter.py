@@ -23,6 +23,24 @@ HEIGHT_OFFSET = 85
 PLAYBACK_SPEED_MULTIPLIER = 4  # Speed up playback during recording for long videos
 
 
+def _wait_for_page_ready(page, url_to_render: str, wait_for_css_selector: str) -> None:
+    """Helper function to wait for page to be ready for recording."""
+    try:
+        page.goto(url_to_render, wait_until="load", timeout=30000)
+    except PlaywrightTimeoutError:
+        pass
+
+    try:
+        page.wait_for_selector(wait_for_css_selector, state="visible", timeout=20000)
+    except PlaywrightTimeoutError:
+        pass
+
+    try:
+        page.wait_for_selector(".Spinner", state="detached", timeout=20000)
+    except PlaywrightTimeoutError:
+        pass
+
+
 def detect_recording_resolution(
     browser: Browser,
     url_to_render: str,
@@ -40,20 +58,7 @@ def detect_recording_resolution(
 
     try:
         # Navigate and wait for player to load
-        try:
-            page.goto(url_to_render, wait_until="load", timeout=30000)
-        except PlaywrightTimeoutError:
-            pass
-
-        try:
-            page.wait_for_selector(wait_for_css_selector, state="visible", timeout=20000)
-        except PlaywrightTimeoutError:
-            pass
-
-        try:
-            page.wait_for_selector(".Spinner", state="detached", timeout=20000)
-        except PlaywrightTimeoutError:
-            pass
+        _wait_for_page_ready(page, url_to_render, wait_for_css_selector)
 
         # Wait for resolution to be available from sessionRecordingPlayerLogic global variable
         try:
@@ -97,9 +102,9 @@ def record_replay_to_file(
     # Input validation
     if recording_duration <= 0:
         raise ValueError("recording_duration must be positive")
-    if screenshot_width <= 0:
+    if screenshot_width is not None and screenshot_width <= 0:
         raise ValueError("screenshot_width must be positive")
-    if screenshot_height <= 0:
+    if screenshot_height is not None and screenshot_height <= 0:
         raise ValueError("screenshot_height must be positive")
 
     # Check if ffmpeg is available for video conversion
@@ -156,18 +161,7 @@ def record_replay_to_file(
             logger.info("video_exporter.recording_context_created", width=width, height=height)
 
             # Navigate with correct dimensions
-            try:
-                page.goto(url_to_render, wait_until="load", timeout=30000)
-            except PlaywrightTimeoutError:
-                pass
-            try:
-                page.wait_for_selector(wait_for_css_selector, state="visible", timeout=20000)
-            except PlaywrightTimeoutError:
-                pass
-            try:
-                page.wait_for_selector(".Spinner", state="detached", timeout=20000)
-            except PlaywrightTimeoutError:
-                pass
+            _wait_for_page_ready(page, url_to_render, wait_for_css_selector)
             measured_width: Optional[int] = None
             try:
                 dimensions = page.evaluate("""
