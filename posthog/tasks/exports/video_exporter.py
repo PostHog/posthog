@@ -30,11 +30,6 @@ def detect_recording_resolution(
     default_width: int,
     default_height: int,
 ) -> tuple[int, int]:
-    """
-    Detect the actual recording resolution from sessionRecordingPlayerLogic.
-    Returns:
-        Tuple of (width, height) - either detected from player or default fallback
-    """
     logger.info("video_exporter.resolution_detection_start")
 
     # Create temporary context just for resolution detection
@@ -173,7 +168,6 @@ def record_replay_to_file(
                 page.wait_for_selector(".Spinner", state="detached", timeout=20000)
             except PlaywrightTimeoutError:
                 pass
-
             measured_width: Optional[int] = None
             try:
                 dimensions = page.evaluate("""
