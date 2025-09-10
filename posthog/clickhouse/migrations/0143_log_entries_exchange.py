@@ -6,6 +6,11 @@ EXCHANGE_LOG_ENTRIES_SQL = f"""
 EXCHANGE TABLES {LOG_ENTRIES_TABLE} AND {LOG_ENTRIES_DISTRIBUTED_TABLE}
 """
 
+DROP_LOG_ENTRIES_MV_SQL = f"""
+DROP VIEW {LOG_ENTRIES_TABLE}_mv
+"""
+
 operations = [
+    run_sql_with_exceptions(DROP_LOG_ENTRIES_MV_SQL, node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(EXCHANGE_LOG_ENTRIES_SQL, node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]),
 ]
