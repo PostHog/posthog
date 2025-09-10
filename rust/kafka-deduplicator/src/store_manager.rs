@@ -356,7 +356,7 @@ impl StoreManager {
                 }
                 Err(e) => {
                     warn!(
-                        "Failed to cleanup store {}:{}: {}",
+                        "Failed to cleanup store {}:{}: {:#}",
                         store.get_topic(),
                         store.get_partition(),
                         e

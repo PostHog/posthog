@@ -303,57 +303,82 @@ impl DeduplicationStore {
 
         // Clean up old entries from timestamp CF (they're timestamp-prefixed so easy to clean)
         let cf = self.store.get_cf_handle(Self::TIMESTAMP_CF)?;
-        let mut iter = self.store.db.iterator_cf(&cf, rocksdb::IteratorMode::Start);
-
-        let cleanup_timestamp = if let Some(Ok((first_key, _))) = iter.next() {
+        
+        // Get first key
+        let mut first_iter = self.store.db.iterator_cf(&cf, rocksdb::IteratorMode::Start);
+        let (first_key_bytes, first_timestamp) = if let Some(Ok((first_key, _))) = first_iter.next() {
             let first_key_parsed: TimestampKey = first_key.as_ref().try_into()?;
-            let first_timestamp = first_key_parsed.timestamp;
-
-            // Get current time in milliseconds
-            let now = chrono::Utc::now().timestamp_millis() as u64;
-
-            // Calculate the time range of data we have
-            let time_range = now.saturating_sub(first_timestamp);
-
-            // Calculate how much of the time range to clean up (percentage)
-            let cleanup_duration = (time_range as f64 * cleanup_percentage) as u64;
-
-            // Calculate the cutoff timestamp
-            let cleanup_timestamp = first_timestamp + cleanup_duration;
-
-            info!(
-                "Store {}:{} - Cleaning up {}% of time range. First: {}, Now: {}, Cutoff: {}",
-                self.topic,
-                self.partition,
-                (cleanup_percentage * 100.0) as u32,
-                first_timestamp,
-                now,
-                cleanup_timestamp
-            );
-
-            let first_key_bytes: Vec<u8> = (&first_key_parsed).into();
-
-            // Create an end key with the cleanup timestamp and empty strings for other fields
-            // This ensures all keys with timestamps less than cleanup_timestamp are deleted
-            let end_key = TimestampKey::new(
-                cleanup_timestamp,
-                String::new(),
-                String::new(),
-                String::new(),
-            );
-            let last_key_bytes: Vec<u8> = (&end_key).into();
-
-            self.store.delete_range(
-                Self::TIMESTAMP_CF,
-                first_key_bytes.as_ref(),
-                last_key_bytes.as_ref(),
-            )?;
-
-            cleanup_timestamp
+            (first_key.to_vec(), first_key_parsed.timestamp)
         } else {
             // No data to clean up
             return Ok(0);
         };
+        drop(first_iter);
+
+        // Get last key to understand the time range
+        let mut last_iter = self.store.db.iterator_cf(&cf, rocksdb::IteratorMode::End);
+        let last_timestamp = if let Some(Ok((last_key, _))) = last_iter.next() {
+            let last_key_parsed: TimestampKey = last_key.as_ref().try_into()?;
+            last_key_parsed.timestamp
+        } else {
+            // Should not happen if we have a first key, but handle gracefully
+            first_timestamp
+        };
+        drop(last_iter);
+
+        // Calculate the time range of data we have
+        let time_range = last_timestamp.saturating_sub(first_timestamp);
+        
+        if time_range == 0 {
+            info!(
+                "Store {}:{} - All data has same timestamp {}, skipping cleanup",
+                self.topic, self.partition, first_timestamp
+            );
+            return Ok(0);
+        }
+
+        // Calculate how much of the time range to clean up (percentage)
+        let cleanup_duration = (time_range as f64 * cleanup_percentage) as u64;
+        
+        // Calculate the cutoff timestamp
+        let cleanup_timestamp = first_timestamp + cleanup_duration;
+
+        info!(
+            "Store {}:{} - Cleaning up {}% of time range. First: {}, Last: {}, Cutoff: {}",
+            self.topic,
+            self.partition,
+            (cleanup_percentage * 100.0) as u32,
+            first_timestamp,
+            last_timestamp,
+            cleanup_timestamp
+        );
+
+        // Make sure we have something to delete
+        if cleanup_timestamp <= first_timestamp {
+            info!(
+                "Store {}:{} - No data old enough to clean up",
+                self.topic, self.partition
+            );
+            return Ok(0);
+        }
+
+        // Create an end key with the cleanup timestamp and empty strings for other fields
+        // This ensures all keys with timestamps less than cleanup_timestamp are deleted
+        let end_key = TimestampKey::new(
+            cleanup_timestamp,
+            String::new(),
+            String::new(),
+            String::new(),
+        );
+        let last_key_bytes: Vec<u8> = (&end_key).into();
+
+        self.store.delete_range(
+            Self::TIMESTAMP_CF,
+            first_key_bytes.as_ref(),
+            last_key_bytes.as_ref(),
+        )?;
+
+        let cleanup_timestamp = cleanup_timestamp;
 
         // Clean up UUID records using the timestamp index
 
@@ -465,6 +490,7 @@ impl DeduplicationStore {
     pub fn update_metrics(&self) -> Result<()> {
         self.store.update_db_metrics(Self::TIMESTAMP_CF)?;
         self.store.update_db_metrics(Self::UUID_CF)?;
+        self.store.update_db_metrics(Self::UUID_TIMESTAMP_INDEX_CF)?;
         Ok(())
     }
 

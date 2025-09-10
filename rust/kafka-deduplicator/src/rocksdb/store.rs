@@ -117,9 +117,10 @@ impl RocksDbStore {
     pub fn get(&self, cf_name: &str, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let start_time = Instant::now();
 
-        // Track read operation
+        // Track read operation with column family label
         self.metrics
             .counter(ROCKSDB_READ_OPERATIONS_COUNTER)
+            .with_label("column_family", cf_name)
             .increment(1);
 
         let cf = self.get_cf_handle(cf_name)?;
@@ -131,6 +132,7 @@ impl RocksDbStore {
         let duration = start_time.elapsed();
         self.metrics
             .histogram(ROCKSDB_READ_DURATION_HISTOGRAM)
+            .with_label("column_family", cf_name)
             .record(duration.as_secs_f64());
 
         if result.is_err() {
@@ -144,6 +146,7 @@ impl RocksDbStore {
         let start_time = Instant::now();
         self.metrics
             .counter(ROCKSDB_READ_OPERATIONS_COUNTER)
+            .with_label("column_family", cf_name)
             .increment(1);
 
         let result = self.multi_get_internal(cf_name, keys);
@@ -151,6 +154,7 @@ impl RocksDbStore {
         let duration = start_time.elapsed();
         self.metrics
             .histogram(ROCKSDB_MULTI_GET_DURATION_HISTOGRAM)
+            .with_label("column_family", cf_name)
             .record(duration.as_secs_f64());
 
         if result.is_err() {
@@ -176,6 +180,7 @@ impl RocksDbStore {
         let start_time = Instant::now();
         self.metrics
             .counter(ROCKSDB_WRITE_OPERATIONS_COUNTER)
+            .with_label("column_family", cf_name)
             .increment(1);
 
         let result = self.put_internal(cf_name, key, value);
@@ -183,6 +188,7 @@ impl RocksDbStore {
         let duration = start_time.elapsed();
         self.metrics
             .histogram(ROCKSDB_WRITE_DURATION_HISTOGRAM)
+            .with_label("column_family", cf_name)
             .record(duration.as_secs_f64());
 
         if result.is_err() {
@@ -202,6 +208,7 @@ impl RocksDbStore {
         let batch_size = entries.len();
         self.metrics
             .counter(ROCKSDB_BATCH_WRITE_OPERATIONS_COUNTER)
+            .with_label("column_family", cf_name)
             .increment(1);
 
         let result = self.put_batch_internal(cf_name, entries);
@@ -209,12 +216,14 @@ impl RocksDbStore {
         let duration = start_time.elapsed();
         self.metrics
             .histogram(ROCKSDB_BATCH_WRITE_DURATION_HISTOGRAM)
+            .with_label("column_family", cf_name)
             .record(duration.as_secs_f64());
 
         if result.is_ok() {
             // Track successful batch size
             self.metrics
                 .histogram(ROCKSDB_BATCH_SIZE_HISTOGRAM)
+                .with_label("column_family", cf_name)
                 .record(batch_size as f64);
         } else {
             self.metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
@@ -268,16 +277,18 @@ impl RocksDbStore {
     /// Update database metrics (size, SST file count, etc.)
     /// This should be called periodically to emit current database state
     pub fn update_db_metrics(&self, cf_name: &str) -> Result<()> {
-        // Update database size metric
+        // Update database size metric with column family label
         let db_size = self.get_db_size(cf_name)?;
         self.metrics
             .gauge(ROCKSDB_SIZE_BYTES_GAUGE)
+            .with_label("column_family", cf_name)
             .set(db_size as f64);
 
-        // Update SST file count
+        // Update SST file count with column family label
         let sst_files = self.get_sst_file_names(cf_name)?;
         self.metrics
             .gauge(ROCKSDB_SST_FILES_COUNT_GAUGE)
+            .with_label("column_family", cf_name)
             .set(sst_files.len() as f64);
 
         Ok(())
@@ -291,6 +302,7 @@ impl RocksDbStore {
         let duration = start_time.elapsed();
         self.metrics
             .histogram(ROCKSDB_FLUSH_DURATION_HISTOGRAM)
+            .with_label("column_family", cf_name)
             .record(duration.as_secs_f64());
 
         if result.is_err() {
@@ -317,6 +329,7 @@ impl RocksDbStore {
         let duration = start_time.elapsed();
         self.metrics
             .histogram(ROCKSDB_COMPACTION_DURATION_HISTOGRAM)
+            .with_label("column_family", cf_name)
             .record(duration.as_secs_f64());
 
         result

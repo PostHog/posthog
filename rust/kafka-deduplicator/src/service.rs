@@ -70,7 +70,7 @@ impl KafkaDeduplicatorService {
         };
 
         // Create checkpoint manager with the store manager
-        let mut checkpoint_manager =
+        let checkpoint_manager =
             CheckpointManager::new(store_manager.clone(), config.flush_interval());
         // checkpoint_manager.start();
         info!(
