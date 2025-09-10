@@ -5510,16 +5510,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_condition_evaluation_order_with_variant_overrides() {
-        // Unlike decide, we don't sort conditions with variant overrides to the top. 
+        // Unlike decide, we don't sort conditions with variant overrides to the top.
         // This test ensures that the order is maintained regardless of the presence of a variant override.
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        
+
         let team = insert_new_team_in_pg(reader.clone(), None)
             .await
             .expect("Failed to insert team");
-        
+
         // Create a flag with:
         // 1. First condition: specific user match (no variant override)
         // 2. Second condition: catch-all with variant="test"
@@ -5531,7 +5531,7 @@ mod tests {
             filters: FlagFilters {
                 groups: vec![
                     FlagPropertyGroup {
-                        variant: None,  // No variant override
+                        variant: None, // No variant override
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
                             value: Some(json!("specific@example.com")),
@@ -5543,10 +5543,10 @@ mod tests {
                         rollout_percentage: Some(100.0),
                     },
                     FlagPropertyGroup {
-                        variant: Some("test".to_string()),  // Has variant override
-                        properties: Some(vec![]),  // Catch-all
+                        variant: Some("test".to_string()), // Has variant override
+                        properties: Some(vec![]),          // Catch-all
                         rollout_percentage: Some(100.0),
-                    }
+                    },
                 ],
                 multivariate: Some(MultivariateFlagOptions {
                     variants: vec![
@@ -5573,14 +5573,14 @@ mod tests {
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
         };
-        
+
         let router = crate::database::PostgresRouter::new(
             reader.clone(),
             writer.clone(),
             reader.clone(),
             writer.clone(),
         );
-        
+
         // Test 1: User with email "specific@example.com" should match first condition
         let matcher = FeatureFlagMatcher::new(
             "specific_user".to_string(),
@@ -5591,24 +5591,26 @@ mod tests {
             None,
             None,
         );
-        
+
         // Pass email as a property override to avoid database lookup
         let mut user_properties = HashMap::new();
         user_properties.insert("email".to_string(), json!("specific@example.com"));
-        
-        let result = matcher.get_match(&flag, Some(user_properties), None).unwrap();
+
+        let result = matcher
+            .get_match(&flag, Some(user_properties), None)
+            .unwrap();
         assert!(result.matches, "Flag should match for specific user");
         assert_eq!(
-            result.variant, 
+            result.variant,
             Some("control".to_string()), 
             "Specific user should get 'control' from multivariate rollout (100% control), not 'test' from catch-all"
         );
         assert_eq!(
-            result.condition_index, 
-            Some(0), 
+            result.condition_index,
+            Some(0),
             "Should match first condition (index 0)"
         );
-        
+
         // Test 2: Different user should match second condition (catch-all)
         let matcher2 = FeatureFlagMatcher::new(
             "other_user".to_string(),
@@ -5619,20 +5621,22 @@ mod tests {
             None,
             None,
         );
-        
+
         let mut other_properties = HashMap::new();
         other_properties.insert("email".to_string(), json!("other@example.com"));
-        
-        let result2 = matcher2.get_match(&flag, Some(other_properties), None).unwrap();
+
+        let result2 = matcher2
+            .get_match(&flag, Some(other_properties), None)
+            .unwrap();
         assert!(result2.matches, "Flag should match for other user");
         assert_eq!(
-            result2.variant, 
-            Some("test".to_string()), 
+            result2.variant,
+            Some("test".to_string()),
             "Other user should get 'test' from catch-all variant override"
         );
         assert_eq!(
-            result2.condition_index, 
-            Some(1), 
+            result2.condition_index,
+            Some(1),
             "Should match second condition (index 1)"
         );
     }
