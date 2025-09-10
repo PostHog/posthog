@@ -149,13 +149,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
             await breakpoint(300)
             actions.loadFeatureFlagModalFeatureFlags()
         },
-        [router.actionTypes.push]: ({ values }) => {
-            // Sync modal filters page with URL page when URL changes
-            const urlPage = values.featureFlagModalPageFromURL
-            if (urlPage !== values.featureFlagModalFilters.page) {
-                actions.setFeatureFlagModalFilters({ page: urlPage })
-            }
-        },
     })),
     loaders(({ values }) => ({
         experiments: [
