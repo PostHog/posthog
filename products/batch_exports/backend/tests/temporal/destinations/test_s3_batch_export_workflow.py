@@ -171,7 +171,10 @@ async def minio_client(bucket_name):
 
 async def assert_files_in_s3(s3_compatible_client, bucket_name, key_prefix, file_format, compression, json_columns):
     """Assert that there are files in S3 under key_prefix and return the combined contents, and the keys of files found."""
-    expected_file_extension = FILE_FORMAT_EXTENSIONS[file_format]
+    if file_format == "Arrow":
+        expected_file_extension = "arrow"
+    else:
+        expected_file_extension = FILE_FORMAT_EXTENSIONS[file_format]
     if compression is not None:
         expected_file_extension = f"{expected_file_extension}.{COMPRESSION_EXTENSIONS[compression]}"
 
