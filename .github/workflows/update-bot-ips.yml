@@ -9,6 +9,10 @@ on:
         - cron: '0 2 * * *'
     workflow_dispatch: # Allow manual triggering
 
+permissions:
+    contents: read
+    pull-requests: write
+
 jobs:
     update-bot-ips:
         runs-on: ubuntu-latest
