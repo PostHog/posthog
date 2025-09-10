@@ -449,7 +449,7 @@ class ExperimentQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=create_default_modifiers_for_team(self.team),
-            settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_TIME),
+            settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_TIME, allow_experimental_analyzer=True),
         )
 
         # Remove the $multiple variant only when using exclude handling
