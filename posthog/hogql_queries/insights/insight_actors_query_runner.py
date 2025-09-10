@@ -67,6 +67,7 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 series_index=query.series or 0,
                 breakdown_value=query.breakdown,
                 compare_value=query.compare,
+                formula_value=query.formula,
                 include_recordings=query.includeRecordings,
             )
         elif isinstance(self.source_runner, FunnelsQueryRunner):

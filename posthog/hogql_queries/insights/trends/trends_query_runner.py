@@ -198,6 +198,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         series_index: int,
         breakdown_value: Optional[str | int | list[str]] = None,
         compare_value: Optional[Compare] = None,
+        formula_value: Optional[FormulaItem] = None,
         include_recordings: Optional[bool] = None,
     ) -> TrendsActorsQueryBuilder:
         if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_type == BreakdownType.COHORT:
@@ -216,6 +217,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             series_index=series_index,
             breakdown_value=breakdown_value if breakdown_value != "all" else None,
             compare_value=compare_value,
+            formula_value=formula_value,
             include_recordings=include_recordings,
         )
 
