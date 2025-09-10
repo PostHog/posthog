@@ -15,7 +15,7 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.eval.base import MaxPrivateEval
-from ee.hogai.eval.offline.conftest import EvaluationContext, get_eval_context, set_eval_context
+from ee.hogai.eval.offline.conftest import EvaluationContext, capture_score, get_eval_context, set_eval_context
 from ee.hogai.eval.schema import DatasetInput
 from ee.hogai.eval.scorers.sql import SQLSemanticsCorrectness, SQLSyntaxCorrectness
 from ee.hogai.graph import AssistantGraph
@@ -53,7 +53,7 @@ async def call_graph(entry: DatasetInput, *args):
     state = await graph.ainvoke(
         AssistantState(messages=[HumanMessage(content=entry.input["query"])]),
         {
-            "callbacks": eval_ctx.callback_handlers,
+            "callbacks": eval_ctx.get_callback_handlers(entry.trace_id),
             "configurable": {
                 "thread_id": conversation.id,
                 "user": eval_ctx.user,
@@ -74,6 +74,7 @@ async def call_graph(entry: DatasetInput, *args):
     return EvalOutput(database_schema=database_schema)
 
 
+@capture_score
 async def sql_semantics_scorer(input: DatasetInput, expected: str, output: EvalOutput, **kwargs) -> Score:
     metric = SQLSemanticsCorrectness(client=get_eval_context().get_openai_client_for_tracing(input.trace_id))
     return await metric.eval_async(
@@ -84,6 +85,7 @@ async def sql_semantics_scorer(input: DatasetInput, expected: str, output: EvalO
     )
 
 
+@capture_score
 async def sql_syntax_scorer(input: DatasetInput, expected: str, output: EvalOutput, **kwargs) -> Score:
     metric = SQLSyntaxCorrectness()
     return await metric.eval_async(

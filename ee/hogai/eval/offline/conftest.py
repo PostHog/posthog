@@ -1,13 +1,15 @@
 import json
-from collections.abc import Generator
+from collections.abc import Awaitable, Callable, Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from functools import wraps
 from typing import Annotated, Any
 from uuid import UUID
 
 import pytest
 
 from asgiref.sync import async_to_sync
+from autoevals import Score
 from autoevals.oai import LLMClient
 from dagster_pipes import PipesContext, open_dagster_pipes
 from openai import RateLimitError
@@ -31,9 +33,15 @@ def dagster_context() -> Generator[PipesContext, None, None]:
         yield context
 
 
+class TracedLLMClient(LLMClient):
+    """Fixed LLMClient that preserves the passed methods. autoevals has a bug (or not) that makes it overwrite the methods."""
+
+    def __post_init__(self):
+        pass
+
+
 class EvaluationContext(BaseModel):
-    # We don't want to validate Django models here.
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True)  # We don't want to validate Django models here.
 
     organization: Annotated[Organization, SkipValidation]
     user: Annotated[User, SkipValidation]
@@ -45,17 +53,21 @@ class EvaluationContext(BaseModel):
     client: Posthog | None = Field(default=None)
 
     @property
+    def distinct_id(self) -> str:
+        return "ai_evaluator"
+
+    @property
     def formatted_experiment_name(self) -> str:
         """Generate a unique experiment name for the given test name."""
         test_name = get_eval_context().test_name
         return f"max-ai-{self.experiment_name}-{test_name}"
 
-    @property
-    def callback_handlers(self) -> list[CallbackHandler]:
+    def get_callback_handlers(self, trace_id: UUID | str) -> list[CallbackHandler]:
         return [
             CallbackHandler(
                 self.client,
-                distinct_id="ai_evaluator",
+                trace_id=trace_id,
+                distinct_id=self.distinct_id,
                 properties=self.properties_for_tracing,
             )
         ]
@@ -76,13 +88,21 @@ class EvaluationContext(BaseModel):
 
         async def patched_create(*args, **kwargs):
             # Inject the tracing parameters
-            kwargs.setdefault("posthog_trace_id", trace_id)
-            kwargs.setdefault("posthog_properties", self.properties_for_tracing)
+            kwargs.setdefault(
+                "posthog_properties",
+                {
+                    **self.properties_for_tracing,
+                    "$ai_trace_id": trace_id,
+                    "$ai_parent_id": trace_id,
+                    "$ai_span_name": "Scorer",
+                },
+            )
+            kwargs.setdefault("posthog_distinct_id", self.distinct_id)
             return await original_create(*args, **kwargs)
 
         client.completions.create = patched_create  # type: ignore
 
-        return LLMClient(
+        return TracedLLMClient(
             openai=client,
             complete=patched_create,
             embed=client.embeddings.create,
@@ -160,3 +180,25 @@ def set_eval_context(context: EvaluationContext, test_name: str):
 def get_eval_context() -> LocalEvaluationContext:
     """Get the local eval context. Raises `LookupError` if no context is set."""
     return _scoped_eval_context.get()
+
+
+def capture_score(func: Callable[..., Awaitable[Score]]):
+    """Decorator that wraps scorer functions to capture the score result."""
+
+    @wraps(func)
+    async def wrapper(input: DatasetInput, *args, **kwargs):
+        context = get_eval_context()
+        score = await func(input, *args, **kwargs)
+        if context.client is not None:
+            context.client.capture(
+                event="$ai_metric",
+                properties={
+                    "$ai_trace_id": input.trace_id,
+                    "$ai_metric_name": score.name,
+                    "$ai_metric_value": score.score,
+                    "ai_score_metadata": score.metadata,
+                },
+            )
+        return score
+
+    return wrapper
