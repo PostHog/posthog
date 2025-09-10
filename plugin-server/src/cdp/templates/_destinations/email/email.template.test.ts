@@ -17,8 +17,8 @@ describe('email template', () => {
             {
                 email: {
                     to: {
-                        email: '{person.properties.email}',
-                        name: '{person.name}',
+                        email: '{{ person.properties.email }}',
+                        name: '{{ person.name }}',
                     },
                     from: {
                         integrationId: 1,
