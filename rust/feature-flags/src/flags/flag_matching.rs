@@ -849,15 +849,11 @@ impl FeatureFlagMatcher {
                 }
             }
         }
-        // Sort conditions with variant overrides to the top so that we can evaluate them first
-        let mut sorted_conditions: Vec<(usize, &FlagPropertyGroup)> =
+        let conditions: Vec<(usize, &FlagPropertyGroup)> =
             flag.get_conditions().iter().enumerate().collect();
 
-        sorted_conditions
-            .sort_by_key(|(_, condition)| if condition.variant.is_some() { 0 } else { 1 });
-
         let condition_timer = common_metrics::timing_guard(FLAG_EVALUATE_ALL_CONDITIONS_TIME, &[]);
-        for (index, condition) in sorted_conditions {
+        for (index, condition) in conditions {
             let (is_match, reason) = self.is_condition_match(
                 flag,
                 condition,
