@@ -4,7 +4,6 @@ import { combineUrl } from 'kea-router'
 import { IconShare, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
 
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -101,7 +100,7 @@ export function SavedFilters({
             width: 40,
             render: function Render(_, playlist) {
                 return (
-                    <AccessControlledLemonButton
+                    <LemonButton
                         status="danger"
                         onClick={() => {
                             deletePlaylist(playlist)
@@ -113,11 +112,12 @@ export function SavedFilters({
                         tooltip="Delete saved filter"
                         icon={<IconTrash />}
                         size="small"
-                        minAccessLevel={AccessControlLevel.Editor}
-                        resourceType={AccessControlResourceType.SessionRecording}
-                        userAccessLevel={
-                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
-                        }
+                        accessControl={{
+                            resourceType: AccessControlResourceType.SessionRecording,
+                            minAccessLevel: AccessControlLevel.Editor,
+                            userAccessLevel:
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                        }}
                     />
                 )
             },

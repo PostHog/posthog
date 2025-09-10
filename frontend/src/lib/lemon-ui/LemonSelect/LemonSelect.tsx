@@ -87,7 +87,7 @@ export interface LemonSelectPropsBase<T>
     accessControl?: {
         resourceType: AccessControlResourceType
         minAccessLevel: AccessControlLevel
-        userAccessLevel: AccessControlLevel
+        userAccessLevel?: AccessControlLevel
     }
 }
 
