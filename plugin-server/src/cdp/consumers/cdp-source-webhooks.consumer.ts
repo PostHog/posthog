@@ -325,7 +325,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
 
                 // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
                 if (!result.finished) {
-                    await this.jobQueueMonitoring.unmarkScheduledInvocations([result.invocation])
                     await this.cyclotronJobQueue.queueInvocationResults([result])
                 }
 

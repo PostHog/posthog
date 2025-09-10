@@ -112,6 +112,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         const backgroundTask = this.queueInvocationResults(invocationResults).then(() => {
             // NOTE: After this point we parallelize and any issues are logged rather than thrown as retrying now would end up in duplicate messages
             return Promise.allSettled([
+                this.hogQueueMonitoring.unmarkScheduledInvocations(invocations),
                 this.hogFunctionMonitoringService
                     .queueInvocationResults(invocationResults)
                     .then(() => this.hogFunctionMonitoringService.flush())
