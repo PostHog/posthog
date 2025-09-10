@@ -343,6 +343,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     ...productConfiguration,
 }
 
+const redirectPipeline = (stage: DataPipelinesSceneTab, id: string): string => {
+    if (id.startsWith('hog-')) {
+        return urls.hogFunction(id.replace('hog-', ''))
+    }
+    return urls.dataPipelines(stage)
+}
+
 // NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use a function (not string) redirect
 // NOTE: If you need a query param to be automatically forwarded to the redirect URL, add it to the forwardedRedirectQueryParams array
 export const forwardedRedirectQueryParams: string[] = ['invite_modal']
@@ -403,23 +410,13 @@ export const redirects: Record<
     '/organization/settings': urls.settings('organization'),
     '/pipeline': urls.dataPipelines('overview'),
     '/pipelines': urls.dataPipelines('overview'),
-    '/pipeline/new/destination': urls.dataPipelinesNew('destination'),
-    '/pipeline/new/source': urls.dataPipelinesNew('source'),
     '/pipeline/new/site-app': urls.dataPipelinesNew('site_app'),
-    '/pipeline/new/transformation': urls.dataPipelinesNew('transformation'),
-
-    '/pipeline/:stage/:id': ({ stage, id }) => {
-        if (id.startsWith('hog-')) {
-            return urls.hogFunction(id.replace('hog-', ''))
-        }
-        return urls.dataPipelines(stage as DataPipelinesSceneTab)
-    },
-    '/pipeline/:stage/:id/:tab': ({ stage, id }) => {
-        if (id.startsWith('hog-')) {
-            return urls.hogFunction(id.replace('hog-', ''))
-        }
-        return urls.dataPipelines(stage as DataPipelinesSceneTab)
-    },
+    '/pipeline/sources/:id': ({ id }) => redirectPipeline('sources', id),
+    '/pipeline/destinations/:id': ({ id }) => redirectPipeline('destinations', id),
+    '/pipeline/transformations/:id': ({ id }) => redirectPipeline('transformations', id),
+    '/pipeline/sources/:id/:tab': ({ id }) => redirectPipeline('sources', id),
+    '/pipeline/destinations/:id/:tab': ({ id }) => redirectPipeline('destinations', id),
+    '/pipeline/transformations/:id/:tab': ({ id }) => redirectPipeline('transformations', id),
     '/pipeline/data-import': urls.dataPipelines('sources'),
     '/project/settings': urls.settings('project'),
     '/recordings/file-playback': () => urls.replayFilePlayback(),
