@@ -133,17 +133,15 @@ export const BillingProductAddonActions = ({
                     </LemonButton>
                 )}
 
-                {!addon.inclusion_only && (
+                {!addon.inclusion_only && !isDataPipelinesDeprecated && (
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}
                         size={buttonSize || 'small'}
                         disableClientSideRouting
                         disabledReason={
-                            isDataPipelinesDeprecated
-                                ? `Data pipelines are moving to new, usage-based pricing with a large free allowance. You can no longer upgrade to the data pipelines add-on.`
-                                : (billingError && billingError.message) ||
-                                  (billing?.subscription_level === 'free' && 'Upgrade to add add-ons')
+                            (billingError && billingError.message) ||
+                            (billing?.subscription_level === 'free' && 'Upgrade to add add-ons')
                         }
                         loading={billingProductLoading === addon.type || trialLoading}
                         onClick={
