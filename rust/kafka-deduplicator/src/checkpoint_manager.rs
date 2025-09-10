@@ -130,7 +130,7 @@ impl CheckpointWorker {
             return Err(e);
         }
 
-        Ok(true)
+        Ok(result.unwrap().is_some())
     }
 
     /// Perform a checkpoint for the given (assumed active) partition and store

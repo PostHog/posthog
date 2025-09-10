@@ -508,9 +508,9 @@ async fn test_incremental_vs_full_upload() {
         local_checkpoint_dir: checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
-        full_upload_interval: 5,
+        full_upload_interval: 3,
         aws_region: "us-east-1".to_string(),
-        max_local_checkpoints: 3,
+        max_local_checkpoints: 6,
         max_concurrent_checkpoints: 1,
         s3_timeout: Duration::from_secs(30),
     };
@@ -544,7 +544,7 @@ async fn test_incremental_vs_full_upload() {
     // TODO(eli): CONTINUE UPDATING THIS TEST!
 
     // Perform multiple checkpoints
-    for i in 0..=5 {
+    for i in 0..=config.max_local_checkpoints {
         let result = worker.checkpoint_partition(partition.clone(), &store).await;
         assert!(
             result.is_ok(),
@@ -559,7 +559,7 @@ async fn test_incremental_vs_full_upload() {
         let stored_files = uploader.get_stored_files().await.unwrap();
 
         // Check if this was a full upload (every 3rd checkpoint)
-        let should_be_full = i % 3 == 0;
+        let should_be_full = i % (config.full_upload_interval as usize) == 0;
         let has_full_uploads = stored_files.keys().any(|k| k.contains("/full/"));
         let has_incremental_uploads = stored_files.keys().any(|k| k.contains("/incremental/"));
 
@@ -639,9 +639,12 @@ async fn test_unavailable_uploader() {
         config.clone(),
     );
 
-    // Checkpoint should still succeed even if uploader is unavailable
+    // Now that we report (log/stat) the successful local checkpoint and
+    // the unavailable uploader without failing the run or bubbling up
+    // and crashing the worker, feels like erroring is the right output
+    // for this? We will want to monitor + alert on it when frequent enough
     let result = worker.attempt_checkpoint(partition).await;
-    assert!(result.is_ok());
+    assert!(result.is_err());
 
     // No files should be uploaded
     let file_count = uploader.file_count().await.unwrap();
