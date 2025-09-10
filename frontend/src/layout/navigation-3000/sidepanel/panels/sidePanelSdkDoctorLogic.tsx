@@ -96,11 +96,11 @@ export type SdkHealthStatus = 'healthy' | 'warning' | 'critical'
 
 // Add a cache utility for GitHub API responses
 const GITHUB_CACHE_KEY = 'posthog_sdk_versions_cache'
-const GITHUB_CACHE_EXPIRY = 24 * 60 * 60 * 1000 // 24 hours in milliseconds
+const GITHUB_CACHE_EXPIRY = 6 * 60 * 60 * 1000 // 6 hours in milliseconds (faster refresh for PostHog's release frequency)
 
 interface GitHubCache {
     timestamp: number
-    data: Record<SdkType, { latestVersion: string; versions: string[] }>
+    data: Record<SdkType, { latestVersion: string; versions: string[]; releaseDates?: Record<string, string> }>
 }
 
 // Utility functions for the GitHub API cache
@@ -128,7 +128,9 @@ const getGitHubCache = (): GitHubCache | null => {
     }
 }
 
-const setGitHubCache = (data: Record<SdkType, { latestVersion: string; versions: string[] }>): void => {
+const setGitHubCache = (
+    data: Record<SdkType, { latestVersion: string; versions: string[]; releaseDates?: Record<string, string> }>
+): void => {
     try {
         const cacheData: GitHubCache = {
             timestamp: Date.now(),
@@ -137,6 +139,33 @@ const setGitHubCache = (data: Record<SdkType, { latestVersion: string; versions:
         localStorage.setItem(GITHUB_CACHE_KEY, JSON.stringify(cacheData))
     } catch {
         // console.error('[SDK Doctor] Error saving GitHub cache:', error)
+    }
+}
+
+// Fetch release dates from GitHub Releases API for accurate time-based detection
+const fetchGitHubReleaseDates = async (): Promise<Record<string, string>> => {
+    try {
+        const response = await fetch('https://api.github.com/repos/PostHog/posthog-js/releases?per_page=100')
+        if (!response.ok) {
+            throw new Error(`GitHub API error: ${response.status}`)
+        }
+
+        const releases = await response.json()
+        const releaseDates: Record<string, string> = {}
+
+        // Filter for posthog-js releases and extract version + date
+        releases
+            .filter((release: any) => release.tag_name?.startsWith('posthog-js@'))
+            .forEach((release: any) => {
+                const version = release.tag_name.replace('posthog-js@', '')
+                releaseDates[version] = release.published_at
+            })
+
+        console.info(`[SDK Doctor] Fetched ${Object.keys(releaseDates).length} release dates from GitHub API`)
+        return releaseDates
+    } catch (error) {
+        console.warn('[SDK Doctor] Failed to fetch GitHub release dates:', error)
+        return {}
     }
 }
 
@@ -227,9 +256,12 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             other: { repo: '' }, // Skip for "other"
                         }
 
-                    const result: Record<SdkType, { latestVersion: string; versions: string[] }> = {} as Record<
+                    const result: Record<
                         SdkType,
-                        { latestVersion: string; versions: string[] }
+                        { latestVersion: string; versions: string[]; releaseDates?: Record<string, string> }
+                    > = {} as Record<
+                        SdkType,
+                        { latestVersion: string; versions: string[]; releaseDates?: Record<string, string> }
                     >
 
                     // Create an array of promises for each SDK type
@@ -241,7 +273,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 // For Node.js SDK we need special handling since it's in a subdirectory of posthog-js-lite
                                 const isNodeSdk = sdkType === 'node'
 
-                                // Special handling for Web SDK: use CHANGELOG.md instead of GitHub releases
+                                // Special handling for Web SDK: use CHANGELOG.md for versions + GitHub Releases for dates
                                 if (sdkType === 'web') {
                                     const changelogPromise = fetch(
                                         'https://raw.githubusercontent.com/PostHog/posthog-js/main/packages/browser/CHANGELOG.md'
@@ -252,7 +284,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                             }
                                             return r.text()
                                         })
-                                        .then((changelogText) => {
+                                        .then(async (changelogText) => {
                                             // Extract version numbers using the same regex as test files
                                             const versionMatches = changelogText.match(/^## (\d+\.\d+\.\d+)$/gm)
 
@@ -262,6 +294,9 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                     .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
 
                                                 if (versions.length > 0) {
+                                                    // Fetch GitHub release dates for accurate time-based detection
+                                                    const releaseDates = await fetchGitHubReleaseDates()
+
                                                     if (IS_DEBUG_MODE) {
                                                         console.info(
                                                             `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
@@ -270,11 +305,15 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                         console.info(
                                                             `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
                                                         )
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} release dates: ${Object.keys(releaseDates).length} found`
+                                                        )
                                                     }
                                                     return {
                                                         sdkType,
                                                         versions: versions,
                                                         latestVersion: versions[0],
+                                                        releaseDates: releaseDates,
                                                     }
                                                 }
                                             }
@@ -318,6 +357,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                         sdkType,
                                                         versions: versions,
                                                         latestVersion: versions[0],
+                                                        releaseDates: {},
                                                     }
                                                 }
                                             }
@@ -361,6 +401,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                         sdkType,
                                                         versions: versions,
                                                         latestVersion: versions[0],
+                                                        releaseDates: {},
                                                     }
                                                 }
                                             }
@@ -408,6 +449,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                         sdkType,
                                                         versions: versions,
                                                         latestVersion: versions[0],
+                                                        releaseDates: {},
                                                     }
                                                 }
                                             }
@@ -451,6 +493,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                         sdkType,
                                                         versions: versions,
                                                         latestVersion: versions[0],
+                                                        releaseDates: {},
                                                     }
                                                 }
                                             }
@@ -498,6 +541,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                         sdkType,
                                                         versions: versions,
                                                         latestVersion: versions[0],
+                                                        releaseDates: {},
                                                     }
                                                 }
                                             }
@@ -545,6 +589,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                         sdkType,
                                                         versions: versions,
                                                         latestVersion: versions[0],
+                                                        releaseDates: {},
                                                     }
                                                 }
                                             }
@@ -588,6 +633,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                         sdkType,
                                                         versions: versions,
                                                         latestVersion: versions[0],
+                                                        releaseDates: {},
                                                     }
                                                 }
                                             }
@@ -631,6 +677,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                         sdkType,
                                                         versions: versions,
                                                         latestVersion: versions[0],
+                                                        releaseDates: {},
                                                     }
                                                 }
                                             }
@@ -678,6 +725,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                         sdkType,
                                                         versions: versions,
                                                         latestVersion: versions[0],
+                                                        releaseDates: {},
                                                     }
                                                 }
                                             }
@@ -723,6 +771,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                         sdkType,
                                                         versions: versions,
                                                         latestVersion: versions[0],
+                                                        releaseDates: {},
                                                     }
                                                 }
                                             }
@@ -793,6 +842,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                     sdkType,
                                                     versions: versions,
                                                     latestVersion: versions[0],
+                                                    releaseDates: {},
                                                 }
                                             }
                                         }
@@ -816,10 +866,11 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     // Process successful results
                     settled.forEach((settlement) => {
                         if (settlement.status === 'fulfilled' && settlement.value) {
-                            const { sdkType, versions, latestVersion } = settlement.value
+                            const { sdkType, versions, latestVersion, releaseDates } = settlement.value
                             result[sdkType as SdkType] = {
                                 versions,
                                 latestVersion,
+                                releaseDates,
                             }
                         }
                     })
