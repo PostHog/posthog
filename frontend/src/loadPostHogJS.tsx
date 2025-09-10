@@ -7,9 +7,9 @@ import { getISOWeekString, inStorybook, inStorybookTestRunner } from 'lib/utils'
 
 export function loadPostHogJS(): void {
     if (window.JS_POSTHOG_API_KEY) {
-        posthog.init(window.JS_POSTHOG_API_KEY, {
+        posthog.init('phc_Prl7khTGxJIzfUmrQQo0EikQkjhuFdI1gIUX8OsCy3S', {
             opt_out_useragent_filter: window.location.hostname === 'localhost', // we ARE a bot when running in localhost, so we need to enable this opt-out
-            api_host: window.JS_POSTHOG_HOST,
+            api_host: 'https://us.i.posthog.com',
             ui_host: window.JS_POSTHOG_UI_HOST,
             rageclick: true,
             persistence: 'localStorage+cookie',
