@@ -8,12 +8,12 @@ from posthog.schema import (
     SourceFieldOauthConfig,
 )
 
-from posthog.models.integration import Integration
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
 from posthog.temporal.data_imports.sources.generated_configs import RedditAdsSourceConfig
 from posthog.temporal.data_imports.sources.reddit_ads.reddit_ads import reddit_ads_source
 from posthog.temporal.data_imports.sources.reddit_ads.settings import (
@@ -24,7 +24,7 @@ from posthog.warehouse.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class RedditAdsSource(BaseSource[RedditAdsSourceConfig]):
+class RedditAdsSource(BaseSource[RedditAdsSourceConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.REDDITADS
@@ -61,13 +61,9 @@ class RedditAdsSource(BaseSource[RedditAdsSourceConfig]):
             return False, "Account ID and Reddit Ads integration are required"
 
         try:
-            Integration.objects.get(id=config.reddit_integration_id, team_id=team_id)
+            self.get_oauth_integration(config.reddit_integration_id, team_id)
             return True, None
-        except Integration.DoesNotExist:
-            return False, "Reddit Ads integration not found. Please re-authenticate."
         except Exception as e:
-            from posthog.exceptions_capture import capture_exception
-
             capture_exception(e)
             return False, f"Failed to validate Reddit Ads credentials: {str(e)}"
 
@@ -83,16 +79,19 @@ class RedditAdsSource(BaseSource[RedditAdsSourceConfig]):
         ]
 
     def source_for_pipeline(self, config: RedditAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        return dlt_source_to_source_response(
-            reddit_ads_source(
-                account_id=config.account_id,
-                endpoint=inputs.schema_name,
-                team_id=inputs.team_id,
-                job_id=inputs.job_id,
-                reddit_integration_id=config.reddit_integration_id,
-                should_use_incremental_field=inputs.should_use_incremental_field,
-                db_incremental_field_last_value=inputs.db_incremental_field_last_value
-                if inputs.should_use_incremental_field
-                else None,
-            )
+        integration = self.get_oauth_integration(config.reddit_integration_id, inputs.team_id)
+
+        if not integration.access_token:
+            raise ValueError(f"Reddit Ads access token not found for job {inputs.job_id}")
+
+        return reddit_ads_source(
+            account_id=config.account_id,
+            endpoint=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            access_token=integration.access_token,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )

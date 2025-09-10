@@ -1,13 +1,15 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Optional
 
-import dlt
 import requests
 import structlog
+from dateutil import parser
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 
-from posthog.models.integration import Integration
+from posthog.temporal.data_imports.pipelines.helpers import initial_datetime
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.pipelines.pipeline.utils import _get_column_hints, _get_primary_keys
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 
@@ -17,29 +19,26 @@ logger = structlog.get_logger(__name__)
 def _get_metrics_date_range(
     should_use_incremental_field: bool, db_incremental_field_last_value: Optional[Any] = None
 ) -> tuple[str, str]:
-    # Always end at current hour to get the most recent complete hour of data
-    ends_at = datetime.now().strftime("%Y-%m-%dT%H:00:00Z")
+    ends_at = datetime.now().strftime("%Y-%m-%dT00:00:00Z")
 
     if should_use_incremental_field and db_incremental_field_last_value:
         try:
-            if isinstance(db_incremental_field_last_value, str):
-                last_datetime = datetime.fromisoformat(db_incremental_field_last_value.replace("Z", "+00:00"))
-            elif hasattr(db_incremental_field_last_value, "date"):
-                last_datetime = datetime.combine(db_incremental_field_last_value.date(), datetime.min.time())
+            if isinstance(db_incremental_field_last_value, datetime.datetime):
+                last_datetime = db_incremental_field_last_value
+            elif isinstance(db_incremental_field_last_value, datetime.date):
+                last_datetime = datetime.combine(db_incremental_field_last_value, datetime.min.time())
+            elif isinstance(db_incremental_field_last_value, str):
+                date = parser.parse(db_incremental_field_last_value)
+                last_datetime = date.strftime("%Y-%m-%dT00:00:00Z")
             else:
                 last_datetime = datetime.fromisoformat(str(db_incremental_field_last_value))
 
-            # Start from 1 hour before the last sync to ensure no data gaps
-            # This creates slight overlap but primary keys prevent duplicates
-            start_datetime = last_datetime - timedelta(hours=1)
-            starts_at = start_datetime.strftime("%Y-%m-%dT%H:00:00Z")
+            starts_at = last_datetime.strftime("%Y-%m-%dT00:00:00Z")
 
         except Exception:
-            # Fallback to 5 years ago
-            starts_at = (datetime.now() - timedelta(days=365 * 5)).strftime("%Y-%m-%dT00:00:00Z")
+            starts_at = initial_datetime.strftime("%Y-%m-%dT00:00:00Z")
     else:
-        # For full refresh, get last 5 years of data
-        starts_at = (datetime.now() - timedelta(days=365 * 5)).strftime("%Y-%m-%dT00:00:00Z")
+        starts_at = initial_datetime.strftime("%Y-%m-%dT00:00:00Z")
 
     return starts_at, ends_at
 
@@ -74,7 +73,7 @@ def get_resource(
                     "modified_at[after]": {
                         "type": "incremental",
                         "cursor_path": "modified_at",
-                        "initial_value": "2019-01-01T00:00:00Z",
+                        "initial_value": initial_datetime.strftime("%Y-%m-%dT00:00:00Z"),
                     }
                     if should_use_incremental_field
                     else None,
@@ -100,7 +99,7 @@ def get_resource(
                     "modified_at[after]": {
                         "type": "incremental",
                         "cursor_path": "modified_at",
-                        "initial_value": "2019-01-01T00:00:00Z",
+                        "initial_value": initial_datetime.strftime("%Y-%m-%dT00:00:00Z"),
                     }
                     if should_use_incremental_field
                     else None,
@@ -126,7 +125,7 @@ def get_resource(
                     "modified_at[after]": {
                         "type": "incremental",
                         "cursor_path": "modified_at",
-                        "initial_value": "2019-01-01T00:00:00Z",
+                        "initial_value": initial_datetime.strftime("%Y-%m-%dT00:00:00Z"),
                     }
                     if should_use_incremental_field
                     else None,
@@ -248,27 +247,15 @@ class RedditAdsPaginator(BasePaginator):
             request.url = self._next_url
 
 
-def get_reddit_ads_access_token(reddit_integration_id: int, team_id: int) -> str:
-    integration = Integration.objects.get(id=reddit_integration_id, team_id=team_id)
-
-    if not integration.access_token:
-        raise ValueError("Reddit Ads integration does not have an access token")
-
-    return integration.access_token
-
-
-@dlt.source(max_table_nesting=0)
 def reddit_ads_source(
     account_id: str,
     endpoint: str,
     team_id: int,
     job_id: str,
-    reddit_integration_id: Optional[int],
+    access_token: str,
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool = False,
 ):
-    access_token = get_reddit_ads_access_token(reddit_integration_id, team_id)
-
     config: RESTAPIConfig = {
         "client": {
             "base_url": "https://ads-api.reddit.com/api/v3",
@@ -277,7 +264,6 @@ def reddit_ads_source(
                 "token": access_token,
             },
             "headers": {
-                "User-Agent": "PostHog-DataWarehouse/1.0",
                 "Content-Type": "application/json",
             },
             "paginator": RedditAdsPaginator(),
@@ -296,20 +282,14 @@ def reddit_ads_source(
         ],
     }
 
-    yield from rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+    resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+    assert len(resources) == 1
+    resource = resources[0]
 
-
-def validate_credentials(account_id: str, access_token: str) -> bool:
-    try:
-        url = f"https://ads-api.reddit.com/api/v3/ad_accounts/{account_id}"
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "User-Agent": "PostHog-DataWarehouse/1.0",
-            "Content-Type": "application/json",
-        }
-
-        response = requests.get(url, headers=headers, timeout=30)
-        return response.status_code == 200
-
-    except Exception:
-        return False
+    return SourceResponse(
+        name=endpoint,
+        items=resource,
+        primary_keys=_get_primary_keys(resource),
+        column_hints=_get_column_hints(resource),
+        partition_count=None,
+    )
