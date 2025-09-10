@@ -18,7 +18,7 @@ import {
     SurveyEventName,
 } from '~/types'
 
-import { isAddonVisible } from './billing-utils'
+import { isAddonVisible, isProductVariantPrimary } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
 import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
@@ -411,9 +411,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         isProductWithVariants: [
             (_s, p) => [p.product],
             (product): boolean =>
-                (product.type === 'session_replay' || product.type === 'realtime_destinations') &&
-                'addons' in product &&
-                product.addons?.length > 0,
+                isProductVariantPrimary(product.type) && 'addons' in product && product.addons?.length > 0,
         ],
         projectedAmountExcludingAddons: [
             (s, p) => [s.isProductWithVariants, p.product],

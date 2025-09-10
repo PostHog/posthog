@@ -14,6 +14,12 @@ import { BillingPeriod, BillingProductV2AddonType, BillingProductV2Type, Billing
 import { USAGE_TYPES } from './constants'
 import type { BillingFilters, BillingSeriesForCsv, BillingUsageInteractionProps, BuildBillingCsvOptions } from './types'
 
+export const isProductVariantPrimary = (productType: string): boolean =>
+    ['session_replay', 'realtime_destinations'].includes(productType)
+
+export const isProductVariantSecondary = (productType: string): boolean =>
+    ['mobile_replay', 'batch_exports'].includes(productType)
+
 export const summarizeUsage = (usage: number | null): string => {
     if (usage === null) {
         return ''

@@ -24,7 +24,7 @@ import { BillingProductAddon } from './BillingProductAddon'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
 import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
-import { summarizeUsage } from './billing-utils'
+import { isProductVariantPrimary, summarizeUsage } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 import { REALTIME_DESTINATIONS_BILLING_START_DATE } from './constants'
@@ -262,12 +262,10 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     product: BillingProductV2Type | BillingProductV2AddonType
                                     displayName: string
                                 }) => {
-                                    const isMainProductVariant =
-                                        variant.key === 'session_replay' || variant.key === 'realtime_destinations'
-                                    const currentAmount = isMainProductVariant
+                                    const currentAmount = isProductVariantPrimary(variant.key)
                                         ? (product as BillingProductV2Type).current_amount_usd_before_addons || '0'
                                         : (variant.product as BillingProductV2AddonType).current_amount_usd || '0'
-                                    const projectedAmount = isMainProductVariant
+                                    const projectedAmount = isProductVariantPrimary(variant.key)
                                         ? projectedAmountExcludingAddons
                                         : variant.product.projected_amount_usd || '0'
                                     const discountMultiplier = 1 - combinedMonetaryData.discountPercent / 100
@@ -309,7 +307,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     <div className="ml-16">
                                                         <BillingGauge
                                                             items={
-                                                                isMainProductVariant
+                                                                isProductVariantPrimary(variant.key)
                                                                     ? billingGaugeItems.filter(
                                                                           (item) =>
                                                                               item.type !==
@@ -366,12 +364,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     product: BillingProductV2Type | BillingProductV2AddonType
                                     displayName: string
                                 }) => {
-                                    const isMainProductVariant =
-                                        variant.key === 'session_replay' || variant.key === 'realtime_destinations'
-
                                     // For main product variants, use existing billingGaugeItems
                                     // For addon variants, create gauge items from their data
-                                    const variantGaugeItems = isMainProductVariant
+                                    const variantGaugeItems = isProductVariantPrimary(variant.key)
                                         ? billingGaugeItems.filter(
                                               (item) => item.type !== BillingGaugeItemKind.BillingLimit
                                           )

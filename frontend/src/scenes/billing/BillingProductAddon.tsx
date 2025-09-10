@@ -18,6 +18,7 @@ import { BillingProductPricingTable } from './BillingProductPricingTable'
 import { ProductPricingModal } from './ProductPricingModal'
 import { TrialCancellationSurveyModal } from './TrialCancellationSurveyModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
+import { isProductVariantSecondary } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductAddonLogic } from './billingProductAddonLogic'
 import { billingProductLogic } from './billingProductLogic'
@@ -138,15 +139,13 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
             </div>
 
             {/* Features */}
-            <div
-                className={clsx('mt-3', { 'ml-11': addon.type !== 'mobile_replay' && addon.type !== 'batch_exports' })}
-            >
+            <div className={clsx('mt-3', { 'ml-11': !isProductVariantSecondary(addon.type) })}>
                 <BillingAddonFeaturesList
                     addonFeatures={addonFeatures?.filter((feature) => !feature.entitlement_only) || []}
                     addonType={addon.type}
                 />
 
-                {(addon.type === 'mobile_replay' || addon.type === 'batch_exports') && addon.subscribed && (
+                {isProductVariantSecondary(addon.type) && addon.subscribed && (
                     <>
                         <div className="flex w-full items-center gap-x-8">
                             <LemonButton
