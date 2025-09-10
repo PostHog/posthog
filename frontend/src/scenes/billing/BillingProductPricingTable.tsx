@@ -214,8 +214,7 @@ export const BillingProductPricingTable = ({
 
     return (
         <div className="pl-16 pb-8">
-            {(product.tiered || product.type === 'mobile_replay' || product.type === 'batch_exports') &&
-            tableTierData ? (
+            {product.tiered && tableTierData ? (
                 <>
                     <LemonTable
                         stealth
