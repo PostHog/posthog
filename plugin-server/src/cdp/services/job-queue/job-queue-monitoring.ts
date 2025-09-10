@@ -52,8 +52,6 @@ export class CyclotronJobQueueMonitoring {
                 pipeline.zadd(this.keyForFunction(functionId), ...invocationIds.flatMap((x) => x))
             })
         })
-
-        return
     }
 
     public async unmarkScheduledInvocations(invocations: CyclotronJobInvocation[]) {
@@ -70,16 +68,12 @@ export class CyclotronJobQueueMonitoring {
         const res = await this.redis.useClient({ name: 'cyclotron-job-observe', failOpen: true }, (client) => {
             return client.zrangebyscore(this.keyForFunction(id), startTime, Infinity, 'WITHSCORES')
         })
-
-        const functionInvocations: Record<string, number> = {}
-
-        // Group by two
-
         if (!res) {
             return {}
         }
+        const functionInvocations: Record<string, number> = {}
 
-        for (let i = 0; i < res?.length; i += 2) {
+        for (let i = 0; i < res.length; i += 2) {
             functionInvocations[res[i]] = Number(res[i + 1])
         }
 
