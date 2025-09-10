@@ -312,7 +312,10 @@ export class HogFlowExecutorService {
         } catch (err) {
             // The final catch - in this case we are always just logging the final outcome
             result.error = err.message
-            result.finished = true // Explicitly set to true to prevent infinite loops
+
+            const currentAction = ensureCurrentAction(invocation)
+            result.finished = currentAction.on_error === 'abort'
+
             logger.error(
                 '🦔',
                 `[HogFlowExecutor] Error executing hog flow ${invocation.hogFlow.id} - ${invocation.hogFlow.name}. Event: '${invocation.state.event?.url}'`,
