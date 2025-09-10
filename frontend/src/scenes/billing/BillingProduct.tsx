@@ -63,7 +63,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         projectedAmountExcludingAddons,
         productVariants,
         combinedMonetaryData,
-        combinedGaugeItems,
+        combinedMonetaryGaugeItems,
     } = useValues(billingProductLogic({ product }))
     const {
         setShowTierBreakdown,
@@ -212,7 +212,10 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         <div className="mt-6 mb-4 ml-2">
                             <div className="grid grid-cols-[1fr_130px_100px] gap-4 items-center">
                                 <div>
-                                    <BillingGauge items={combinedGaugeItems} product={{ ...product, unit: '$' }} />
+                                    <BillingGauge
+                                        items={combinedMonetaryGaugeItems}
+                                        product={{ ...product, unit: '$' }}
+                                    />
                                 </div>
                                 <Tooltip
                                     title={`The current ${

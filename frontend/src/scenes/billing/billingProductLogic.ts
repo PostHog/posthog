@@ -495,7 +495,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 }
             },
         ],
-        combinedGaugeItems: [
+        combinedMonetaryGaugeItems: [
             (s) => [s.combinedMonetaryData],
             (monetaryData: {
                 currentTotal: number
