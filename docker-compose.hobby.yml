@@ -105,6 +105,8 @@ services:
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
             SESSION_RECORDING_V2_S3_ENDPOINT: http://objectstorage:19000
+            SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: object_storage_root_user
+            SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: object_storage_root_password
             OBJECT_STORAGE_ENABLED: true
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             OTEL_SERVICE_NAME: 'posthog'
