@@ -4,12 +4,14 @@ This module provides a common test interface that can be implemented by each
 destination to ensure consistent behavior and error handling across all destinations.
 """
 
+import json
 import uuid
+import typing as t
 import asyncio
 import datetime as dt
+import operator
 from abc import ABC, abstractmethod
-from collections.abc import AsyncGenerator, Callable
-from typing import Any, Optional, Union
+from collections.abc import Callable
 
 import pytest
 
@@ -21,13 +23,25 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog import constants
 from posthog.batch_exports.models import BatchExport
-from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
-from posthog.models.team import Team
+from posthog.batch_exports.service import (
+    BackfillDetails,
+    BaseBatchExportInputs,
+    BatchExportField,
+    BatchExportModel,
+    BatchExportSchema,
+)
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
 
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
-from products.batch_exports.backend.tests.temporal.utils import fail_on_application_error, mocked_start_batch_export_run
+from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
+from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
+from products.batch_exports.backend.tests.temporal.utils import (
+    fail_on_application_error,
+    get_record_batch_from_queue,
+    mocked_start_batch_export_run,
+    remove_duplicates_from_records,
+)
 
 
 class BaseDestinationTest(ABC):
@@ -61,17 +75,23 @@ class BaseDestinationTest(ABC):
         """Return the inputs dataclass for the batch export workflow."""
         pass
 
+    @property
+    @abstractmethod
+    def destination_default_fields(self) -> list[BatchExportField]:
+        """Return the default fields for the destination."""
+        pass
+
     def create_batch_export_inputs(
         self,
         team_id: int,
         batch_export_id: str,
         data_interval_end: dt.datetime,
         interval: str,
-        batch_export_model: Optional[BatchExportModel] = None,
-        batch_export_schema: Optional[BatchExportSchema] = None,
-        backfill_details: Optional[BackfillDetails] = None,
+        batch_export_model: BatchExportModel | None = None,
+        batch_export_schema: BatchExportSchema | None = None,
+        backfill_details: BackfillDetails | None = None,
         **config,
-    ) -> Any:
+    ):
         """Create workflow inputs for the destination."""
         return self.batch_export_inputs_class(
             team_id=team_id,
@@ -90,16 +110,16 @@ class BaseDestinationTest(ABC):
         pass
 
     @abstractmethod
-    async def assert_data_in_destination(
+    def get_json_columns(self, inputs: BaseBatchExportInputs) -> list[str]:
+        """Return the JSON columns for the destination."""
+        pass
+
+    @abstractmethod
+    async def get_inserted_records(
         self,
         team_id: int,
-        data_interval_start: dt.datetime,
-        data_interval_end: dt.datetime,
-        exclude_events: Optional[list[str]] = None,
-        batch_export_model: Optional[Union[BatchExportModel, BatchExportSchema]] = None,
-        **kwargs,
-    ) -> None:
-        """Assert that the expected data was written to the destination."""
+        json_columns: list[str],
+    ) -> list[dict[str, t.Any]]:
         pass
 
     @abstractmethod
@@ -107,21 +127,198 @@ class BaseDestinationTest(ABC):
         """Assert that no data was written to the destination."""
         pass
 
-    @abstractmethod
-    async def setup_destination_for_test(self) -> None:
-        """Setup the destination for the test.
 
-        For example, create any resources that are needed for the test (e.g. the database, S3 bucket, etc).
-        """
-        pass
+async def _run_workflow(
+    destination_test: BaseDestinationTest,
+    batch_export_for_destination: BatchExport,
+    inputs,
+):
+    """Helper function to run SnowflakeBatchExportWorkflow and assert records in Snowflake"""
 
-    @abstractmethod
-    async def teardown_destination_for_test(self) -> None:
-        """Teardown the destination for the test.
+    workflow_id = str(uuid.uuid4())
+    # settings_overrides = settings_overrides or {}
+    # if use_internal_stage:
+    #     settings_overrides["BATCH_EXPORT_SNOWFLAKE_USE_STAGE_TEAM_IDS"] = [team.pk]
 
-        Cleanup any resources that were created for the test (e.g. the database, S3 bucket, etc).
-        """
-        pass
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[destination_test.workflow_class],
+            activities=[
+                start_batch_export_run,
+                insert_into_internal_stage_activity,
+                destination_test.main_activity,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with fail_on_application_error():
+                await activity_environment.client.execute_workflow(
+                    destination_test.workflow_class.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(minutes=5),
+                )
+
+    runs = await afetch_batch_export_runs(batch_export_id=batch_export_for_destination.id)
+    assert len(runs) == 1
+
+    run = runs[0]
+    return run
+
+
+async def _get_records_from_clickhouse(
+    team_id: int,
+    data_interval_start: dt.datetime,
+    data_interval_end: dt.datetime,
+    exclude_events: list[str] | None,
+    include_events: list[str] | None,
+    batch_export_model: BatchExportModel | BatchExportSchema | None,
+    backfill_details: BackfillDetails | None,
+    expected_fields: list[str] | None,
+    destination_default_fields: list[BatchExportField],
+    json_columns: list[str] | None = None,
+):
+    """Get records from ClickHouse."""
+    json_columns = json_columns or []
+    if batch_export_model is not None:
+        if isinstance(batch_export_model, BatchExportModel):
+            model_name = batch_export_model.name
+            fields = batch_export_model.schema["fields"] if batch_export_model.schema is not None else None
+            filters = batch_export_model.filters
+            extra_query_parameters = (
+                batch_export_model.schema["values"] if batch_export_model.schema is not None else None
+            )
+        else:
+            model_name = "custom"
+            fields = batch_export_model["fields"]
+            filters = None
+            extra_query_parameters = batch_export_model["values"]
+    else:
+        model_name = "events"
+        extra_query_parameters = None
+        fields = None
+        filters = None
+
+    records = []
+    queue = RecordBatchQueue()
+    if model_name == "sessions":
+        producer = Producer(model=SessionsRecordBatchModel(team_id))
+    else:
+        producer = Producer()
+
+    producer_task = await producer.start(
+        queue=queue,
+        model_name=model_name,
+        team_id=team_id,
+        full_range=(data_interval_start, data_interval_end),
+        done_ranges=[],
+        fields=fields,
+        filters=filters,
+        destination_default_fields=destination_default_fields,
+        exclude_events=exclude_events,
+        include_events=include_events,
+        is_backfill=backfill_details is not None,
+        backfill_details=backfill_details,
+        extra_query_parameters=extra_query_parameters,
+    )
+    while True:
+        record_batch = await get_record_batch_from_queue(queue, producer_task)
+
+        if record_batch is None:
+            break
+
+        select = record_batch.column_names
+        if expected_fields:
+            select = expected_fields
+
+        # transform each record
+        for original_record in record_batch.select(select).to_pylist():
+            record = {}
+
+            for k, v in original_record.items():
+                if k == "_inserted_at":
+                    # _inserted_at is not exported, only used for tracking progress.
+                    continue
+
+                if k in json_columns and isinstance(v, str):
+                    record[k] = json.loads(v)
+                elif isinstance(v, dt.datetime):
+                    # By default, Snowflake's `TIMESTAMP` doesn't include a timezone component.
+                    record[k] = v.replace(tzinfo=None)
+                elif k == "elements":
+                    # Happens transparently when uploading elements as a variant field.
+                    record[k] = json.dumps(v)
+                else:
+                    record[k] = v
+
+            records.append(record)
+
+    return records
+
+
+async def assert_clickhouse_records_in_destination(
+    destination_test: BaseDestinationTest,
+    team_id: int,
+    data_interval_start: dt.datetime,
+    data_interval_end: dt.datetime,
+    inputs: BaseBatchExportInputs,
+    batch_export_model: BatchExportModel | BatchExportSchema | None = None,
+    backfill_details: BackfillDetails | None = None,
+    expected_fields: list[str] | None = None,
+    exclude_events: list[str] | None = None,
+    include_events: list[str] | None = None,
+    expect_duplicates: bool = False,
+    primary_key: list[str] | None = None,
+):
+    """Assert that the expected data was written to the destination."""
+    json_columns = destination_test.get_json_columns(inputs)
+    records_from_clickhouse = await _get_records_from_clickhouse(
+        team_id=team_id,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        exclude_events=exclude_events,
+        include_events=include_events,
+        batch_export_model=batch_export_model,
+        backfill_details=backfill_details,
+        expected_fields=expected_fields,
+        destination_default_fields=destination_test.destination_default_fields,
+        json_columns=json_columns,
+    )
+    records_from_destination = await destination_test.get_inserted_records(
+        team_id=team_id,
+        json_columns=json_columns,
+    )
+
+    # Determine sort key based on model
+    sort_key = "uuid"
+    if isinstance(batch_export_model, BatchExportModel):
+        if batch_export_model.name == "persons":
+            sort_key = "person_id"
+        elif batch_export_model.name == "sessions":
+            sort_key = "session_id"
+
+    if expect_duplicates:
+        records_from_destination = remove_duplicates_from_records(records_from_destination, primary_key)
+
+    assert records_from_destination, "No records were inserted into Snowflake"
+    inserted_column_names = list(records_from_destination[0].keys())
+    expected_column_names = list(records_from_clickhouse[0].keys())
+    inserted_column_names.sort()
+    expected_column_names.sort()
+
+    # Ordering is not guaranteed, so we sort before comparing.
+    records_from_destination.sort(key=operator.itemgetter(sort_key))
+    records_from_clickhouse.sort(key=operator.itemgetter(sort_key))
+
+    assert inserted_column_names == expected_column_names
+    assert len(records_from_destination) == len(records_from_clickhouse)
+    assert records_from_destination[0] == records_from_clickhouse[0]
+    assert records_from_destination == records_from_clickhouse
+    assert len(inserted_column_names) > 0
 
 
 class CommonDestinationTests:
@@ -203,70 +400,6 @@ class CommonDestinationTests:
 
         await adelete_batch_export(batch_export, temporal_client)
 
-    @pytest.fixture
-    async def setup_destination(self, destination_test: BaseDestinationTest) -> AsyncGenerator[None, None]:
-        """Setup the destination for the test."""
-        await destination_test.setup_destination_for_test()
-        yield
-        await destination_test.teardown_destination_for_test()
-
-    async def _run_workflow(
-        self,
-        destination_test: BaseDestinationTest,
-        batch_export_for_destination: BatchExport,
-        team: Team,
-        data_interval_end,
-        interval: str,
-        batch_export_model: BatchExportModel | None = None,
-        batch_export_schema: BatchExportSchema | None = None,
-        backfill_details=None,
-    ):
-        """Helper function to run SnowflakeBatchExportWorkflow and assert records in Snowflake"""
-        workflow_id = str(uuid.uuid4())
-        inputs = destination_test.create_batch_export_inputs(
-            team_id=team.pk,
-            batch_export_id=str(batch_export_for_destination.id),
-            data_interval_end=data_interval_end.isoformat(),
-            interval=interval,
-            batch_export_schema=batch_export_schema,
-            batch_export_model=batch_export_model,
-            backfill_details=backfill_details,
-            **batch_export_for_destination.destination.config,
-        )
-
-        # settings_overrides = settings_overrides or {}
-        # if use_internal_stage:
-        #     settings_overrides["BATCH_EXPORT_SNOWFLAKE_USE_STAGE_TEAM_IDS"] = [team.pk]
-
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[destination_test.workflow_class],
-                activities=[
-                    start_batch_export_run,
-                    insert_into_internal_stage_activity,
-                    destination_test.main_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                with fail_on_application_error():
-                    await activity_environment.client.execute_workflow(
-                        destination_test.workflow_class.run,
-                        inputs,
-                        id=workflow_id,
-                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                        execution_timeout=dt.timedelta(minutes=5),
-                    )
-
-        runs = await afetch_batch_export_runs(batch_export_id=batch_export_for_destination.id)
-        assert len(runs) == 1
-
-        run = runs[0]
-        return run
-
     @pytest.mark.parametrize("interval", ["hour"], indirect=True)
     @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
     @pytest.mark.parametrize("model", TEST_MODELS)
@@ -274,8 +407,8 @@ class CommonDestinationTests:
         self,
         destination_test: BaseDestinationTest,
         interval: str,
-        exclude_events: Optional[list[str]],
-        model: Union[BatchExportModel, BatchExportSchema, None],
+        exclude_events: list[str] | None,
+        model: BatchExportModel | BatchExportSchema | None,
         generate_test_data,
         data_interval_start: dt.datetime,
         data_interval_end: dt.datetime,
@@ -291,17 +424,27 @@ class CommonDestinationTests:
                 f"Unnecessary test case as batch export model '{model.name}' is not affected by 'exclude_events'"
             )
 
-        batch_export_model = model if isinstance(model, BatchExportModel) else None
-        batch_export_schema = model if isinstance(model, dict) else None
+        batch_export_schema: BatchExportSchema | None = None
+        batch_export_model: BatchExportModel | None = None
+        if isinstance(model, BatchExportModel):
+            batch_export_model = model
+        elif model is not None:
+            batch_export_schema = model
 
-        run = await self._run_workflow(
-            destination_test=destination_test,
-            batch_export_for_destination=batch_export_for_destination,
-            team=ateam,
+        inputs = destination_test.create_batch_export_inputs(
+            team_id=ateam.pk,
+            batch_export_id=str(batch_export_for_destination.id),
             data_interval_end=data_interval_end,
             interval=interval,
-            batch_export_model=batch_export_model,
             batch_export_schema=batch_export_schema,
+            batch_export_model=batch_export_model,
+            **batch_export_for_destination.destination.config,
+        )
+
+        run = await _run_workflow(
+            destination_test=destination_test,
+            batch_export_for_destination=batch_export_for_destination,
+            inputs=inputs,
         )
         assert run.status == "Completed"
 
@@ -314,13 +457,14 @@ class CommonDestinationTests:
             or (isinstance(model, BatchExportModel) and model.name == "sessions" and run.records_completed <= 1)
         )
 
-        # Assert data was written to destination
-        await destination_test.assert_data_in_destination(
+        await assert_clickhouse_records_in_destination(
+            destination_test=destination_test,
             team_id=ateam.pk,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
+            batch_export_model=batch_export_model or batch_export_schema,
             exclude_events=exclude_events,
-            batch_export_model=model,
+            inputs=inputs,
         )
 
     async def test_workflow_handles_unexpected_errors(

@@ -14,7 +14,7 @@ import pyarrow as pa
 from databricks import sql
 from databricks.sdk.core import Config, oauth_service_principal
 from databricks.sql.client import Connection
-from databricks.sql.exc import OperationalError
+from databricks.sql.exc import OperationalError, ServerOperationError
 from databricks.sql.types import Row
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
@@ -48,13 +48,24 @@ LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
 
 
-NON_RETRYABLE_ERROR_TYPES: list[str] = []
+NON_RETRYABLE_ERROR_TYPES: list[str] = [
+    # Our own exception when we can't connect to Databricks, usually due to invalid parameters.
+    "DatabricksConnectionError",
+    # Raised when we don't have sufficient permissions to perform an operation.
+    "DatabricksInsufficientPermissionsError",
+]
 
 DatabricksField = tuple[str, str]
 
 
 class DatabricksConnectionError(Exception):
     """Error for Databricks connection."""
+
+    pass
+
+
+class DatabricksInsufficientPermissionsError(Exception):
+    """Error for Databricks permission."""
 
     pass
 
@@ -161,8 +172,6 @@ class DatabricksClient:
                 credentials_provider=self.get_credential_provider,
                 # user agent can be used for usage tracking
                 user_agent_entry="PostHog batch exports",
-                # TODO
-                # staging_allowed_local_path=str(staging_allowed_local_path),
             )
         except OperationalError as err:
             # TODO: check what kinds of errors we get here
@@ -274,10 +283,12 @@ class DatabricksClient:
             return results
 
     async def use_catalog(self, catalog: str):
-        await self.execute_query(f"USE CATALOG {catalog}", fetch_results=False)
+        await self.execute_query(f"USE CATALOG `{catalog}`", fetch_results=False)
 
     async def use_schema(self, schema: str):
-        await self.execute_query(f"USE SCHEMA {schema}", fetch_results=False)
+        await self.execute_query(f"USE SCHEMA `{schema}`", fetch_results=False)
+
+    # TODO - add tests for names that contain non-ascii characters to ensure we escape them correctly
 
     @contextlib.asynccontextmanager
     async def managed_table(
@@ -304,35 +315,48 @@ class DatabricksClient:
     async def acreate_table(self, table_name: str, fields: list[DatabricksField]):
         """Asynchronously create the Databricks delta table if it doesn't exist."""
         # TODO - add partition by timestamp if it exists?
-        field_ddl = ", ".join(f'"{field[0]}" {field[1]}' for field in fields)
-        await self.execute_query(
-            f"""
-            CREATE TABLE IF NOT EXISTS {table_name} (
-                {field_ddl}
+        field_ddl = ", ".join(f"`{field[0]}` {field[1]}" for field in fields)
+        try:
+            await self.execute_query(
+                f"""
+                CREATE TABLE IF NOT EXISTS `{table_name}` (
+                    {field_ddl}
+                )
+                USING DELTA
+                COMMENT 'PostHog generated table'
+                """,
+                fetch_results=False,
             )
-            USING DELTA
-            COMMENT = 'PostHog generated table'
-            """,
-            fetch_results=False,
-        )
+        except ServerOperationError as err:
+            if err.message and "INSUFFICIENT_PERMISSIONS" in err.message:
+                self.external_logger.error("Failed to create table: %s", err.message)
+                raise DatabricksInsufficientPermissionsError(f"Failed to create table: {err.message}")
+            raise
 
     async def adelete_table(self, table_name: str):
         """Asynchronously delete the Databricks delta table if it exists."""
-        await self.execute_query(f"DROP TABLE IF EXISTS {table_name}", fetch_results=False)
+        await self.execute_query(f"DROP TABLE IF EXISTS `{table_name}`", fetch_results=False)
 
-    async def aput_file_stream_to_volume(self, file: io.BytesIO, volume_name: str, file_name: str):
+    async def aput_file_stream_to_volume(self, file: io.BytesIO, volume_path: str, file_name: str):
         """Asynchronously put a local file stream to a Databricks volume."""
-        results = await self.execute_query(
-            f"PUT '__input_stream__' INTO '{volume_name}/{file_name}' OVERWRITE",
+        await self.execute_query(
+            f"PUT '__input_stream__' INTO '{volume_path}/{file_name}' OVERWRITE",
             query_kwargs={"input_stream": file},
         )
-        # TODO - check results
 
-    async def acopy_into_table_from_volume(self, table_name: str, volume_name: str):
+    async def acopy_into_table_from_volume(self, table_name: str, volume_path: str):
         """Asynchronously copy data from a Databricks volume into a Databricks table."""
-        results = await self.execute_async_query(
-            f"COPY INTO {table_name} FROM '{volume_name}' FILEFORMAT = PARQUET",
-        )
+        try:
+            results = await self.execute_async_query(
+                f"COPY INTO `{table_name}` FROM '{volume_path}' FILEFORMAT = PARQUET",
+            )
+        except ServerOperationError as err:
+            if err.message and "INSUFFICIENT_PERMISSIONS" in err.message:
+                self.external_logger.error("Failed to copy data from volume into table: %s", err.message)
+                raise DatabricksInsufficientPermissionsError(
+                    f"Failed to copy data from volume into table: {err.message}"
+                )
+            raise
 
     @contextlib.asynccontextmanager
     async def managed_volume(self, volume: str):
@@ -346,14 +370,14 @@ class DatabricksClient:
     async def acreate_volume(self, volume: str):
         """Asynchronously create a Databricks volume."""
         await self.execute_query(
-            f"CREATE VOLUME IF NOT EXISTS {volume} COMMENT 'PostHog generated volume'",
+            f"CREATE VOLUME IF NOT EXISTS `{volume}` COMMENT 'PostHog generated volume'",
             fetch_results=False,
         )
 
     async def adelete_volume(self, volume: str):
         """Asynchronously delete a Databricks volume."""
         await self.execute_query(
-            f"DROP VOLUME IF EXISTS {volume}",
+            f"DROP VOLUME IF EXISTS `{volume}`",
             fetch_results=False,
         )
 
@@ -394,14 +418,14 @@ class DatabricksClient:
         assert update_key, "Update key must be defined"
         assert fields, "Fields must be defined"
 
-        merge_condition = " AND ".join([f'target."{field[0]}" = source."{field[0]}"' for field in merge_key])
+        merge_condition = " AND ".join([f"target.`{field[0]}` = source.`{field[0]}`" for field in merge_key])
 
-        update_condition = " OR ".join([f'target."{field[0]}" < source."{field[0]}"' for field in update_key])
+        update_condition = " OR ".join([f"target.`{field[0]}` < source.`{field[0]}`" for field in update_key])
 
         if with_schema_evolution is True:
             merge_query = f"""
-            MERGE WITH SCHEMA EVOLUTION INTO {target_table} AS target
-            USING {source_table} AS source
+            MERGE WITH SCHEMA EVOLUTION INTO `{target_table}` AS target
+            USING `{source_table}` AS source
             ON {merge_condition}
             WHEN MATCHED AND ({update_condition}) THEN
                 UPDATE SET *
@@ -414,17 +438,17 @@ class DatabricksClient:
 
             update_clause = ", ".join(
                 [
-                    f'target."{field[0]}" = source."{field[0]}"'
+                    f"target.`{field[0]}` = source.`{field[0]}`"
                     for field in fields
                     if field[0] in target_table_field_names
                 ]
             )
-            field_names = ", ".join([f'"{field[0]}"' for field in fields if field[0] in target_table_field_names])
-            values = ", ".join([f'source."{field[0]}"' for field in fields if field[0] in target_table_field_names])
+            field_names = ", ".join([f"`{field[0]}`" for field in fields if field[0] in target_table_field_names])
+            values = ", ".join([f"source.`{field[0]}`" for field in fields if field[0] in target_table_field_names])
 
             merge_query = f"""
-            MERGE INTO {target_table} AS target
-            USING {source_table} AS source
+            MERGE INTO `{target_table}` AS target
+            USING `{source_table}` AS source
             ON {merge_condition}
             WHEN MATCHED AND ({update_condition}) THEN
                 UPDATE SET
@@ -563,15 +587,15 @@ class DatabricksConsumer(Consumer):
     def __init__(
         self,
         client: DatabricksClient,
-        volume_name: str,
+        volume_path: str,
     ):
         super().__init__()
 
         self.client = client
-        self.volume_name = volume_name
+        self.volume_path = volume_path
 
         self.logger.bind(
-            volume=self.volume_name,
+            volume=self.volume_path,
         )
 
         self.current_file_index = 0
@@ -600,14 +624,14 @@ class DatabricksConsumer(Consumer):
             "Uploading file %d with %d bytes to Databricks volume '%s'",
             self.current_file_index,
             buffer_size,
-            self.volume_name,
+            self.volume_path,
         )
 
         self.current_buffer.seek(0)
 
         await self.client.aput_file_stream_to_volume(
             file=self.current_buffer,
-            volume_name=self.volume_name,
+            volume_path=self.volume_path,
             file_name=f"{self.current_file_index}.parquet",
         )
 
@@ -615,7 +639,7 @@ class DatabricksConsumer(Consumer):
             "File %d with %d bytes uploaded to Databricks volume '%s'",
             self.current_file_index,
             buffer_size,
-            self.volume_name,
+            self.volume_path,
         )
         self.current_buffer = io.BytesIO()
 
@@ -706,6 +730,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
             f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}" if requires_merge else None
         )
         volume_name = f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
+        volume_path = f"/Volumes/{inputs.catalog}/{inputs.schema}/{volume_name}"
 
         async with DatabricksClient.from_inputs(inputs).connect() as databricks_client:
             async with manage_resources(
@@ -717,7 +742,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
             ):
                 consumer = DatabricksConsumer(
                     client=databricks_client,
-                    volume_name=volume_name,
+                    volume_path=volume_path,
                 )
 
                 result = await run_consumer_from_stage(
@@ -738,7 +763,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                 # Copy all staged files to the table
                 await databricks_client.acopy_into_table_from_volume(
                     table_name=stage_table_name if stage_table_name else inputs.table_name,
-                    volume_name=volume_name,
+                    volume_path=volume_path,
                 )
 
                 if requires_merge and stage_table_name is not None:
