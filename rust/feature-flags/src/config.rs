@@ -122,7 +122,7 @@ pub struct Config {
     #[envconfig(default = "1000")]
     pub max_concurrency: usize,
 
-    #[envconfig(default = "100")]
+    #[envconfig(default = "50")]
     pub max_pg_connections: u32,
 
     #[envconfig(default = "redis://localhost:6379/")]
