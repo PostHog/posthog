@@ -104,40 +104,43 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         loading: [(s) => [s.rawTemplatesLoading], (x) => x],
 
         templates: [
-            (s) => [s.rawTemplates, (_, props) => props],
+            (s) => [s.rawTemplates, s.user, (_, props) => props],
             (
                 rawTemplates,
+                user,
                 { subTemplateIds, manualTemplates }: HogFunctionTemplateListLogicProps
             ): HogFunctionTemplateWithSubTemplateType[] => {
+                let templates: HogFunctionTemplateWithSubTemplateType[] = []
+
                 if (!subTemplateIds) {
-                    return [...rawTemplates, ...(manualTemplates || [])] as HogFunctionTemplateWithSubTemplateType[]
-                }
+                    templates = [
+                        ...rawTemplates,
+                        ...(manualTemplates || []),
+                    ] as HogFunctionTemplateWithSubTemplateType[]
+                } else {
+                    // Special case for listing sub templates - we
+                    for (const template of rawTemplates) {
+                        for (const subTemplateId of subTemplateIds ?? []) {
+                            const subTemplate = getSubTemplate(template, subTemplateId)
 
-                const final: HogFunctionTemplateWithSubTemplateType[] = []
-
-                // Special case for listing sub templates - we
-                for (const template of rawTemplates) {
-                    for (const subTemplateId of subTemplateIds ?? []) {
-                        const subTemplate = getSubTemplate(template, subTemplateId)
-
-                        if (subTemplate) {
-                            // Store it with the overrides applied
-                            final.push({
-                                ...template,
-                                ...subTemplate,
-                            })
+                            if (subTemplate) {
+                                // Store it with the overrides applied
+                                templates.push({
+                                    ...template,
+                                    ...subTemplate,
+                                })
+                            }
                         }
                     }
                 }
-
-                return final
+                return templates.filter((x) => shouldShowHogFunctionTemplate(x, user))
             },
         ],
 
         templatesFuse: [
             (s) => [s.templates],
-            (hogFunctionTemplates): Fuse => {
-                return new FuseClass(hogFunctionTemplates || [], {
+            (templates): Fuse => {
+                return new FuseClass(templates || [], {
                     keys: ['name', 'description'],
                     threshold: 0.3,
                 })
@@ -145,13 +148,27 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         ],
 
         filteredTemplates: [
-            (s) => [s.filters, s.templates, s.templatesFuse, s.user],
-            (filters, templates, templatesFuse, user): HogFunctionTemplateType[] => {
+            (s) => [s.filters, s.templates, s.templatesFuse],
+            (filters, templates, templatesFuse): HogFunctionTemplateType[] => {
                 const { search } = filters
 
-                return (search ? templatesFuse.search(search).map((x) => x.item) : templates).filter(
-                    (x) => shouldShowHogFunctionTemplate(x, user) && (x.status === 'coming_soon' ? search : true)
+                if (search) {
+                    return templatesFuse.search(search).map((x) => x.item)
+                }
+
+                const [available, comingSoon] = templates.reduce(
+                    ([available, comingSoon], template) => {
+                        if (template.status === 'coming_soon') {
+                            comingSoon.push(template)
+                        } else {
+                            available.push(template)
+                        }
+                        return [available, comingSoon]
+                    },
+                    [[], []] as HogFunctionTemplateType[][]
                 )
+
+                return [...available, ...comingSoon]
             },
         ],
 
