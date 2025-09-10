@@ -1,7 +1,10 @@
+import { useValues } from 'kea'
+
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { AdvancedActivityLogFiltersPanel } from './AdvancedActivityLogFiltersPanel'
 import { AdvancedActivityLogsList } from './AdvancedActivityLogsList'
@@ -12,7 +15,14 @@ export const scene: SceneExport = {
     logic: advancedActivityLogsLogic,
 }
 
-export function AdvancedActivityLogsScene(): JSX.Element {
+export function AdvancedActivityLogsScene(): JSX.Element | null {
+    const { isFeatureFlagEnabled } = useValues(advancedActivityLogsLogic)
+
+    if (!isFeatureFlagEnabled) {
+        window.location.href = urls.projectHomepage()
+        return null
+    }
+
     return (
         <div>
             <PageHeader caption="Track all changes and activities in your organization" />

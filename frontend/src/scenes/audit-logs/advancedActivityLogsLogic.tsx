@@ -7,7 +7,6 @@ import { ADVANCED_ACTIVITY_PAGE_SIZE, FEATURE_FLAGS } from 'lib/constants'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateStringToDayJs } from 'lib/utils'
-import { urls } from 'scenes/urls'
 
 import { ActivityScope } from '~/types'
 
@@ -159,12 +158,8 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         },
     })),
 
-    events(({ actions, values }) => ({
+    events(({ actions }) => ({
         afterMount: () => {
-            if (!values.isFeatureFlagEnabled) {
-                window.location.href = urls.projectHomepage()
-            }
-
             actions.loadAvailableFilters()
             actions.loadAdvancedActivityLogs()
         },
