@@ -20,7 +20,7 @@ def _get_incremental_date_range(
     should_use_incremental_field: bool, db_incremental_field_last_value: Optional[Any] = None
 ) -> tuple[str, str]:
     # Reddit Ads API will throw bad request error if the start or end time params has minutes or seconds
-    # so we set it to the floor of the current or next hour
+    # so we set it to the floor of the current or next hour for the start and end times respectively
     ends_at = (datetime.now() + timedelta(hours=1)).strftime("%Y-%m-%dT%H:00:00Z")
 
     if should_use_incremental_field and db_incremental_field_last_value:
