@@ -167,6 +167,7 @@ describe('sessionRecordingDataLogic', () => {
                         durationMs: 0,
                         segments: [],
                         sessionRecordingId: '2',
+                        sessionRetentionPeriodDays: null,
                         person: null,
                         snapshotsByWindowId: {},
                         fullyLoaded: false,
