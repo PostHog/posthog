@@ -680,7 +680,7 @@ export class IngestionConsumer {
         const groupedEvents: IncomingEventsByDistinctId = {}
 
         for (const eventWithTeam of messages) {
-            const { message, event, team } = eventWithTeam
+            const { message, event, team, headers } = eventWithTeam
             const token = event.token ?? ''
             const distinctId = event.distinct_id ?? ''
             const eventKey = `${token}:${distinctId}`
@@ -695,7 +695,7 @@ export class IngestionConsumer {
                 }
             }
 
-            groupedEvents[eventKey].events.push({ message, event, team })
+            groupedEvents[eventKey].events.push({ message, event, team, headers })
         }
 
         return groupedEvents

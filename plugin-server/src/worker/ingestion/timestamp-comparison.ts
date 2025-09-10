@@ -28,7 +28,7 @@ function shouldSampleLog(sampleRate: number): boolean {
  * Compare timestamp from headers with current parsing logic and log differences
  */
 export function compareTimestamps(
-    currentTimestamp: string,
+    currentTimestamp: string | undefined,
     headers: EventHeaders | undefined,
     teamId: number,
     eventUuid?: string,
@@ -36,6 +36,16 @@ export function compareTimestamps(
     loggingSampleRate: number = 0.0
 ): void {
     const contextLabel = context || 'timestamp_comparison'
+
+    if (!currentTimestamp) {
+        timestampComparisonCounter
+            .labels({
+                result: 'event_timestamp_missing',
+                context: contextLabel,
+            })
+            .inc()
+        return
+    }
 
     if (!headers?.timestamp) {
         timestampComparisonCounter
