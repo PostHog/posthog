@@ -424,7 +424,6 @@ export function Experiments(): JSX.Element {
                 docsURL="https://posthog.com/docs/experiments/installation?utm_medium=in-product&utm_campaign=new-experiment"
                 resourceType={{
                     type: 'experiment',
-                    typePlural: 'experiments',
                 }}
             />
             <SceneDivider />

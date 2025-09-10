@@ -6,7 +6,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::kafka::types::Partition;
-use crate::rocksdb::deduplication_store::DeduplicationStore;
+use crate::store::DeduplicationStore;
 use crate::store_manager::StoreManager;
 
 /// Manages checkpointing and periodic flushing for all deduplication stores
@@ -223,7 +223,7 @@ impl Drop for CheckpointManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rocksdb::deduplication_store::{DeduplicationStore, DeduplicationStoreConfig};
+    use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
     use common_types::RawEvent;
     use std::{collections::HashMap, path::PathBuf};
     use tempfile::TempDir;

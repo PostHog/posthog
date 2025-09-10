@@ -10,6 +10,7 @@ import {
     LemonTable,
     LemonTableColumns,
     LemonTabs,
+    Link,
     Tooltip,
 } from '@posthog/lemon-ui'
 
@@ -50,6 +51,7 @@ export function ErrorTrackingSymbolSets(): JSX.Element {
                 Source maps are required to demangle any minified code in your exception stack traces. PostHog
                 automatically retrieves source maps where possible.
             </p>
+
             <p>
                 Cases where it was not possible are listed below. Source maps can be uploaded retroactively but changes
                 will only apply to all future exceptions ingested.
@@ -147,6 +149,16 @@ const SymbolSetTable = (): JSX.Element => {
         },
     ]
 
+    const emptyState = (
+        <div className="flex flex-col justify-center items-center gap-2 p-4 text-center">
+            <div className="font-semibold">No symbol sets found</div>
+            <div className="text-secondary">
+                Learn how to upload them from the{' '}
+                <Link to="https://posthog.com/docs/error-tracking/upload-source-maps">docs</Link>
+            </div>
+        </div>
+    )
+
     return (
         <LemonTable
             id="symbol-sets"
@@ -154,6 +166,7 @@ const SymbolSetTable = (): JSX.Element => {
             columns={columns}
             loading={symbolSetResponseLoading}
             dataSource={symbolSets}
+            emptyState={!symbolSetResponseLoading ? emptyState : undefined}
             expandable={{
                 noIndent: true,
                 expandedRowRender: function RenderPropertiesTable(symbolSet) {
