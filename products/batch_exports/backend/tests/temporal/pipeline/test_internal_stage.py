@@ -221,6 +221,7 @@ async def minio_client():
 
 
 @pytest.mark.parametrize("interval", ["day", "every 5 minutes"], indirect=True)
+# single quotes in parameters have caused query formatting to break in the past
 @pytest.mark.parametrize("exclude_events", [None, ["'"]])
 @pytest.mark.parametrize(
     "model",
