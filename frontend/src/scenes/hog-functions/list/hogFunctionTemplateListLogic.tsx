@@ -108,7 +108,12 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         loading: [(s) => [s.rawTemplatesLoading], (x) => x],
 
         templates: [
-            (s, p) => [s.rawTemplates, s.user, p.manualTemplates, p.subTemplateIds],
+            (s) => [
+                s.rawTemplates,
+                s.user,
+                (_, p: HogFunctionTemplateListLogicProps) => p.manualTemplates ?? [],
+                (_, p: HogFunctionTemplateListLogicProps) => p.subTemplateIds ?? [],
+            ],
             (rawTemplates, user, manualTemplates, subTemplateIds): HogFunctionTemplateWithSubTemplateType[] => {
                 let templates: HogFunctionTemplateWithSubTemplateType[] = []
 
