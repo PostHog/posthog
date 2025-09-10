@@ -153,7 +153,7 @@ const SymbolSetTable = (): JSX.Element => {
         <div className="flex flex-col justify-center items-center gap-2 p-4 text-center">
             <div className="font-semibold">No symbol sets found</div>
             <div className="text-secondary">
-                See the <Link to="https://posthog.com/docs/error-tracking/upload-source-maps">docs</Link>
+                Learn how to upload them from the <Link to="https://posthog.com/docs/error-tracking/upload-source-maps">docs</Link>
             </div>
         </div>
     )
