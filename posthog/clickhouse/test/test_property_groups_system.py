@@ -5,14 +5,14 @@ class TestSystemPropertyGroup:
     def test_system_property_group_definition_exists(self):
         """Test that the system property group is defined for events tables"""
         # Check sharded_events table has system property group
-        assert "system" in property_groups._PropertyGroupManager__groups["sharded_events"]["properties"]
+        assert "system" in property_groups.get_groups()["sharded_events"]["properties"]
 
         # Check events table has system property group
-        assert "system" in property_groups._PropertyGroupManager__groups["events"]["properties"]
+        assert "system" in property_groups.get_groups()["events"]["properties"]
 
     def test_system_property_group_matches_dollar_properties(self):
         """Test that the system property group correctly identifies $ properties"""
-        system_group = property_groups._PropertyGroupManager__groups["sharded_events"]["properties"]["system"]
+        system_group = property_groups.get_groups()["sharded_events"]["properties"]["system"]
 
         # Should match properties starting with $
         assert system_group.contains("$browser")
@@ -40,18 +40,16 @@ class TestSystemPropertyGroup:
 
     def test_system_property_group_column_name(self):
         """Test that the system property group generates the correct column name"""
-        system_group = property_groups._PropertyGroupManager__groups["sharded_events"]["properties"]["system"]
+        system_group = property_groups.get_groups()["sharded_events"]["properties"]["system"]
 
         column_name = system_group.get_column_name("properties", "system")
         assert column_name == "properties_group_system"
 
     def test_system_property_group_overlaps_with_ai_and_feature_flags(self):
         """Test that system property group includes AI and feature flag properties"""
-        system_group = property_groups._PropertyGroupManager__groups["sharded_events"]["properties"]["system"]
-        ai_group = property_groups._PropertyGroupManager__groups["sharded_events"]["properties"]["ai"]
-        feature_flags_group = property_groups._PropertyGroupManager__groups["sharded_events"]["properties"][
-            "feature_flags"
-        ]
+        system_group = property_groups.get_groups()["sharded_events"]["properties"]["system"]
+        ai_group = property_groups.get_groups()["sharded_events"]["properties"]["ai"]
+        feature_flags_group = property_groups.get_groups()["sharded_events"]["properties"]["feature_flags"]
 
         # System group should include AI properties (they start with $)
         assert system_group.contains("$ai_language")

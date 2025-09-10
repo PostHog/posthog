@@ -61,6 +61,12 @@ class PropertyGroupManager:
     ) -> None:
         self.__groups = groups
 
+    def get_groups(
+        self,
+    ) -> Mapping[TableName, Mapping[PropertySourceColumnName, Mapping[PropertyGroupName, PropertyGroupDefinition]]]:
+        """Get all registered property groups"""
+        return self.__groups
+
     def get_property_group_columns(
         self, table: TableName, source_column: PropertySourceColumnName, property_key: str
     ) -> Iterable[str]:
