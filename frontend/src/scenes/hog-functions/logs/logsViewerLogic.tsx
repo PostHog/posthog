@@ -229,9 +229,9 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         filters: [
             {
                 search: '',
-                levels: DEFAULT_LOG_LEVELS,
-                date_from: '-7d',
-                date_to: undefined,
+                levels: props.defaultFilters?.levels ?? DEFAULT_LOG_LEVELS,
+                date_from: props.defaultFilters?.dateFrom ?? '-7d',
+                date_to: props.defaultFilters?.dateTo,
             } as LogsViewerFilters,
             {
                 setFilters: (state, { filters }) => ({
@@ -426,13 +426,13 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 const searchGroups = [filters.search, ...(props.searchGroups || [])].filter((x) => !!x) as string[]
                 return {
                     ...props.defaultFilters,
-                    levels: props.defaultFilters?.levels ?? filters.levels,
+                    levels: filters.levels,
                     searchGroups: searchGroups,
                     sourceType: props.sourceType,
                     sourceId: props.sourceId,
-                    dateFrom: props.defaultFilters?.dateFrom ?? filters.date_from,
-                    dateTo: props.defaultFilters?.dateTo ?? filters.date_to,
-                    order: props.defaultFilters?.order ?? 'DESC',
+                    dateFrom: filters.date_from,
+                    dateTo: filters.date_to,
+                    order: 'DESC',
                 }
             },
         ],
