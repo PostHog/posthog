@@ -420,6 +420,9 @@ class ClickHouseClient:
                     continue
 
                 if isinstance(value, list):
+                    # Encode lists of strings in case they contain single quotes.
+                    # This is intended only to handle `exclude_events` from batch
+                    # exports. A further refactor of this whole block is pending.
                     params[f"param_{key}"] = encode_clickhouse_data(value).decode("utf-8")
                 else:
                     params[f"param_{key}"] = str(value)
