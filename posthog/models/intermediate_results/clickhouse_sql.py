@@ -8,7 +8,7 @@ from posthog.clickhouse.table_engines import Distributed
 # This is because we want to avoid a problem where distributed writes are only eventually consistent, but we usually
 # want to read the data back immediately after writing it.
 
-# Using generation_id as the sharding key means that we write the data from one generation to a single shard, and avoid
+# Using insert_id as the sharding key means that we write the data from one generation to a single shard, and avoid
 # this problem. *Reading* from the distributed table afterward is fine, as the query will be routed to the shard that
 # has the data.
 
@@ -22,7 +22,7 @@ INTERMEDIATE_RESULTS_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
-    generation_id UInt64,
+    insert_id UInt64,
     query_hash String,
     bucket_timestamp DateTime,
     computed_at DateTime DEFAULT now(),
@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
 def SHARDED_INTERMEDIATE_RESULTS_SQL():
     return INTERMEDIATE_RESULTS_BASE_SQL.format(
         table_name=SHARDED_INTERMEDIATE_RESULTS_TABLE,
-        engine="MergeTree() PARTITION BY (team_id, toDate(bucket_timestamp)) ORDER BY (team_id, generation_id, query_hash, bucket_timestamp, breakdown_value) SETTINGS index_granularity=8192",
+        engine="MergeTree() PARTITION BY toYYYYMMDD(bucket_timestamp) ORDER BY (team_id, query_hash, bucket_timestamp, insert_id, breakdown_value) SETTINGS index_granularity=8192",
     )
 
 
@@ -53,6 +53,6 @@ def DISTRIBUTED_INTERMEDIATE_RESULTS_SQL(on_cluster=True):
         table_name=DISTRIBUTED_INTERMEDIATE_RESULTS_TABLE,
         engine=Distributed(
             data_table=SHARDED_INTERMEDIATE_RESULTS_TABLE,
-            sharding_key="cityHash64(generation_id)",
+            sharding_key="cityHash64(insert_id)",
         ),
     )

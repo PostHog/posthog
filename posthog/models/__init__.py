@@ -59,6 +59,7 @@ from .insight_caching_state import InsightCachingState
 from .insight_variable import InsightVariable
 from .instance_setting import InstanceSetting
 from .integration import Integration
+from .intermediate_results import IntermediateResultsCatalog
 from .link import Link
 from .message_template import MessageTemplate
 from .message_category import MessageCategory
@@ -160,6 +161,7 @@ __all__ = [
     "InsightViewed",
     "InstanceSetting",
     "Integration",
+    "IntermediateResultsCatalog",
     "InviteExpiredException",
     "MessageCategory",
     "MessageRecipientPreference",

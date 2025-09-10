@@ -23,12 +23,12 @@ class IntermediateResultsCatalog(models.Model):
     results_key = models.TextField(
         help_text="Hash of normalized query, hogql modifiers, path cleaning rules, etc (excluding date range)"
     )
-    start_bucket = models.DateTimeField(help_text="Start of the time bucket (inclusive)")
-    end_bucket = models.DateTimeField(help_text="End of the time bucket (exclusive)")
-    computed_at = models.DateTimeField(null=True, blank=True, help_text="When the computation completed successfully")
+    start_bucket = models.DateTimeField()
+    end_bucket = models.DateTimeField()
+    computed_at = models.DateTimeField()
 
     # Distributed locking and concurrency control
-    generation_id = models.BigIntegerField(help_text="Generation ID for this computation attempt")
+    insert_id = models.BigIntegerField()
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.COMPUTING, help_text="Current status of this computation"
     )
@@ -50,7 +50,7 @@ class IntermediateResultsCatalog(models.Model):
         ]
 
     def __str__(self):
-        return f"IntermediateResults({self.results_key}, {self.generation_id}, {self.start_bucket} - {self.end_bucket}, {self.status})"
+        return f"IntermediateResults({self.results_key}, {self.insert_id}, {self.start_bucket} - {self.end_bucket}, {self.status})"
 
     def save(self, *args, **kwargs):
         self.full_clean()
