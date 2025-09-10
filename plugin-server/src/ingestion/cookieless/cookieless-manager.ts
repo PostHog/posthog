@@ -19,6 +19,7 @@ import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
 import { TeamManager } from '../../utils/team-manager'
 import { UUID7, bufferToUint32ArrayLE, uint32ArrayLEToBuffer } from '../../utils/utils'
+import { compareTimestamps } from '../../worker/ingestion/timestamp-comparison'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
 import { RedisHelpers } from './redis-helpers'
 
@@ -82,6 +83,7 @@ interface CookielessConfig {
     identifiesTtlSeconds: number
     sessionTtlSeconds: number
     saltTtlSeconds: number
+    timestampLoggingSampleRate: number
     sessionInactivityMs: number
 }
 
@@ -106,6 +108,7 @@ export class CookielessManager {
             saltTtlSeconds: config.COOKIELESS_SALT_TTL_SECONDS,
             sessionInactivityMs: config.COOKIELESS_SESSION_INACTIVITY_MS,
             identifiesTtlSeconds: config.COOKIELESS_IDENTIFIES_TTL_SECONDS,
+            timestampLoggingSampleRate: config.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE,
         }
 
         this.redisHelpers = new RedisHelpers(redis)
@@ -291,7 +294,7 @@ export class CookielessManager {
 
         // do a first pass just to extract properties and compute the base hash for stateful cookieless events
         const eventsWithStatus: EventWithStatus[] = []
-        for (const { event, team, message } of events) {
+        for (const { event, team, message, headers } of events) {
             if (!event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
                 // push the event as is, we don't need to do anything with it, but preserve the ordering
                 eventsWithStatus.push({ event, team, message })
@@ -348,6 +351,16 @@ export class CookielessManager {
                     .inc()
                 continue
             }
+
+            // Compare timestamp from headers with current parsing logic
+            compareTimestamps(
+                timestamp,
+                headers,
+                team.id,
+                event.uuid,
+                'cookieless_processing',
+                this.config.timestampLoggingSampleRate
+            )
 
             const {
                 userAgent,

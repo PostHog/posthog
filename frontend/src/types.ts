@@ -1147,6 +1147,7 @@ export interface SessionPlayerData {
     end: Dayjs | null
     fullyLoaded: boolean
     sessionRecordingId: SessionRecordingId
+    sessionRetentionPeriodDays: number | null
 }
 
 export enum SessionRecordingUsageType {
@@ -1650,6 +1651,8 @@ export interface SessionRecordingType {
      * calculated on the backend so that we can sort by it, definition may change over time
      */
     activity_score?: number
+    /** retention period for this recording */
+    retention_period_days?: number
 }
 
 export interface SessionRecordingUpdateType {

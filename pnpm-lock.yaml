@@ -1666,6 +1666,33 @@ importers:
         specifier: '*'
         version: 18.2.0
 
+  products/embedded_analytics:
+    dependencies:
+      '@posthog/icons':
+        specifier: 0.30.0
+        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      fuse.js:
+        specifier: '*'
+        version: 6.6.2
+      kea:
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
+      kea-loaders:
+        specifier: ^3.1.1
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
+      kea-router:
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
   products/error_tracking:
     dependencies:
       '@dnd-kit/core':

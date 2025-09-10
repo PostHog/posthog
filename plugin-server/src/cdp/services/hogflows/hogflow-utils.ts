@@ -100,6 +100,6 @@ export async function shouldSkipAction(
 }
 
 // Special format which the frontend understands and can render as a link
-export const actionIdForLogging = (action: HogFlowAction): string => {
+export const actionIdForLogging = (action: Pick<HogFlowAction, 'id'>): string => {
     return `[Action:${action.id}]`
 }

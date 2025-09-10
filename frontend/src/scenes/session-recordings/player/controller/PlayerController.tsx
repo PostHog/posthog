@@ -154,7 +154,7 @@ export function PlayerController(): JSX.Element {
                             {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
                         </>
                     )}
-                    <CinemaMode />
+                    {playerMode === SessionRecordingPlayerMode.Standard && <CinemaMode />}
                     <FullScreen />
                 </div>
             </div>

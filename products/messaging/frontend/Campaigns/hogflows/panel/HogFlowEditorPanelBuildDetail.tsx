@@ -1,14 +1,13 @@
 import { useActions, useValues } from 'kea'
 
 import { IconExternal } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonCollapse, LemonDivider, LemonLabel } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { urls } from 'scenes/urls'
 
 import { CategorySelect } from 'products/messaging/frontend/OptOuts/CategorySelect'
 
-import { campaignLogic } from '../../campaignLogic'
 import { HogFlowFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
@@ -18,8 +17,6 @@ import { HogFlowAction } from '../types'
 export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     const { selectedNode, categories, categoriesLoading } = useValues(hogFlowEditorLogic)
     const { setCampaignAction } = useActions(hogFlowEditorLogic)
-    const { actionValidationErrorsById } = useValues(campaignLogic)
-    const validationResult = actionValidationErrorsById[selectedNode?.id ?? '']
 
     const Step = useHogFlowStep(selectedNode?.data)
 
@@ -29,6 +26,12 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
 
     const action = selectedNode.data
 
+    const actionFilters = action.filters ?? {}
+    const numberOfActionFilters =
+        (actionFilters.events?.length ?? 0) +
+        (actionFilters.properties?.length ?? 0) +
+        (actionFilters.actions?.length ?? 0)
+
     return (
         <div className="flex flex-col h-full overflow-hidden">
             <ScrollableShadows
@@ -37,15 +40,6 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                 innerClassName="flex flex-col gap-2 p-3"
                 styledScrollbars
             >
-                {validationResult?.schema && (
-                    <div>
-                        {Object.values(validationResult.schema.errors).map(({ path, message }) => (
-                            <LemonBanner type="error" key={path.join('.')}>
-                                {path.join('.')}: {message}
-                            </LemonBanner>
-                        ))}
-                    </div>
-                )}
                 {Step?.renderConfiguration(selectedNode)}
             </ScrollableShadows>
 
@@ -87,34 +81,42 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
             {!['trigger', 'exit'].includes(action.type) && (
                 <>
                     <LemonDivider className="my-0" />
-                    <div className="flex flex-col p-2">
-                        <LemonLabel htmlFor="conditions" className="flex gap-2 justify-between items-center">
-                            <span>Conditions</span>
-                            <LemonSwitch
-                                id="conditions"
-                                checked={!!action.filters}
-                                onChange={(checked) =>
-                                    setCampaignAction(action.id, {
-                                        ...action,
-                                        filters: checked ? {} : null,
-                                    })
-                                }
-                            />
-                        </LemonLabel>
 
-                        {action.filters && (
-                            <>
-                                <p className="mb-0">
-                                    Add conditions to the step. If these conditions aren't met, the user will skip this
-                                    step and continue to the next one.
-                                </p>
-                                <HogFlowFilters
-                                    filters={action.filters ?? {}}
-                                    setFilters={(filters) => setCampaignAction(action.id, { ...action, filters })}
-                                    buttonCopy="Add filter conditions"
-                                />
-                            </>
-                        )}
+                    <div className="flex-0">
+                        <LemonCollapse
+                            embedded
+                            panels={[
+                                {
+                                    key: 'filters',
+                                    header: {
+                                        children: (
+                                            <>
+                                                <span className="flex-1">Conditions</span>
+                                                <LemonBadge.Number count={numberOfActionFilters} showZero={false} />
+                                            </>
+                                        ),
+                                    },
+                                    className: '',
+                                    content: (
+                                        <div>
+                                            <>
+                                                <p className="mb-0">
+                                                    Add conditions to the step. If these conditions aren't met, the user
+                                                    will skip this step and continue to the next one.
+                                                </p>
+                                                <HogFlowFilters
+                                                    filters={action.filters ?? {}}
+                                                    setFilters={(filters) =>
+                                                        setCampaignAction(action.id, { ...action, filters })
+                                                    }
+                                                    buttonCopy="Add filter conditions"
+                                                />
+                                            </>
+                                        </div>
+                                    ),
+                                },
+                            ]}
+                        />
                     </div>
                 </>
             )}
