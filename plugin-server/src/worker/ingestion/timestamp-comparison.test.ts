@@ -23,6 +23,22 @@ describe('compareTimestamps', () => {
         }).not.toThrow()
     })
 
+    it('should handle missing event timestamp without throwing', () => {
+        expect(() => {
+            compareTimestamps(undefined, undefined, 123, 'test-uuid', 'test-context')
+        }).not.toThrow()
+    })
+
+    it('should handle missing event timestamp with headers without throwing', () => {
+        const headers: EventHeaders = {
+            timestamp: '1672574400000', // 2023-01-01T12:00:00Z
+        }
+
+        expect(() => {
+            compareTimestamps(undefined, headers, 123, 'test-uuid', 'test-context')
+        }).not.toThrow()
+    })
+
     it('should handle missing timestamp header without throwing', () => {
         const headers: EventHeaders = {
             token: 'test-token',
