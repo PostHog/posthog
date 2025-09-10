@@ -127,9 +127,9 @@ export const WithAccessControl = (): JSX.Element => {
                 checked={true}
                 onChange={() => {}}
                 accessControl={{
-                    userLevel: AccessControlLevel.Admin,
-                    minLevel: AccessControlLevel.Admin,
-                    resource: AccessControlResourceType.Project,
+                    resourceType: AccessControlResourceType.Project,
+                    minAccessLevel: AccessControlLevel.Admin,
+                    userAccessLevel: AccessControlLevel.Admin,
                 }}
             />
             <LemonSwitch
@@ -137,9 +137,9 @@ export const WithAccessControl = (): JSX.Element => {
                 checked={false}
                 onChange={() => {}}
                 accessControl={{
-                    userLevel: AccessControlLevel.Viewer,
-                    minLevel: AccessControlLevel.Admin,
-                    resource: AccessControlResourceType.Project,
+                    resourceType: AccessControlResourceType.Project,
+                    minAccessLevel: AccessControlLevel.Admin,
+                    userAccessLevel: AccessControlLevel.Viewer,
                 }}
             />
         </div>

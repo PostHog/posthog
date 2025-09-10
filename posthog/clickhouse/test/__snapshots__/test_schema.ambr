@@ -2126,6 +2126,7 @@
       lc_product LowCardinality(String),
       lc_chargeable Bool,
       lc_name String,
+      lc_request_name String,
       lc_client_query_id String,
   
       lc_org_id String,
@@ -2173,7 +2174,8 @@
   '''
   CREATE MATERIALIZED VIEW IF NOT EXISTS query_log_archive_mv
   TO query_log_archive
-  AS SELECT
+  AS 
+  SELECT
       hostname,
       user,
       query_id,
@@ -2237,6 +2239,7 @@
       JSONExtractString(log_comment, 'product') as lc_product,
       JSONExtractInt(log_comment, 'chargeable') == 1 as lc_chargeable,
       JSONExtractString(log_comment, 'name') as lc_name,
+      JSONExtractString(log_comment, 'request_name') as lc_request_name,
       JSONExtractString(log_comment, 'client_query_id') as lc_client_query_id,
   
       JSONExtractString(log_comment, 'org_id') as lc_org_id,
@@ -2282,6 +2285,7 @@
   WHERE
       type != 'QueryStart'
       AND is_initial_query
+  
       
   '''
 # ---
@@ -4693,6 +4697,7 @@
       lc_product LowCardinality(String),
       lc_chargeable Bool,
       lc_name String,
+      lc_request_name String,
       lc_client_query_id String,
   
       lc_org_id String,

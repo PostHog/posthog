@@ -81,6 +81,7 @@ export interface RecordingViewedSummaryAnalytics {
     buffer_time_ms?: number
     recording_duration_ms?: number
     recording_age_ms?: number
+    recording_retention_period_days?: number
     meta_data_load_time_ms?: number
     first_snapshot_load_time_ms?: number
     first_snapshot_and_meta_load_time_ms?: number
@@ -317,6 +318,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadRecordingMeta: true,
         setSimilarRecordings: (results: string[]) => ({ results }),
         setIsCommenting: (isCommenting: boolean) => ({ isCommenting }),
+        schedulePlayerTimeTracking: true,
         setQuickEmojiIsOpen: (quickEmojiIsOpen: boolean) => ({ quickEmojiIsOpen }),
         updatePlayerTimeTracking: true,
         exportRecordingToVideoFile: true,
@@ -1550,6 +1552,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
         },
+        schedulePlayerTimeTracking: () => {
+            const currentState = values.playingTimeTracking.state
+            const interval = currentState === 'playing' ? 5000 : 30000
+
+            cache.playerTimeTrackingTimer = setTimeout(() => {
+                actions.updatePlayerTimeTracking()
+                actions.schedulePlayerTimeTracking()
+            }, interval)
+        },
     })),
 
     subscriptions(({ actions, values }) => ({
@@ -1606,8 +1617,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         actions.setPlayer(null)
 
         if (cache.playerTimeTrackingTimer) {
-            clearInterval(cache.playerTimeTrackingTimer)
+            clearTimeout(cache.playerTimeTrackingTimer)
         }
+
         const playTimeMs = values.playingTimeTracking.watchTime || 0
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {
             viewed_time_ms: cache.openTime !== undefined ? performance.now() - cache.openTime : undefined,
@@ -1618,6 +1630,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 values.sessionPlayerData && values.sessionPlayerData.segments.length > 0
                     ? Math.floor(now().diff(values.sessionPlayerData.start, 'millisecond') ?? 0)
                     : undefined,
+            recording_retention_period_days: values.sessionPlayerData.sessionRetentionPeriodDays ?? undefined,
             rrweb_warning_count: values.warningCount,
             error_count_during_recording_playback: values.errorCount,
             // as a starting and very loose measure of engagement, we count clicks
@@ -1640,7 +1653,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     }),
 
     afterMount(({ props, actions, cache }) => {
-        if (props.mode === SessionRecordingPlayerMode.Preview) {
+        if (props.mode === SessionRecordingPlayerMode.Preview || props.sessionRecordingId.trim() === '') {
             return
         }
 
@@ -1659,9 +1672,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // we rely on actions hitting a reducer to update the timer
         // let's ping it once in a while so that if the user
         // is autoplaying and doesn't interact we get a more recent value
-        cache.playerTimeTrackingTimer = setInterval(() => {
-            actions.updatePlayerTimeTracking()
-        }, 5000)
+        actions.schedulePlayerTimeTracking()
     }),
 ])
 
