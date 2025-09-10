@@ -37,11 +37,11 @@ export type HogFunctionTemplateListLogicProps = {
     /** Additional types to list */
     additionalTypes?: HogFunctionTypeType[]
     /** If provided, only those templates will be shown */
-    subTemplateIds?: HogFunctionSubTemplateIdType[]
+    subTemplateIds?: HogFunctionSubTemplateIdType[] | null
     /** Overrides to be used when creating a new hog function */
     configurationOverrides?: Pick<HogFunctionTemplateType, 'filters'>
     syncFiltersWithUrl?: boolean
-    manualTemplates?: HogFunctionTemplateType[]
+    manualTemplates?: HogFunctionTemplateType[] | null
 }
 
 export const shouldShowHogFunctionTemplate = (
@@ -58,7 +58,10 @@ export const shouldShowHogFunctionTemplate = (
 }
 
 export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType>([
-    props({} as HogFunctionTemplateListLogicProps),
+    props({
+        manualTemplates: null,
+        subTemplateIds: null,
+    } as HogFunctionTemplateListLogicProps),
     key(
         (props) =>
             `${props.syncFiltersWithUrl ? 'scene' : 'default'}/${props.type ?? 'destination'}/${
@@ -104,15 +107,11 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         loading: [(s) => [s.rawTemplatesLoading], (x) => x],
 
         templates: [
-            (s) => [s.rawTemplates, s.user, (_, props) => props],
-            (
-                rawTemplates,
-                user,
-                { subTemplateIds, manualTemplates }: HogFunctionTemplateListLogicProps
-            ): HogFunctionTemplateWithSubTemplateType[] => {
+            (s, p) => [s.rawTemplates, s.user, p.manualTemplates, p.subTemplateIds],
+            (rawTemplates, user, manualTemplates, subTemplateIds): HogFunctionTemplateWithSubTemplateType[] => {
                 let templates: HogFunctionTemplateWithSubTemplateType[] = []
 
-                if (!subTemplateIds) {
+                if (!subTemplateIds?.length) {
                     templates = [
                         ...rawTemplates,
                         ...(manualTemplates || []),
