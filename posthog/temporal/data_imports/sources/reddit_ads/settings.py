@@ -1,15 +1,8 @@
 from dataclasses import dataclass
 from typing import Any, Optional, Union
 
+from posthog.temporal.data_imports.sources.common.schema import IncrementalField
 from posthog.warehouse.types import IncrementalFieldType
-
-
-@dataclass
-class IncrementalField:
-    label: str
-    type: IncrementalFieldType
-    field: str
-    field_type: IncrementalFieldType
 
 
 @dataclass
@@ -157,10 +150,4 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
         ],
         is_stats=True,
     ),
-}
-
-REDDIT_ADS_ENDPOINTS = list(REDDIT_ADS_CONFIG.keys())
-
-REDDIT_ADS_INCREMENTAL_FIELDS = {
-    endpoint: config.incremental_fields or [] for endpoint, config in REDDIT_ADS_CONFIG.items()
 }

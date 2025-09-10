@@ -16,10 +16,7 @@ from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import RedditAdsSourceConfig
 from posthog.temporal.data_imports.sources.reddit_ads.reddit_ads import reddit_ads_source
-from posthog.temporal.data_imports.sources.reddit_ads.settings import (
-    REDDIT_ADS_ENDPOINTS,
-    REDDIT_ADS_INCREMENTAL_FIELDS,
-)
+from posthog.temporal.data_imports.sources.reddit_ads.settings import REDDIT_ADS_CONFIG
 from posthog.warehouse.types import ExternalDataSourceType
 
 
@@ -70,12 +67,12 @@ class RedditAdsSource(BaseSource[RedditAdsSourceConfig], OAuthMixin):
     def get_schemas(self, config: RedditAdsSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
             SourceSchema(
-                name=endpoint,
-                supports_incremental=REDDIT_ADS_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                supports_append=REDDIT_ADS_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                incremental_fields=REDDIT_ADS_INCREMENTAL_FIELDS.get(endpoint, []),
+                name=endpoint_config.name,
+                supports_incremental=endpoint_config.incremental_fields is not None,
+                supports_append=endpoint_config.incremental_fields is not None,
+                incremental_fields=endpoint_config.incremental_fields or [],
             )
-            for endpoint in REDDIT_ADS_ENDPOINTS
+            for endpoint_config in REDDIT_ADS_CONFIG.values()
         ]
 
     def source_for_pipeline(self, config: RedditAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
