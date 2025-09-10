@@ -54,6 +54,8 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, PersonalApiKeyRateThrottle
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.renderers import ServerSentEventRenderer
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
@@ -213,7 +215,7 @@ class SurrogatePairSafeJSONRenderer(JSONRenderer):
     encoder_class = SurrogatePairSafeJSONEncoder
 
 
-class SessionRecordingSerializer(serializers.ModelSerializer):
+class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     id = serializers.CharField(source="session_id", read_only=True)
     recording_duration = serializers.IntegerField(source="duration", read_only=True)
     person = MinimalPersonSerializer(required=False)
@@ -258,6 +260,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "start_url",
             "person",
             "storage",
+            "retention_period_days",
             "snapshot_source",
             "ongoing",
             "activity_score",
@@ -280,6 +283,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "console_error_count",
             "start_url",
             "storage",
+            "retention_period_days",
             "snapshot_source",
             "ongoing",
             "activity_score",
@@ -322,7 +326,6 @@ class SessionRecordingUpdateSerializer(serializers.Serializer):
     viewed = serializers.BooleanField(required=False)
     analyzed = serializers.BooleanField(required=False)
     player_metadata = serializers.JSONField(required=False)
-    durations = serializers.JSONField(required=False)
 
     def validate(self, data):
         if not data.get("viewed") and not data.get("analyzed"):
@@ -512,7 +515,9 @@ def clean_referer_url(current_url: str | None) -> str:
 
 
 # NOTE: Could we put the sharing stuff in the shared mixin :thinking:
-class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, UpdateModelMixin):
+class SessionRecordingViewSet(
+    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet, UpdateModelMixin
+):
     scope_object = "session_recording"
     scope_object_read_actions = ["list", "retrieve", "snapshots"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
@@ -687,25 +692,19 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         current_url = request.headers.get("Referer")
         session_id = request.headers.get("X-Posthog-Session-Id")
-        durations = serializer.validated_data.get("durations", {})
         player_metadata = serializer.validated_data.get("player_metadata", {})
 
         event_properties = {
             "$current_url": current_url,
             "cleaned_replay_path": clean_referer_url(current_url),
             "$session_id": session_id,
-            "snapshots_load_time": durations.get("snapshots"),
-            "metadata_load_time": durations.get("metadata"),
-            "events_load_time": durations.get("events"),
-            "duration": player_metadata.get("duration"),
-            "recording_id": player_metadata.get("sessionRecordingId"),
-            "start_time": player_metadata.get("start"),
-            "end_time": player_metadata.get("end"),
-            "page_change_events_length": player_metadata.get("pageChangeEventsLength"),
-            "recording_width": player_metadata.get("recordingWidth"),
+            "duration": player_metadata.get("recording_duration"),
+            "recording_id": player_metadata.get("id"),
+            "start_time": player_metadata.get("start_time"),
+            "end_time": player_metadata.get("end_time"),
             # older recordings did not store this and so "null" is equivalent to web
             # but for reporting we want to distinguish between not loaded and no value to load
-            "snapshot_source": player_metadata.get("snapshotSource", "unknown"),
+            "snapshot_source": player_metadata.get("snapshot_source", "unknown"),
         }
         user: User | AnonymousUser = cast(User | AnonymousUser, request.user)
 
@@ -756,7 +755,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             )
 
         # Load recordings from ClickHouse to get distinct_ids for ones that don't exist in Postgres
-        # Create minimal query with only session_ids
+        # Create minimal query with only session_ids - pass None for user to bypass access control filtering
         query_data = {
             "session_ids": session_recording_ids,
             "date_from": None,
@@ -764,10 +763,17 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             "kind": "RecordingsQuery",
         }
         query = RecordingsQuery.model_validate(query_data)
-        recordings, _, _ = list_recordings_from_query(query, cast(User, request.user), self.team)
+        recordings, _, _ = list_recordings_from_query(query, None, self.team)
+
+        # Filter recordings based on access control - only allow deletion of recordings user has editor access to
+        user_access_control = self.user_access_control
+        accessible_recordings = []
+        for recording in recordings:
+            if user_access_control.check_access_level_for_object(recording, required_level="editor"):
+                accessible_recordings.append(recording)
 
         # Filter out recordings that are already deleted
-        non_deleted_recordings = [recording for recording in recordings if not recording.deleted]
+        non_deleted_recordings = [recording for recording in accessible_recordings if not recording.deleted]
 
         # First, bulk create any missing records
         session_recordings_to_create = [

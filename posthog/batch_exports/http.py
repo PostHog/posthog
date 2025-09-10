@@ -1,4 +1,5 @@
 import typing
+import builtins
 import datetime as dt
 import dataclasses
 import collections.abc
@@ -49,7 +50,7 @@ from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestinat
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal
 from posthog.temporal.common.client import sync_connect
-from posthog.utils import relative_date_parse
+from posthog.utils import relative_date_parse, str_to_bool
 
 from products.batch_exports.backend.api.destination_tests import get_destination_test
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import SUPPORTED_COMPRESSIONS
@@ -239,9 +240,14 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
                 continue
 
             if not isinstance(config_value, field_type):
-                raise serializers.ValidationError(
-                    f"Configuration has invalid type: got '{type(config_value).__name__}', expected '{field_type.__name__}'"
-                )
+                config_value, success = try_convert_to_type(config_value, field_type)
+
+                if not success:
+                    raise serializers.ValidationError(
+                        f"Configuration has invalid type: got '{type(config_value).__name__}', expected '{field_type.__name__}'"
+                    )
+
+                config[destination_field.name] = config_value
 
         return data
 
@@ -251,6 +257,35 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
             k: v for k, v in data["config"].items() if k not in BatchExportDestination.secret_fields[instance.type]
         }
         return data
+
+
+Success = bool
+
+
+def try_convert_to_type(value: typing.Any, target_type: type) -> tuple[typing.Any, Success]:
+    """Attempt to convert value to target type based on well-known casting functions.
+
+    This doesn't raise any exceptions but rather returns a tuple with a bool indicating
+    if the value in the first position was successfully casted to `target_type` or not.
+    If casting fails, the value in the first position is returned unchanged, otherwise a
+    new value of type `target_type` is returned.
+    """
+    current_type = type(value)
+
+    match (current_type, target_type):
+        case (builtins.str, builtins.bool):
+            cast_func: typing.Callable[[typing.Any], typing.Any] = str_to_bool
+        case (builtins.str, builtins.int):
+            cast_func = int
+        case _:
+            return (value, False)
+
+    try:
+        new_value = cast_func(value)
+    except Exception:
+        return (value, False)
+
+    return (new_value, True)
 
 
 class HogQLSelectQueryField(serializers.Field):
@@ -646,8 +681,15 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
         batch_export = self.get_object()
 
+        # Remove any additional fields from stored configuration
+        _, workflow_inputs = DESTINATION_WORKFLOWS[batch_export.destination.type]
+        workflow_fields = {field.name for field in dataclasses.fields(BaseBatchExportInputs)} | {
+            field.name for field in dataclasses.fields(workflow_inputs)
+        }
+        stored_config = {k: v for k, v in batch_export.destination.config.items() if k in workflow_fields}
+
         data = request.data
-        data["destination"]["config"] = {**batch_export.destination.config, **data["destination"]["config"]}
+        data["destination"]["config"] = {**stored_config, **data["destination"]["config"]}
 
         serializer = self.get_serializer(data=data)
         _ = serializer.is_valid(raise_exception=True)

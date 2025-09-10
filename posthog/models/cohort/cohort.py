@@ -408,7 +408,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         batchsize=DEFAULT_COHORT_INSERT_BATCH_SIZE,
         *,
         team_id: int,
-    ) -> None:
+    ) -> int:
         """
         Insert a list of users identified by their UUID into the cohort, for the given team.
 
@@ -417,10 +417,13 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             insert_in_clickhouse: Whether the data should also be inserted into ClickHouse.
             batchsize: Number of UUIDs to process in each batch.
             team_id: The ID of the team to which the cohort belongs.
+
+        Returns:
+            The number of batches processed.
         """
 
         batch_iterator = ArrayBatchIterator(items, batch_size=batchsize)
-        self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse, team_id=team_id)
+        return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse, team_id=team_id)
 
     def _insert_users_list_with_batching(
         self, batch_iterator: BatchIterator[str], insert_in_clickhouse: bool = False, *, team_id: int
@@ -440,6 +443,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         from posthog.models.cohort.util import get_static_cohort_size, insert_static_cohort
 
         current_batch_index = -1
+        processing_error = None
         try:
             cursor = connection.cursor()
             for batch_index, batch in batch_iterator:
@@ -467,27 +471,29 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 )
                 cursor.execute(query, params)
 
-            count = get_static_cohort_size(cohort_id=self.id, team_id=self.team_id)
-            self.count = count
-
-            self.is_calculating = False
-            self.last_calculation = timezone.now()
-            self.errors_calculating = 0
-            self.save()
-
-            return current_batch_index + 1
         except Exception as err:
+            processing_error = err
             if settings.DEBUG:
                 raise
-            self.is_calculating = False
-            self.errors_calculating = F("errors_calculating") + 1
-            self.last_error_at = timezone.now()
-
-            self.save()
             # Add batch index context to the exception
-            capture_exception(err, additional_properties={"batch_index": current_batch_index})
+            capture_exception(
+                err,
+                additional_properties={"cohort_id": self.id, "team_id": team_id, "batch_index": current_batch_index},
+            )
+        finally:
+            # Always update the count and cohort state, even if processing failed
+            try:
+                count = get_static_cohort_size(cohort_id=self.id, team_id=self.team_id)
+                self.count = count
+            except Exception as count_err:
+                # If count calculation fails, log the error but don't override the processing error
+                logger.exception("Failed to calculate static cohort size", cohort_id=self.id, team_id=team_id)
+                capture_exception(count_err, additional_properties={"cohort_id": self.id, "team_id": team_id})
+                # Leave existing count unchanged - it's better than None
 
-            return current_batch_index + 1
+            self._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
+
+        return current_batch_index + 1
 
     def to_dict(self) -> dict:
         people_data = [
@@ -519,6 +525,38 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "people": people_data,
         }
         return {k: v for k, v in base_dict.items() if k not in excluded_fields}
+
+    def _safe_save_cohort_state(self, *, team_id: int, processing_error=None) -> None:
+        """
+        Safely save cohort state with fallback to save only critical fields.
+
+        This prevents cohorts from getting stuck in calculating state when
+        database issues occur during cleanup operations.
+
+        Args:
+            team_id: Team ID for logging context
+            processing_error: Error from processing, if any. Used to update error state.
+        """
+        self.is_calculating = False
+
+        if processing_error is None:
+            self.last_calculation = timezone.now()
+            self.errors_calculating = 0
+        else:
+            self.errors_calculating = F("errors_calculating") + 1
+            self.last_error_at = timezone.now()
+        try:
+            self.save()
+        except Exception as save_err:
+            logger.exception("Failed to save cohort state", cohort_id=self.id, team_id=team_id)
+            capture_exception(save_err, additional_properties={"cohort_id": self.id, "team_id": team_id})
+
+            # Single retry for transient issues
+            try:
+                self.save()
+            except Exception:
+                logger.exception("Failed to save cohort state on retry", cohort_id=self.id, team_id=team_id)
+                # If both attempts fail, the cohort may remain in an inconsistent state
 
     __repr__ = sane_repr("id", "name", "last_calculation")
 

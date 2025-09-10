@@ -13,13 +13,11 @@ import {
     selectors,
 } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
 import api from 'lib/api'
 import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { objectsEqual, range } from 'lib/utils'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -460,9 +458,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 } else {
                     targetGroupTypes.push(TaxonomicFilterGroupType.PersonProperties)
                     targetGroupTypes.push(TaxonomicFilterGroupType.Cohorts)
-                    if (posthog.featureFlags.isFeatureEnabled(FEATURE_FLAGS.FEATURE_FLAGS_FLAG_DEPENDENCY)) {
-                        targetGroupTypes.push(TaxonomicFilterGroupType.FeatureFlags)
-                    }
+                    targetGroupTypes.push(TaxonomicFilterGroupType.FeatureFlags)
                     targetGroupTypes.push(TaxonomicFilterGroupType.Metadata)
                 }
 

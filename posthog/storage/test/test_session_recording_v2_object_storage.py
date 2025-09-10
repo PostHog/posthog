@@ -13,7 +13,12 @@ from posthog.settings.session_replay_v2 import (
     SESSION_RECORDING_V2_S3_REGION,
     SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY,
 )
-from posthog.storage.session_recording_v2_object_storage import BlockFetchError, SessionRecordingV2ObjectStorage, client
+from posthog.storage.session_recording_v2_object_storage import (
+    BlockFetchError,
+    SessionRecordingV2ObjectStorage,
+    UnavailableSessionRecordingV2ObjectStorage,
+    client,
+)
 
 TEST_BUCKET = "test_session_recording_v2_bucket"
 
@@ -24,6 +29,11 @@ class TestSessionRecordingV2Storage(APIBaseTest):
 
     @patch("posthog.storage.session_recording_v2_object_storage.boto3_client")
     def test_client_constructor_uses_correct_settings(self, patched_boto3_client) -> None:
+        # Reset the global client to ensure we test client creation
+        import posthog.storage.session_recording_v2_object_storage as storage_module
+
+        storage_module._client = UnavailableSessionRecordingV2ObjectStorage()
+
         storage_client = client()
 
         # Check that boto3_client was called once

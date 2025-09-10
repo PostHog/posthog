@@ -121,6 +121,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return cohortActivityDescriber
         case ActivityScope.INSIGHT:
             return insightActivityDescriber
+        case ActivityScope.DASHBOARD:
+            return dashboardActivityDescriber
         case ActivityScope.PERSON:
             return personActivityDescriber
         case ActivityScope.GROUP:

@@ -118,7 +118,6 @@ export function Info(): JSX.Element {
                 description={null}
                 resourceType={{
                     type: 'experiment',
-                    typePlural: 'experiments',
                 }}
                 isLoading={experimentLoading}
                 onNameChange={(name) => updateExperiment({ name })}
@@ -199,7 +198,7 @@ export function Info(): JSX.Element {
                     </div>
 
                     <div className="w-[500px]">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 mt-2">
                             <Label intent="menu">Hypothesis</Label>
                             <LemonButton
                                 type="secondary"

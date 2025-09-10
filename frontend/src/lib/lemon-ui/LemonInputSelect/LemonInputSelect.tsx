@@ -67,6 +67,8 @@ export type LemonInputSelectProps<T = string> = Pick<
     transparentBackground?: boolean
     displayMode?: 'snacks' | 'count'
     bulkActions?: 'clear-all' | 'select-and-clear-all'
+    /** Disable comma splitting for properties that contain commas in their values (e.g., user agent strings) */
+    disableCommaSplitting?: boolean
     action?: LemonInputSelectAction
     virtualized?: boolean
 }
@@ -98,6 +100,7 @@ export function LemonInputSelect<T = string>({
     fullWidth = false,
     displayMode = 'snacks',
     bulkActions,
+    disableCommaSplitting = false,
     action,
     virtualized = false,
 }: LemonInputSelectProps<T>): JSX.Element {
@@ -179,7 +182,7 @@ export function LemonInputSelect<T = string>({
         })
     )
 
-    const separateOnComma = allowCustomValues && mode === 'multiple'
+    const separateOnComma = allowCustomValues && mode === 'multiple' && !disableCommaSplitting
 
     // We stringify the objects to prevent wasteful recalculations (esp. Fuse). Note: labelComponent is not serializable
     const optionsKey = JSON.stringify(options, (key, value) => (key === 'labelComponent' ? value?.name : value))
