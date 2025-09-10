@@ -22,7 +22,7 @@ if (empty(user_agent) or user_agent == '') {
     return null
 }
 
-if (isKnownBotUserAgent(user_agent)) {
+if (inputs.filterKnownBotUserAgents and isKnownBotUserAgent(user_agent)) {
     return null
 }
 
@@ -48,7 +48,7 @@ if (empty(ip)) {
     return event
 }
 
-if (isKnownBotIp(ip)) {
+if (inputs.filterKnownBotIps and isKnownBotIp(ip)) {
     return null
 }
 
@@ -77,6 +77,16 @@ return event
             required: true,
         },
         {
+            key: 'filterKnownBotUserAgents',
+            type: 'boolean',
+            label: 'Filter out known bot user agents',
+            description:
+                "Filter out known bot user agents using PostHog's known bot user agents list. This is kept up to date dynamically.",
+            default: true,
+            secret: false,
+            required: true,
+        },
+        {
             key: 'customBotPatterns',
             type: 'string',
             label: 'Custom Bot Patterns',
@@ -84,6 +94,16 @@ return event
             default: '',
             secret: false,
             required: false,
+        },
+        {
+            key: 'filterKnownBotIps',
+            type: 'boolean',
+            label: 'Filter out known bot ips',
+            description:
+                "Filter out known bot ips using PostHog's known bot ips list. This is kept up to date dynamically.",
+            default: true,
+            secret: false,
+            required: true,
         },
         {
             key: 'customIpPrefixes',
