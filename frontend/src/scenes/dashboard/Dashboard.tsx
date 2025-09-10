@@ -22,6 +22,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
 import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
@@ -129,10 +130,10 @@ function DashboardScene(): JSX.Element {
                 <div>
                     <DashboardOverridesBanner />
 
-                    <div
+                    <SceneStickyBar
+                        showBorderBottom={false}
                         className={cn(
-                            'dashboard-filters sticky top-[var(--breadcrumbs-height-compact)] z-10 bg-primary py-2',
-                            newSceneLayout && 'top-0 -mx-4 px-4 -mt-2 py-1'
+                            newSceneLayout && 'top-[var(--scene-layout-header-height)] -mx-4 px-4 -mt-2 py-1'
                         )}
                     >
                         <div className="flex gap-2 justify-between">
@@ -171,7 +172,7 @@ function DashboardScene(): JSX.Element {
                                 </div>
                             )}
                         </div>
-                    </div>
+                    </SceneStickyBar>
 
                     <DashboardItems />
                 </div>

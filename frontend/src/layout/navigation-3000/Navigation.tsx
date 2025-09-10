@@ -56,7 +56,7 @@ export function Navigation({
             className={cn(
                 'Navigation3000',
                 mobileLayout && 'Navigation3000--mobile',
-                newSceneLayout && 'Navigation3000--minimal-scene-layout [&>main]:overflow-y-hidden'
+                newSceneLayout && 'Navigation3000--minimal-scene-layout'
             )}
             style={theme?.mainStyle}
         >
@@ -99,14 +99,13 @@ export function Navigation({
                         </>
                     }
                 >
-                    <SceneLayout layoutConfig={sceneConfig}>
+                    <SceneLayout sceneConfig={sceneConfig}>
                         {(!sceneConfig?.hideBillingNotice || !sceneConfig?.hideProjectNotice) && (
                             <div className={sceneConfig?.layout === 'app-raw-no-header' ? 'px-4' : ''}>
                                 {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 className="my-0 mb-4" />}
-                                {!sceneConfig?.hideProjectNotice && <ProjectNotice className="my-0 mb-4" />}
+                                {/* {!sceneConfig?.hideProjectNotice && <ProjectNotice className="my-0 mb-4" />} */}
                             </div>
                         )}
-
                         {children}
                     </SceneLayout>
                 </FlaggedFeature>

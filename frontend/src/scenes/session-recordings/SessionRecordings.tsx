@@ -263,7 +263,7 @@ function PageTabs(): JSX.Element {
     return (
         <LemonTabs
             activeKey={tab}
-            className={cn('flex', newSceneLayout && 'mt-0')}
+            className={cn('flex', newSceneLayout && '-mt-4')}
             barClassName="mb-0"
             onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
             sceneInset={newSceneLayout}

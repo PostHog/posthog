@@ -16,6 +16,7 @@ import { FileSystemIconColor } from '~/types'
 
 import '../../panel-layout/ProjectTree/defaultTree'
 import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/defaultTree'
+import { SceneActions } from '../SceneActions'
 
 type ResourceType = {
     to?: string
@@ -56,6 +57,11 @@ type SceneMainTitleProps = {
      * @default 100
      */
     renameDebounceMs?: number
+    /**
+     * If true, the actions will be shown
+     * @default false
+     */
+    actions?: boolean
 }
 
 export function SceneTitleSection({
@@ -70,6 +76,7 @@ export function SceneTitleSection({
     canEdit = false,
     forceEdit = false,
     renameDebounceMs,
+    actions = true,
 }: SceneMainTitleProps): JSX.Element | null {
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
@@ -85,7 +92,7 @@ export function SceneTitleSection({
     )
     return (
         <div className="@container/scene-title-section">
-            <div className="scene-title-section w-full flex gap-3 group/colorful-product-icons colorful-product-icons-true">
+            <div className="scene-title-section w-full flex gap-3 group/colorful-product-icons colorful-product-icons-true items-start">
                 <div className="flex flex-col gap-1 flex-1 -ml-[var(--button-padding-x-sm)]">
                     <div className="flex gap-2 [&_svg]:size-6 items-center w-full">
                         <span
@@ -142,6 +149,7 @@ export function SceneTitleSection({
                         </Link>
                     </>
                 )}
+                {actions && <SceneActions />}
             </div>
         </div>
     )

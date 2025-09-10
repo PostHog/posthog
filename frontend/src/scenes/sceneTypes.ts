@@ -1,5 +1,6 @@
 import { LogicWrapper } from 'kea'
 
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ActivityScope } from '~/types'
 
 import { SettingSectionId } from './settings/types'
@@ -178,12 +179,13 @@ export interface SceneConfig {
     allowUnauthenticated?: boolean
     /**
      * If `app`, navigation is shown, and the scene has default padding.
+     * If `app-full-scene-height`, navigation is shown, and the scene has default padding and wrapper takes full screen height.
      * If `app-raw`, navigation is shown, but the scene has no padding.
      * If `app-container`, navigation is shown, and the scene is centered with a max width.
      * If `plain`, there's no navigation present, and the scene has no padding.
      * @default 'app'
      */
-    layout?: 'app' | 'app-raw' | 'app-container' | 'app-raw-no-header' | 'plain'
+    layout?: 'app' | 'app-raw' | 'app-container' | 'app-raw-no-header' | 'plain' | 'app-full-scene-height'
     /** Hides project notice (ProjectNotice.tsx). */
     hideProjectNotice?: boolean
     /** Hides billing notice (BillingAlertsV2.tsx). */
@@ -202,6 +204,12 @@ export interface SceneConfig {
     defaultDocsPath?: string
     /** Component import, used only in manifests */
     import?: () => Promise<any>
+    /** Page title - used in scene header for the big text title */
+    pageTitle?: string
+    /** Page description - used in scene header for the small text description */
+    pageDescription?: string
+    /** Icon type - used in scene header for the icon */
+    iconType?: FileSystemIconType
 }
 
 // Map scenes to their access control resource types

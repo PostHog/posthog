@@ -54,7 +54,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
 
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
                 <SortableContext items={[...tabs.map((t) => t.id), 'new']} strategy={horizontalListSortingStrategy}>
-                    <div className={cn('flex flex-row gap-1 pt-1 max-w-full items-center', className)}>
+                    <div className={cn('flex flex-row gap-1 max-w-full items-center', className)}>
                         <div className="py-1 pl-[2px] shrink-0">
                             <ButtonPrimitive
                                 iconOnly
@@ -75,34 +75,32 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                 <IconSearch className="text-secondary size-4" />
                             </ButtonPrimitive>
                         </div>
-                        <div className="flex flex-row flex-1 min-w-0">
+                        <div className="flex flex-row flex-1 min-w-0 gap-1">
                             {tabs.map((tab) => (
                                 <SortableSceneTab key={tab.id} tab={tab} />
                             ))}
                         </div>
-                        <div className="py-1 shrink-0">
-                            <Link
-                                to={urls.newTab()}
-                                data-attr="scene-tab-new-button"
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    newTab()
-                                }}
-                                buttonProps={{
-                                    size: 'sm',
-                                    className:
-                                        'p-1 flex flex-row items-center gap-1 cursor-pointer rounded-tr rounded-tl border-b',
-                                    iconOnly: true,
-                                }}
-                                tooltip={
-                                    <>
-                                        New tab <KeyboardShortcut command b />
-                                    </>
-                                }
-                            >
-                                <IconPlus className="!ml-0" fontSize={14} />
-                            </Link>
-                        </div>
+                        <Link
+                            to={urls.newTab()}
+                            data-attr="scene-tab-new-button"
+                            onClick={(e) => {
+                                e.preventDefault()
+                                newTab()
+                            }}
+                            buttonProps={{
+                                size: 'sm',
+                                className:
+                                    'p-1 flex flex-row items-center gap-1 cursor-pointer rounded-tr rounded-tl border-b',
+                                iconOnly: true,
+                            }}
+                            tooltip={
+                                <>
+                                    New tab <KeyboardShortcut command b />
+                                </>
+                            }
+                        >
+                            <IconPlus className="!ml-0" fontSize={14} />
+                        </Link>
                     </div>
                 </SortableContext>
             </DndContext>
