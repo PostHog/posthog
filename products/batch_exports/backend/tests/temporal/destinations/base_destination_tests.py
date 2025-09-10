@@ -27,7 +27,7 @@ from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_ba
 
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
-from products.batch_exports.backend.tests.temporal.utils import mocked_start_batch_export_run
+from products.batch_exports.backend.tests.temporal.utils import fail_on_application_error, mocked_start_batch_export_run
 
 
 class BaseDestinationTest(ABC):
@@ -251,14 +251,15 @@ class CommonDestinationTests:
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ):
-                await activity_environment.client.execute_workflow(
-                    destination_test.workflow_class.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(minutes=5),
-                )
+                with fail_on_application_error():
+                    await activity_environment.client.execute_workflow(
+                        destination_test.workflow_class.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                        execution_timeout=dt.timedelta(minutes=5),
+                    )
 
         runs = await afetch_batch_export_runs(batch_export_id=batch_export_for_destination.id)
         assert len(runs) == 1
