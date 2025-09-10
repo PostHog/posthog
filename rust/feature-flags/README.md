@@ -1,4 +1,3 @@
-
 # Testing
 
 First, make sure docker compose is running (from main posthog repo), and test database exists:
