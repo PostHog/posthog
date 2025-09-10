@@ -412,3 +412,27 @@ class TestSSOOrganizationHandling:
             assert OrganizationMembership.objects.filter(
                 user=sso_setup["user"], organization=sso_setup["organization"]
             ).exists()
+
+    def test_sso_redirect_denies_access_for_user_without_organization_membership(self, sso_setup):
+        """
+        When a user with an existing mapping no longer has organization membership, the system should:
+        1. Detect the missing organization membership
+        2. Remove the stale user mapping
+        3. Deny access with PermissionDenied
+        """
+
+        sso_setup["installation"].config["user_mappings"] = {"mapped_user_123": sso_setup["user"].pk}
+        sso_setup["installation"].save()
+
+        OrganizationMembership.objects.filter(user=sso_setup["user"], organization=sso_setup["organization"]).delete()
+
+        with (
+            mock_vercel_integration(**MockFactory.successful_sso_flow(sso_setup["installation_id"])),
+            mock_jwt_validation(create_user_claims(sso_setup["installation_id"], "mapped_user_123")),
+        ):
+            response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"])
+            assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+            sso_setup["installation"].refresh_from_db()
+            user_mappings = sso_setup["installation"].config.get("user_mappings", {})
+            assert "mapped_user_123" not in user_mappings

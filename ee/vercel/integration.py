@@ -834,6 +834,16 @@ class VercelIntegration:
         if user_pk:
             user = User.objects.filter(pk=user_pk, is_active=True).first()
             if user:
+                # Validate that the user still has access to the organization associated with the installation
+                if not user.organization_memberships.filter(
+                    organization=installation.organization, level__gte=OrganizationMembership.Level.MEMBER
+                ).exists():
+                    # User no longer has access to this organization, remove stale mapping
+                    user_mappings = installation.config.get("user_mappings", {})
+                    if claims.user_id in user_mappings:
+                        del user_mappings[claims.user_id]
+                        installation.save(update_fields=["config"])
+                    raise exceptions.PermissionDenied("User no longer has access to this organization")
                 return user
             # User was deleted, remove stale mapping
             user_mappings = installation.config.get("user_mappings", {})
