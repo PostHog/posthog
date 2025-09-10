@@ -5,7 +5,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { cn } from 'lib/utils/css-classes'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
@@ -87,7 +86,6 @@ export function Dashboards(): JSX.Element {
                 onChange={(newKey) => setCurrentTab(newKey)}
                 tabs={enabledTabs}
                 sceneInset={newSceneLayout}
-                className={cn(newSceneLayout && 'mt-0')}
             />
 
             <div>

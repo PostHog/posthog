@@ -1,6 +1,5 @@
 import { LogicWrapper } from 'kea'
 
-import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ActivityScope } from '~/types'
 
 import { SettingSectionId } from './settings/types'
@@ -204,12 +203,6 @@ export interface SceneConfig {
     defaultDocsPath?: string
     /** Component import, used only in manifests */
     import?: () => Promise<any>
-    /** Page title - used in scene header for the big text title */
-    pageTitle?: string
-    /** Page description - used in scene header for the small text description */
-    pageDescription?: string
-    /** Icon type - used in scene header for the icon */
-    iconType?: FileSystemIconType
 }
 
 // Map scenes to their access control resource types
