@@ -54,7 +54,7 @@ export function PayGateMini({
     loadingSkeleton,
     handleSubmit,
 }: PayGateMiniProps): JSX.Element | null {
-    const { productWithFeature, featureInfo, gateVariant, bypassPaywall } = useValues(
+    const { productWithFeature, featureInfo, gateVariant, bypassPaywall, isTrialFlow } = useValues(
         payGateMiniLogic({ feature, currentUsage })
     )
     const { setBypassPaywall } = useActions(payGateMiniLogic({ feature, currentUsage }))
@@ -77,7 +77,9 @@ export function PayGateMini({
         if (handleSubmit) {
             handleSubmit()
         }
-        hideUpgradeModal()
+        if (!isTrialFlow) {
+            hideUpgradeModal()
+        }
         posthog.capture('pay gate CTA clicked', {
             product_key: productWithFeature?.type,
             feature: feature,
