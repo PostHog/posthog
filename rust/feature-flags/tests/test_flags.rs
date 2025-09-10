@@ -6322,8 +6322,7 @@ async fn test_date_string_property_matching_with_is_date_after() -> Result<()> {
     let variant = test_flag["variant"].as_str();
     assert!(
         variant.is_none() || variant == Some("control"),
-        "Variant should be control or null, not 'experimental'. Got: {:?}",
-        variant
+        "Variant should be control or null, not 'experimental'. Got: {variant:?}",
     );
 
     Ok(())
