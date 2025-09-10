@@ -65,7 +65,7 @@ export const BillingProductAddonActions = ({
                         fullWidth
                         disabledReason={
                             isDataPipelinesDeprecated
-                                ? `Data pipelines are moving to new, usage-based pricing with a large free allowance and old ingestion-based pricing ends on ${DATA_PIPELINES_CUTOFF_DATE}.`
+                                ? `Data pipelines have moved to new, usage-based pricing with generous free allowance, and old ingestion-based pricing ended on ${DATA_PIPELINES_CUTOFF_DATE}.`
                                 : undefined
                         }
                         onClick={() => {

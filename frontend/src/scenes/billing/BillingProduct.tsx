@@ -126,7 +126,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     )}
                                     {product.type === 'realtime_destinations' && (
                                         <Tooltip
-                                            title={`Data pipelines are moving to new usage-based pricing on ${REALTIME_DESTINATIONS_BILLING_START_DATE}.`}
+                                            title={`Data pipelines have moved to new usage-based pricing on ${REALTIME_DESTINATIONS_BILLING_START_DATE}.`}
                                         >
                                             <LemonTag type="success" icon={<IconInfo />}>
                                                 Migrated

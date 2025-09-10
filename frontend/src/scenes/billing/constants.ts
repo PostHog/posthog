@@ -18,8 +18,10 @@ export type UsageTypeValue = UsageTypeOption['value']
 
 export const ALL_USAGE_TYPES: UsageTypeValue[] = USAGE_TYPES.map((opt) => opt.value)
 
+// TODO: Update before merging
 // Date after which billing for data pipelines ends and add-on upgrades/downgrades are disabled
 export const DATA_PIPELINES_CUTOFF_DATE = '2025-09-04'
 
+// TODO: Update before merging
 // Date when billing for realtime destinations and batch exports begins (day after data pipelines cutoff)
 export const REALTIME_DESTINATIONS_BILLING_START_DATE = '2025-09-05'
