@@ -97,6 +97,7 @@ from .web_experiment import WebExperiment
 from products.tasks.backend.models import Task
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.llm_analytics.backend.models import Dataset, DatasetItem
+from products.streamlit.backend.models import StreamlitApp
 
 from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
@@ -200,6 +201,7 @@ __all__ = [
     "SessionRecordingPlaylist",
     "SessionRecordingPlaylistItem",
     "SharePassword",
+    "StreamlitApp",
     "SharingConfiguration",
     "Subscription",
     "Survey",

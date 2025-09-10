@@ -33,10 +33,15 @@ depends_on = [
     "products.revenue_analytics",
     "products.user_interviews",
     "products.llm_analytics",
+    "products.streamlit",
 ]
 
 [[modules]]
 path = "products.early_access_features"
+depends_on = ["posthog"]
+
+[[modules]]
+path = "products.streamlit"
 depends_on = ["posthog"]
 
 [[modules]]

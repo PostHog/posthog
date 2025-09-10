@@ -78,7 +78,11 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     embedded_analytics: {
         icon: <IconCode2 />,
-        iconColor: ['var(--color-product-embedded-analytics-light', 'var(--color-product-embedded-analytics-dark'],
+        iconColor: ['var(--color-product-embedded-analytics-light)', 'var(--color-product-embedded-analytics-dark)'],
+    },
+    streamlit: {
+        icon: <IconRocket />,
+        iconColor: ['var(--color-product-streamlit-light)', 'var(--color-product-streamlit-dark)'],
     },
     sql_editor: {
         icon: <IconServer />,

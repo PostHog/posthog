@@ -95,5 +95,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.WebAnalyticsWebVitals]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.WebAnalytics]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.EmbeddedAnalytics]: () => import('./embedded-analytics/EmbeddedAnalyticsScene'),
+    [Scene.Streamlit]: () => import('./streamlit/StreamlitScene'),
     [Scene.Wizard]: () => import('./wizard/Wizard'),
 }

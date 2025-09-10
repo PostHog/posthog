@@ -2401,6 +2401,7 @@ export type FileSystemIconType =
     | 'insight_lifecycle'
     | 'insight_stickiness'
     | 'insight_hogql'
+    | 'streamlit'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
