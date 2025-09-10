@@ -55,8 +55,6 @@ class VercelSSORedirectSerializer(serializers.Serializer):
             netloc = parsed.hostname
             if not netloc or netloc not in KNOWN_ORIGINS:
                 raise serializers.ValidationError("URL domain is not allowed")
-            if netloc not in KNOWN_ORIGINS:
-                raise serializers.ValidationError("URL domain is not allowed")
 
             return value
         except serializers.ValidationError:
