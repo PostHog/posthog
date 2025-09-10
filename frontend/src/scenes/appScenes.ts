@@ -5,6 +5,7 @@ import { productScenes } from '~/products'
 
 export const appScenes: Record<Scene | string, () => any> = {
     ...productScenes,
+    [Scene.AdvancedActivityLogs]: () => import('./audit-logs/AdvancedActivityLogsScene'),
     [Scene.AsyncMigrations]: () => import('./instance/AsyncMigrations/AsyncMigrations'),
     [Scene.BatchExportNew]: () => import('./data-pipelines/batch-exports/BatchExportScene'),
     [Scene.BatchExport]: () => import('./data-pipelines/batch-exports/BatchExportScene'),

@@ -26,7 +26,7 @@ class AdvancedActivityLogFilterManager:
 
     def _apply_user_filters(self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]) -> QuerySet[ActivityLog]:
         if filters.get("users"):
-            queryset = queryset.filter(user_id__in=filters["users"])
+            queryset = queryset.filter(user__uuid__in=filters["users"])
         return queryset
 
     def _apply_scope_filters(self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]) -> QuerySet[ActivityLog]:
