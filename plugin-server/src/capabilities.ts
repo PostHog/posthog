@@ -10,8 +10,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 ingestionV2Combined: true,
                 processAsyncWebhooksHandlers: true,
-                sessionRecordingBlobIngestion: true,
-                sessionRecordingBlobOverflowIngestion: config.SESSION_RECORDING_OVERFLOW_ENABLED,
                 sessionRecordingBlobIngestionV2: true,
                 sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED,
                 appManagementSingleton: true,
@@ -43,14 +41,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             // `analytics-ingestion` and `recordings-ingestion` modes.
             return {
                 ingestionV2: true,
-            }
-        case PluginServerMode.recordings_blob_ingestion:
-            return {
-                sessionRecordingBlobIngestion: true,
-            }
-        case PluginServerMode.recordings_blob_ingestion_overflow:
-            return {
-                sessionRecordingBlobOverflowIngestion: true,
             }
         case PluginServerMode.recordings_blob_ingestion_v2:
             return {
