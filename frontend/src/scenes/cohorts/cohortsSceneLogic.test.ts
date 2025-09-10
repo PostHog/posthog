@@ -104,6 +104,24 @@ describe('cohortsSceneLogic', () => {
                     .toMatchValues({
                         cohortFilters: expect.objectContaining({ page: 2 }),
                     })
+
+                // Test type filter
+                await expectLogic(logic, () => {
+                    logic.actions.setCohortFilters({ type: 'static' })
+                })
+                    .toDispatchActions(['setCohortFilters', 'loadCohorts', 'loadCohortsSuccess'])
+                    .toMatchValues({
+                        cohortFilters: expect.objectContaining({ type: 'static' }),
+                    })
+
+                // Test created_by_id filter
+                await expectLogic(logic, () => {
+                    logic.actions.setCohortFilters({ created_by_id: 123 })
+                })
+                    .toDispatchActions(['setCohortFilters', 'loadCohorts', 'loadCohortsSuccess'])
+                    .toMatchValues({
+                        cohortFilters: expect.objectContaining({ created_by_id: 123 }),
+                    })
             })
         })
 
