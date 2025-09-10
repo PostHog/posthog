@@ -5896,29 +5896,29 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         """Test that date string properties in ISO8601 format are correctly compared with is_date_after operator.
 
         This test reproduces a scenario where:
-        - A person has finishedOnboardingAt: "2025-09-10T19:17:07.083Z"
-        - Flag condition checks if this is after "2025-09-10 19:37:00"
+        - A person has last_active_date: "2024-03-15T19:17:07.083Z"
+        - Flag condition checks if this is after "2024-03-15 19:37:00"
         - Expected: Should NOT match since 19:17 is before 19:37
         """
-        # First, let's test a simple case with just the date condition
+        # First, test a simple case with just the date condition
         Person.objects.create(
             team=self.team,
-            distinct_ids=["simple_test_user"],
+            distinct_ids=["test_user_123"],
             properties={
-                "finishedOnboardingAt": "2025-09-10T19:17:07.083Z",
+                "last_active_date": "2024-03-15T19:17:07.083Z",
             },
         )
 
         simple_flag = self.create_feature_flag(
-            key="simple-date-test",
+            key="date-comparison-test",
             filters={
                 "groups": [
                     {
                         "properties": [
                             {
-                                "key": "finishedOnboardingAt",
+                                "key": "last_active_date",
                                 "type": "person",
-                                "value": "2025-09-10 19:37:00",
+                                "value": "2024-03-15 19:37:00",
                                 "operator": "is_date_after",
                             }
                         ],
@@ -5929,7 +5929,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         # This should NOT match because 19:17 is NOT after 19:37
-        simple_match = self.match_flag(simple_flag, "simple_test_user")
+        simple_match = self.match_flag(simple_flag, "test_user_123")
         self.assertEqual(
             simple_match.match, False, f"Flag should NOT match: 19:17:07 is not after 19:37:00. Got: {simple_match}"
         )
@@ -5937,34 +5937,32 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         # Now test the full multivariate scenario
         Person.objects.create(
             team=self.team,
-            distinct_ids=["usr_01K4TGM25T8TNTVJ6T9ZSDFNFA"],
+            distinct_ids=["test_user_456"],
             properties={
-                "id": "usr_01K4TGM25T8TNTVJ6T9ZSDFNFA",
-                "finishedOnboardingAt": "2025-09-10T19:17:07.083Z",
-                "population": None,
+                "user_id": "test_456",
+                "last_active_date": "2024-03-15T19:17:07.083Z",
+                "segment": None,
             },
         )
 
-        # Create flag with multivariate structure matching the user's scenario
+        # Create flag with multivariate structure
         feature_flag = self.create_feature_flag(
-            key="test-date-flag",
+            key="multivariate-date-test",
             filters={
                 "groups": [
                     {"variant": None, "properties": [], "rollout_percentage": 100},
                     {
-                        "variant": "test",
-                        "properties": [
-                            {"key": "population", "type": "person", "value": ["PORTOLANS"], "operator": "exact"}
-                        ],
+                        "variant": "experimental",
+                        "properties": [{"key": "segment", "type": "person", "value": ["premium"], "operator": "exact"}],
                         "rollout_percentage": 100,
                     },
                     {
-                        "variant": "test",
+                        "variant": "experimental",
                         "properties": [
                             {
-                                "key": "finishedOnboardingAt",
+                                "key": "last_active_date",
                                 "type": "person",
-                                "value": "2025-09-10 19:37:00",  # 20 minutes after the person's time
+                                "value": "2024-03-15 19:37:00",  # 20 minutes after the person's time
                                 "operator": "is_date_after",
                             }
                         ],
@@ -5976,36 +5974,36 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                     "variants": [
                         {
                             "key": "control",
-                            "name": "Existing behavior without relay boost offering",
+                            "name": "Control variant",
                             "rollout_percentage": 50,
                         },
-                        {"key": "test", "name": "New behavior with relay boost offering", "rollout_percentage": 50},
+                        {"key": "experimental", "name": "Experimental variant", "rollout_percentage": 50},
                     ]
                 },
             },
         )
 
         # Test the match
-        match_result = self.match_flag(feature_flag, "usr_01K4TGM25T8TNTVJ6T9ZSDFNFA")
+        match_result = self.match_flag(feature_flag, "test_user_456")
 
         # The first group (100% rollout, no conditions) should match
         self.assertEqual(match_result.match, True)
-        # But the variant should NOT be "test" since the date condition doesn't match
+        # But the variant should NOT be "experimental" since the date condition doesn't match
         # (19:17 is before 19:37)
-        self.assertNotEqual(match_result.variant, "test")
+        self.assertNotEqual(match_result.variant, "experimental")
         # It should match the first condition group (index 0)
         self.assertEqual(match_result.condition_index, 0)
 
         # Test with different date formats to ensure parsing works correctly
         test_cases = [
-            # Person's time is before filter time - should NOT get "test" variant
-            ("2025-09-10T19:17:07.083Z", "2025-09-10 19:37:00", False),
-            # Person's time is after filter time - should get "test" variant
-            ("2025-09-10T19:45:00.000Z", "2025-09-10 19:37:00", True),
+            # Person's time is before filter time - should NOT get "experimental" variant
+            ("2024-03-15T19:17:07.083Z", "2024-03-15 19:37:00", False),
+            # Person's time is after filter time - should get "experimental" variant
+            ("2024-03-15T19:45:00.000Z", "2024-03-15 19:37:00", True),
             # Same time - should NOT match (is_date_after requires strictly after)
-            ("2025-09-10T19:37:00.000Z", "2025-09-10 19:37:00", False),
+            ("2024-03-15T19:37:00.000Z", "2024-03-15 19:37:00", False),
             # Test with timezone offset
-            ("2025-09-10T19:17:07.083+00:00", "2025-09-10 19:37:00", False),
+            ("2024-03-15T19:17:07.083+00:00", "2024-03-15 19:37:00", False),
         ]
 
         for person_date, filter_date, should_match_date_condition in test_cases:
@@ -6017,20 +6015,20 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 # Test with property override (simulates real-time evaluation)
                 match_result = self.match_flag(
                     feature_flag,
-                    "usr_01K4TGM25T8TNTVJ6T9ZSDFNFA",
-                    property_value_overrides={"finishedOnboardingAt": person_date},
+                    "test_user_456",
+                    property_value_overrides={"last_active_date": person_date},
                 )
 
                 # First group always matches
                 self.assertEqual(match_result.match, True)
 
                 if should_match_date_condition:
-                    # Should get "test" variant from the third group
-                    self.assertEqual(match_result.variant, "test")
+                    # Should get "experimental" variant from the third group
+                    self.assertEqual(match_result.variant, "experimental")
                     self.assertEqual(match_result.condition_index, 2)
                 else:
-                    # Should NOT get "test" variant
-                    self.assertNotEqual(match_result.variant, "test")
+                    # Should NOT get "experimental" variant
+                    self.assertNotEqual(match_result.variant, "experimental")
                     # Should match first group
                     self.assertEqual(match_result.condition_index, 0)
 
