@@ -1,3 +1,4 @@
+import re
 from typing import Literal, Optional, cast
 
 from django.db import models
@@ -376,6 +377,37 @@ def property_to_expr(
 
     if property.type == "hogql":
         return parse_expr(property.key)
+    elif (
+        property.type == "event_metadata"
+        and scope == "group"
+        and re.match(r"^\$group_[0-4]$", property.key) is not None
+    ):
+        group_type_index = property.key.split("_")[1]
+        operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
+        value = property.value
+        if isinstance(property.value, list):
+            if len(property.value) > 1:
+                raise QueryError(f"The '{property.key}' property filter only supports one value in 'group' scope")
+            value = property.value[0]
+
+        # For groups table, $group_N filters should match both index and key
+        # index should equal N, and key should match the value
+        index_condition = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["index"]),
+            right=ast.Constant(value=int(group_type_index)),
+        )
+
+        key_condition = _expr_to_compare_op(
+            expr=ast.Field(chain=["key"]),
+            value=value,
+            operator=operator,
+            property=property,
+            is_json_field=False,
+            team=team,
+        )
+
+        return ast.And(exprs=[key_condition, index_condition])
     elif (
         property.type == "event"
         or property.type == "event_metadata"
