@@ -4,7 +4,7 @@ import uuid
 import shutil
 import tempfile
 import subprocess
-from typing import Literal, Optional
+from typing import Optional
 
 import structlog
 import posthoganalytics
@@ -19,7 +19,6 @@ from playwright.sync_api import (
 
 logger = structlog.get_logger(__name__)
 
-ScreenWidth = Literal[800, 1920, 1400]
 HEIGHT_OFFSET = 85
 PLAYBACK_SPEED_MULTIPLIER = 4  # Speed up playback during recording for long videos
 
@@ -95,9 +94,9 @@ def detect_recording_resolution(
 def record_replay_to_file(
     image_path: str,
     url_to_render: str,
-    screenshot_width: ScreenWidth,
+    screenshot_width: Optional[int],
     wait_for_css_selector: str,
-    screenshot_height: int = 600,
+    screenshot_height: Optional[int],
     recording_duration: int = 5,  # Duration in seconds
 ) -> None:
     # Input validation
@@ -131,17 +130,25 @@ def record_replay_to_file(
                 ],
             )
 
-            # Phase 1: Detect actual recording resolution
-            default_width = int(screenshot_width)
-            default_height = int(screenshot_height)
+            # Check if dimensions were provided or need to be detected
+            if screenshot_width is not None and screenshot_height is not None:
+                # Use provided dimensions
+                width = screenshot_width
+                height = screenshot_height
+                logger.info("video_exporter.using_provided_dimensions", width=width, height=height)
+            else:
+                # Phase 1: Detect actual recording resolution
+                default_width = 1400  # Default fallback
+                default_height = 600  # Default fallback
 
-            width, height = detect_recording_resolution(
-                browser=browser,
-                url_to_render=url_to_render,
-                wait_for_css_selector=wait_for_css_selector,
-                default_width=default_width,
-                default_height=default_height,
-            )
+                width, height = detect_recording_resolution(
+                    browser=browser,
+                    url_to_render=url_to_render,
+                    wait_for_css_selector=wait_for_css_selector,
+                    default_width=default_width,
+                    default_height=default_height,
+                )
+                logger.info("video_exporter.using_detected_dimensions", width=width, height=height)
 
             # Phase 2: Create recording context with exact resolution
             context = browser.new_context(
