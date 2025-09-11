@@ -251,17 +251,18 @@ class TestVercelIntegration(TestCase):
         new_installation = OrganizationIntegration.objects.get(integration_id=new_installation_id)
         assert new_installation.created_by == existing_user
 
-        # Check that user mapping was created for existing user
-        assert "user_mappings" in new_installation.config
-        assert new_installation.config["user_mappings"]["existing_user_789"] == existing_user.pk
+        # User mapping was not created for existing user (happens during SSO)
+        assert "user_mappings" not in new_installation.config or "existing_user_789" not in new_installation.config.get(
+            "user_mappings", {}
+        )
 
         # Check all other config fields match
         for key, value in self.payload.items():
             assert new_installation.config[key] == value
 
+        # Existing user was not automatically added to the organization (also happens during SSO)
         new_org = new_installation.organization
-        membership = OrganizationMembership.objects.get(user=existing_user, organization=new_org)
-        assert membership.level == OrganizationMembership.Level.OWNER
+        assert not OrganizationMembership.objects.filter(user=existing_user, organization=new_org).exists()
 
         mock_report.assert_not_called()
 

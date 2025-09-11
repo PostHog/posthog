@@ -85,6 +85,14 @@ class SSOTestHelper:
         assert response.url == expected_url
 
     @staticmethod
+    def assert_login_redirect(response, expected_continuation_params):
+        """Assert that the response redirects to login with proper continuation URL"""
+        assert response.status_code == status.HTTP_302_FOUND
+        assert response.url.startswith("/login?next=")
+        for param, value in expected_continuation_params.items():
+            assert f"{param}={value}" in response.url or f"{param}%3D{value}" in response.url
+
+    @staticmethod
     def assert_user_mapping_created(installation, user_id, user_pk):
         installation.refresh_from_db()
         user_mappings = installation.config.get("user_mappings", {})
@@ -164,16 +172,21 @@ def mock_sso_success(sso_setup):
 class TestSSORedirectSuccess(BaseSSOMockTest):
     def test_sso_redirect_basic_success(self, sso_setup):
         response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"])
-        SSOTestHelper.assert_successful_redirect(response)
+        # Existing users should be redirected to login for verification
+        SSOTestHelper.assert_login_redirect(response, {"mode": "sso", "code": "test_auth_code", "state": "test_state"})
 
     def test_sso_redirect_with_billing_path(self, sso_setup):
         response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"], path="billing")
-        SSOTestHelper.assert_successful_redirect(response, "/organization/billing/overview")
+        # Existing users should be redirected to login for verification
+        SSOTestHelper.assert_login_redirect(
+            response, {"mode": "sso", "code": "test_auth_code", "state": "test_state", "path": "billing"}
+        )
 
     def test_sso_redirect_with_custom_url(self, sso_setup):
         custom_url = "https://eu.posthog.com/dashboard"
         response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"], url=custom_url)
-        SSOTestHelper.assert_successful_redirect(response, custom_url)
+        # Existing users should be redirected to login for verification
+        SSOTestHelper.assert_login_redirect(response, {"mode": "sso", "code": "test_auth_code", "state": "test_state"})
 
     def test_sso_redirect_with_resource_switching(self, sso_setup):
         team = Team.objects.create(organization=sso_setup["organization"], name="SSO Test Team")
@@ -186,10 +199,12 @@ class TestSSORedirectSuccess(BaseSSOMockTest):
         )
 
         response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"], resource_id=str(resource.pk))
-        SSOTestHelper.assert_successful_redirect(response)
+        # Existing users should be redirected to login for verification
+        SSOTestHelper.assert_login_redirect(response, {"mode": "sso", "code": "test_auth_code", "state": "test_state"})
 
+        # Since user is redirected to login, team switching hasn't happened yet
         sso_setup["user"].refresh_from_db()
-        assert sso_setup["user"].current_team == team
+        assert sso_setup["user"].current_team != team  # Team switching happens after login verification
 
     def test_sso_redirect_with_experimentation_item(self, sso_setup):
         from posthog.models import FeatureFlag
@@ -205,7 +220,8 @@ class TestSSORedirectSuccess(BaseSSOMockTest):
         response = SSOTestHelper.make_sso_request(
             sso_setup["client"], sso_setup["url"], experimentation_item_id=f"flag:{flag.id}"
         )
-        SSOTestHelper.assert_successful_redirect(response)
+        # Existing users should be redirected to login for verification
+        SSOTestHelper.assert_login_redirect(response, {"mode": "sso", "code": "test_auth_code", "state": "test_state"})
 
 
 class TestSSORedirectValidation:
@@ -300,20 +316,25 @@ class TestSSORedirectFailures:
 class TestSSOUserMapping:
     def test_sso_redirect_creates_new_user_mapping_for_unknown_user(self, sso_setup):
         """
-        When an unknown user authenticates via SSO, the system should:
-        1. Create a new user mapping
-        2. Associate the Vercel user_id with the PostHog user
-        3. Successfully authenticate the user
+        When an existing user (with same email) tries to authenticate via SSO, the system should:
+        1. Detect that the user exists
+        2. Redirect them to login for verification
+        3. Not create user mapping until after login verification
         """
         with (
             mock_vercel_integration(**MockFactory.successful_sso_flow(sso_setup["installation_id"])),
             mock_jwt_validation(create_user_claims(sso_setup["installation_id"], "new_sso_user_456")),
         ):
             response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"])
-            SSOTestHelper.assert_successful_redirect(response)
-            SSOTestHelper.assert_user_mapping_created(
-                sso_setup["installation"], "new_sso_user_456", sso_setup["user"].pk
+            # Existing users should be redirected to login for verification
+            SSOTestHelper.assert_login_redirect(
+                response, {"mode": "sso", "code": "test_auth_code", "state": "test_state"}
             )
+
+            # User mapping should NOT be created until after login verification
+            sso_setup["installation"].refresh_from_db()
+            user_mappings = sso_setup["installation"].config.get("user_mappings", {})
+            assert "new_sso_user_456" not in user_mappings
 
     def test_sso_redirect_reuses_existing_user_mapping(self, sso_setup):
         """
@@ -352,12 +373,10 @@ class TestSSOUserMapping:
             mock_jwt_validation(create_user_claims(sso_setup["installation_id"], "stale_user_123")),
         ):
             response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"])
-            SSOTestHelper.assert_successful_redirect(response)
-
-            sso_setup["installation"].refresh_from_db()
-            user_mappings = sso_setup["installation"].config.get("user_mappings", {})
-            assert user_mappings["stale_user_123"] == sso_setup["user"].pk
-            assert deleted_user_pk not in user_mappings.values()
+            # Existing users should be redirected to login for verification
+            SSOTestHelper.assert_login_redirect(
+                response, {"mode": "sso", "code": "test_auth_code", "state": "test_state"}
+            )
 
 
 class TestSSOOrganizationHandling:
@@ -406,9 +425,10 @@ class TestSSOOrganizationHandling:
             mock_jwt_validation(create_user_claims(other_installation.integration_id)),
         ):
             response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"])
-            SSOTestHelper.assert_successful_redirect(response)
-
-            assert OrganizationMembership.objects.filter(user=sso_setup["user"], organization=other_org).exists()
+            # Existing users should be redirected to login for verification
+            SSOTestHelper.assert_login_redirect(
+                response, {"mode": "sso", "code": "test_auth_code", "state": "test_state"}
+            )
             assert OrganizationMembership.objects.filter(
                 user=sso_setup["user"], organization=sso_setup["organization"]
             ).exists()
