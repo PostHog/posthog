@@ -10,7 +10,7 @@ from posthog.models.organization_integration import OrganizationIntegration
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.vercel_error_mixin import VercelErrorResponseMixin
 from ee.api.vercel.vercel_permission import VercelPermission
-from ee.api.vercel.vercel_region_redirect_mixin import VercelRegionRedirectMixin
+from ee.api.vercel.vercel_region_proxy_mixin import VercelRegionProxyMixin
 from ee.vercel.integration import VercelIntegration
 
 
@@ -63,7 +63,7 @@ def validate_installation_id(installation_id: str | None) -> str:
     return installation_id
 
 
-class VercelInstallationViewSet(VercelRegionRedirectMixin, VercelErrorResponseMixin, viewsets.GenericViewSet):
+class VercelInstallationViewSet(VercelRegionProxyMixin, VercelErrorResponseMixin, viewsets.GenericViewSet):
     lookup_field = "installation_id"
     authentication_classes = [VercelAuthentication]
     permission_classes = [VercelPermission]

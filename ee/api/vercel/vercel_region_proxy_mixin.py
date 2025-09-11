@@ -20,7 +20,7 @@ from ee.api.authentication import VercelAuthentication
 logger = structlog.get_logger(__name__)
 
 
-class VercelRegionRedirectMixin:
+class VercelRegionProxyMixin:
     """
     Mixin for handling Vercel region-based request routing.
 
@@ -31,7 +31,7 @@ class VercelRegionRedirectMixin:
     """
 
     CACHE_TTL = 300
-    REDIRECT_TIMEOUT = 10
+    PROXY_TIMEOUT = 10
     SAFE_HEADERS = {"authorization", "content-type", "x-vercel-auth", "x-vercel-signature", "user-agent"}
     US_DOMAIN = getattr(settings, "REGION_US_DOMAIN", "us.posthog.com")
     EU_DOMAIN = getattr(settings, "REGION_EU_DOMAIN", "eu.posthog.com")
@@ -51,11 +51,12 @@ class VercelRegionRedirectMixin:
     def _get_cached_installation_status(self, installation_id: str) -> bool:
         cache_key = f"vercel_installation_exists:{installation_id}"
 
-        if (result := cache.get(cache_key)) is None:
+        result = cache.get(cache_key)
+        if result is None:
             result = OrganizationIntegration.objects.filter(
                 kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL, integration_id=installation_id
             ).exists()
-            cache.set(cache_key, result, timeout=self.CACHE_TTL)
+            self.set_installation_cache(installation_id, result)
 
         return result
 
@@ -102,16 +103,16 @@ class VercelRegionRedirectMixin:
         pattern = r"^/api/vercel/v1/installations/[^/]+/?$"  #  /api/vercel/v1/installations/{installation_id}
         return bool(re.match(pattern, request.path))
 
-    def _build_redirect_headers(self, request: HttpRequest) -> dict[str, str]:
+    def _build_proxy_headers(self, request: HttpRequest) -> dict[str, str]:
         return {
             key[5:].replace("_", "-").lower(): value
             for key, value in request.META.items()
             if key.startswith("HTTP_") and key[5:].replace("_", "-").lower() in self.SAFE_HEADERS
         }
 
-    def _redirect_to_eu(self, request: HttpRequest) -> Response:
+    def _proxy_to_eu(self, request: HttpRequest) -> Response:
         if self.current_region != "us":
-            raise exceptions.APIException("Can only redirect from US region")
+            raise exceptions.APIException("Can only proxy from US region")
 
         parsed_url = urlparse(request.build_absolute_uri())
         target_url = urlunparse(parsed_url._replace(netloc=self.EU_DOMAIN))
@@ -120,14 +121,14 @@ class VercelRegionRedirectMixin:
             response = requests.request(
                 method=request.method or "GET",
                 url=target_url,
-                headers=self._build_redirect_headers(request),
+                headers=self._build_proxy_headers(request),
                 params=dict(request.GET.lists()) if request.GET else None,
                 data=request.body or None,
-                timeout=self.REDIRECT_TIMEOUT,
+                timeout=self.PROXY_TIMEOUT,
             )
 
             logger.info(
-                "Redirected request to EU region",
+                "Proxied request to EU region",
                 target_url=target_url,
                 status_code=response.status_code,
                 integration="vercel",
@@ -135,25 +136,25 @@ class VercelRegionRedirectMixin:
 
             content_type = response.headers.get("content-type", "")
             if not content_type.startswith(("application/json", "text/")):
-                logger.warning("Unexpected content type from redirect", content_type=content_type)
+                logger.warning("Unexpected content type from proxy", content_type=content_type)
 
             try:
                 data = response.json() if response.content else {}
             except ValueError:
                 data = {"error": "Invalid response from alternate region"}
 
-            return Response(data=data, status=response.status_code)
+            return Response(data=data, status=response.status_code, content_type="application/json")
 
         except requests.exceptions.RequestException as e:
             logger.exception(
-                "Failed to redirect request to EU region",
+                "Failed to proxy request to EU region",
                 url=target_url,
                 error=str(e),
                 integration="vercel",
             )
-            raise exceptions.APIException("Unable to redirect request to EU region")
+            raise exceptions.APIException("Unable to proxy request to EU region")
 
-    def _should_redirect_to_eu(self, installation_id: str | None, request: HttpRequest) -> bool:
+    def _should_proxy_to_eu(self, installation_id: str | None, request: HttpRequest) -> bool:
         if not installation_id or self.current_region != "us":
             return False
 
@@ -164,12 +165,12 @@ class VercelRegionRedirectMixin:
             if data_region:
                 return data_region == "eu"
 
-        # Normal logic: US redirects to EU if installation doesn't exist
+        # Normal logic: US proxies to EU if installation doesn't exist
         return not self._get_cached_installation_status(installation_id)
 
     def _handle_missing_installation(self, installation_id: str) -> None:
         logger.info(
-            "Installation not found and no redirect target configured",
+            "Installation not found and no proxy target configured",
             current_region=self.current_region,
             installation_id=installation_id,
             integration="vercel",
@@ -182,30 +183,30 @@ class VercelRegionRedirectMixin:
 
         installation_id = self._extract_installation_id(request)
 
-        # If we should redirect to EU, try to do so
-        if self._should_redirect_to_eu(installation_id, request):
+        # If we should proxy to EU, try to do so
+        if self._should_proxy_to_eu(installation_id, request):
             logger.info(
-                "Redirecting to EU region",
+                "Proxying to EU region",
                 current_region=self.current_region,
                 installation_id=installation_id,
                 integration="vercel",
             )
             try:
-                drf_response = self._redirect_to_eu(request)
+                drf_response = self._proxy_to_eu(request)
                 content = json.dumps(drf_response.data) if drf_response.data else "{}"
                 return HttpResponse(content=content, status=drf_response.status_code, content_type="application/json")
             except exceptions.APIException as e:
                 logger.warning(
-                    "Redirect to EU failed, falling back to normal processing",
+                    "Proxy to EU failed, falling back to normal processing",
                     current_region=self.current_region,
                     installation_id=installation_id,
                     error=str(e),
                     integration="vercel",
                 )
 
-        # If we can't redirect, nor is the installation found, we return a 404
+        # If we can't proxy, nor is the installation found, we return a 404
         elif installation_id and not self._get_cached_installation_status(installation_id):
             self._handle_missing_installation(installation_id)
 
-        # If we can't redirect, and the installation exists, we return the response from the current region
+        # If we can't proxy, and the installation exists, we return the response from the current region
         return super().dispatch(request, *args, **kwargs)  # type: ignore[misc]

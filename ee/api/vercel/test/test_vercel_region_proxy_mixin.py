@@ -12,16 +12,16 @@ from rest_framework import exceptions, viewsets
 from rest_framework.response import Response
 
 from ee.api.vercel.test.base import VercelTestBase
-from ee.api.vercel.vercel_region_redirect_mixin import VercelRegionRedirectMixin
+from ee.api.vercel.vercel_region_proxy_mixin import VercelRegionProxyMixin
 
 
-class _TestVercelRegionRedirectViewSet(VercelRegionRedirectMixin, viewsets.GenericViewSet):
+class _TestVercelRegionProxyViewSet(VercelRegionProxyMixin, viewsets.GenericViewSet):
     def get(self, request):
         return Response({"message": "success"})
 
 
 @pytest.mark.django_db
-class TestVercelRegionRedirectMixin(VercelTestBase):
+class TestVercelRegionProxyMixin(VercelTestBase):
     US_DOMAIN = "https://us.posthog.com"
     EU_DOMAIN = "https://eu.posthog.com"
     LOCALHOST_8000 = "http://localhost:8000"
@@ -44,7 +44,7 @@ class TestVercelRegionRedirectMixin(VercelTestBase):
 
     def setUp(self):
         super().setUp()
-        self.test_viewset = _TestVercelRegionRedirectViewSet()
+        self.test_viewset = _TestVercelRegionProxyViewSet()
         self.mock_jwks_function.return_value = self.mock_jwks
 
     def _setup_region_test(self, site_url, installation_id=None, debug=False):
@@ -99,10 +99,8 @@ class TestVercelRegionRedirectMixin(VercelTestBase):
         response.headers = {"content-type": "application/json"}
         return response
 
-    def _patch_redirect_to_eu(self, return_value=None, side_effect=None):
-        return patch.object(
-            VercelRegionRedirectMixin, "_redirect_to_eu", return_value=return_value, side_effect=side_effect
-        )
+    def _patch_proxy_to_eu(self, return_value=None, side_effect=None):
+        return patch.object(VercelRegionProxyMixin, "_proxy_to_eu", return_value=return_value, side_effect=side_effect)
 
     @contextmanager
     def _mock_dispatch_scenario(self, super_response=None, proxy_response=None, proxy_error=None):
@@ -110,7 +108,7 @@ class TestVercelRegionRedirectMixin(VercelTestBase):
         if super_response:
             mocks["super_dispatch"] = self._patch_super_dispatch(super_response)
         if proxy_response or proxy_error:
-            mocks["redirect"] = self._patch_redirect_to_eu(return_value=proxy_response, side_effect=proxy_error)
+            mocks["proxy"] = self._patch_proxy_to_eu(return_value=proxy_response, side_effect=proxy_error)
 
         started_mocks = {key: mock.__enter__() for key, mock in mocks.items()}
         try:
@@ -185,7 +183,7 @@ class TestVercelRegionRedirectMixin(VercelTestBase):
             HTTP_X_VERCEL_SIGNATURE="signature",
             HTTP_X_UNSAFE_HEADER="unsafe",
         )
-        headers = self.test_viewset._build_redirect_headers(request)
+        headers = self.test_viewset._build_proxy_headers(request)
         expected = {
             "authorization": "Bearer token",
             "x-vercel-auth": "user",
@@ -195,7 +193,7 @@ class TestVercelRegionRedirectMixin(VercelTestBase):
         }
         assert headers == expected
 
-    def test_determines_redirect_requirement(self):
+    def test_determines_proxy_requirement(self):
         test_cases = [
             ("us_region_missing_installation", self.US_DOMAIN, "icfg_nonexistentinstallation", "eu"),
             ("us_region_valid_installation", self.US_DOMAIN, "installation_id", None),
@@ -210,12 +208,12 @@ class TestVercelRegionRedirectMixin(VercelTestBase):
                     installation_id = self.installation_id
                 request = self._create_request()
                 with self._setup_region_test(site_url):
-                    result = self.test_viewset._should_redirect_to_eu(installation_id, request)
+                    result = self.test_viewset._should_proxy_to_eu(installation_id, request)
                     expected_bool = expected == "eu"
                     assert result == expected_bool
 
-    def test_upsert_with_data_region_us_does_not_redirect_from_us(self):
-        """Test that upsert with data_region: 'US' doesn't redirect when in US region"""
+    def test_upsert_with_data_region_us_does_not_proxy_from_us(self):
+        """Test that upsert with data_region: 'US' doesn't proxy when in US region"""
         factory = RequestFactory()
         request_body = json.dumps(
             {
@@ -231,11 +229,11 @@ class TestVercelRegionRedirectMixin(VercelTestBase):
         )
 
         with self._setup_region_test(self.US_DOMAIN):
-            result = self.test_viewset._should_redirect_to_eu("icfg_nonexistentinstallation", request)
-            assert result is False  # Should not redirect
+            result = self.test_viewset._should_proxy_to_eu("icfg_nonexistentinstallation", request)
+            assert result is False  # Should not proxy
 
-    def test_upsert_with_data_region_eu_redirects_from_us(self):
-        """Test that upsert with data_region: 'EU' redirects from US to EU region"""
+    def test_upsert_with_data_region_eu_proxies_from_us(self):
+        """Test that upsert with data_region: 'EU' proxies from US to EU region"""
         factory = RequestFactory()
         request_body = json.dumps(
             {
@@ -251,11 +249,11 @@ class TestVercelRegionRedirectMixin(VercelTestBase):
         )
 
         with self._setup_region_test(self.US_DOMAIN):
-            result = self.test_viewset._should_redirect_to_eu("icfg_nonexistentinstallation", request)
-            assert result is True  # Should redirect to EU
+            result = self.test_viewset._should_proxy_to_eu("icfg_nonexistentinstallation", request)
+            assert result is True  # Should proxy to EU
 
     def test_upsert_without_data_region_uses_normal_logic(self):
-        """Test that upsert without data_region falls back to normal redirect logic"""
+        """Test that upsert without data_region falls back to normal proxy logic"""
         factory = RequestFactory()
         request_body = json.dumps(
             {
@@ -271,8 +269,8 @@ class TestVercelRegionRedirectMixin(VercelTestBase):
         )
 
         with self._setup_region_test(self.US_DOMAIN):
-            result = self.test_viewset._should_redirect_to_eu("icfg_nonexistentinstallation", request)
-            assert result is True  # Should redirect using normal logic (installation doesn't exist)
+            result = self.test_viewset._should_proxy_to_eu("icfg_nonexistentinstallation", request)
+            assert result is True  # Should proxy using normal logic (installation doesn't exist)
 
     def test_non_upsert_request_ignores_data_region(self):
         """Test that GET requests ignore data_region metadata"""
@@ -280,27 +278,27 @@ class TestVercelRegionRedirectMixin(VercelTestBase):
         request = factory.get("/api/vercel/v1/installations/icfg_nonexistentinstallation")
 
         with self._setup_region_test(self.US_DOMAIN):
-            result = self.test_viewset._should_redirect_to_eu("icfg_nonexistentinstallation", request)
+            result = self.test_viewset._should_proxy_to_eu("icfg_nonexistentinstallation", request)
             assert result is True  # Should use normal logic (installation doesn't exist)
 
-    @patch("ee.api.vercel.vercel_region_redirect_mixin.requests.request")
+    @patch("ee.api.vercel.vercel_region_proxy_mixin.requests.request")
     def test_successfully_proxies_request_to_target_region(self, mock_request):
         mock_request.return_value = self._mock_success_response()
         mock_django_request = self._create_mock_request()
 
         with self._setup_region_test(self.US_DOMAIN):
-            result = self.test_viewset._redirect_to_eu(mock_django_request)
+            result = self.test_viewset._proxy_to_eu(mock_django_request)
             assert isinstance(result, Response)
             assert result.status_code == 200
 
-    @patch("ee.api.vercel.vercel_region_redirect_mixin.requests.request")
+    @patch("ee.api.vercel.vercel_region_proxy_mixin.requests.request")
     def test_raises_exception_on_proxy_request_failure(self, mock_request):
         mock_request.side_effect = requests.exceptions.RequestException("Connection failed")
         mock_django_request = self._create_mock_request(headers={})
 
         with self._setup_region_test(self.US_DOMAIN):
             with pytest.raises(exceptions.APIException):
-                self.test_viewset._redirect_to_eu(mock_django_request)
+                self.test_viewset._proxy_to_eu(mock_django_request)
 
     def _create_mock_request(self, headers=None):
         mock_request = Mock()
@@ -327,7 +325,7 @@ class TestVercelRegionRedirectMixin(VercelTestBase):
                 self.US_DOMAIN,
                 "invalid",
                 None,
-                {"redirected": True},
+                {"proxied": True},
                 "eu",
             ),
             (
@@ -384,14 +382,14 @@ class TestVercelRegionRedirectMixin(VercelTestBase):
                 with self._setup_region_test(site_url, debug=debug):
                     if expected_action == "eu":
                         # We're in the US region with a missing installation, so we should proxy to EU
-                        with self._patch_redirect_to_eu(Response(expected_proxy_response, status=200)) as mock_redirect:
+                        with self._patch_proxy_to_eu(Response(expected_proxy_response, status=200)) as mock_proxy:
                             result = self.test_viewset.dispatch(request, *[], **{})
                             self._assert_http_response(result, 200)
-                            mock_redirect.assert_called_once()
-                            # Just verify redirect was called - no region parameter anymore
+                            mock_proxy.assert_called_once()
+                            # Just verify proxy was called - no region parameter anymore
                     elif expected_action == "error":
                         # Proxy fails, so we should fall back to normal processing
-                        with self._patch_redirect_to_eu(side_effect=exceptions.APIException("Redirect failed")):
+                        with self._patch_proxy_to_eu(side_effect=exceptions.APIException("Proxy failed")):
                             with self._patch_super_dispatch(Response(expected_super_response)) as mock_super_dispatch:
                                 result = self.test_viewset.dispatch(request, *[], **{})
                                 self._assert_drf_response(result, expected_super_response)
