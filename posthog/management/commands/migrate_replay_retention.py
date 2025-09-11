@@ -28,9 +28,9 @@ class Command(BaseCommand):
 
                 if not dry_run:
                     team.save()
-                    teams_migrated += 1
 
-                self.stdout.write(self.style.SUCCESS(f"Migrated team {team.id}"))
+                teams_migrated += 1
+                self.stdout.write(self.style.SUCCESS(f"{'Would migrate' if dry_run else 'Migrated'} team {team.id}"))
 
             self.stdout.write(
                 self.style.SUCCESS(f"Success - {teams_migrated} teams migrated" + (" (DRY RUN)" if dry_run else ""))
