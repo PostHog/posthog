@@ -14,7 +14,6 @@ import {
     reducers,
     selectors,
 } from 'kea'
-import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
@@ -27,7 +26,6 @@ import { uuid } from 'lib/utils'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
-import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { openNotebook } from '~/models/notebooksModel'
@@ -155,7 +153,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         selectCommand: (command: SlashCommand) => ({ command }),
         activateCommand: (command: SlashCommand) => ({ command }),
         setDeepResearchMode: (deepResearchMode: boolean) => ({ deepResearchMode }),
-        processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
+        processNotebookUpdate: (notebookId: string, notebookContent: JSONContent, messageId?: string | null) => ({
+            notebookId,
+            notebookContent,
+            messageId,
+        }),
     }),
 
     reducers(({ props }) => ({
@@ -347,7 +349,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                 })
                             } else {
                                 if (isNotebookUpdateMessage(parsedResponse)) {
-                                    actions.processNotebookUpdate(parsedResponse.notebook_id, parsedResponse.content)
+                                    actions.processNotebookUpdate(
+                                        parsedResponse.notebook_id,
+                                        parsedResponse.content,
+                                        parsedResponse.id ?? null
+                                    )
                                     if (!parsedResponse.id) {
                                         // we do not want to show partial notebook update messages
                                         return
@@ -532,25 +538,100 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.askMax(command.name)
             }
         },
-        processNotebookUpdate: async ({ notebookId, notebookContent }) => {
+        processNotebookUpdate: async ({ notebookId, notebookContent, messageId }) => {
             try {
-                const currentPath = router.values.location.pathname
-                const notebookPath = urls.notebook(notebookId)
+                const EDITOR_UPDATE_INTERVAL_MS = 120
+                const HEADLESS_UPDATE_INTERVAL_MS = 200
+                type StreamingCache = {
+                    lastUpdateAt: Record<string, number>
+                    raf: Record<string, number>
+                    autoOpened: Record<string, boolean>
+                    autoOpenInFlight: Record<string, boolean>
+                    headlessByNotebook: Record<string, ReturnType<typeof notebookLogic>>
+                    headlessUnmount: Record<string, () => void>
+                }
 
-                if (currentPath.includes(notebookPath)) {
-                    // We're already on the notebook page, refresh it
-                    let logic = notebookLogic.findMounted({ shortId: notebookId })
-                    if (logic) {
-                        logic.actions.setLocalContent(notebookContent, true, true)
+                const getStreamingCache = (): StreamingCache => {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const c: any = cache
+                    if (!c.streaming) {
+                        c.streaming = {
+                            lastUpdateAt: {},
+                            raf: {},
+                            autoOpened: {},
+                            autoOpenInFlight: {},
+                            headlessByNotebook: {},
+                            headlessUnmount: {},
+                        } as StreamingCache
                     }
-                } else {
-                    // Navigate to the notebook
-                    await openNotebook(notebookId, NotebookTarget.Scene, undefined, (logic) => {
-                        logic.actions.setLocalContent(notebookContent, true, true)
+                    return c.streaming as StreamingCache
+                }
+
+                const throttleByNotebook = (id: string, interval: number, fn: () => void): void => {
+                    const sc = getStreamingCache()
+                    const now = performance.now()
+                    const last = sc.lastUpdateAt[id] || 0
+                    if (now - last >= interval) {
+                        fn()
+                        sc.lastUpdateAt[id] = now
+                    } else {
+                        const raf = sc.raf[id]
+                        if (raf) {
+                            cancelAnimationFrame(raf)
+                        }
+                        sc.raf[id] = requestAnimationFrame(() => {
+                            fn()
+                            sc.lastUpdateAt[id] = performance.now()
+                        })
+                    }
+                }
+
+                const ensureHeadless = (id: string): ReturnType<typeof notebookLogic> => {
+                    const sc = getStreamingCache()
+                    let logic = sc.headlessByNotebook[id]
+                    if (!logic) {
+                        logic = notebookLogic({ shortId: id })
+                        sc.headlessByNotebook[id] = logic
+                        sc.headlessUnmount[id] = logic.mount()
+                    }
+                    return logic
+                }
+
+                const mounted = notebookLogic.findMounted({ shortId: notebookId })
+
+                if (mounted) {
+                    throttleByNotebook(notebookId, EDITOR_UPDATE_INTERVAL_MS, () => {
+                        mounted.actions.setLocalContent(notebookContent, true, true)
                     })
+                } else {
+                    const sc = getStreamingCache()
+                    if (!sc.autoOpened[notebookId] && !sc.autoOpenInFlight[notebookId]) {
+                        sc.autoOpenInFlight[notebookId] = true
+                        try {
+                            await openNotebook(notebookId, NotebookTarget.Scene, undefined, (logic) => {
+                                logic.actions.setLocalContent(notebookContent, true, true)
+                            })
+                            sc.autoOpened[notebookId] = true
+                        } finally {
+                            sc.autoOpenInFlight[notebookId] = false
+                        }
+                        return
+                    }
+
+                    const headless = ensureHeadless(notebookId)
+                    throttleByNotebook(notebookId, HEADLESS_UPDATE_INTERVAL_MS, () => {
+                        headless.actions.setLocalContent(notebookContent, false, true)
+                    })
+
+                    const sc2 = getStreamingCache()
+                    if (messageId && sc2.headlessUnmount[notebookId]) {
+                        sc2.headlessUnmount[notebookId]()
+                        delete sc2.headlessByNotebook[notebookId]
+                        delete sc2.headlessUnmount[notebookId]
+                    }
                 }
             } catch (error) {
-                console.error('Failed to navigate to notebook:', error)
+                console.error('Failed to handle notebook update:', error)
             }
         },
     })),

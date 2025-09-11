@@ -9,6 +9,7 @@ export function ThreadAutoScroller({ children }: { children: React.ReactNode }):
 
     const scrollOrigin = useRef({ user: false, programmatic: false, resizing: false })
     const sentinelRef = useRef<HTMLDivElement | null>(null)
+    const BOTTOM_EPSILON_PX = 2
 
     const scrollToBottom = useRef(() => {
         if (!sentinelRef.current) {
@@ -48,10 +49,10 @@ export function ThreadAutoScroller({ children }: { children: React.ReactNode }):
             }
 
             const scrollableContainer = event.target as HTMLElement
-            // Can be tracked through the IntersectionObserver, but the intersection observer event is fired after the scroll event,
-            // so it adds an annoying delay.
-            const isAtBottom =
-                sentinelRef.current.getBoundingClientRect().top <= scrollableContainer.getBoundingClientRect().bottom
+            // Avoid layout thrash by using scroll metrics instead of getBoundingClientRect on every scroll
+            const bottomDistance =
+                scrollableContainer.scrollHeight - scrollableContainer.scrollTop - scrollableContainer.clientHeight
+            const isAtBottom = bottomDistance <= BOTTOM_EPSILON_PX
 
             if (!isAtBottom) {
                 scrollOrigin.current.user = true
