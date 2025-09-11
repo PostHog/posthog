@@ -16,6 +16,9 @@ export interface StreamlitApp {
     internal_url: string
     public_url: string
     last_accessed: string | null
+    entrypoint_file: string | null
+    requirements_file: string | null
+    app_type: 'default' | 'custom'
     created_by: {
         id: number
         email: string
@@ -36,7 +39,9 @@ export const streamlitAppsLogic = kea<streamlitAppsLogicType>([
 
     actions({
         loadApps: true,
-        createApp: (name: string, description?: string) => ({ name, description }),
+        createApp: (name: string, description?: string, appType?: 'default' | 'custom', entrypointFile?: File, requirementsFile?: File) => ({ 
+            name, description, appType, entrypointFile, requirementsFile 
+        }),
         deleteApp: (appId: string) => ({ appId }),
         refreshApps: true,
         openApp: (appId: string) => ({ appId }),
@@ -48,21 +53,37 @@ export const streamlitAppsLogic = kea<streamlitAppsLogicType>([
             [] as StreamlitApp[],
             {
                 loadApps: async () => {
+                    try {
+                        const response = await api.get('/api/projects/@current/streamlit_apps/')
+                        return response.results || []
+                    } catch (error) {
+                        console.error('Failed to load apps:', error)
+                        return []
+                    }
+                },
+                createApp: async ({ name, description, appType, entrypointFile, requirementsFile }) => {
+                    const formData = new FormData()
+                    formData.append('name', name)
+                    formData.append('description', description || '')
+                    formData.append('app_type', appType || 'default')
+                    
+                    if (entrypointFile) {
+                        formData.append('entrypoint_file', entrypointFile)
+                    }
+                    if (requirementsFile) {
+                        formData.append('requirements_file', requirementsFile)
+                    }
+                    
+                    const newApp = await api.create('/api/projects/@current/streamlit_apps/', formData)
+                    // Reload apps after creation
                     const response = await api.get('/api/projects/@current/streamlit_apps/')
                     return response.results || []
                 },
-                createApp: async ({ name, description }) => {
-                    const newApp = await api.create('/api/projects/@current/streamlit_apps/', {
-                        name,
-                        description: description || '',
-                    })
-                    actions.loadApps()
-                    return newApp
-                },
                 deleteApp: async ({ appId }) => {
                     await api.delete(`/api/projects/@current/streamlit_apps/${appId}/`)
-                    actions.loadApps()
-                    return []
+                    // Reload apps after deletion
+                    const response = await api.get('/api/projects/@current/streamlit_apps/')
+                    return response.results || []
                 },
                 refreshApps: async () => {
                     const response = await api.get('/api/projects/@current/streamlit_apps/')
@@ -93,20 +114,20 @@ export const streamlitAppsLogic = kea<streamlitAppsLogicType>([
     selectors({
         runningApps: [
             (s) => [s.apps],
-            (apps: StreamlitApp[]) => apps.filter((app) => app.container_status === 'running'),
+            (apps: StreamlitApp[]) => apps?.filter((app) => app.container_status === 'running') || [],
         ],
         pendingApps: [
             (s) => [s.apps],
-            (apps: StreamlitApp[]) => apps.filter((app) => app.container_status === 'pending'),
+            (apps: StreamlitApp[]) => apps?.filter((app) => app.container_status === 'pending') || [],
         ],
         failedApps: [
             (s) => [s.apps],
-            (apps: StreamlitApp[]) => apps.filter((app) => app.container_status === 'failed'),
+            (apps: StreamlitApp[]) => apps?.filter((app) => app.container_status === 'failed') || [],
         ],
         openApp: [
             (s) => [s.apps, s.openAppId],
             (apps: StreamlitApp[], openAppId: string | null) => 
-                openAppId ? apps.find(app => app.id === openAppId) || null : null,
+                openAppId && apps ? apps.find(app => app.id === openAppId) || null : null,
         ],
     }),
 

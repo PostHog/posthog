@@ -31,6 +31,9 @@ class StreamlitAppSerializer(serializers.ModelSerializer):
             "internal_url",
             "public_url",
             "last_accessed",
+            "entrypoint_file",
+            "requirements_file",
+            "app_type",
             "created_by",
             "created_at",
             "updated_at",
@@ -50,7 +53,19 @@ class StreamlitAppSerializer(serializers.ModelSerializer):
         # Deploy the container asynchronously
         try:
             container_service = ContainerService()
-            container_id, port, internal_url, public_url = container_service.deploy_default_app(app.id, app.name)
+            
+            # Determine app type and deploy accordingly
+            if app.app_type == "custom" and app.entrypoint_file:
+                # Custom app with uploaded files
+                container_id, port, internal_url, public_url = container_service.deploy_custom_app(
+                    app.id, app.name, app.entrypoint_file, app.requirements_file
+                )
+            else:
+                # Default app
+                container_id, port, internal_url, public_url = container_service.deploy_default_app(
+                    app.id, app.name
+                )
+            
             app.container_id = container_id
             app.port = port
             app.internal_url = internal_url

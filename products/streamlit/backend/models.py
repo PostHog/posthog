@@ -48,6 +48,29 @@ class StreamlitApp(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         help_text="Public URL for accessing the app"
     )
     last_accessed = models.DateTimeField(null=True, blank=True)
+    
+    # File upload fields
+    entrypoint_file = models.FileField(
+        upload_to="streamlit_apps/entrypoints/",
+        blank=True,
+        null=True,
+        help_text="Main Python file for the Streamlit app"
+    )
+    requirements_file = models.FileField(
+        upload_to="streamlit_apps/requirements/",
+        blank=True,
+        null=True,
+        help_text="Requirements.txt file for Python dependencies"
+    )
+    app_type = models.CharField(
+        max_length=20,
+        choices=[
+            ("default", "Default Hello World"),
+            ("custom", "Custom Uploaded App"),
+        ],
+        default="default",
+        help_text="Type of Streamlit app"
+    )
     created_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.CASCADE,
