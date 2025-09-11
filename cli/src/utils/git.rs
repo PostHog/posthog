@@ -57,9 +57,14 @@ fn get_remote_url(git_dir: &Path) -> Option<String> {
 
         for line in config_content.lines() {
             let line = line.trim();
-            if line.starts_with("url = ") && line.ends_with(".git") {
-                let url = line.trim_start_matches("url = ");
-                return Some(url.to_string());
+            if line.starts_with("url = ") {
+                let url = line.trim_start_matches("url = ").trim();
+                let normalized = if url.ends_with(".git") {
+                    url.to_string()
+                } else {
+                    format!("{url}.git")
+                };
+                return Some(normalized);
             }
         }
     }
