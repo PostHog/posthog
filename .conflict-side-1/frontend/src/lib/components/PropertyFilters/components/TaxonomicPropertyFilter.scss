@@ -1,0 +1,70 @@
+.TaxonomicPropertyFilter {
+    width: 100%;
+    overflow: hidden;
+
+    &--in-dropdown {
+        width: 900px;
+        min-width: 300px;
+        max-width: 100%;
+        background: var(--color-bg-surface-primary);
+
+        .TaxonomicPropertyFilter__row-items {
+            > :first-child {
+                width: 10rem;
+            }
+        }
+    }
+}
+
+.TaxonomicPropertyFilter__row {
+    display: flex;
+    gap: 0.5rem;
+    overflow: hidden;
+}
+
+.TaxonomicPropertyFilter__row-operator {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: flex-end;
+    width: 4.5rem;
+    height: 40px; // Matches typical row height
+
+    .TaxonomicPropertyFilter__row--or-filtering & {
+        width: 2.125rem;
+    }
+}
+
+.TaxonomicPropertyFilter__row-arrow {
+    position: relative;
+    font-size: 18px;
+    font-weight: bold;
+    color: var(--border-bold-3000);
+    user-select: none;
+}
+
+.TaxonomicPropertyFilter__row-items {
+    display: flex;
+    flex: 1;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    align-items: center;
+    overflow: hidden;
+
+    > * {
+        max-width: 100%;
+        overflow: hidden;
+    }
+
+    .TaxonomicPropertyFilter__row--editable & {
+        gap: 0.5rem;
+    }
+
+    .TaxonomicPropertyFilter__row--showing-operators.TaxonomicPropertyFilter__row--editable & {
+        > :first-child {
+            flex-grow: 1;
+            width: 30%;
+            min-width: 10rem;
+        }
+    }
+}

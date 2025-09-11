@@ -1,0 +1,83 @@
+.dashboard-wrapper {
+    width: 100%;
+    height: calc(100% - 2rem);
+}
+
+.histogram-container {
+    display: flex;
+
+    svg {
+        margin-right: 1rem;
+        margin-left: 1rem;
+
+        /*
+         * Axis
+         */
+        g#y-axis {
+            // Vertical line axis
+            .domain {
+                stroke: var(--color-graph-axis-line);
+            }
+        }
+
+        g#x-axis {
+            // Horizontal line axis
+            .domain {
+                stroke: var(--color-graph-axis-line);
+            }
+
+            // Ticks at each interval
+            .tick {
+                color: var(--color-text-secondary);
+            }
+        }
+
+        g#x-axis,
+        g#y-axis {
+            text {
+                font-family: var(--font-sans);
+                font-size: 0.75rem;
+                font-weight: 500;
+                fill: var(--color-text-tertiary);
+            }
+        }
+
+        /*
+         * Grid
+         */
+        g#y-gridlines {
+            stroke-dasharray: 4, 2;
+
+            g.tick:not(:first-child) {
+                color: var(--color-graph-axis-line);
+            }
+
+            .domain,
+            g.tick:nth-of-type(1) {
+                display: none; // hide axis line
+            }
+        }
+
+        /*
+         * Bars
+         */
+        g#bars {
+            fill: var(--histogram-fill);
+        }
+
+        g#labels {
+            text.bar-label {
+                font-family: 'Emoji Flags Polyfill', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+
+                // same as chart-js
+                font-size: 12px;
+                font-weight: normal;
+                fill: var(--color-white);
+
+                &.outside {
+                    fill: var(--color-text-secondary);
+                }
+            }
+        }
+    }
+}

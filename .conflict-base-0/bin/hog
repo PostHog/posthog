@@ -1,0 +1,40 @@
+#!/bin/bash
+set -e
+
+if [[ "$@" == *".hoge"* ]]; then
+  if [[ "$@" == *"--python"* ]]; then
+    exec python3 -m common.hogvm.python.cli "$@"
+
+  elif [[ "$@" == *"--debug"* ]]; then
+    echo "Running in Python VM with debug mode"
+    exec python3 -m common.hogvm.python.cli "$@"
+
+  else # default to nodejs because it's fastest
+    set -- "${@/--nodejs/}"
+    VM_PATH="$(dirname "$0")/../common/hogvm/typescript"
+    CLI_PATH="$(dirname "$0")/../common/hogvm/typescript/dist/cli.js"
+    # TODO: recompile if something changed
+    if [ ! -f $CLI_PATH ]; then
+      echo "Building TypeScript HogVM"
+      cd $VM_PATH
+      pnpm run build
+      cd -
+    fi
+    exec node $CLI_PATH "$@"
+  fi
+elif [[ "$@" == *"--out"* ]]; then
+  exec python3 -m posthog.hogql.cli --out "$@"
+elif [[ "$@" == *".hog"* ]]; then
+  exec python3 -m posthog.hogql.cli --run "$@"
+else
+  echo "$0 - the full hog! 🦔+🐗=Hog"
+  echo ""
+  echo "Usage:     bin/hog <file.hog>                 run .hog source code"
+  echo "           bin/hog <file.hoge>                run compiled .hoge bytecode"
+  echo "           bin/hoge <file.hog> [output.hoge]  compile .hog into .hoge"
+  echo ""
+  echo "Options:   bin/hog --debug                    run the debugger (Python only)"
+  echo "           bin/hog --python                   use the Python VM"
+  echo "           bin/hog --nodejs                   use the Node.js VM"
+  exit 1
+fi

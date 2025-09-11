@@ -1,0 +1,672 @@
+# serializer version: 1
+# name: TestClickhouseLifecycle.test_interval_dates_days
+  '''
+  WITH 'day' AS selected_period,
+       periods AS
+    (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2021-05-05 23:59:59', 'UTC'))) AS start_of_period
+     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC')), dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC') + INTERVAL 1 day))))
+  SELECT groupArray(start_of_period) AS date,
+         groupArray(counts) AS total,
+         status
+  FROM
+    (SELECT if(status = 'dormant', toInt64(SUM(counts)) * toInt16(-1), toInt64(SUM(counts))) as counts,
+            start_of_period,
+            status
+     FROM
+       (SELECT periods.start_of_period as start_of_period,
+               toUInt16(0) AS counts,
+               status
+        FROM periods
+        CROSS JOIN
+          (SELECT status
+           FROM
+             (SELECT ['new', 'returning', 'resurrecting', 'dormant'] as status) ARRAY
+           JOIN status) as sec
+        ORDER BY status,
+                 start_of_period
+        UNION ALL SELECT start_of_period,
+                         count(DISTINCT person_id) counts,
+                         status
+        FROM
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+                  arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
+                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
+                  arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
+                  arrayMap((previous, current, index) -> if(previous = current, 'new', if(current - INTERVAL 1 day = previous
+                                                                                          AND index != 1, 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
+                  arrayMap((current, next) -> if(current + INTERVAL 1 day = next, '', 'dormant'), all_activity, following_activity) as dormant_status,
+                  arrayMap(x -> x + INTERVAL 1 day, arrayFilter((current, is_dormant) -> is_dormant = 'dormant', all_activity, dormant_status)) as dormant_periods,
+                  arrayMap(x -> 'dormant', dormant_periods) as dormant_label,
+                  arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) as temp_concat,
+                  arrayJoin(temp_concat) as period_status_pairs,
+                  period_status_pairs.1 as start_of_period,
+                  period_status_pairs.2 as status,
+                  toDateTime(min(person.created_at), 'UTC') AS created_at
+           FROM events AS e
+           LEFT OUTER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 99999
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+           INNER JOIN
+             (SELECT id,
+                     argMax(created_at, version) as created_at
+              FROM person
+              WHERE team_id = 99999
+              GROUP BY id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+           WHERE team_id = 99999
+             AND event = '$pageview'
+             AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))) - INTERVAL 1 day
+             AND timestamp < toDateTime(dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))) + INTERVAL 1 day
+           GROUP BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id))
+        GROUP BY start_of_period,
+                 status)
+     WHERE start_of_period <= dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))
+       AND start_of_period >= dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))
+     GROUP BY start_of_period,
+              status
+     ORDER BY start_of_period ASC)
+  GROUP BY status
+  '''
+# ---
+# name: TestClickhouseLifecycle.test_interval_dates_months
+  '''
+  WITH 'month' AS selected_period,
+       periods AS
+    (SELECT dateSub(month, number, dateTrunc(selected_period, toDateTime('2021-05-05 23:59:59', 'UTC'))) AS start_of_period
+     FROM numbers(dateDiff('month', dateTrunc('month', toDateTime('2021-02-04 00:00:00', 'UTC')), dateTrunc('month', toDateTime('2021-05-05 23:59:59', 'UTC') + INTERVAL 1 month))))
+  SELECT groupArray(start_of_period) AS date,
+         groupArray(counts) AS total,
+         status
+  FROM
+    (SELECT if(status = 'dormant', toInt64(SUM(counts)) * toInt16(-1), toInt64(SUM(counts))) as counts,
+            start_of_period,
+            status
+     FROM
+       (SELECT periods.start_of_period as start_of_period,
+               toUInt16(0) AS counts,
+               status
+        FROM periods
+        CROSS JOIN
+          (SELECT status
+           FROM
+             (SELECT ['new', 'returning', 'resurrecting', 'dormant'] as status) ARRAY
+           JOIN status) as sec
+        ORDER BY status,
+                 start_of_period
+        UNION ALL SELECT start_of_period,
+                         count(DISTINCT person_id) counts,
+                         status
+        FROM
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+                  arraySort(groupUniqArray(dateTrunc('month', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
+                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('month', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
+                  arrayPopFront(arrayPushBack(all_activity, dateTrunc('month', toDateTime('1970-01-01')))) as following_activity,
+                  arrayMap((previous, current, index) -> if(previous = current, 'new', if(current - INTERVAL 1 month = previous
+                                                                                          AND index != 1, 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
+                  arrayMap((current, next) -> if(current + INTERVAL 1 month = next, '', 'dormant'), all_activity, following_activity) as dormant_status,
+                  arrayMap(x -> x + INTERVAL 1 month, arrayFilter((current, is_dormant) -> is_dormant = 'dormant', all_activity, dormant_status)) as dormant_periods,
+                  arrayMap(x -> 'dormant', dormant_periods) as dormant_label,
+                  arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) as temp_concat,
+                  arrayJoin(temp_concat) as period_status_pairs,
+                  period_status_pairs.1 as start_of_period,
+                  period_status_pairs.2 as status,
+                  toDateTime(min(person.created_at), 'UTC') AS created_at
+           FROM events AS e
+           LEFT OUTER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 99999
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+           INNER JOIN
+             (SELECT id,
+                     argMax(created_at, version) as created_at
+              FROM person
+              WHERE team_id = 99999
+              GROUP BY id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+           WHERE team_id = 99999
+             AND event = '$pageview'
+             AND timestamp >= toDateTime(dateTrunc('month', toDateTime('2021-02-04 00:00:00', 'UTC'))) - INTERVAL 1 month
+             AND timestamp < toDateTime(dateTrunc('month', toDateTime('2021-05-05 23:59:59', 'UTC'))) + INTERVAL 1 month
+           GROUP BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id))
+        GROUP BY start_of_period,
+                 status)
+     WHERE start_of_period <= dateTrunc('month', toDateTime('2021-05-05 23:59:59', 'UTC'))
+       AND start_of_period >= dateTrunc('month', toDateTime('2021-02-04 00:00:00', 'UTC'))
+     GROUP BY start_of_period,
+              status
+     ORDER BY start_of_period ASC)
+  GROUP BY status
+  '''
+# ---
+# name: TestClickhouseLifecycle.test_interval_dates_weeks
+  '''
+  WITH 'week' AS selected_period,
+       periods AS
+    (SELECT dateSub(week, number, dateTrunc(selected_period, toDateTime('2021-05-06 23:59:59', 'UTC'))) AS start_of_period
+     FROM numbers(dateDiff('week', dateTrunc('week', toDateTime('2021-04-06 00:00:00', 'UTC')), dateTrunc('week', toDateTime('2021-05-06 23:59:59', 'UTC') + INTERVAL 1 week))))
+  SELECT groupArray(start_of_period) AS date,
+         groupArray(counts) AS total,
+         status
+  FROM
+    (SELECT if(status = 'dormant', toInt64(SUM(counts)) * toInt16(-1), toInt64(SUM(counts))) as counts,
+            start_of_period,
+            status
+     FROM
+       (SELECT periods.start_of_period as start_of_period,
+               toUInt16(0) AS counts,
+               status
+        FROM periods
+        CROSS JOIN
+          (SELECT status
+           FROM
+             (SELECT ['new', 'returning', 'resurrecting', 'dormant'] as status) ARRAY
+           JOIN status) as sec
+        ORDER BY status,
+                 start_of_period
+        UNION ALL SELECT start_of_period,
+                         count(DISTINCT person_id) counts,
+                         status
+        FROM
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+                  arraySort(groupUniqArray(dateTrunc('week', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
+                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('week', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
+                  arrayPopFront(arrayPushBack(all_activity, dateTrunc('week', toDateTime('1970-01-01')))) as following_activity,
+                  arrayMap((previous, current, index) -> if(previous = current, 'new', if(current - INTERVAL 1 week = previous
+                                                                                          AND index != 1, 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
+                  arrayMap((current, next) -> if(current + INTERVAL 1 week = next, '', 'dormant'), all_activity, following_activity) as dormant_status,
+                  arrayMap(x -> x + INTERVAL 1 week, arrayFilter((current, is_dormant) -> is_dormant = 'dormant', all_activity, dormant_status)) as dormant_periods,
+                  arrayMap(x -> 'dormant', dormant_periods) as dormant_label,
+                  arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) as temp_concat,
+                  arrayJoin(temp_concat) as period_status_pairs,
+                  period_status_pairs.1 as start_of_period,
+                  period_status_pairs.2 as status,
+                  toDateTime(min(person.created_at), 'UTC') AS created_at
+           FROM events AS e
+           LEFT OUTER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 99999
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+           INNER JOIN
+             (SELECT id,
+                     argMax(created_at, version) as created_at
+              FROM person
+              WHERE team_id = 99999
+              GROUP BY id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+           WHERE team_id = 99999
+             AND event = '$pageview'
+             AND timestamp >= toDateTime(dateTrunc('week', toDateTime('2021-04-06 00:00:00', 'UTC'))) - INTERVAL 1 week
+             AND timestamp < toDateTime(dateTrunc('week', toDateTime('2021-05-06 23:59:59', 'UTC'))) + INTERVAL 1 week
+           GROUP BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id))
+        GROUP BY start_of_period,
+                 status)
+     WHERE start_of_period <= dateTrunc('week', toDateTime('2021-05-06 23:59:59', 'UTC'))
+       AND start_of_period >= dateTrunc('week', toDateTime('2021-04-06 00:00:00', 'UTC'))
+     GROUP BY start_of_period,
+              status
+     ORDER BY start_of_period ASC)
+  GROUP BY status
+  '''
+# ---
+# name: TestClickhouseLifecycle.test_lifecycle_edge_cases
+  '''
+  WITH 'day' AS selected_period,
+       periods AS
+    (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-18 23:59:59', 'UTC'))) AS start_of_period
+     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-11 00:00:00', 'UTC')), dateTrunc('day', toDateTime('2020-01-18 23:59:59', 'UTC') + INTERVAL 1 day))))
+  SELECT groupArray(start_of_period) AS date,
+         groupArray(counts) AS total,
+         status
+  FROM
+    (SELECT if(status = 'dormant', toInt64(SUM(counts)) * toInt16(-1), toInt64(SUM(counts))) as counts,
+            start_of_period,
+            status
+     FROM
+       (SELECT periods.start_of_period as start_of_period,
+               toUInt16(0) AS counts,
+               status
+        FROM periods
+        CROSS JOIN
+          (SELECT status
+           FROM
+             (SELECT ['new', 'returning', 'resurrecting', 'dormant'] as status) ARRAY
+           JOIN status) as sec
+        ORDER BY status,
+                 start_of_period
+        UNION ALL SELECT start_of_period,
+                         count(DISTINCT person_id) counts,
+                         status
+        FROM
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+                  arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
+                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
+                  arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
+                  arrayMap((previous, current, index) -> if(previous = current, 'new', if(current - INTERVAL 1 day = previous
+                                                                                          AND index != 1, 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
+                  arrayMap((current, next) -> if(current + INTERVAL 1 day = next, '', 'dormant'), all_activity, following_activity) as dormant_status,
+                  arrayMap(x -> x + INTERVAL 1 day, arrayFilter((current, is_dormant) -> is_dormant = 'dormant', all_activity, dormant_status)) as dormant_periods,
+                  arrayMap(x -> 'dormant', dormant_periods) as dormant_label,
+                  arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) as temp_concat,
+                  arrayJoin(temp_concat) as period_status_pairs,
+                  period_status_pairs.1 as start_of_period,
+                  period_status_pairs.2 as status,
+                  toDateTime(min(person.created_at), 'UTC') AS created_at
+           FROM events AS e
+           LEFT OUTER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 99999
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+           INNER JOIN
+             (SELECT id,
+                     argMax(created_at, version) as created_at
+              FROM person
+              WHERE team_id = 99999
+              GROUP BY id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+           WHERE team_id = 99999
+             AND event = '$pageview'
+             AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-11 00:00:00', 'UTC'))) - INTERVAL 1 day
+             AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-18 23:59:59', 'UTC'))) + INTERVAL 1 day
+           GROUP BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id))
+        GROUP BY start_of_period,
+                 status)
+     WHERE start_of_period <= dateTrunc('day', toDateTime('2020-01-18 23:59:59', 'UTC'))
+       AND start_of_period >= dateTrunc('day', toDateTime('2020-01-11 00:00:00', 'UTC'))
+     GROUP BY start_of_period,
+              status
+     ORDER BY start_of_period ASC)
+  GROUP BY status
+  '''
+# ---
+# name: TestClickhouseLifecycle.test_lifecycle_hogql_event_properties
+  '''
+  WITH 'day' AS selected_period,
+       periods AS
+    (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2021-05-05 23:59:59', 'UTC'))) AS start_of_period
+     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC')), dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC') + INTERVAL 1 day))))
+  SELECT groupArray(start_of_period) AS date,
+         groupArray(counts) AS total,
+         status
+  FROM
+    (SELECT if(status = 'dormant', toInt64(SUM(counts)) * toInt16(-1), toInt64(SUM(counts))) as counts,
+            start_of_period,
+            status
+     FROM
+       (SELECT periods.start_of_period as start_of_period,
+               toUInt16(0) AS counts,
+               status
+        FROM periods
+        CROSS JOIN
+          (SELECT status
+           FROM
+             (SELECT ['new', 'returning', 'resurrecting', 'dormant'] as status) ARRAY
+           JOIN status) as sec
+        ORDER BY status,
+                 start_of_period
+        UNION ALL SELECT start_of_period,
+                         count(DISTINCT person_id) counts,
+                         status
+        FROM
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+                  arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
+                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
+                  arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
+                  arrayMap((previous, current, index) -> if(previous = current, 'new', if(current - INTERVAL 1 day = previous
+                                                                                          AND index != 1, 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
+                  arrayMap((current, next) -> if(current + INTERVAL 1 day = next, '', 'dormant'), all_activity, following_activity) as dormant_status,
+                  arrayMap(x -> x + INTERVAL 1 day, arrayFilter((current, is_dormant) -> is_dormant = 'dormant', all_activity, dormant_status)) as dormant_periods,
+                  arrayMap(x -> 'dormant', dormant_periods) as dormant_label,
+                  arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) as temp_concat,
+                  arrayJoin(temp_concat) as period_status_pairs,
+                  period_status_pairs.1 as start_of_period,
+                  period_status_pairs.2 as status,
+                  toDateTime(min(person.created_at), 'UTC') AS created_at
+           FROM events AS e
+           LEFT OUTER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 99999
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+           INNER JOIN
+             (SELECT id,
+                     argMax(created_at, version) as created_at
+              FROM person
+              WHERE team_id = 99999
+              GROUP BY id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+           WHERE team_id = 99999
+             AND event = '$pageview'
+             AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))) - INTERVAL 1 day
+             AND timestamp < toDateTime(dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))) + INTERVAL 1 day
+             AND (and(ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), '%example%'), 0), 1))
+           GROUP BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id))
+        GROUP BY start_of_period,
+                 status)
+     WHERE start_of_period <= dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))
+       AND start_of_period >= dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))
+     GROUP BY start_of_period,
+              status
+     ORDER BY start_of_period ASC)
+  GROUP BY status
+  '''
+# ---
+# name: TestClickhouseLifecycle.test_lifecycle_hogql_event_properties_materialized
+  '''
+  WITH 'day' AS selected_period,
+       periods AS
+    (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2021-05-05 23:59:59', 'UTC'))) AS start_of_period
+     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC')), dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC') + INTERVAL 1 day))))
+  SELECT groupArray(start_of_period) AS date,
+         groupArray(counts) AS total,
+         status
+  FROM
+    (SELECT if(status = 'dormant', toInt64(SUM(counts)) * toInt16(-1), toInt64(SUM(counts))) as counts,
+            start_of_period,
+            status
+     FROM
+       (SELECT periods.start_of_period as start_of_period,
+               toUInt16(0) AS counts,
+               status
+        FROM periods
+        CROSS JOIN
+          (SELECT status
+           FROM
+             (SELECT ['new', 'returning', 'resurrecting', 'dormant'] as status) ARRAY
+           JOIN status) as sec
+        ORDER BY status,
+                 start_of_period
+        UNION ALL SELECT start_of_period,
+                         count(DISTINCT person_id) counts,
+                         status
+        FROM
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+                  arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
+                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
+                  arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
+                  arrayMap((previous, current, index) -> if(previous = current, 'new', if(current - INTERVAL 1 day = previous
+                                                                                          AND index != 1, 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
+                  arrayMap((current, next) -> if(current + INTERVAL 1 day = next, '', 'dormant'), all_activity, following_activity) as dormant_status,
+                  arrayMap(x -> x + INTERVAL 1 day, arrayFilter((current, is_dormant) -> is_dormant = 'dormant', all_activity, dormant_status)) as dormant_periods,
+                  arrayMap(x -> 'dormant', dormant_periods) as dormant_label,
+                  arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) as temp_concat,
+                  arrayJoin(temp_concat) as period_status_pairs,
+                  period_status_pairs.1 as start_of_period,
+                  period_status_pairs.2 as status,
+                  toDateTime(min(person.created_at), 'UTC') AS created_at
+           FROM events AS e
+           LEFT OUTER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 99999
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+           INNER JOIN
+             (SELECT id,
+                     argMax(created_at, version) as created_at
+              FROM person
+              WHERE team_id = 99999
+              GROUP BY id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+           WHERE team_id = 99999
+             AND event = '$pageview'
+             AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))) - INTERVAL 1 day
+             AND timestamp < toDateTime(dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))) + INTERVAL 1 day
+             AND (and(ifNull(like(nullIf(nullIf(events.`mat_$current_url`, ''), 'null'), '%example%'), 0), 1))
+           GROUP BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id))
+        GROUP BY start_of_period,
+                 status)
+     WHERE start_of_period <= dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))
+       AND start_of_period >= dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))
+     GROUP BY start_of_period,
+              status
+     ORDER BY start_of_period ASC)
+  GROUP BY status
+  '''
+# ---
+# name: TestClickhouseLifecycle.test_lifecycle_hogql_person_properties
+  '''
+  WITH 'day' AS selected_period,
+       periods AS
+    (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2021-05-05 23:59:59', 'UTC'))) AS start_of_period
+     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC')), dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC') + INTERVAL 1 day))))
+  SELECT groupArray(start_of_period) AS date,
+         groupArray(counts) AS total,
+         status
+  FROM
+    (SELECT if(status = 'dormant', toInt64(SUM(counts)) * toInt16(-1), toInt64(SUM(counts))) as counts,
+            start_of_period,
+            status
+     FROM
+       (SELECT periods.start_of_period as start_of_period,
+               toUInt16(0) AS counts,
+               status
+        FROM periods
+        CROSS JOIN
+          (SELECT status
+           FROM
+             (SELECT ['new', 'returning', 'resurrecting', 'dormant'] as status) ARRAY
+           JOIN status) as sec
+        ORDER BY status,
+                 start_of_period
+        UNION ALL SELECT start_of_period,
+                         count(DISTINCT person_id) counts,
+                         status
+        FROM
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+                  arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
+                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
+                  arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
+                  arrayMap((previous, current, index) -> if(previous = current, 'new', if(current - INTERVAL 1 day = previous
+                                                                                          AND index != 1, 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
+                  arrayMap((current, next) -> if(current + INTERVAL 1 day = next, '', 'dormant'), all_activity, following_activity) as dormant_status,
+                  arrayMap(x -> x + INTERVAL 1 day, arrayFilter((current, is_dormant) -> is_dormant = 'dormant', all_activity, dormant_status)) as dormant_periods,
+                  arrayMap(x -> 'dormant', dormant_periods) as dormant_label,
+                  arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) as temp_concat,
+                  arrayJoin(temp_concat) as period_status_pairs,
+                  period_status_pairs.1 as start_of_period,
+                  period_status_pairs.2 as status,
+                  toDateTime(min(person.created_at), 'UTC') AS created_at
+           FROM events AS e
+           LEFT OUTER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 99999
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+           INNER JOIN
+             (SELECT id,
+                     argMax(created_at, version) as created_at,
+                     argMax(properties, version) as person_props
+              FROM person
+              WHERE team_id = 99999
+              GROUP BY id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+           WHERE team_id = 99999
+             AND event = '$pageview'
+             AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))) - INTERVAL 1 day
+             AND timestamp < toDateTime(dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))) + INTERVAL 1 day
+             AND (ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'email'), ''), 'null'), '^"|"$', ''), '%test.com'), 0))
+           GROUP BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id))
+        GROUP BY start_of_period,
+                 status)
+     WHERE start_of_period <= dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))
+       AND start_of_period >= dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))
+     GROUP BY start_of_period,
+              status
+     ORDER BY start_of_period ASC)
+  GROUP BY status
+  '''
+# ---
+# name: TestClickhouseLifecycle.test_lifecycle_hogql_person_properties_materialized
+  '''
+  WITH 'day' AS selected_period,
+       periods AS
+    (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2021-05-05 23:59:59', 'UTC'))) AS start_of_period
+     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC')), dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC') + INTERVAL 1 day))))
+  SELECT groupArray(start_of_period) AS date,
+         groupArray(counts) AS total,
+         status
+  FROM
+    (SELECT if(status = 'dormant', toInt64(SUM(counts)) * toInt16(-1), toInt64(SUM(counts))) as counts,
+            start_of_period,
+            status
+     FROM
+       (SELECT periods.start_of_period as start_of_period,
+               toUInt16(0) AS counts,
+               status
+        FROM periods
+        CROSS JOIN
+          (SELECT status
+           FROM
+             (SELECT ['new', 'returning', 'resurrecting', 'dormant'] as status) ARRAY
+           JOIN status) as sec
+        ORDER BY status,
+                 start_of_period
+        UNION ALL SELECT start_of_period,
+                         count(DISTINCT person_id) counts,
+                         status
+        FROM
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+                  arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
+                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
+                  arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
+                  arrayMap((previous, current, index) -> if(previous = current, 'new', if(current - INTERVAL 1 day = previous
+                                                                                          AND index != 1, 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
+                  arrayMap((current, next) -> if(current + INTERVAL 1 day = next, '', 'dormant'), all_activity, following_activity) as dormant_status,
+                  arrayMap(x -> x + INTERVAL 1 day, arrayFilter((current, is_dormant) -> is_dormant = 'dormant', all_activity, dormant_status)) as dormant_periods,
+                  arrayMap(x -> 'dormant', dormant_periods) as dormant_label,
+                  arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) as temp_concat,
+                  arrayJoin(temp_concat) as period_status_pairs,
+                  period_status_pairs.1 as start_of_period,
+                  period_status_pairs.2 as status,
+                  toDateTime(min(person.created_at), 'UTC') AS created_at
+           FROM events AS e
+           LEFT OUTER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 99999
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+           INNER JOIN
+             (SELECT id,
+                     argMax(created_at, version) as created_at,
+                     argMax(pmat_email, version) as pmat_email
+              FROM person
+              WHERE team_id = 99999
+              GROUP BY id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+           WHERE team_id = 99999
+             AND event = '$pageview'
+             AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))) - INTERVAL 1 day
+             AND timestamp < toDateTime(dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))) + INTERVAL 1 day
+             AND (ifNull(like(nullIf(nullIf(pmat_email, ''), 'null'), '%test.com'), 0))
+           GROUP BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id))
+        GROUP BY start_of_period,
+                 status)
+     WHERE start_of_period <= dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))
+       AND start_of_period >= dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))
+     GROUP BY start_of_period,
+              status
+     ORDER BY start_of_period ASC)
+  GROUP BY status
+  '''
+# ---
+# name: TestClickhouseLifecycle.test_test_account_filters_with_groups
+  '''
+  WITH 'day' AS selected_period,
+       periods AS
+    (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-19 23:59:59', 'UTC'))) AS start_of_period
+     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC')), dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC') + INTERVAL 1 day))))
+  SELECT groupArray(start_of_period) AS date,
+         groupArray(counts) AS total,
+         status
+  FROM
+    (SELECT if(status = 'dormant', toInt64(SUM(counts)) * toInt16(-1), toInt64(SUM(counts))) as counts,
+            start_of_period,
+            status
+     FROM
+       (SELECT periods.start_of_period as start_of_period,
+               toUInt16(0) AS counts,
+               status
+        FROM periods
+        CROSS JOIN
+          (SELECT status
+           FROM
+             (SELECT ['new', 'returning', 'resurrecting', 'dormant'] as status) ARRAY
+           JOIN status) as sec
+        ORDER BY status,
+                 start_of_period
+        UNION ALL SELECT start_of_period,
+                         count(DISTINCT person_id) counts,
+                         status
+        FROM
+          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+                  arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
+                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
+                  arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
+                  arrayMap((previous, current, index) -> if(previous = current, 'new', if(current - INTERVAL 1 day = previous
+                                                                                          AND index != 1, 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
+                  arrayMap((current, next) -> if(current + INTERVAL 1 day = next, '', 'dormant'), all_activity, following_activity) as dormant_status,
+                  arrayMap(x -> x + INTERVAL 1 day, arrayFilter((current, is_dormant) -> is_dormant = 'dormant', all_activity, dormant_status)) as dormant_periods,
+                  arrayMap(x -> 'dormant', dormant_periods) as dormant_label,
+                  arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) as temp_concat,
+                  arrayJoin(temp_concat) as period_status_pairs,
+                  period_status_pairs.1 as start_of_period,
+                  period_status_pairs.2 as status,
+                  toDateTime(min(person.created_at), 'UTC') AS created_at
+           FROM events AS e
+           LEFT OUTER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 99999
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+           INNER JOIN
+             (SELECT id,
+                     argMax(created_at, version) as created_at
+              FROM person
+              WHERE team_id = 99999
+              GROUP BY id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+           LEFT JOIN
+             (SELECT group_key,
+                     argMax(group_properties, _timestamp) AS group_properties_0
+              FROM groups
+              WHERE team_id = 99999
+                AND group_type_index = 0
+              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+           WHERE team_id = 99999
+             AND event = '$pageview'
+             AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC'))) - INTERVAL 1 day
+             AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC'))) + INTERVAL 1 day
+             AND (has(['value'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'key'), '^"|"$', '')))
+           GROUP BY if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id))
+        GROUP BY start_of_period,
+                 status)
+     WHERE start_of_period <= dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC'))
+       AND start_of_period >= dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC'))
+     GROUP BY start_of_period,
+              status
+     ORDER BY start_of_period ASC)
+  GROUP BY status
+  '''
+# ---

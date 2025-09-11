@@ -1,0 +1,56 @@
+.UniversalFilterButton {
+    gap: 0.375rem;
+    height: 1.625rem;
+    padding: 0.125rem 0.625rem;
+    overflow: hidden;
+    color: var(--text-3000);
+    white-space: nowrap;
+    cursor: default;
+    background: var(--color-bg-fill-button-tertiary-hover);
+    border: 1px solid var(--color-border-primary);
+    border-radius: 0.275rem;
+    outline: 0;
+
+    &[aria-disabled='true']:not(.LemonButton--loading) {
+        cursor: not-allowed;
+        opacity: var(--opacity-disabled);
+    }
+
+    &:hover:not([aria-disabled='true']),
+    &:focus {
+        border-color: var(--secondary-3000-button-border-hover);
+    }
+
+    &:not(.UniversalFilterButton--clickable) {
+        border-color: transparent;
+    }
+
+    &.UniversalFilterButton--clickable {
+        touch-action: manipulation; // faster clicks
+        cursor: pointer;
+    }
+
+    &.UniversalFilterButton--closable {
+        padding-right: 0.5rem;
+    }
+
+    > :not(.UniversalFilterButton-content) {
+        flex-shrink: 0;
+    }
+
+    // Property type icon
+    > .LemonIcon {
+        font-size: 1rem;
+    }
+
+    // Close button
+    .LemonButton {
+        margin: 0 -0.5rem 0 -0.125rem;
+        border-radius: 0.25rem;
+    }
+
+    .LemonButton__chrome {
+        min-height: auto;
+        padding: 0.1875rem;
+    }
+}

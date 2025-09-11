@@ -1,0 +1,36 @@
+.PropertyGroupFilters {
+    .property-group {
+        padding: 0.5rem;
+        background-color: var(--color-bg-primary);
+        border-width: 1px;
+        border-radius: var(--radius);
+    }
+
+    .property-group-and-or-separator {
+        position: relative;
+        padding: 0.5rem 0;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--primary-alt);
+
+        &::before {
+            position: absolute;
+            top: 0;
+            left: 17px;
+            width: 2px;
+            height: 100%;
+            content: ' ';
+            background-color: var(--color-border-primary);
+        }
+
+        > span {
+            position: relative;
+            z-index: 1;
+            display: inline-block;
+            width: 35px;
+            padding: 0.25rem;
+            text-align: center;
+            background-color: var(--color-bg-surface-primary);
+        }
+    }
+}

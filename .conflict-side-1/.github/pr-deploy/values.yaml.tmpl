@@ -1,0 +1,50 @@
+cloud: aws
+
+ingress:
+  enabled: false
+
+image:
+  repository: ghcr.io/posthog/posthog/posthog
+  pullPolicy: Always
+
+env:
+- name: SELF_CAPTURE
+  value: "1"
+- name: COMMIT_SHA
+  value: $COMMIT_SHA
+
+siteUrl: https://$NAMESPACE.hedgehog-kitefin.ts.net
+tailscale:
+  enabled: true
+  hostname: $NAMESPACE
+
+clickhouse:
+  persistence:
+    size: 100Gi
+
+kafka:
+  persistence:
+    size: 1Gi
+  nodeSelector:
+    kubernetes.io/arch: amd64
+
+postgresql:
+  persistence:
+    size: 10Gi
+  master:
+    nodeSelector:
+      kubernetes.io/arch: amd64
+
+redis:
+  master:
+    persistence:
+      size: 1Gi
+    nodeSelector:
+      kubernetes.io/arch: amd64
+
+zookeeper:
+  persistence:
+    size: 1Gi
+
+  nodeSelector:
+    kubernetes.io/arch: amd64

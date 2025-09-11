@@ -1,0 +1,99 @@
+.LemonCalendar {
+    --lemon-calendar-month-height: 305px;
+    --lemon-calendar-row-gap: 2px;
+    --lemon-calendar-day-width: 40px;
+    --lemon-calendar-today-radius: 2px;
+    --lemon-calendar-time-column-width: 50px;
+
+    // Tricky: needs to match the equivalent height button from LemonButton.scss
+    --lemon-calendar-time-button-height: 2.3125rem;
+
+    // Force height for month so when swtiching to longer months, the height doesn't change
+    height: var(--lemon-calendar-month-height);
+
+    .LemonCalendar__month {
+        width: 100%;
+    }
+
+    .LemonCalendar__month > thead > tr:first-child > th,
+    .LemonCalendar__month > tbody > tr > td {
+        padding: calc(var(--lemon-calendar-row-gap) / 2) 0;
+    }
+
+    .LemonCalendar__month > thead > tr:first-child > th:first-child,
+    .LemonCalendar__month > thead > tr:first-child > th:last-child,
+    .LemonCalendar__month > tbody > tr > td {
+        width: var(--lemon-calendar-day-width);
+    }
+
+    .LemonCalendar__month tr {
+        &.LemonCalendar__month-header {
+            height: var(--lemon-calendar-time-button-height);
+        }
+
+        .LemonButton {
+            &.rounded-none {
+                border-radius: 0;
+            }
+
+            &.rounded-r-none {
+                border-top-right-radius: 0;
+                border-bottom-right-radius: 0;
+            }
+
+            &.rounded-l-none {
+                border-top-left-radius: 0;
+                border-bottom-left-radius: 0;
+            }
+        }
+
+        .LemonCalendar__today {
+            position: relative;
+
+            &::after {
+                position: absolute;
+                bottom: 5px;
+                left: calc(50% - var(--lemon-calendar-today-radius));
+                width: calc(var(--lemon-calendar-today-radius) * 2);
+                height: calc(var(--lemon-calendar-today-radius) * 2);
+                content: '';
+                background: currentColor;
+                border-radius: 100%;
+            }
+        }
+    }
+
+    .LemonCalendar__range--boundary {
+        background-color: var(--color-border-primary);
+    }
+
+    &--hour {
+        --lemon-calendar-time-columns: 2;
+    }
+
+    &--minute {
+        --lemon-calendar-time-columns: 3;
+    }
+
+    &--hour,
+    &--minute {
+        padding-right: calc((var(--lemon-calendar-time-columns) * var(--lemon-calendar-time-column-width)) + 2px);
+
+        .LemonCalendar__time {
+            & > div {
+                width: var(--lemon-calendar-time-column-width);
+
+                &.ScrollableShadows {
+                    & .ScrollableShadows__inner {
+                        scrollbar-width: none;
+                        scroll-behavior: smooth;
+                    }
+                }
+            }
+
+            &--scroll-spacer {
+                height: calc(100% - var(--lemon-calendar-time-button-height));
+            }
+        }
+    }
+}

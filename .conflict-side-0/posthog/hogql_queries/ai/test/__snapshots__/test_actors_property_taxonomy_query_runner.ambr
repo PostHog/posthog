@@ -1,0 +1,258 @@
+# serializer version: 1
+# name: TestActorsPropertyTaxonomyQueryRunner.test_group_property_taxonomy_query_runner
+  '''
+  SELECT groupArray(5)(prop) AS `groupArray(5)(prop)`,
+         count() AS `count()`,
+         prop_index AS prop_index
+  FROM
+    (SELECT DISTINCT prop_index,
+                     toString(prop_value) AS prop
+     FROM
+       (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+               argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
+               groups.group_type_index AS index,
+               groups.group_key AS key
+        FROM groups
+        WHERE equals(groups.team_id, 99999)
+        GROUP BY groups.group_type_index,
+                 groups.group_key) AS groups ARRAY
+     JOIN arrayEnumerate([toString(groups.properties___industry)]) AS prop_index,
+          [toString(groups.properties___industry)] AS prop_value
+     WHERE and(isNotNull(prop_value), ifNull(equals(groups.index, 0), 0))
+     ORDER BY groups.created_at DESC)
+  GROUP BY prop_index
+  ORDER BY prop_index ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestActorsPropertyTaxonomyQueryRunner.test_group_property_taxonomy_query_runner.1
+  '''
+  SELECT groupArray(5)(prop) AS `groupArray(5)(prop)`,
+         count() AS `count()`,
+         prop_index AS prop_index
+  FROM
+    (SELECT DISTINCT prop_index,
+                     toString(prop_value) AS prop
+     FROM
+       (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'does not exist'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS `properties___does not exist`,
+               argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
+               groups.group_type_index AS index,
+               groups.group_key AS key
+        FROM groups
+        WHERE equals(groups.team_id, 99999)
+        GROUP BY groups.group_type_index,
+                 groups.group_key) AS groups ARRAY
+     JOIN arrayEnumerate([toString(groups.`properties___does not exist`)]) AS prop_index,
+          [toString(groups.`properties___does not exist`)] AS prop_value
+     WHERE and(isNotNull(prop_value), ifNull(equals(groups.index, 0), 0))
+     ORDER BY groups.created_at DESC)
+  GROUP BY prop_index
+  ORDER BY prop_index ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestActorsPropertyTaxonomyQueryRunner.test_group_property_taxonomy_query_runner.2
+  '''
+  SELECT groupArray(5)(prop) AS `groupArray(5)(prop)`,
+         count() AS `count()`,
+         prop_index AS prop_index
+  FROM
+    (SELECT DISTINCT prop_index,
+                     toString(prop_value) AS prop
+     FROM
+       (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'employee_count'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___employee_count,
+               argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
+               groups.group_type_index AS index,
+               groups.group_key AS key
+        FROM groups
+        WHERE equals(groups.team_id, 99999)
+        GROUP BY groups.group_type_index,
+                 groups.group_key) AS groups ARRAY
+     JOIN arrayEnumerate([toString(groups.properties___employee_count)]) AS prop_index,
+          [toString(groups.properties___employee_count)] AS prop_value
+     WHERE and(isNotNull(prop_value), ifNull(equals(groups.index, 0), 0))
+     ORDER BY groups.created_at DESC)
+  GROUP BY prop_index
+  ORDER BY prop_index ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestActorsPropertyTaxonomyQueryRunner.test_max_value_count
+  '''
+  SELECT groupArray(1)(prop) AS `groupArray(1)(prop)`,
+         count() AS `count()`,
+         prop_index AS prop_index
+  FROM
+    (SELECT DISTINCT prop_index,
+                     toString(prop_value) AS prop
+     FROM
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'age'), ''), 'null'), '^"|"$', '') AS properties___age,
+               toTimeZone(person.created_at, 'UTC') AS created_at
+        FROM person
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
+                                                       ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons ARRAY
+     JOIN arrayEnumerate([toString(persons.properties___age)]) AS prop_index,
+          [toString(persons.properties___age)] AS prop_value
+     WHERE isNotNull(prop_value)
+     ORDER BY persons.created_at DESC)
+  GROUP BY prop_index
+  ORDER BY prop_index ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestActorsPropertyTaxonomyQueryRunner.test_person_property_taxonomy_query_runner
+  '''
+  SELECT groupArray(5)(prop) AS `groupArray(5)(prop)`,
+         count() AS `count()`,
+         prop_index AS prop_index
+  FROM
+    (SELECT DISTINCT prop_index,
+                     toString(prop_value) AS prop
+     FROM
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
+               toTimeZone(person.created_at, 'UTC') AS created_at
+        FROM person
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
+                                                       ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons ARRAY
+     JOIN arrayEnumerate([toString(persons.properties___email)]) AS prop_index,
+          [toString(persons.properties___email)] AS prop_value
+     WHERE isNotNull(prop_value)
+     ORDER BY persons.created_at DESC)
+  GROUP BY prop_index
+  ORDER BY prop_index ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestActorsPropertyTaxonomyQueryRunner.test_person_property_taxonomy_query_runner.1
+  '''
+  SELECT groupArray(5)(prop) AS `groupArray(5)(prop)`,
+         count() AS `count()`,
+         prop_index AS prop_index
+  FROM
+    (SELECT DISTINCT prop_index,
+                     toString(prop_value) AS prop
+     FROM
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'does not exist'), ''), 'null'), '^"|"$', '') AS `properties___does not exist`,
+               toTimeZone(person.created_at, 'UTC') AS created_at
+        FROM person
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
+                                                       ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons ARRAY
+     JOIN arrayEnumerate([toString(persons.`properties___does not exist`)]) AS prop_index,
+          [toString(persons.`properties___does not exist`)] AS prop_value
+     WHERE isNotNull(prop_value)
+     ORDER BY persons.created_at DESC)
+  GROUP BY prop_index
+  ORDER BY prop_index ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestActorsPropertyTaxonomyQueryRunner.test_person_property_taxonomy_query_runner.2
+  '''
+  SELECT groupArray(5)(prop) AS `groupArray(5)(prop)`,
+         count() AS `count()`,
+         prop_index AS prop_index
+  FROM
+    (SELECT DISTINCT prop_index,
+                     toString(prop_value) AS prop
+     FROM
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'age'), ''), 'null'), '^"|"$', '') AS properties___age,
+               toTimeZone(person.created_at, 'UTC') AS created_at
+        FROM person
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
+                                                       ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons ARRAY
+     JOIN arrayEnumerate([toString(persons.properties___age)]) AS prop_index,
+          [toString(persons.properties___age)] AS prop_value
+     WHERE isNotNull(prop_value)
+     ORDER BY persons.created_at DESC)
+  GROUP BY prop_index
+  ORDER BY prop_index ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---

@@ -1,0 +1,41 @@
+import { Meta } from '@storybook/addon-docs'
+
+<Meta title="Lemon UI/Overview" />
+
+# Lemon UI
+
+Lemon UI is a suite of building blocks powering PostHog's frontend. These components are abstract in nature so they
+can be used in any context, and are made to fit together. In this section you can find helpful samples, along with
+documentation of available parameters. All the other Storybook sections depend on this one.
+
+## Transition from Ant Design
+
+Lemon UI has grown as a replacement for [Ant Design](https://ant.design/), from which we've started transitioning away
+after onboarding our first product designer, Chris. The quality of our UI has been steadily going up since then,
+but the transition process is not complete yet.
+
+**Your** awareness is needed for us to transition sucessfully. 💪 Please **DO NOT** use the following Ant components when building new UI:
+
+- `Button` – instead go for `LemonButton`
+- `Select` – instead go for `LemonSelect`
+- `Input`, `Input.Password`, `Input.Search` – instead go for `LemonInput`
+- `Input.TextArea` – instead go for `LemonTextArea`
+- `Table` – instead go for `LemonTable`
+- `Checkbox` – instead go for `LemonCheckbox`
+- `Spin` – instead go for `Spinner`
+- `Alert` – instead go for `LemonBanner`
+- `Typography` – just use HTML elements
+- `Modal` – instead go for `LemonModal`
+- `Divider` – instead go for `LemonDivider`
+- `Row` – instead go for `LemonRow` (for standard rows of content) or roll your own `display: flex` as needed (for general layout)
+- `Col` – roll your own `display: flex` as needed
+
+## Lemon principles
+
+- Layout is based on an 8px by 8px grid, so element dimensions/paddings/margins should be multiples of 8px (0.5rem)
+
+## Utility CSS classes
+
+To simplify styling of elements and remove the need for custom CSS as much as possible, we have a range of Utility CSS classes, modelled off of the popular Tailwind. Tailwind itself is something we decided not to include directly at this point in time, but we aim to keep the internal system as close to that of Tailwind as possible to ensure a simple mental model for contributors as well as keeping the door open to migrating to it in the future.
+
+As we are sticking as close to Tailwind as possible - you can use the fantastic [TailwindCSS Docs](https://tailwindcss.com/) to search for any util you are interested in (press `cmd+k` to bring up a quick search on their site). There will of course be many functions we haven't incorporated yet but this at least acts as starting point for documentation and a reference for implementation.

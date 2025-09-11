@@ -1,0 +1,52 @@
+interfaces = []
+exclude = [".*__pycache__", ".*egg-info", "docs", "tests"]
+source_roots = ["."]
+
+[[modules]]
+path = "<root>"
+depends_on = ["posthog"]
+
+[[modules]]
+path = "ee"
+depends_on = ["common.hogvm.python", "posthog"]
+
+[[modules]]
+path = "common.hogql_parser"
+depends_on = []
+
+[[modules]]
+path = "common.hogvm.python"
+depends_on = ["posthog"]
+
+[[modules]]
+path = "posthog"
+depends_on = [
+    "<root>",
+    "ee",
+    "common.hogql_parser",
+    "common.hogvm.python",
+
+    # NOTE: Add new product dependencies here and in settings/web.py PRODUCTS_APPS
+    "products.early_access_features",
+    "products.tasks",
+    "products.links",
+    "products.revenue_analytics",
+    "products.user_interviews",
+    "products.llm_analytics",
+]
+
+[[modules]]
+path = "products.early_access_features"
+depends_on = ["posthog"]
+
+[[modules]]
+path = "products.tasks"
+depends_on = ["posthog"]
+
+[[modules]]
+path = "products.links"
+depends_on = ["posthog"]
+
+[[modules]]
+path = "products.revenue_analytics"
+depends_on = ["posthog"]

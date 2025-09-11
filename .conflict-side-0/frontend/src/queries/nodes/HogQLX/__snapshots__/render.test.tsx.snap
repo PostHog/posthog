@@ -1,0 +1,55 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`HogQLX render should render Sparkline 1`] = `
+<LightErrorBoundary>
+  <Sparkline
+    className="h-8"
+    data={
+      [
+        1,
+        2,
+        3,
+      ]
+    }
+    type={
+      [
+        "line",
+      ]
+    }
+  />
+</LightErrorBoundary>
+`;
+
+exports[`HogQLX render should render array 1`] = `
+<React.Fragment>
+  <React.Fragment>
+    1
+  </React.Fragment>
+  <React.Fragment>
+    2
+  </React.Fragment>
+  <React.Fragment>
+    3
+  </React.Fragment>
+</React.Fragment>
+`;
+
+exports[`HogQLX render should render object 1`] = `
+<JSONViewer
+  collapsed={1}
+  name={null}
+  src={
+    {
+      "a": 1,
+      "b": 2,
+    }
+  }
+/>
+`;
+
+exports[`HogQLX render should render unknown tag 1`] = `
+<div>
+  Unknown tag: 
+  Unknown
+</div>
+`;

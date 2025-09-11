@@ -1,0 +1,25 @@
+[package]
+name = "hook-common"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+chrono = { workspace = true }
+http = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+common-kafka = { path = "../common/kafka" }
+
+[dev-dependencies]
+tokio = { workspace = true } # We need a runtime for async tests

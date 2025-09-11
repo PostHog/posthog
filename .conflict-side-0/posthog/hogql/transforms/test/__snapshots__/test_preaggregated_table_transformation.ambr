@@ -1,0 +1,573 @@
+# serializer version: 1
+# name: TestPreaggregatedTableTransformation.test_alias_intact
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state) AS c, uniqMerge(persons_uniq_state) AS p, uniqMerge(sessions_uniq_state) AS s, utm_medium AS m
+     FROM web_pre_aggregated_stats
+     GROUP BY m)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_all_event_properties_on_events_supported_00__browser
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats
+     GROUP BY browser)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_all_event_properties_on_events_supported_01__os
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats
+     GROUP BY os)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_all_event_properties_on_events_supported_02__viewport_width
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats
+     GROUP BY viewport_width)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_all_event_properties_on_events_supported_03__viewport_height
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats
+     GROUP BY viewport_height)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_all_event_properties_on_events_supported_04__geoip_country_code
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats
+     GROUP BY country_code)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_all_event_properties_on_events_supported_05__geoip_city_name
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats
+     GROUP BY city_name)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_all_event_properties_on_events_supported_06__geoip_subdivision_1_code
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats
+     GROUP BY region_code)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_all_event_properties_on_events_supported_07__geoip_subdivision_1_name
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats
+     GROUP BY region_name)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_all_event_properties_on_events_supported_08_utm_source
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats
+     GROUP BY utm_source)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_all_event_properties_on_events_supported_09_utm_medium
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats
+     GROUP BY utm_medium)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_all_event_properties_on_events_supported_10_utm_campaign
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats
+     GROUP BY utm_campaign)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_all_event_properties_on_events_supported_11_utm_term
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats
+     GROUP BY utm_term)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_all_event_properties_on_events_supported_12_utm_content
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats
+     GROUP BY utm_content)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_all_event_properties_on_events_supported_13__referring_domain
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats
+     GROUP BY referring_domain)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_all_event_properties_on_events_supported_14_metadata_loggedIn
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats
+     GROUP BY mat_metadata_loggedIn)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_all_event_properties_on_events_supported_15_metadata_backend
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats
+     GROUP BY mat_metadata_backend)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_all_session_properties_on_sessions_supported_0__entry_pathname
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats
+     GROUP BY entry_pathname)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_all_session_properties_on_sessions_supported_1__end_pathname
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats
+     GROUP BY end_pathname)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_arithmetic_in_select
+  '''
+  sql
+    (SELECT multiply(sumMerge(pageviews_count_state), 2) AS double_count
+     FROM web_pre_aggregated_stats)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_case_when_expressions
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), if(equals(utm_source, 'google'), 'search', 'other') AS source_type
+     FROM web_pre_aggregated_stats
+     GROUP BY source_type)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_empty_select_query
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state)
+     FROM web_pre_aggregated_stats)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_enable_for_integer_team_timezones
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_equals_function
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_full_trends_line_query
+  '''
+  sql
+    (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 14:04:24')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 14:04:24')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-07-17 23:59:59')), toIntervalDay(1)))), 1))) AS date, arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date) AS total
+     FROM
+       (SELECT sum(total) AS count, day_start
+        FROM
+          (SELECT sumMerge(pageviews_count_state) AS total, toStartOfDay(period_bucket) AS day_start
+           FROM web_pre_aggregated_stats AS e
+           WHERE and(greaterOrEquals(period_bucket, toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 14:04:24')), toIntervalDay(1))), lessOrEquals(period_bucket, assumeNotNull(toDateTime('2025-07-17 23:59:59'))))
+           GROUP BY day_start)
+        GROUP BY day_start
+        ORDER BY day_start ASC)
+     ORDER BY arraySum(total) DESC
+     LIMIT 50000)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_full_trends_query_clickhouse
+  '''
+  sql
+    (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 20:59:19')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 20:59:19')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-07-17 23:59:59')), toIntervalDay(1)))), 1))) AS date, arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date) AS total
+     FROM
+       (SELECT sum(total) AS count, day_start
+        FROM
+          (SELECT sumMerge(pageviews_count_state) AS total, toStartOfDay(period_bucket) AS day_start
+           FROM web_pre_aggregated_stats AS e
+           WHERE and(greaterOrEquals(period_bucket, toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 20:59:19')), toIntervalDay(1))), lessOrEquals(period_bucket, assumeNotNull(toDateTime('2025-07-17 23:59:59'))))
+           GROUP BY day_start)
+        GROUP BY day_start
+        ORDER BY day_start ASC)
+     ORDER BY arraySum(total) DESC
+     LIMIT 50000)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_group_by_alias_supported
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state), utm_source AS u
+     FROM web_pre_aggregated_stats
+     GROUP BY u)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_group_by_and_where
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state) AS total, toStartOfDay(period_bucket) AS day_start, utm_source AS u
+     FROM web_pre_aggregated_stats
+     WHERE ifNull(u, 'null')
+     GROUP BY day_start, u)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_group_by_property
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats
+     GROUP BY utm_source, utm_campaign, entry_pathname, end_pathname)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_group_by_start_of_day
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state) AS total, toStartOfDay(period_bucket) AS day_start
+     FROM web_pre_aggregated_stats
+     GROUP BY day_start)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_having_clause_preservation
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state) AS c, uniqMerge(persons_uniq_state) AS u
+     FROM web_pre_aggregated_stats
+     GROUP BY utm_source
+     HAVING greater(c, 100))
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_limit_offset_preservation
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats
+     LIMIT 10
+     OFFSET 5)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_nested_preaggregation_tables
+  '''
+  sql
+    (SELECT *
+     FROM
+       (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+        FROM web_pre_aggregated_stats))
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_nested_select_queries
+  '''
+  sql
+    (SELECT count() AS total,
+       (SELECT sumMerge(pageviews_count_state)
+        FROM web_pre_aggregated_stats) AS pageviews
+     FROM events
+     WHERE equals(event, '$pageview'))
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_order_by_preservation
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state) AS c, uniqMerge(persons_uniq_state) AS u
+     FROM web_pre_aggregated_stats
+     GROUP BY utm_source
+     ORDER BY c DESC)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_preaggregation_tables
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state)
+     FROM web_pre_aggregated_stats)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_preaggregation_tables_group_by_session_property
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats
+     GROUP BY entry_pathname)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_preaggregation_tables_group_by_supported
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats
+     GROUP BY utm_source)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_sample_1
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_simple_and_condition_transforms
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state)
+     FROM web_pre_aggregated_stats
+     WHERE equals(plus(1, 2), 3))
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_start_of_day_timestamp_with_condition
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state)
+     FROM web_pre_aggregated_stats
+     WHERE greaterOrEquals(period_bucket, '2024-11-24'))
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_start_of_hour_timestamp_with_condition
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state)
+     FROM web_pre_aggregated_stats
+     WHERE greaterOrEquals(toStartOfHour(period_bucket), '2024-11-24'))
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_start_of_week_timestamp_with_condition
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state)
+     FROM web_pre_aggregated_stats
+     WHERE greaterOrEquals(period_bucket, '2024-11-24'))
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_timestamp_end_of_day_string_condition
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state)
+     FROM web_pre_aggregated_stats
+     WHERE lessOrEquals(period_bucket, assumeNotNull(toDateTime('2024-11-24 23:59:59'))))
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_timestamp_string_day_condition
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state)
+     FROM web_pre_aggregated_stats
+     WHERE greaterOrEquals(period_bucket, '2024-11-24'))
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_timestamp_string_hour_condition
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state)
+     FROM web_pre_aggregated_stats
+     WHERE greaterOrEquals(period_bucket, '2024-11-24T13:00:00'))
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_timestamp_with_start_of_day_condition
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state)
+     FROM web_pre_aggregated_stats
+     WHERE greaterOrEquals(period_bucket, toStartOfDay('2024-11-24')))
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_timestamp_with_start_of_day_condition_reversed
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state)
+     FROM web_pre_aggregated_stats
+     WHERE lessOrEquals(toStartOfDay('2024-11-24'), period_bucket))
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_to_start_of_interval_day_with_mid_day_timestamp
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state)
+     FROM web_pre_aggregated_stats
+     WHERE greaterOrEquals(period_bucket, toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 14:04:24')), toIntervalDay(1))))
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_transformation_with_table_alias
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state)
+     FROM web_pre_aggregated_stats AS e)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_trends_line_inner_query
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state) AS total, toStartOfDay(period_bucket) AS day_start
+     FROM web_pre_aggregated_stats AS e
+     WHERE and(greaterOrEquals(period_bucket, toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 14:04:24')), toIntervalDay(1))), lessOrEquals(period_bucket, assumeNotNull(toDateTime('2025-07-17 23:59:59'))))
+     GROUP BY day_start)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_trends_pie_inner_query
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state) AS total
+     FROM web_pre_aggregated_stats AS e
+     WHERE and(equals(team_id, 99999), greaterOrEquals(period_bucket, toStartOfInterval(assumeNotNull(toDateTime('2025-07-11 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(period_bucket, assumeNotNull(toDateTime('2025-07-18 23:59:59', 'UTC'))))
+     ORDER BY 1 DESC)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_tuple
+  '''
+  sql
+    (SELECT tuple(uniqMerge(persons_uniq_state), sumMerge(pageviews_count_state), uniqMerge(sessions_uniq_state)) AS daily_metrics
+     FROM web_pre_aggregated_stats)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformation.test_union_queries
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state)
+     FROM web_pre_aggregated_stats
+     UNION ALL SELECT sumMerge(pageviews_count_state)
+     FROM web_pre_aggregated_stats)
+  '''
+# ---
+# name: TestPreaggregatedTableTransformationIntegration.test_basic_hogql_query
+  '''
+  SELECT sumMerge(web_pre_aggregated_stats.pageviews_count_state) AS `sumMerge(pageviews_count_state)`,
+         uniqMerge(web_pre_aggregated_stats.persons_uniq_state) AS `uniqMerge(persons_uniq_state)`
+  FROM web_pre_aggregated_stats
+  WHERE equals(web_pre_aggregated_stats.team_id, 99999)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestPreaggregatedTableTransformationIntegration.test_complex_hogql_select
+  '''
+  SELECT sumMerge(web_pre_aggregated_stats.pageviews_count_state) AS c,
+         uniqMerge(web_pre_aggregated_stats.persons_uniq_state) AS p,
+         uniqMerge(web_pre_aggregated_stats.sessions_uniq_state) AS s,
+         toStartOfDay(toTimeZone(web_pre_aggregated_stats.period_bucket, 'UTC')) AS t,
+         web_pre_aggregated_stats.utm_source AS u
+  FROM web_pre_aggregated_stats
+  WHERE and(equals(web_pre_aggregated_stats.team_id, 99999), ifNull(equals(web_pre_aggregated_stats.utm_campaign, ''), 0))
+  GROUP BY t,
+           u,
+           web_pre_aggregated_stats.utm_medium
+  HAVING and(ifNull(greater(c, 0), 0), ifNull(equals(u, ''), 0))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestPreaggregatedTableTransformationIntegration.test_hogql_inner_trend
+  '''
+  SELECT sumMerge(e.pageviews_count_state) AS total,
+         toStartOfDay(toTimeZone(e.period_bucket, 'UTC')) AS day_start
+  FROM web_pre_aggregated_stats AS e
+  WHERE and(equals(e.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(e.period_bucket, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2024-11-22 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(toTimeZone(e.period_bucket, 'UTC'), assumeNotNull(toDateTime('2024-11-26 23:59:59', 'UTC'))), 0))
+  GROUP BY day_start
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestPreaggregatedTableTransformationIntegration.test_trends_line_dau_query
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-11-22 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-11-22 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-11-26 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT uniqMerge(e.persons_uniq_state) AS total,
+               toStartOfDay(toTimeZone(e.period_bucket, 'UTC')) AS day_start
+        FROM web_pre_aggregated_stats AS e
+        WHERE and(equals(e.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(e.period_bucket, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2024-11-22 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(toTimeZone(e.period_bucket, 'UTC'), assumeNotNull(toDateTime('2024-11-26 23:59:59', 'UTC'))), 0))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestPreaggregatedTableTransformationIntegration.test_trends_query
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-11-22 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-11-22 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-11-26 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT sumMerge(e.pageviews_count_state) AS total,
+               toStartOfDay(toTimeZone(e.period_bucket, 'UTC')) AS day_start
+        FROM web_pre_aggregated_stats AS e
+        WHERE and(equals(e.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(e.period_bucket, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2024-11-22 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(toTimeZone(e.period_bucket, 'UTC'), assumeNotNull(toDateTime('2024-11-26 23:59:59', 'UTC'))), 0))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
+  '''
+# ---

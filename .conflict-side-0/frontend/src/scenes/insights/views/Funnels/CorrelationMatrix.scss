@@ -1,0 +1,47 @@
+.correlation-table-wrapper {
+    table {
+        margin: 0 auto;
+        border-spacing: 0;
+        border-collapse: separate;
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+
+        td {
+            padding: 0.5rem 1rem;
+            text-align: center;
+            border-top: 1px solid var(--color-border-primary);
+            border-left: 1px solid var(--color-border-primary);
+
+            .percentage {
+                padding-bottom: 0.25rem;
+                font-weight: bold;
+            }
+
+            &:first-child {
+                border-left: none;
+            }
+        }
+
+        .table-title {
+            color: var(--color-text-secondary);
+
+            td {
+                border-top: none;
+            }
+        }
+
+        thead,
+        .horizontal-header {
+            font-weight: bold;
+            color: var(--color-text-secondary);
+            text-transform: uppercase;
+            background-color: var(--color-bg-primary);
+        }
+
+        tbody {
+            td:not(.horizontal-header) {
+                text-align: right;
+            }
+        }
+    }
+}

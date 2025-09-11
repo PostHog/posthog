@@ -1,0 +1,80 @@
+.LemonSegmentedButton {
+    position: relative;
+    flex-shrink: 0;
+    width: fit-content;
+    border-radius: var(--radius);
+
+    > ul {
+        z-index: 1; // Place above slider
+        display: flex;
+        align-items: stretch;
+        list-style: none;
+    }
+
+    &.LemonSegmentedButton--full-width {
+        width: 100%;
+    }
+
+    .LemonSegmentedButton__option {
+        display: flex;
+        flex: 1;
+
+        .LemonButton__content {
+            white-space: nowrap;
+        }
+
+        & .LemonButton,
+        & .LemonButton > .LemonButton__chrome::after,
+        & .LemonButton > .LemonButton__chrome::before {
+            border-radius: 0 !important;
+        }
+
+        .LemonButton:not(:hover) {
+            .LemonButton__content {
+                opacity: var(--lemon-button-icon-opacity);
+            }
+        }
+
+        .LemonButton.LemonButton--secondary:not([aria-disabled='true']):hover {
+            > .LemonButton__chrome::after {
+                border-color: var(--secondary-3000-button-border);
+            }
+        }
+
+        &:first-child,
+        &:first-child .LemonButton,
+        &:first-child .LemonButton > .LemonButton__chrome::after,
+        &:first-child .LemonButton > .LemonButton__chrome::before {
+            border-top-left-radius: var(--radius) !important;
+            border-bottom-left-radius: var(--radius) !important;
+        }
+
+        &:last-child,
+        &:last-child .LemonButton,
+        &:last-child .LemonButton > .LemonButton__chrome::after,
+        &:last-child .LemonButton > .LemonButton__chrome::before {
+            border-top-right-radius: var(--radius) !important;
+            border-bottom-right-radius: var(--radius) !important;
+        }
+
+        &:not(:first-child) {
+            .LemonButton__chrome {
+                margin-left: -1px;
+            }
+        }
+
+        &.LemonSegmentedButton__option--selected {
+            z-index: 2;
+
+            .LemonButton {
+                --lemon-button-icon-opacity: 1;
+            }
+        }
+
+        &--disabled {
+            > div {
+                width: 100%;
+            }
+        }
+    }
+}

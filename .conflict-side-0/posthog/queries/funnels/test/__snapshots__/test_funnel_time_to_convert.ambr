@@ -1,0 +1,446 @@
+# serializer version: 1
+# name: TestFunnelTimeToConvert.test_auto_bin_count_single_step
+  '''
+  WITH step_runs AS
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            avg(step_2_conversion_time) step_2_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner,
+            median(step_2_conversion_time) step_2_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                               step_1_conversion_time,
+                               step_2_conversion_time
+        FROM
+          (SELECT *,
+                  if(latest_0 <= latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 7 DAY
+                     AND latest_1 <= latest_2
+                     AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 <= latest_1
+                                                                      AND latest_1 <= latest_0 + INTERVAL 7 DAY, 2, 1)) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                  if(isNotNull(latest_2)
+                     AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
+           FROM
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+              FROM
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                 FROM
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                    FROM
+                      (SELECT e.timestamp as timestamp,
+                              if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                              if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+                              if(event = 'step one', 1, 0) as step_0,
+                              if(step_0 = 1, timestamp, null) as latest_0,
+                              if(event = 'step two', 1, 0) as step_1,
+                              if(step_1 = 1, timestamp, null) as latest_1,
+                              if(event = 'step three', 1, 0) as step_2,
+                              if(step_2 = 1, timestamp, null) as latest_2
+                       FROM events e
+                       LEFT OUTER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 99999
+                            AND distinct_id IN
+                              (SELECT distinct_id
+                               FROM events
+                               WHERE team_id = 99999
+                                 AND event IN ['step one', 'step three', 'step two']
+                                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC') )
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       WHERE team_id = 99999
+                         AND event IN ['step one', 'step three', 'step two']
+                         AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
+                         AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC')
+                         AND (step_0 = 1
+                              OR step_1 = 1
+                              OR step_2 = 1) ))))
+           WHERE step_0 = 1 ))
+     GROUP BY aggregation_target,
+              steps
+     HAVING steps = max(max_steps)),
+       histogram_params AS
+    (SELECT ifNull(floor(min(step_1_average_conversion_time_inner)), 0) AS from_seconds,
+            ifNull(ceil(max(step_1_average_conversion_time_inner)), 1) AS to_seconds,
+            round(avg(step_1_average_conversion_time_inner), 2) AS average_conversion_time,
+            count() AS sample_count,
+            least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count,
+            ceil((to_seconds - from_seconds) / bin_count) AS bin_width_seconds_raw,
+            if(bin_width_seconds_raw > 0, bin_width_seconds_raw, 60) AS bin_width_seconds
+     FROM step_runs
+     WHERE step_1_average_conversion_time_inner IS NOT NULL ),
+  
+    (SELECT bin_width_seconds
+     FROM histogram_params) AS bin_width_seconds,
+  
+    (SELECT bin_count
+     FROM histogram_params) AS bin_count,
+  
+    (SELECT from_seconds
+     FROM histogram_params) AS histogram_from_seconds,
+  
+    (SELECT to_seconds
+     FROM histogram_params) AS histogram_to_seconds,
+  
+    (SELECT average_conversion_time
+     FROM histogram_params) AS histogram_average_conversion_time
+  SELECT bin_from_seconds,
+         person_count,
+         histogram_average_conversion_time AS average_conversion_time
+  FROM
+    (SELECT histogram_from_seconds + floor((step_1_average_conversion_time_inner - histogram_from_seconds) / bin_width_seconds) * bin_width_seconds AS bin_from_seconds,
+            count() AS person_count
+     FROM step_runs
+     GROUP BY bin_from_seconds) results
+  RIGHT OUTER JOIN
+    (SELECT histogram_from_seconds + number * bin_width_seconds AS bin_from_seconds
+     FROM system.numbers
+     LIMIT ifNull(bin_count, 0) + 1) fill USING (bin_from_seconds)
+  ORDER BY bin_from_seconds SETTINGS max_ast_elements=1000000,
+                                     max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestFunnelTimeToConvert.test_basic_strict
+  '''
+  WITH step_runs AS
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            avg(step_2_conversion_time) step_2_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner,
+            median(step_2_conversion_time) step_2_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                               step_1_conversion_time,
+                               step_2_conversion_time
+        FROM
+          (SELECT *,
+                  if(latest_0 <= latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 7 DAY
+                     AND latest_1 <= latest_2
+                     AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 <= latest_1
+                                                                      AND latest_1 <= latest_0 + INTERVAL 7 DAY, 2, 1)) AS steps,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                  if(isNotNull(latest_2)
+                     AND latest_2 <= latest_1 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
+           FROM
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) latest_1,
+                                                                       step_2,
+                                                                       min(latest_2) over (PARTITION by aggregation_target
+                                                                                           ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) latest_2
+              FROM
+                (SELECT e.timestamp as timestamp,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+                        if(event = 'step one', 1, 0) as step_0,
+                        if(step_0 = 1, timestamp, null) as latest_0,
+                        if(event = 'step two', 1, 0) as step_1,
+                        if(step_1 = 1, timestamp, null) as latest_1,
+                        if(event = 'step three', 1, 0) as step_2,
+                        if(step_2 = 1, timestamp, null) as latest_2
+                 FROM events e
+                 LEFT OUTER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 99999
+                      AND distinct_id IN
+                        (SELECT distinct_id
+                         FROM events
+                         WHERE team_id = 99999
+                           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
+                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC') )
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 WHERE team_id = 99999
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC')
+                   AND (1=1) ))
+           WHERE step_0 = 1 ))
+     GROUP BY aggregation_target,
+              steps
+     HAVING steps = max(max_steps)),
+       histogram_params AS
+    (SELECT ifNull(floor(min(step_1_average_conversion_time_inner)), 0) AS from_seconds,
+            ifNull(ceil(max(step_1_average_conversion_time_inner)), 1) AS to_seconds,
+            round(avg(step_1_average_conversion_time_inner), 2) AS average_conversion_time,
+            count() AS sample_count,
+            least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count,
+            ceil((to_seconds - from_seconds) / bin_count) AS bin_width_seconds_raw,
+            if(bin_width_seconds_raw > 0, bin_width_seconds_raw, 60) AS bin_width_seconds
+     FROM step_runs
+     WHERE step_1_average_conversion_time_inner IS NOT NULL ),
+  
+    (SELECT bin_width_seconds
+     FROM histogram_params) AS bin_width_seconds,
+  
+    (SELECT bin_count
+     FROM histogram_params) AS bin_count,
+  
+    (SELECT from_seconds
+     FROM histogram_params) AS histogram_from_seconds,
+  
+    (SELECT to_seconds
+     FROM histogram_params) AS histogram_to_seconds,
+  
+    (SELECT average_conversion_time
+     FROM histogram_params) AS histogram_average_conversion_time
+  SELECT bin_from_seconds,
+         person_count,
+         histogram_average_conversion_time AS average_conversion_time
+  FROM
+    (SELECT histogram_from_seconds + floor((step_1_average_conversion_time_inner - histogram_from_seconds) / bin_width_seconds) * bin_width_seconds AS bin_from_seconds,
+            count() AS person_count
+     FROM step_runs
+     GROUP BY bin_from_seconds) results
+  RIGHT OUTER JOIN
+    (SELECT histogram_from_seconds + number * bin_width_seconds AS bin_from_seconds
+     FROM system.numbers
+     LIMIT ifNull(bin_count, 0) + 1) fill USING (bin_from_seconds)
+  ORDER BY bin_from_seconds SETTINGS max_ast_elements=1000000,
+                                     max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestFunnelTimeToConvert.test_basic_unordered
+  '''
+  WITH step_runs AS
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            avg(step_2_conversion_time) step_2_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner,
+            median(step_2_conversion_time) step_2_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                               step_1_conversion_time,
+                               step_2_conversion_time
+        FROM
+          (SELECT *,
+                  arraySort([latest_0,latest_1,latest_2]) as event_times,
+                  arraySum([if(latest_0 < latest_1 AND latest_1 <= latest_0 + INTERVAL 7 DAY, 1, 0),if(latest_0 < latest_2 AND latest_2 <= latest_0 + INTERVAL 7 DAY, 1, 0), 1]) AS steps ,
+                  arraySort([latest_0,latest_1,latest_2]) as conversion_times,
+                  if(isNotNull(conversion_times[2])
+                     AND conversion_times[2] <= conversion_times[1] + INTERVAL 7 DAY, dateDiff('second', conversion_times[1], conversion_times[2]), NULL) step_1_conversion_time,
+                  if(isNotNull(conversion_times[3])
+                     AND conversion_times[3] <= conversion_times[2] + INTERVAL 7 DAY, dateDiff('second', conversion_times[2], conversion_times[3]), NULL) step_2_conversion_time
+           FROM
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                       step_2,
+                                                                       min(latest_2) over (PARTITION by aggregation_target
+                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+              FROM
+                (SELECT e.timestamp as timestamp,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+                        if(event = 'step one', 1, 0) as step_0,
+                        if(step_0 = 1, timestamp, null) as latest_0,
+                        if(event = 'step two', 1, 0) as step_1,
+                        if(step_1 = 1, timestamp, null) as latest_1,
+                        if(event = 'step three', 1, 0) as step_2,
+                        if(step_2 = 1, timestamp, null) as latest_2
+                 FROM events e
+                 LEFT OUTER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 99999
+                      AND distinct_id IN
+                        (SELECT distinct_id
+                         FROM events
+                         WHERE team_id = 99999
+                           AND event IN ['step one', 'step three', 'step two']
+                           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
+                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC') )
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 WHERE team_id = 99999
+                   AND event IN ['step one', 'step three', 'step two']
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC')
+                   AND (step_0 = 1
+                        OR step_1 = 1
+                        OR step_2 = 1) ))
+           WHERE step_0 = 1
+           UNION ALL SELECT *,
+                            arraySort([latest_0,latest_1,latest_2]) as event_times,
+                            arraySum([if(latest_0 < latest_1 AND latest_1 <= latest_0 + INTERVAL 7 DAY, 1, 0),if(latest_0 < latest_2 AND latest_2 <= latest_0 + INTERVAL 7 DAY, 1, 0), 1]) AS steps ,
+                            arraySort([latest_0,latest_1,latest_2]) as conversion_times,
+                            if(isNotNull(conversion_times[2])
+                               AND conversion_times[2] <= conversion_times[1] + INTERVAL 7 DAY, dateDiff('second', conversion_times[1], conversion_times[2]), NULL) step_1_conversion_time,
+                            if(isNotNull(conversion_times[3])
+                               AND conversion_times[3] <= conversion_times[2] + INTERVAL 7 DAY, dateDiff('second', conversion_times[2], conversion_times[3]), NULL) step_2_conversion_time
+           FROM
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                       step_2,
+                                                                       min(latest_2) over (PARTITION by aggregation_target
+                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+              FROM
+                (SELECT e.timestamp as timestamp,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+                        if(event = 'step two', 1, 0) as step_0,
+                        if(step_0 = 1, timestamp, null) as latest_0,
+                        if(event = 'step three', 1, 0) as step_1,
+                        if(step_1 = 1, timestamp, null) as latest_1,
+                        if(event = 'step one', 1, 0) as step_2,
+                        if(step_2 = 1, timestamp, null) as latest_2
+                 FROM events e
+                 LEFT OUTER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 99999
+                      AND distinct_id IN
+                        (SELECT distinct_id
+                         FROM events
+                         WHERE team_id = 99999
+                           AND event IN ['step one', 'step three', 'step two']
+                           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
+                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC') )
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 WHERE team_id = 99999
+                   AND event IN ['step one', 'step three', 'step two']
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC')
+                   AND (step_0 = 1
+                        OR step_1 = 1
+                        OR step_2 = 1) ))
+           WHERE step_0 = 1
+           UNION ALL SELECT *,
+                            arraySort([latest_0,latest_1,latest_2]) as event_times,
+                            arraySum([if(latest_0 < latest_1 AND latest_1 <= latest_0 + INTERVAL 7 DAY, 1, 0),if(latest_0 < latest_2 AND latest_2 <= latest_0 + INTERVAL 7 DAY, 1, 0), 1]) AS steps ,
+                            arraySort([latest_0,latest_1,latest_2]) as conversion_times,
+                            if(isNotNull(conversion_times[2])
+                               AND conversion_times[2] <= conversion_times[1] + INTERVAL 7 DAY, dateDiff('second', conversion_times[1], conversion_times[2]), NULL) step_1_conversion_time,
+                            if(isNotNull(conversion_times[3])
+                               AND conversion_times[3] <= conversion_times[2] + INTERVAL 7 DAY, dateDiff('second', conversion_times[2], conversion_times[3]), NULL) step_2_conversion_time
+           FROM
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                       step_2,
+                                                                       min(latest_2) over (PARTITION by aggregation_target
+                                                                                           ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+              FROM
+                (SELECT e.timestamp as timestamp,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+                        if(event = 'step three', 1, 0) as step_0,
+                        if(step_0 = 1, timestamp, null) as latest_0,
+                        if(event = 'step one', 1, 0) as step_1,
+                        if(step_1 = 1, timestamp, null) as latest_1,
+                        if(event = 'step two', 1, 0) as step_2,
+                        if(step_2 = 1, timestamp, null) as latest_2
+                 FROM events e
+                 LEFT OUTER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 99999
+                      AND distinct_id IN
+                        (SELECT distinct_id
+                         FROM events
+                         WHERE team_id = 99999
+                           AND event IN ['step one', 'step three', 'step two']
+                           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
+                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC') )
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 WHERE team_id = 99999
+                   AND event IN ['step one', 'step three', 'step two']
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC')
+                   AND (step_0 = 1
+                        OR step_1 = 1
+                        OR step_2 = 1) ))
+           WHERE step_0 = 1 ))
+     GROUP BY aggregation_target,
+              steps
+     HAVING steps = max(max_steps)),
+       histogram_params AS
+    (SELECT ifNull(floor(min(step_1_average_conversion_time_inner)), 0) AS from_seconds,
+            ifNull(ceil(max(step_1_average_conversion_time_inner)), 1) AS to_seconds,
+            round(avg(step_1_average_conversion_time_inner), 2) AS average_conversion_time,
+            count() AS sample_count,
+            least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS bin_count,
+            ceil((to_seconds - from_seconds) / bin_count) AS bin_width_seconds_raw,
+            if(bin_width_seconds_raw > 0, bin_width_seconds_raw, 60) AS bin_width_seconds
+     FROM step_runs
+     WHERE step_1_average_conversion_time_inner IS NOT NULL ),
+  
+    (SELECT bin_width_seconds
+     FROM histogram_params) AS bin_width_seconds,
+  
+    (SELECT bin_count
+     FROM histogram_params) AS bin_count,
+  
+    (SELECT from_seconds
+     FROM histogram_params) AS histogram_from_seconds,
+  
+    (SELECT to_seconds
+     FROM histogram_params) AS histogram_to_seconds,
+  
+    (SELECT average_conversion_time
+     FROM histogram_params) AS histogram_average_conversion_time
+  SELECT bin_from_seconds,
+         person_count,
+         histogram_average_conversion_time AS average_conversion_time
+  FROM
+    (SELECT histogram_from_seconds + floor((step_1_average_conversion_time_inner - histogram_from_seconds) / bin_width_seconds) * bin_width_seconds AS bin_from_seconds,
+            count() AS person_count
+     FROM step_runs
+     GROUP BY bin_from_seconds) results
+  RIGHT OUTER JOIN
+    (SELECT histogram_from_seconds + number * bin_width_seconds AS bin_from_seconds
+     FROM system.numbers
+     LIMIT ifNull(bin_count, 0) + 1) fill USING (bin_from_seconds)
+  ORDER BY bin_from_seconds SETTINGS max_ast_elements=1000000,
+                                     max_expanded_ast_elements=1000000
+  '''
+# ---

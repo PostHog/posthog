@@ -1,0 +1,7 @@
+* text=auto
+
+.gitattributes export-ignore
+.gitignore export-ignore
+.github/ export-ignore
+CONTRIBUTING.md export-ignore
+CODE_OF_CONDUCT.md export-ignore

@@ -1,0 +1,50 @@
+.PropertyKeyInfo,
+.PropertyKeyInfo__header {
+    display: inline-flex;
+    gap: 0.25rem;
+    align-items: center;
+    max-width: 100%;
+    overflow: hidden;
+    vertical-align: bottom;
+}
+
+.PropertyKeyInfo__header {
+    font-weight: 600;
+}
+
+.PropertyKeyInfo__text {
+    &.PropertyKeyInfo__text--ellipsis {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+}
+
+.PropertyKeyInfo__logo {
+    display: inline-block;
+    flex-shrink: 0;
+    width: 1rem;
+    height: 1rem;
+    background-size: cover;
+}
+
+.PropertyKeyInfo__logo--posthog {
+    background-image: url('../../../public/posthog-icon.svg');
+}
+
+.PropertyKeyInfo__logo--langfuse {
+    background-image: url('../../../public/langfuse-icon.svg');
+}
+
+.PropertyKeyInfo__overlay {
+    padding: 0.25rem;
+    color: var(--text-3000);
+
+    p {
+        margin-bottom: 0.25rem;
+
+        &:last-child {
+            margin-bottom: 0;
+        }
+    }
+}

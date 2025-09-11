@@ -1,0 +1,100 @@
+@mixin orientation-mapping($width, $top, $bottom, $left) {
+    #{$width}: var(--resizer-thickness);
+    #{$top}: 0;
+    #{$bottom}: 0;
+
+    .Resizer__handle {
+        #{$top}: 0;
+        #{$bottom}: 0;
+        #{$width}: 1px;
+        #{$left}: calc(var(--resizer-thickness) / 2);
+
+        &::before,
+        &::after {
+            #{$top}: 0;
+            #{$bottom}: 0;
+            #{$width}: 1px;
+        }
+    }
+}
+
+.Resizer {
+    position: absolute;
+    z-index: var(--z-resizer);
+    user-select: none; // Fixes inadvertent selection of scene text when resizing
+
+    &--left,
+    &--right {
+        --scale: scaleX(3);
+
+        cursor: col-resize;
+
+        @include orientation-mapping(width, top, bottom, left);
+    }
+
+    &--top,
+    &--bottom {
+        --scale: scaleY(3);
+
+        cursor: row-resize;
+
+        @include orientation-mapping(height, left, right, top);
+    }
+
+    .Resizer[aria-hidden='true'] & {
+        cursor: e-resize;
+    }
+
+    .Resizer__handle {
+        position: absolute;
+
+        &::before,
+        &::after {
+            position: absolute;
+            box-sizing: content-box;
+            content: '';
+        }
+
+        &::before {
+            background: var(--color-border-primary);
+            transition: 100ms ease transform;
+        }
+
+        &::after {
+            background: var(--text-3000);
+            opacity: 0;
+            transition: 100ms ease transform;
+        }
+    }
+
+    &--left {
+        left: 0;
+        transform: translateX(calc(var(--resizer-thickness) / 2 * -1));
+    }
+
+    &--right {
+        right: 0;
+        transform: translateX(calc(var(--resizer-thickness) / 2 * 1));
+    }
+
+    &--top {
+        top: 0;
+        transform: translateY(calc(var(--resizer-thickness) / 2 * -1));
+    }
+
+    &--bottom {
+        bottom: 0;
+        transform: translateY(calc(var(--resizer-thickness) / 2 * 1));
+    }
+
+    &:hover .Resizer__handle::after,
+    &--resizing .Resizer__handle::after {
+        outline: 3px solid var(--color-accent);
+        opacity: 0.25;
+    }
+
+    &--resizing .Resizer__handle::before,
+    &--resizing .Resizer__handle::after {
+        cursor: grabbing;
+    }
+}

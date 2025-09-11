@@ -1,0 +1,101 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`segmenter ends a segment if it is the last window 1`] = `
+[
+  {
+    "durationMs": 100,
+    "endTimestamp": 1672531200100,
+    "isActive": true,
+    "kind": "window",
+    "startTimestamp": 1672531200000,
+    "windowId": "A",
+  },
+  {
+    "durationMs": 400,
+    "endTimestamp": 1672531200500,
+    "isActive": false,
+    "kind": "gap",
+    "startTimestamp": 1672531200100,
+    "windowId": undefined,
+  },
+  {
+    "durationMs": 500,
+    "endTimestamp": "2023-01-01T00:00:01.000Z",
+    "isActive": false,
+    "kind": "window",
+    "startTimestamp": 1672531200500,
+    "windowId": "B",
+  },
+]
+`;
+
+exports[`segmenter includes inactive events in the active segment until a threshold 1`] = `
+[
+  {
+    "durationMs": 600000,
+    "endTimestamp": 1672531800000,
+    "isActive": false,
+    "kind": "window",
+    "startTimestamp": 1672531200000,
+    "windowId": "A",
+  },
+]
+`;
+
+exports[`segmenter inserts gaps inclusively 1`] = `
+[
+  {
+    "durationMs": 100,
+    "endTimestamp": 1672531200100,
+    "isActive": false,
+    "kind": "window",
+    "startTimestamp": 1672531200000,
+    "windowId": "A",
+  },
+  {
+    "durationMs": 599800,
+    "endTimestamp": 1672531799900,
+    "isActive": false,
+    "kind": "gap",
+    "startTimestamp": 1672531200100,
+    "windowId": undefined,
+  },
+  {
+    "durationMs": 100,
+    "endTimestamp": 1672531800000,
+    "isActive": false,
+    "kind": "window",
+    "startTimestamp": 1672531799900,
+    "windowId": "B",
+  },
+]
+`;
+
+exports[`segmenter matches snapshots 1`] = `
+[
+  {
+    "durationMs": 5694,
+    "endTimestamp": 1682952386571,
+    "isActive": true,
+    "kind": "window",
+    "startTimestamp": 1682952380877,
+    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+  },
+  {
+    "durationMs": 1533,
+    "endTimestamp": 1682952388104,
+    "isActive": false,
+    "kind": "gap",
+    "startTimestamp": 1682952386571,
+    "windowId": undefined,
+  },
+  {
+    "durationMs": 4641,
+    "endTimestamp": 1682952392745,
+    "isActive": true,
+    "kind": "window",
+    "startTimestamp": 1682952388104,
+    "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
+  },
+]
+`;

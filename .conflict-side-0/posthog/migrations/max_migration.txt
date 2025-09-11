@@ -1,0 +1,1 @@
+0848_activitylog_detail_gin_index

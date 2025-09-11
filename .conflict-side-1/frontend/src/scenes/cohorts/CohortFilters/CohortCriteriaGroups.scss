@@ -1,0 +1,20 @@
+.CohortCriteriaGroups__matching-group {
+    width: 100%;
+    padding-top: 1rem;
+    margin: 0.5rem 0;
+    background-color: var(--color-bg-surface-primary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius);
+
+    &.CohortCriteriaGroups__matching-group--error {
+        border: 1px solid var(--danger);
+    }
+}
+
+.CohortCriteriaGroups__matching-group__logical-divider {
+    padding: 0 1.5rem;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--primary-alt);
+    text-transform: uppercase;
+}

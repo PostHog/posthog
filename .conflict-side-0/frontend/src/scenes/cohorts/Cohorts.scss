@@ -1,0 +1,19 @@
+.cohort-recalculating {
+    padding: 0.5rem 1rem;
+    margin-top: 1rem;
+    background-color: var(--color-bg-primary);
+    border-radius: var(--radius);
+}
+
+.cohort-csv-dragger {
+    height: 155px !important;
+    margin-top: 1rem;
+    border-color: var(--color-accent);
+    border-style: dashed;
+    border-width: 2px;
+    border-radius: var(--radius);
+
+    &:hover {
+        border-color: var(--primary-3000-hover);
+    }
+}

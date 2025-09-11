@@ -1,0 +1,68 @@
+print('start')
+try {
+  print('try')
+} catch (e) {
+  print(f'{e} was the exception')
+}
+
+
+print('------------------')
+
+print('start')
+try {
+  print('try')
+} catch {
+  print('No var for error, but no error')
+}
+
+print('------------------')
+
+try {
+  print('try again')
+  throw Error()
+} catch (e) {
+  print(f'{e} was the exception')
+}
+
+print('------------------')
+
+try {
+  print('try again')
+  throw Error()
+} catch {
+  print('No var for error')
+}
+
+print('------------------')
+
+fun third() {
+  print('Throwing in third')
+  throw Error('Threw in third')
+}
+
+fun second() {
+  print('second')
+  third()
+}
+
+fun first() {
+  print('first')
+  second()
+}
+
+fun base() {
+  print('base')
+  try {
+    first()
+  } catch (e) {
+    print(f'Caught in base: {e}')
+    throw e
+  }
+}
+
+try {
+  base()
+} catch (e) {
+  print(f'Caught in root: {e}')
+}
+print('The end')

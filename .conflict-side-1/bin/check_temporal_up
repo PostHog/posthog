@@ -1,0 +1,23 @@
+#!/bin/bash
+
+set -e
+
+# Wait for Temporal to be ready
+SECONDS=0
+TIMEOUT=180
+
+# Check Temporal by just checking that the port is open
+while true; do
+    if nc -z localhost 7233; then
+        echo "Temporal is up!"
+        exit 0
+    fi
+    
+    if [ $SECONDS -ge $TIMEOUT ]; then
+        echo "Timed out ($TIMEOUT sec) waiting for Temporal to be ready. Crossing fingers and trying to run tests anyway."
+        exit 0
+    fi
+    
+    echo "Waiting for Temporal to be ready"
+    sleep 1
+done

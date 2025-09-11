@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hobby-$HOSTNAME
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hobby-$HOSTNAME
+  template:
+    metadata:
+      labels:
+        app: hobby-$HOSTNAME
+    spec:
+      containers:
+      - name: hobby-$HOSTNAME
+        image: 169684386827.dkr.ecr.us-east-1.amazonaws.com/hobby-base:latest
+        imagePullPolicy: Always
+        securityContext:
+          privileged: true
+        resources:
+          requests:
+            cpu: 4
+            memory: 4G          
+        ports:
+        - containerPort: 2375
+        - containerPort: 80
+        env:
+        - name: BRANCH_NAME
+          value: $BRANCH_NAME
+        - name: REGISTRY_URL
+          value: $REGISTRY_URL
+        - name: DOCKER_TAG
+          value: $DOCKER_TAG
+        - name: SUBDOMAIN
+          value: $HOSTNAME
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hobby-service-$HOSTNAME
+spec:
+  selector:
+    app: hobby-$HOSTNAME
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: NodePort
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hobby-ingress-$HOSTNAME
+  annotations:
+    kubernetes.io/ingress.class: "alb"
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:169684386827:certificate/698851fd-36de-4d28-8d75-cb75cc7a92f2
+    external-dns.alpha.kubernetes.io/hostname: $HOSTNAME.dev.posthog.dev
+spec:
+  ingressClassName: alb
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: hobby-service-$HOSTNAME
+            port:
+              number: 80

@@ -1,0 +1,26 @@
+-- test functions --
+fn<add(2)>
+fn<add2(2)>
+fn<mult(2)>
+fn<noArgs(0)>
+7
+109
+5
+-1
+-1
+-1
+-1
+-1
+-1
+4
+4
+220
+1100
+1 2 3 4 5 6 7
+1 2 3 4 5 6 7
+1 2 3 4 5 6 null
+1 2 3 4 5 6 null
+1 2 3 4 5 null null
+1 2 3 4 5 null null
+null null null null null null null
+null null null null null null null

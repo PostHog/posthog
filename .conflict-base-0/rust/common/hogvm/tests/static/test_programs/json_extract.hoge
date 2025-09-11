@@ -1,0 +1,5 @@
+["_H", 1, 32, "{\"name\": \"John\", \"age\": 30, \"city\": \"New York\"}", 36, 0, 32, "name", 32, "String", 2,
+"JSONExtract", 3, 36, 1, 32, "John", 2, "assert_eq", 2, 35, 36, 0, 32, "age", 32, "Int", 2, "JSONExtract", 3, 36, 2, 33,
+30, 2, "assert_eq", 2, 35, 36, 0, 32, "city", 32, "String", 2, "JSONExtract", 3, 36, 3, 32, "New York", 2, "assert_eq",
+2, 35, 36, 0, 32, "unknown", 32, "String", 2, "JSONExtract", 3, 36, 4, 31, 2, "assert_eq", 2, 35, 36, 0, 33, 1, 33, 2,
+33, 3, 32, "String", 2, "JSONExtract", 5, 31, 2, "assert_eq", 2, 35, 29, 38, 35, 35, 35, 35, 35]

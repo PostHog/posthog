@@ -1,0 +1,69 @@
+.TZLabelPopover {
+    margin: -0.25rem;
+
+    .TZLabelPopover__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+
+        h3 {
+            margin-bottom: 0;
+        }
+    }
+
+    .TZLabelPopover__rows {
+        margin-top: 0.5rem;
+    }
+
+    .TZLabelPopover__row {
+        display: flex;
+        align-items: center;
+        margin-top: 0.5rem;
+
+        > :nth-child(1) {
+            margin-right: 8px;
+            font-weight: bold;
+            color: var(--primary-alt);
+        }
+
+        > :nth-child(2):not(:empty) {
+            margin-right: 6px;
+            font-weight: bold;
+            color: var(--primary-alt);
+        }
+
+        > :nth-child(3) {
+            flex-grow: 1;
+            margin-right: 16px;
+            color: var(--color-text-secondary);
+        }
+
+        > :nth-child(4) {
+            min-width: 10rem;
+            text-align: right;
+
+            .TZLabelPopover--seconds & {
+                min-width: 12rem;
+            }
+        }
+
+        > :nth-child(5) {
+            margin-left: 8px;
+        }
+    }
+
+    .TZLabelPopover__row--muted {
+        color: var(--color-text-secondary);
+
+        > :nth-child(1),
+        > :nth-child(2):not(:empty) {
+            color: var(--color-text-secondary);
+        }
+    }
+
+    .TZLabelPopover__datetime {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+    }
+}

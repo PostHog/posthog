@@ -1,0 +1,50 @@
+[package]
+name = "batch-import-worker"
+version = "0.0.1"
+edition = "2021"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tokio = { workspace = true }
+sqlx = { workspace = true }
+uuid = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+common-kafka = { path = "../common/kafka" }
+common-alloc = { path = "../common/alloc" }
+common-types = { path = "../common/types" }
+common-metrics = { path = "../common/metrics" }
+common-dns = { path = "../common/dns" }
+health = { path = "../common/health" }
+anyhow = { workspace = true }
+envconfig = { workspace = true }
+fernet = { workspace = true }
+base64 = { workspace = true }
+axum = { workspace = true }
+reqwest = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+rdkafka = { workspace = true }
+rayon = "1.10.0"
+celes = "=2.4.0"
+tempfile = "3.8"
+natord = "1.0.9"
+thiserror.workspace = true
+bytes.workspace = true
+futures-util = "0.3.31"
+zip = "4.0.0"
+flate2.workspace = true
+httpdate = "1"
+metrics = { workspace = true }
+urlencoding = "2.1"
+moka = { workspace = true }
+
+[dev-dependencies]
+httpmock = { workspace = true }

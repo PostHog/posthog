@@ -1,0 +1,53 @@
+.LemonCollapse {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    overflow: hidden;
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius);
+
+    &--embedded {
+        border: none;
+        border-radius: 0;
+    }
+}
+
+.LemonCollapsePanel {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+
+    &:not(:last-child) {
+        border-bottom-width: 1px;
+    }
+}
+
+.LemonCollapsePanel__header {
+    background: var(--color-bg-surface-primary);
+    border-radius: 0 !important;
+
+    &.LemonButton:active {
+        transform: inherit;
+    }
+
+    &--disabled:hover {
+        cursor: default;
+        background-color: var(--color-bg-surface-primary) !important;
+    }
+}
+
+.LemonCollapsePanel__body {
+    box-sizing: content-box;
+    height: 0;
+    overflow: hidden;
+    border-top-width: 1px;
+    transition: height 200ms ease;
+
+    .storybook-test-runner & {
+        height: fit-content !important; // Transition disables, but less flakiness
+    }
+}
+
+.LemonCollapsePanel__content {
+    padding: 1rem;
+}

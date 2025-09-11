@@ -1,0 +1,10 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %} {% block section %}
+<!-- prettier-ignore -->
+<p>
+   Uh-oh. Async migration {{ migration_key }} experienced an error at {{ time }}. Here's what happened:
+
+    <code>
+        {{ error }}
+    </code>
+</p>
+{% endblock %}

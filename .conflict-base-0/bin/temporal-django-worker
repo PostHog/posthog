@@ -1,0 +1,48 @@
+#!/bin/bash
+
+set -e
+
+cleanup() {
+    if kill -0 "$worker_pid" >/dev/null 2>&1; then
+        echo "Signaling worker to initialize graceful shutdown"
+        kill -SIGTERM "$worker_pid"
+        echo "Worker signaled for graceful shutdown"
+    else
+        echo "Could not initiate graceful shutdown as worker process is not running"
+    fi
+}
+
+trap cleanup SIGINT SIGTERM EXIT
+
+echo "Initializing Temporal Worker"
+
+python3 manage.py start_temporal_worker "$@" &
+worker_pid=$!
+
+while true; do
+    if wait $worker_pid; then
+        echo "Worker exited normally, exiting"
+        break
+    else
+        status=$?
+
+        # Worker process could finish before the trap handler yields control back to us.
+        # So, we first re-check if we are still running.
+        if ! kill -0 "$worker_pid" >/dev/null 2>&1; then
+            echo "Worker process no longer exists, exiting"
+            break
+        fi
+
+        # If we exit with SIGTERM, status will be 128 + 15.
+        # If we exit with SIGINT, status will be 128 + 2.
+        if [ $status -eq 143 ] || [ $status -eq 130 ]; then
+            echo "Received signal $(($status - 128)), waiting for worker to finish"
+        elif [ $status -eq 0 ]; then
+            echo "Worker exited normally, exiting"
+            break
+        else
+            echo "Worker exited with unexpected exit status $status, exiting"
+            break
+        fi
+    fi
+done

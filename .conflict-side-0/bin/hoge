@@ -1,0 +1,16 @@
+#!/bin/bash
+set -e
+
+if [[ "$@" == *".hog"* ]]; then
+  exec python3 -m posthog.hogql.cli --compile "$@"
+elif [[ "$@" == *".js"* ]]; then
+  exec python3 -m posthog.hogql.cli --compile "$@"
+else
+  echo "$0 - the Hog compilër! 🦔+🕶️= Hoge"
+  echo ""
+  echo "Usage:     bin/hoge <file.hog> [output.hoge]  compile .hog into .hoge"
+  echo "           bin/hoge <file.hog> <output.js>    compile .hog into .js"
+  echo "           bin/hog <file.hog>                 run .hog source code"
+  echo "           bin/hog <file.hoge>                run compiled .hoge bytecode"
+  exit 1
+fi

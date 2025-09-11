@@ -1,0 +1,27 @@
+.NotFoundComponent {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    max-width: 50rem;
+    padding: 0 1rem;
+    margin: 6rem auto;
+    text-align: center;
+
+    .NotFoundComponent__graphic {
+        width: 100%;
+        height: 270px;
+        background: url('../../../../public/not-found-astrohog.png') no-repeat center center;
+    }
+
+    .NotebookNode & {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        max-width: 100%;
+        padding: 2rem;
+        margin: 0;
+        background-color: var(--danger-highlight);
+    }
+}

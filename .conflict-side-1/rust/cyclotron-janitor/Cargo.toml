@@ -1,0 +1,29 @@
+[package]
+name = "cyclotron-janitor"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+tracing-subscriber = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+envconfig = { workspace = true }
+axum = { workspace = true }
+eyre = { workspace = true }
+cyclotron-core = { path = "../cyclotron-core" }
+common-metrics = { path = "../common/metrics" }
+common-kafka = { path = "../common/kafka" }
+health = { path = "../common/health" }
+common-alloc = { path = "../common/alloc" }
+time = { workspace = true }
+rdkafka = { workspace = true }
+
+[dev-dependencies]
+sqlx = { workspace = true }
+serde_json = { workspace = true }

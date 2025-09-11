@@ -1,0 +1,113 @@
+.LemonInput {
+    --lemon-input-height: calc(2.125rem + 3px); // Medium size button height + button shadow height;
+
+    display: flex;
+    gap: 0.375rem;
+    align-items: center;
+    justify-content: left;
+    height: var(--lemon-input-height);
+    min-height: var(--lemon-input-height);
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    color: var(--text-3000);
+    text-align: left;
+    cursor: text;
+    background: none;
+    background-color: var(--color-bg-fill-input);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius);
+
+    &[aria-disabled='true'] {
+        cursor: not-allowed;
+    }
+
+    &:hover:not([aria-disabled='true']),
+    &.LemonInput--focused:not([aria-disabled='true']) {
+        border-color: var(--color-border-secondary);
+    }
+
+    &.LemonInput--transparent-background {
+        background-color: inherit;
+    }
+
+    .Field--error &:not(.ignore-error-border),
+    &.LemonInput--status-danger {
+        border-color: var(--danger) !important; // The error border overrides hover/focus higlighting
+    }
+
+    .LemonInput__input {
+        flex: 1;
+        align-self: stretch; // Improves selectability
+        width: 100%;
+        padding: 0;
+        cursor: inherit;
+        background: none;
+        border: none;
+        outline: none;
+
+        &:disabled {
+            opacity: var(--opacity-disabled);
+        }
+    }
+
+    .LemonIcon {
+        flex-shrink: 0;
+        width: 1em;
+        height: 1em;
+        font-size: 1.25rem;
+        color: var(--color-text-secondary);
+        transition: color 200ms ease;
+    }
+
+    &.LemonInput--xsmall {
+        --lemon-input-height: 1.5rem;
+
+        padding: 0.125rem 0.25rem;
+
+        .LemonIcon {
+            font-size: 1rem;
+        }
+    }
+
+    &.LemonInput--small {
+        --lemon-input-height: 2rem;
+
+        padding: 0.125rem 0.25rem;
+
+        .LemonIcon {
+            font-size: 1.25rem;
+        }
+    }
+
+    &.LemonInput--large {
+        --lemon-input-height: 3rem;
+
+        .LemonIcon {
+            font-size: 1.5rem;
+        }
+    }
+
+    &.LemonInput--has-content {
+        > .LemonIcon {
+            color: var(--color-accent);
+        }
+    }
+
+    &.LemonInput--type-search {
+        // NOTE Design: Search inputs are given a specific small width
+        max-width: 240px;
+    }
+
+    &.LemonInput--type-number {
+        .LemonInput__input {
+            font-variant-numeric: tabular-nums;
+            text-overflow: clip;
+        }
+    }
+
+    &.LemonInput--full-width {
+        width: 100%;
+        max-width: 100%;
+    }
+}

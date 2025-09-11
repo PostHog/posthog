@@ -1,0 +1,43 @@
+.ProjectHomepage {
+    container-type: inline-size;
+
+    .ProjectHomepage__dashboardheader {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 1rem;
+
+        .ProjectHomepage__dashboardheader__title {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+
+            a {
+                color: var(--text-3000);
+
+                &:hover {
+                    color: var(--color-accent);
+                }
+            }
+        }
+    }
+
+    .ProjectHomepage__lists {
+        display: flex;
+        gap: 1rem;
+
+        @container (max-width: 800px) {
+            flex-direction: column;
+        }
+    }
+
+    .empty-state-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        padding: 4rem;
+        background-color: var(--color-bg-primary);
+    }
+}

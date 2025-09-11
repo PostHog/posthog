@@ -1,0 +1,34 @@
+.CompactList {
+    box-sizing: content-box;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--color-bg-surface-primary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius);
+
+    .CompactList__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem;
+
+        h3 {
+            margin-bottom: 0;
+            font-size: 0.9rem;
+            font-weight: 600;
+            line-height: 1.4;
+        }
+    }
+
+    .CompactList__content {
+        height: 16rem;
+        padding: 0.5rem;
+        overflow-y: auto;
+    }
+
+    .LemonButton {
+        font-family: var(--font-sans) !important;
+    }
+}

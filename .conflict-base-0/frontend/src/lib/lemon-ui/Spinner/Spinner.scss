@@ -1,0 +1,95 @@
+.Spinner {
+    --spinner-speed: 1s;
+    --spinner-color: var(--color-accent);
+
+    display: inline-block; // Same as .LemonIcon
+    flex-shrink: 0;
+    width: 1em;
+    height: 1em;
+    vertical-align: -0.15em; // Same as .LemonIcon
+
+    &.Spinner--textColored {
+        --spinner-color: currentColor;
+    }
+
+    &.Spinner--medium {
+        width: 1.5em;
+        height: 1.5em;
+    }
+
+    &.Spinner--large {
+        width: 30px;
+        height: 30px;
+    }
+}
+
+.Spinner__layer {
+    transform-origin: center;
+
+    > circle {
+        display: block;
+        fill: transparent;
+        stroke: var(--spinner-color);
+        stroke-linecap: round;
+        stroke-width: 8px;
+        transform-origin: center;
+    }
+
+    &:nth-child(1) {
+        opacity: 0.333;
+    }
+
+    &:nth-child(2) {
+        animation: spin var(--spinner-speed, 1s) infinite linear;
+
+        > circle {
+            animation: Spinner__writhe calc(var(--spinner-speed, 1s) * 1.5) infinite ease both;
+        }
+    }
+}
+
+@keyframes Spinner__writhe {
+    0%,
+    100% {
+        stroke-dasharray: 70;
+        stroke-dashoffset: -60;
+    }
+
+    50% {
+        stroke-dasharray: 70;
+        stroke-dashoffset: -30;
+    }
+}
+
+.SpinnerOverlay {
+    position: absolute;
+    inset: 0;
+    z-index: var(--z-content-overlay);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: min(100%, 6rem);
+    text-align: center;
+    transition: opacity 0.2s ease;
+
+    &[aria-hidden='true'] {
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &::before {
+        position: absolute;
+        inset: 0;
+        content: '';
+        background: var(--color-bg-surface-primary);
+        opacity: 0.5;
+    }
+
+    .Spinner {
+        position: relative;
+    }
+
+    &.SpinnerOverlay--scene-level::before {
+        background: var(--color-bg-primary);
+    }
+}

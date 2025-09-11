@@ -1,0 +1,131 @@
+@import '../../../styles/mixins';
+
+.PlayerFrame {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: var(--color-bg-3000-dark);
+
+    .PlayerFrame__content--masking-window .replayer-wrapper::before {
+        position: absolute;
+        inset: 0; /* Cover the entire wrapper */
+        z-index: 10; /* Ensure it's above the iframe */
+        pointer-events: auto; /* Block interactions */
+        content: '';
+        background-image: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg==');
+        background-repeat: repeat;
+        background-size: 16px 16px;
+    }
+
+    .PlayerFrame__content {
+        position: absolute;
+
+        iframe {
+            background-color: white;
+            border: 0;
+        }
+
+        // Copied over from rrweb replay css
+        .replayer-wrapper {
+            position: relative;
+        }
+
+        .replayer-mouse {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background-image: url('data:image/svg+xml;base64,PHN2ZyBoZWlnaHQ9JzMwMHB4JyB3aWR0aD0nMzAwcHgnICBmaWxsPSIjMDAwMDAwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGRhdGEtbmFtZT0iTGF5ZXIgMSIgdmlld0JveD0iMCAwIDUwIDUwIiB4PSIwcHgiIHk9IjBweCI+PHRpdGxlPkRlc2lnbl90bnA8L3RpdGxlPjxwYXRoIGQ9Ik00OC43MSw0Mi45MUwzNC4wOCwyOC4yOSw0NC4zMywxOEExLDEsMCwwLDAsNDQsMTYuMzlMMi4zNSwxLjA2QTEsMSwwLDAsMCwxLjA2LDIuMzVMMTYuMzksNDRhMSwxLDAsMCwwLDEuNjUuMzZMMjguMjksMzQuMDgsNDIuOTEsNDguNzFhMSwxLDAsMCwwLDEuNDEsMGw0LjM4LTQuMzhBMSwxLDAsMCwwLDQ4LjcxLDQyLjkxWm0tNS4wOSwzLjY3TDI5LDMyYTEsMSwwLDAsMC0xLjQxLDBsLTkuODUsOS44NUwzLjY5LDMuNjlsMzguMTIsMTRMMzIsMjcuNThBMSwxLDAsMCwwLDMyLDI5TDQ2LjU5LDQzLjYyWiI+PC9wYXRoPjwvc3ZnPg==');
+            background-repeat: no-repeat;
+            background-position: center center;
+            background-size: contain;
+            border-color: transparent; /* otherwise we transition from black when .touch-device class is added */
+            transition:
+                left 0.05s linear,
+                top 0.05s linear;
+        }
+
+        .replayer-mouse::after {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            content: '';
+            background: rgb(73 80 246);
+            border-radius: 100%;
+            opacity: 0.3;
+            transform: translate(-50%, -50%);
+        }
+
+        .replayer-mouse.active::after {
+            animation: PlayerFrame__click 0.2s ease-in-out 1;
+        }
+
+        .replayer-mouse.touch-device {
+            width: 70px;
+            height: 70px;
+            margin-top: -37px;
+            margin-left: -37px;
+            background-image: none; /* there's no passive cursor on touch-only screens */
+            border-color: rgb(73 80 246 / 0%);
+            border-style: solid;
+            border-width: 4px;
+            border-radius: 100%;
+            transition:
+                left 0s linear,
+                top 0s linear,
+                border-color 0.2s ease-in-out;
+        }
+
+        .replayer-mouse.touch-device.touch-active {
+            border-color: rgb(73 80 246 / 100%);
+            transition:
+                left 0.25s linear,
+                top 0.25s linear,
+                border-color 0.2s ease-in-out;
+        }
+
+        .replayer-mouse.touch-device::after {
+            opacity: 0; /* there's no passive cursor on touch-only screens */
+        }
+
+        .replayer-mouse.touch-device.active::after {
+            animation: PlayerFrame__touch-click 0.2s ease-in-out 1;
+        }
+
+        .replayer-mouse-tail {
+            position: absolute;
+            pointer-events: none;
+        }
+
+        @keyframes PlayerFrame__click {
+            0% {
+                width: 20px;
+                height: 20px;
+                opacity: 0.3;
+            }
+
+            50% {
+                width: 10px;
+                height: 10px;
+                opacity: 0.5;
+            }
+        }
+
+        @keyframes PlayerFrame__touch-click {
+            0% {
+                width: 20px;
+                height: 20px;
+                opacity: 0;
+            }
+
+            50% {
+                width: 10px;
+                height: 10px;
+                opacity: 0.5;
+            }
+        }
+    }
+}

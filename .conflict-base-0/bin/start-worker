@@ -1,0 +1,22 @@
+#!/bin/bash
+set -e
+
+# this kills all processes when the last one terminates
+trap 'kill $(jobs -p)' EXIT
+
+export CLICKHOUSE_API_USER="api"
+export CLICKHOUSE_API_PASSWORD="apipass"
+export CLICKHOUSE_APP_USER="app"
+export CLICKHOUSE_APP_PASSWORD="apppass"
+
+source ./bin/celery-queues.env
+
+# start celery worker with heartbeat (-B)
+python manage.py run_autoreload_celery --type=worker &
+python manage.py run_autoreload_celery --type=beat &
+
+if [[ "$PLUGIN_SERVER_IDLE" != "1" && "$PLUGIN_SERVER_IDLE" != "true" ]]; then
+  ./bin/plugin-server
+fi
+
+wait

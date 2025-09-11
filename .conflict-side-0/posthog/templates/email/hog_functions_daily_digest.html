@@ -1,0 +1,60 @@
+{% extends "email/base.html" %}
+{% load posthog_assets %}
+{% load posthog_filters %}
+
+{% block preheader %}Data Pipeline Failures Alert{% endblock %}
+
+{% block heading %}Data Pipeline Failures Alert{% endblock %}
+
+{% block section %}
+<p>
+    Your data pipelines had significant failures (>1% failure rate) in the last 24 hours in project <strong>{{ team.name }}</strong>. Functions are sorted by criticality with highest failure rates at the top. You can <a href="{% absolute_uri '/settings/user-notifications' %}">manage these notifications in PostHog</a>.
+</p>
+
+
+<div class="mb mt">
+    {% for function in functions %}
+        {% if function.failure_rate >= 10 %}
+        <div class="mb" style="border: 1px solid #e1e5e9; padding: 16px; border-radius: 8px; border-left: 4px solid #dc3545;">
+        {% elif function.failure_rate >= 5 %}
+        <div class="mb" style="border: 1px solid #e1e5e9; padding: 16px; border-radius: 8px; border-left: 4px solid #fd7e14;">
+        {% else %}
+        <div class="mb" style="border: 1px solid #e1e5e9; padding: 16px; border-radius: 8px; border-left: 4px solid #ffc107;">
+        {% endif %}
+            <h3 style="margin: 0 0 4px 0;">
+                <a href="{{ function.url }}" target="_blank" style="text-decoration: none; color: #5375ff;">{{ function.name }}</a>
+            </h3>
+            <p style="margin: 4px 0; font-size: 0.95em;">Failure rate: 
+            {% if function.failure_rate >= 10 %}
+            <span style="color: #dc3545;">{{ function.failure_rate }}%</span>
+            {% elif function.failure_rate >= 5 %}
+            <span style="color: #fd7e14;">{{ function.failure_rate }}%</span>
+            {% else %}
+            <span style="color: #f59e0b;">{{ function.failure_rate }}%</span>
+            {% endif %}
+            </p>
+            <p class="muted" style="margin: 4px 0;">Type: {{ function.type|capfirst }}</p>
+            <p class="muted" style="margin: 4px 0;">Created by: {% if function.created_by_email %}{{ function.created_by_email }}{% else %}unknown{% endif %}</p>
+            <p class="muted" style="margin: 4px 0;">Last edited by: {% if function.last_edited_by_email %}{{ function.last_edited_by_email }}{% else %}unknown{% endif %}{% if function.last_edit_date %} on {{ function.last_edit_date }}{% endif %}</p>
+            <p style="margin: 8px 0 0 0;">✅ Successful runs: {{ function.succeeded|intcomma }} | ❌ Failed runs: {{ function.failed|intcomma }}</p>
+        </div>
+    {% endfor %}
+</div>
+
+<div class="mb mt text-center">
+    <a class="button" href="{{ site_url }}/project/{{ team.id }}/pipeline">
+        View Data Pipelines
+    </a>
+</div>
+{% endblock %}
+
+{% block footer %}
+Need help?
+<a href="https://posthog.com/questions?{{ utm_tags }}"
+    target="_blank"><b>Visit support</b></a>
+or
+<a href="https://posthog.com/docs?{{ utm_tags }}"
+    target="_blank"><b>read our documentation</b></a>.<br /><br />
+
+<a href="{% absolute_uri '/settings/user-notifications' %}">Manage these notifications in PostHog</a>
+{% endblock %}

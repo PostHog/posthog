@@ -1,0 +1,11 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Dev" type="CompoundRunConfigurationType">
+    <toRun name="PostHog" type="Python.DjangoServer" />
+    <toRun name="Frontend" type="js.build_tools.npm" />
+    <toRun name="Plugin Server" type="js.build_tools.npm" />
+    <toRun name="Celery Beat" type="PythonConfigurationType" />
+    <toRun name="Celery Threads" type="PythonConfigurationType" />
+    <method v="2" />
+  </configuration>
+</component>
+

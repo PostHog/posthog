@@ -1,0 +1,133 @@
+# serializer version: 1
+# name: TestRecordingsThatMatchPlaylistFilters.test_sorts_nulls_first_and_then_least_recently_counted
+  '''
+  SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."id",
+         "posthog_filesystem"."path",
+         "posthog_filesystem"."depth",
+         "posthog_filesystem"."type",
+         "posthog_filesystem"."ref",
+         "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
+         "posthog_filesystem"."meta",
+         "posthog_filesystem"."created_at",
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
+  FROM "posthog_filesystem"
+  WHERE ("posthog_filesystem"."ref" = '0001'
+         AND "posthog_filesystem"."team_id" = 99999
+         AND "posthog_filesystem"."type" = 'session_recording_playlist'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  '''
+# ---
+# name: TestRecordingsThatMatchPlaylistFilters.test_sorts_nulls_first_and_then_least_recently_counted.1
+  '''
+  SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."id",
+         "posthog_filesystem"."path",
+         "posthog_filesystem"."depth",
+         "posthog_filesystem"."type",
+         "posthog_filesystem"."ref",
+         "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
+         "posthog_filesystem"."meta",
+         "posthog_filesystem"."created_at",
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
+  FROM "posthog_filesystem"
+  WHERE ("posthog_filesystem"."ref" = '0001'
+         AND "posthog_filesystem"."team_id" = 99999
+         AND "posthog_filesystem"."type" = 'session_recording_playlist'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  '''
+# ---
+# name: TestRecordingsThatMatchPlaylistFilters.test_sorts_nulls_first_and_then_least_recently_counted.2
+  '''
+  SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."id",
+         "posthog_filesystem"."path",
+         "posthog_filesystem"."depth",
+         "posthog_filesystem"."type",
+         "posthog_filesystem"."ref",
+         "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
+         "posthog_filesystem"."meta",
+         "posthog_filesystem"."created_at",
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
+  FROM "posthog_filesystem"
+  WHERE ("posthog_filesystem"."ref" = '0001'
+         AND "posthog_filesystem"."team_id" = 99999
+         AND "posthog_filesystem"."type" = 'session_recording_playlist'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  '''
+# ---
+# name: TestRecordingsThatMatchPlaylistFilters.test_sorts_nulls_first_and_then_least_recently_counted.3
+  '''
+  SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."id",
+         "posthog_filesystem"."path",
+         "posthog_filesystem"."depth",
+         "posthog_filesystem"."type",
+         "posthog_filesystem"."ref",
+         "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
+         "posthog_filesystem"."meta",
+         "posthog_filesystem"."created_at",
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."project_id"
+  FROM "posthog_filesystem"
+  WHERE ("posthog_filesystem"."ref" = '0001'
+         AND "posthog_filesystem"."team_id" = 99999
+         AND "posthog_filesystem"."type" = 'session_recording_playlist'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  '''
+# ---
+# name: TestRecordingsThatMatchPlaylistFilters.test_sorts_nulls_first_and_then_least_recently_counted.4
+  '''
+  SELECT COUNT(*)
+  FROM
+    (SELECT "posthog_sessionrecordingplaylist"."id" AS "col1"
+     FROM "posthog_sessionrecordingplaylist"
+     LEFT OUTER JOIN "posthog_sessionrecordingplaylistitem" ON ("posthog_sessionrecordingplaylist"."id" = "posthog_sessionrecordingplaylistitem"."playlist_id")
+     WHERE (NOT "posthog_sessionrecordingplaylist"."deleted"
+            AND "posthog_sessionrecordingplaylist"."filters" IS NOT NULL
+            AND ("posthog_sessionrecordingplaylist"."last_counted_at" IS NULL
+                 OR "posthog_sessionrecordingplaylist"."last_counted_at" < '2024-01-01 10:00:00+00:00'::timestamptz)
+            AND NOT ("posthog_sessionrecordingplaylist"."name" IN ('Recordings of Gmail users',
+                                                                   'Mobile device recordings',
+                                                                   'Recordings with Rage Clicks',
+                                                                   'Recordings of people from Google Ads',
+                                                                   'Recordings with 5+ console log errors',
+                                                                   'All recordings')
+                     AND "posthog_sessionrecordingplaylist"."name" IS NOT NULL))
+     GROUP BY 1
+     HAVING COUNT("posthog_sessionrecordingplaylistitem"."id") = 99999) subquery
+  '''
+# ---
+# name: TestRecordingsThatMatchPlaylistFilters.test_sorts_nulls_first_and_then_least_recently_counted.5
+  '''
+  SELECT "posthog_sessionrecordingplaylist"."id"
+  FROM "posthog_sessionrecordingplaylist"
+  LEFT OUTER JOIN "posthog_sessionrecordingplaylistitem" ON ("posthog_sessionrecordingplaylist"."id" = "posthog_sessionrecordingplaylistitem"."playlist_id")
+  WHERE (NOT "posthog_sessionrecordingplaylist"."deleted"
+         AND "posthog_sessionrecordingplaylist"."filters" IS NOT NULL
+         AND ("posthog_sessionrecordingplaylist"."last_counted_at" IS NULL
+              OR "posthog_sessionrecordingplaylist"."last_counted_at" < '2024-01-01 10:00:00+00:00'::timestamptz)
+         AND NOT ("posthog_sessionrecordingplaylist"."name" IN ('Recordings of Gmail users',
+                                                                'Mobile device recordings',
+                                                                'Recordings with Rage Clicks',
+                                                                'Recordings of people from Google Ads',
+                                                                'Recordings with 5+ console log errors',
+                                                                'All recordings')
+                  AND "posthog_sessionrecordingplaylist"."name" IS NOT NULL))
+  GROUP BY "posthog_sessionrecordingplaylist"."id"
+  HAVING COUNT("posthog_sessionrecordingplaylistitem"."id") = 99999
+  ORDER BY "posthog_sessionrecordingplaylist"."last_counted_at" ASC NULLS FIRST
+  LIMIT 2500
+  '''
+# ---

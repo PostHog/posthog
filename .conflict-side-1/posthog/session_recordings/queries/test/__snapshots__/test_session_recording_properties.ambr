@@ -1,0 +1,14 @@
+# serializer version: 1
+# name: TestSessionRecordingProperties.test_properties_list
+  '''
+  
+  SELECT "$session_id" AS session_id,
+         any(properties) AS properties
+  FROM events PREWHERE team_id = 99999
+  AND event IN ['$pageview', '$autocapture']
+  AND session_id IN ['1']
+  AND timestamp >= '2021-01-13 12:00:00'
+  AND timestamp <= '2021-01-22 08:00:00'
+  GROUP BY session_id
+  '''
+# ---

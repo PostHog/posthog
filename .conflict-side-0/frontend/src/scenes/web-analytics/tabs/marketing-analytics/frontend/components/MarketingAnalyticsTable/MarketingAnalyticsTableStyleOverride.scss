@@ -1,0 +1,25 @@
+.marketing-analytics-table-container {
+    .DataTable__second-row {
+        // This padding aligns the Reload and Export buttons with the table padding
+        padding: 1rem 1rem 0;
+    }
+
+    .LemonTable__content > table > thead > tr > th {
+        padding: 0.5rem;
+    }
+
+    .LemonTable__content > table > tbody > tr > td {
+        height: 100%; // Add this to make cells use full height
+        padding: 0;
+    }
+
+    // Add this to ensure the table itself uses full height
+    .LemonTable__content > table {
+        height: 100%;
+    }
+
+    // Ensure rows stretch to full height
+    .LemonTable__content > table > tbody > tr {
+        height: 100%;
+    }
+}

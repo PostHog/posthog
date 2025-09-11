@@ -1,0 +1,11 @@
+.DashboardTemplateChooser {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5em;
+    max-width: 780px;
+
+    .TemplateItem {
+        width: 240px;
+        height: 210px;
+    }
+}

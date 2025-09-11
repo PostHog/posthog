@@ -1,0 +1,34 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
+<h1 class="invite-header">
+    <strong>{{ invite.created_by.first_name }}</strong> has invited you to join
+    <strong>{{ invite.organization.name }}</strong> on PostHog
+</h1>
+<p class="text-center">
+    <strong>{{ invite.created_by.first_name }}</strong> ({{ invite.created_by.email }}) has invited you to join
+    <strong>{{invite.organization.name }}</strong> on PostHog. PostHog is a product analytics suite that helps you
+    better understand your users. Build the best product <i>together</i>.
+</p>
+{% if invite.message %}
+<div class="invite-message">
+    <div class="invite-message-divider"></div>
+    {{ invite.message }}
+</div>
+{% endif %}
+<div class="mb mt text-center">
+    <a class="button primary" href="{{ invite }}">Join now</a>
+</div>
+<div class="mt text-center dashed-border">
+    <p>Or paste this link into your browser:</p>
+    <a href="{{ invite }}" class="invite-link"><b>{{ invite }}</b></a>
+</div>
+<p class="invite-bottom">This invitation will expire on {{ expiry_date }}.</p>
+<p class="text-center">
+    <a target="_blank" href="https://posthog.com"><b>https://posthog.com</b></a>
+</p>
+<div class="text-center">
+    <img src="{% absolute_asset_url 'email/invite-email-welcome.png' %}" />
+</div>
+
+{% block footer %}
+{% endblock %}
+{% endblock %}{% load posthog_filters %}

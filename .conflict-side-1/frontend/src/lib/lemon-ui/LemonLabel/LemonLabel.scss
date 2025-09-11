@@ -1,0 +1,12 @@
+.LemonLabel {
+    display: inline-flex;
+    flex-wrap: wrap;
+    column-gap: 0.25rem;
+    align-items: center;
+    font-weight: 600;
+    line-height: 1.5rem;
+
+    .LemonLabel__extra {
+        font-weight: 400;
+    }
+}

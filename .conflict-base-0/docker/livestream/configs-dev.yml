@@ -1,0 +1,11 @@
+debug: true
+kafka:
+    brokers: 'kafka:9092'
+    topic: 'events_plugin_ingestion'
+    group_id: 'livestream-dev'
+mmdb:
+    path: 'GeoLite2-City.mmdb'
+jwt:
+    token: '<randomly generated secret key>'
+postgres:
+    url: 'postgres://posthog:posthog@db:5432/posthog'

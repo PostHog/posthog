@@ -1,0 +1,279 @@
+# serializer version: 1
+# name: TestAppMetricsErrorDetailsQuery.test_error_details_query
+  '''
+  
+  SELECT timestamp, error_uuid,
+                    error_type,
+                    error_details
+  FROM app_metrics
+  WHERE team_id = 99999
+    AND plugin_config_id = 3
+    AND error_type = 'SomeError'
+    AND category = 'processEvent'
+  ORDER BY timestamp DESC
+  LIMIT 20
+  '''
+# ---
+# name: TestAppMetricsErrorDetailsQuery.test_error_details_query_filter_by_job_id
+  '''
+  
+  SELECT timestamp, error_uuid,
+                    error_type,
+                    error_details
+  FROM app_metrics
+  WHERE team_id = 99999
+    AND plugin_config_id = 3
+    AND error_type = 'SomeError'
+    AND category = 'processEvent'
+    AND job_id = '1234'
+  ORDER BY timestamp DESC
+  LIMIT 20
+  '''
+# ---
+# name: TestAppMetricsErrorDetailsQuery.test_ignores_unrelated_data
+  '''
+  
+  SELECT timestamp, error_uuid,
+                    error_type,
+                    error_details
+  FROM app_metrics
+  WHERE team_id = 99999
+    AND plugin_config_id = 3
+    AND error_type = 'SomeError'
+    AND category = 'processEvent'
+  ORDER BY timestamp DESC
+  LIMIT 20
+  '''
+# ---
+# name: TestAppMetricsErrorsQuery.test_errors_query
+  '''
+  
+  SELECT error_type,
+         count() AS count,
+         max(timestamp) AS last_seen
+  FROM app_metrics
+  WHERE team_id = 99999
+    AND plugin_config_id = 3
+    AND category = 'processEvent'
+    AND timestamp >= '2021-11-28 00:00:00'
+    AND timestamp < '2021-12-05 13:23:00'
+    AND error_type <> ''
+  GROUP BY error_type
+  ORDER BY count DESC
+  '''
+# ---
+# name: TestAppMetricsErrorsQuery.test_errors_query_filter_by_job_id
+  '''
+  
+  SELECT error_type,
+         count() AS count,
+         max(timestamp) AS last_seen
+  FROM app_metrics
+  WHERE team_id = 99999
+    AND plugin_config_id = 3
+    AND category = 'processEvent'
+    AND job_id = '1234'
+    AND timestamp >= '2021-11-28 00:00:00'
+    AND timestamp < '2021-12-05 13:23:00'
+    AND error_type <> ''
+  GROUP BY error_type
+  ORDER BY count DESC
+  '''
+# ---
+# name: TestAppMetricsErrorsQuery.test_ignores_unrelated_data
+  '''
+  
+  SELECT error_type,
+         count() AS count,
+         max(timestamp) AS last_seen
+  FROM app_metrics
+  WHERE team_id = 99999
+    AND plugin_config_id = 3
+    AND category = 'processEvent'
+    AND timestamp >= '2021-11-28 00:00:00'
+    AND timestamp < '2021-12-05 13:23:00'
+    AND error_type <> ''
+  GROUP BY error_type
+  ORDER BY count DESC
+  '''
+# ---
+# name: TestAppMetricsQuery.test_app_metrics
+  '''
+  
+  SELECT groupArray(date),
+         groupArray(successes),
+         groupArray(successes_on_retry),
+         groupArray(failures)
+  FROM
+    (SELECT date, sum(CASE
+                          WHEN category = 'composeWebhook' THEN 0
+                          ELSE successes
+                      END) AS successes,
+                  sum(successes_on_retry) AS successes_on_retry,
+                  sum(failures) AS failures
+     FROM
+       (SELECT category,
+               dateTrunc('day', timestamp, 'UTC') AS date,
+               sum(successes) AS successes,
+               sum(successes_on_retry) AS successes_on_retry,
+               sum(failures) AS failures
+        FROM app_metrics
+        WHERE team_id = 99999
+          AND plugin_config_id = 3
+          AND category = 'processEvent'
+          AND timestamp >= '2021-11-28 00:00:00'
+          AND timestamp < '2021-12-05 13:23:00'
+        GROUP BY dateTrunc('day', timestamp, 'UTC'),
+                 category)
+     GROUP BY date
+     ORDER BY date WITH FILL
+     FROM dateTrunc('day', toDateTime64('2021-11-28 00:00:00', 0, 'UTC'), 'UTC') TO dateTrunc('day', toDateTime64('2021-12-05 13:23:00', 0, 'UTC') + toIntervalDay(1), 'UTC') STEP toIntervalDay(1))
+  '''
+# ---
+# name: TestAppMetricsQuery.test_composeWebhook_sums_all_failures_but_only_webhook_successes
+  '''
+  
+  SELECT groupArray(date),
+         groupArray(successes),
+         groupArray(successes_on_retry),
+         groupArray(failures)
+  FROM
+    (SELECT date, sum(CASE
+                          WHEN category = 'composeWebhook' THEN 0
+                          ELSE successes
+                      END) AS successes,
+                  sum(successes_on_retry) AS successes_on_retry,
+                  sum(failures) AS failures
+     FROM
+       (SELECT category,
+               dateTrunc('day', timestamp, 'UTC') AS date,
+               sum(successes) AS successes,
+               sum(successes_on_retry) AS successes_on_retry,
+               sum(failures) AS failures
+        FROM app_metrics
+        WHERE team_id = 99999
+          AND plugin_config_id = 3
+          AND timestamp >= '2021-11-28 00:00:00'
+          AND timestamp < '2021-12-05 13:23:00'
+        GROUP BY dateTrunc('day', timestamp, 'UTC'),
+                 category)
+     GROUP BY date
+     ORDER BY date WITH FILL
+     FROM dateTrunc('day', toDateTime64('2021-11-28 00:00:00', 0, 'UTC'), 'UTC') TO dateTrunc('day', toDateTime64('2021-12-05 13:23:00', 0, 'UTC') + toIntervalDay(1), 'UTC') STEP toIntervalDay(1))
+  '''
+# ---
+# name: TestAppMetricsQuery.test_filter_by_hourly_date_range
+  '''
+  
+  SELECT groupArray(date),
+         groupArray(successes),
+         groupArray(successes_on_retry),
+         groupArray(failures)
+  FROM
+    (SELECT date, sum(CASE
+                          WHEN category = 'composeWebhook' THEN 0
+                          ELSE successes
+                      END) AS successes,
+                  sum(successes_on_retry) AS successes_on_retry,
+                  sum(failures) AS failures
+     FROM
+       (SELECT category,
+               dateTrunc('hour', timestamp, 'UTC') AS date,
+               sum(successes) AS successes,
+               sum(successes_on_retry) AS successes_on_retry,
+               sum(failures) AS failures
+        FROM app_metrics
+        WHERE team_id = 99999
+          AND plugin_config_id = 3
+          AND category = 'processEvent'
+          AND timestamp >= '2021-12-05 00:00:00'
+          AND timestamp < '2021-12-05 08:00:00'
+        GROUP BY dateTrunc('hour', timestamp, 'UTC'),
+                 category)
+     GROUP BY date
+     ORDER BY date WITH FILL
+     FROM dateTrunc('hour', toDateTime64('2021-12-05 00:00:00', 0, 'UTC'), 'UTC') TO dateTrunc('hour', toDateTime64('2021-12-05 08:00:00', 0, 'UTC') + toIntervalHour(1), 'UTC') STEP toIntervalHour(1))
+  '''
+# ---
+# name: TestAppMetricsQuery.test_filter_by_job_id
+  '''
+  
+  SELECT groupArray(date),
+         groupArray(successes),
+         groupArray(successes_on_retry),
+         groupArray(failures)
+  FROM
+    (SELECT date, sum(CASE
+                          WHEN category = 'composeWebhook' THEN 0
+                          ELSE successes
+                      END) AS successes,
+                  sum(successes_on_retry) AS successes_on_retry,
+                  sum(failures) AS failures
+     FROM
+       (SELECT category,
+               dateTrunc('day', timestamp, 'UTC') AS date,
+               sum(successes) AS successes,
+               sum(successes_on_retry) AS successes_on_retry,
+               sum(failures) AS failures
+        FROM app_metrics
+        WHERE team_id = 99999
+          AND plugin_config_id = 3
+          AND category = 'exportEvents'
+          AND job_id = '12345'
+          AND timestamp >= '2021-11-28 00:00:00'
+          AND timestamp < '2021-12-05 13:23:00'
+        GROUP BY dateTrunc('day', timestamp, 'UTC'),
+                 category)
+     GROUP BY date
+     ORDER BY date WITH FILL
+     FROM dateTrunc('day', toDateTime64('2021-11-28 00:00:00', 0, 'UTC'), 'UTC') TO dateTrunc('day', toDateTime64('2021-12-05 13:23:00', 0, 'UTC') + toIntervalDay(1), 'UTC') STEP toIntervalDay(1))
+  '''
+# ---
+# name: TestAppMetricsQuery.test_ignores_unrelated_data
+  '''
+  
+  SELECT groupArray(date),
+         groupArray(successes),
+         groupArray(successes_on_retry),
+         groupArray(failures)
+  FROM
+    (SELECT date, sum(CASE
+                          WHEN category = 'composeWebhook' THEN 0
+                          ELSE successes
+                      END) AS successes,
+                  sum(successes_on_retry) AS successes_on_retry,
+                  sum(failures) AS failures
+     FROM
+       (SELECT category,
+               dateTrunc('day', timestamp, 'UTC') AS date,
+               sum(successes) AS successes,
+               sum(successes_on_retry) AS successes_on_retry,
+               sum(failures) AS failures
+        FROM app_metrics
+        WHERE team_id = 99999
+          AND plugin_config_id = 3
+          AND category = 'processEvent'
+          AND timestamp >= '2021-11-28 00:00:00'
+          AND timestamp < '2021-12-05 13:23:00'
+        GROUP BY dateTrunc('day', timestamp, 'UTC'),
+                 category)
+     GROUP BY date
+     ORDER BY date WITH FILL
+     FROM dateTrunc('day', toDateTime64('2021-11-28 00:00:00', 0, 'UTC'), 'UTC') TO dateTrunc('day', toDateTime64('2021-12-05 13:23:00', 0, 'UTC') + toIntervalDay(1), 'UTC') STEP toIntervalDay(1))
+  '''
+# ---
+# name: TestTeamPluginsDeliveryRateQuery.test_query_delivery_rate
+  '''
+  
+  SELECT plugin_config_id,
+         if(total > 0, success/total, 1) as rate
+  FROM
+    (SELECT plugin_config_id,
+            sum(successes) + sum(successes_on_retry) AS success,
+            sum(successes) + sum(successes_on_retry) + sum(failures) AS total
+     FROM app_metrics
+     WHERE team_id = 99999
+       AND timestamp > '2021-12-04 13:23:00.000000'
+     GROUP BY plugin_config_id)
+  '''
+# ---

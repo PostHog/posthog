@@ -1,0 +1,64 @@
+{
+    "type": "ai/viz",
+    "plan": "Test plan",
+    "answer": {
+        "aggregation_group_type_index": null,
+        "breakdownFilter": {
+            "breakdown_hide_other_aggregation": null,
+            "breakdown_histogram_bin_count": null,
+            "breakdown_limit": null,
+            "breakdowns": [
+                {
+                    "group_type_index": null,
+                    "histogram_bin_count": null,
+                    "normalize_url": null,
+                    "property": "$current_url",
+                    "type": "event"
+                }
+            ]
+        },
+        "compareFilter": null,
+        "dateRange": {
+            "date_from": "-30d",
+            "date_to": null,
+            "explicitDate": false
+        },
+        "filterTestAccounts": true,
+        "interval": "day",
+        "kind": "TrendsQuery",
+        "properties": [],
+        "samplingFactor": null,
+        "series": [
+            {
+                "custom_name": "Pageviews",
+                "event": "$pageview",
+                "fixedProperties": null,
+                "kind": "EventsNode",
+                "math": "total",
+                "math_group_type_index": null,
+                "math_property": null,
+                "name": null,
+                "orderBy": null,
+                "properties": null,
+                "response": null
+            }
+        ],
+        "trendsFilter": {
+            "aggregationAxisFormat": "numeric",
+            "aggregationAxisPostfix": null,
+            "aggregationAxisPrefix": null,
+            "breakdown_histogram_bin_count": null,
+            "decimalPlaces": null,
+            "display": "ActionsBar",
+            "formula": null,
+            "hiddenLegendIndexes": null,
+            "showLabelsOnSeries": null,
+            "showLegend": false,
+            "showPercentStackView": false,
+            "showValuesOnSeries": false,
+            "smoothingIntervals": 1,
+            "yAxisScaleType": null
+        }
+    },
+    "id": "test-visualization-message"
+}

@@ -1,0 +1,347 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Frontend",
+            "command": "bin/start-frontend",
+            "request": "launch",
+            "type": "node-terminal",
+            "cwd": "${workspaceFolder}",
+            "presentation": {
+                "group": "main"
+            },
+            "skipFiles": ["${workspaceFolder}/node_modules/kea-typegen/**/*.js"]
+        },
+        {
+            "name": "Frontend (no typegen)",
+            "command": "bin/start-frontend",
+            "request": "launch",
+            "type": "node-terminal",
+            "cwd": "${workspaceFolder}",
+            "presentation": {
+                "group": "main"
+            },
+            "skipFiles": ["${workspaceFolder}/node_modules/kea-typegen/**/*.js"],
+            "env": {
+                "SKIP_TYPEGEN": "1"
+            }
+        },
+        {
+            "name": "Frontend (https)",
+            "command": "bin/start-frontend",
+            "request": "launch",
+            "type": "node-terminal",
+            "cwd": "${workspaceFolder}",
+            "presentation": {
+                "group": "main"
+            },
+            "env": {
+                "LOCAL_HTTPS": "1",
+                "JS_URL": "https://secure.posthog.dev"
+            }
+        },
+        {
+            "name": "Backend",
+            "consoleName": "Backend",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/manage.py",
+            "args": ["runserver"],
+            "django": true,
+            "env": {
+                "PYTHONUNBUFFERED": "1",
+                "DJANGO_SETTINGS_MODULE": "posthog.settings",
+                "DEBUG": "1",
+                "CLICKHOUSE_SECURE": "False",
+                "KAFKA_HOSTS": "localhost",
+                "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
+                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
+                "PRINT_SQL": "1",
+                "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
+                "CLOUD_DEPLOYMENT": "dev"
+            },
+            "envFile": "${workspaceFolder}/.env",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "presentation": {
+                "group": "main"
+            }
+        },
+        {
+            "name": "Backend (with local billing)",
+            "consoleName": "Backend",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/manage.py",
+            "args": ["runserver"],
+            "django": true,
+            "env": {
+                "PYTHONUNBUFFERED": "1",
+                "DJANGO_SETTINGS_MODULE": "posthog.settings",
+                "DEBUG": "1",
+                "CLICKHOUSE_SECURE": "False",
+                "KAFKA_HOSTS": "localhost",
+                "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
+                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
+                "PRINT_SQL": "1",
+                "BILLING_SERVICE_URL": "http://localhost:8100/",
+                "CLOUD_DEPLOYMENT": "dev"
+            },
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "presentation": {
+                "group": "main"
+            }
+        },
+        {
+            "name": "Celery Threaded Pool",
+            "consoleName": "Celery Threaded Pool",
+            "type": "debugpy",
+            "justMyCode": true,
+            "autoReload": {
+                "enable": true,
+                "include": ["posthog/**/*.py"]
+            },
+            "request": "launch",
+            "program": "${workspaceFolder}/manage.py",
+            "args": ["run_autoreload_celery", "--type=worker"],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "SKIP_ASYNC_MIGRATIONS_SETUP": "1",
+                "DEBUG": "1",
+                "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
+                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1"
+            },
+            "presentation": {
+                "group": "main"
+            }
+        },
+        {
+            "name": "Celery Beat",
+            "consoleName": "Celery Beat",
+            "type": "debugpy",
+            "justMyCode": true,
+            "autoReload": {
+                "enable": true,
+                "include": ["posthog/**/*.py"]
+            },
+            "request": "launch",
+            "program": "${workspaceFolder}/manage.py",
+            "args": ["run_autoreload_celery", "--type=beat"],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "SKIP_ASYNC_MIGRATIONS_SETUP": "1",
+                "DEBUG": "1",
+                "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
+                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1"
+            },
+            "presentation": {
+                "group": "main"
+            }
+        },
+        {
+            "name": "Plugin Server",
+            "command": "bin/turbo --env-mode=loose --filter=@posthog/plugin-server start",
+            "request": "launch",
+            "type": "node-terminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "CLICKHOUSE_SECURE": "False",
+                "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
+                "KAFKA_HOSTS": "localhost:9092",
+                "WORKER_CONCURRENCY": "2",
+                "OBJECT_STORAGE_ENABLED": "True",
+                "HOG_HOOK_URL": "http://localhost:3300/hoghook"
+            },
+            "presentation": {
+                "group": "main"
+            },
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "name": "Temporal Worker",
+            "consoleName": "Temporal Worker",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/manage.py",
+            "args": ["start_temporal_worker"],
+            "django": true,
+            "env": {
+                "PYTHONUNBUFFERED": "1",
+                "DJANGO_SETTINGS_MODULE": "posthog.settings",
+                "DEBUG": "1",
+                "CLICKHOUSE_SECURE": "False",
+                "KAFKA_HOSTS": "localhost",
+                "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
+                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
+                "PRINT_SQL": "1"
+            },
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "presentation": {
+                "group": "main"
+            }
+        },
+        {
+            "name": "Pytest: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "args": ["${file}", "-vvv"],
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "name": "Frontend: Debug Jest Tests",
+            "type": "node-terminal",
+            "command": "pnpm test:unit --runInBand",
+            "request": "launch",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "(lldb) Attach",
+            "type": "cppdbg",
+            "request": "attach",
+            "program": "/Users/twixes/.pyenv/versions/3.10.10/envs/posthog-3.10/bin/python",
+            "MIMode": "lldb"
+        },
+        {
+            "name": "Python C++ Debugger: Current File",
+            "type": "pythoncpp",
+            "request": "launch",
+            "pythonConfig": "custom",
+            "pythonLaunchName": "Pytest: Current File",
+            "cppConfig": "custom",
+            "cppAttachName": "(lldb) Attach"
+        },
+        {
+            "name": "Python: Debug Tests",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "purpose": ["debug-test"],
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Jest Current File",
+            "program": "${workspaceFolder}/node_modules/jest/bin/jest.js",
+            "args": ["--detectOpenHandles", "${relativeFile}"],
+            "console": "integratedTerminal",
+            "internalConsoleOptions": "neverOpen",
+            "runtimeExecutable": "${env:HOME}/.nvm/versions/node/${input:pickVersion}/bin/node"
+        },
+        {
+            "name": "Python Debugger: Django Migrations",
+            "type": "debugpy",
+            "request": "launch",
+            "args": ["migrate", "posthog"],
+            "django": true,
+            "env": {
+                "PYTHONUNBUFFERED": "1",
+                "DJANGO_SETTINGS_MODULE": "posthog.settings",
+                "DEBUG": "1",
+                "CLICKHOUSE_SECURE": "False",
+                "KAFKA_HOSTS": "localhost",
+                "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
+                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
+                "PRINT_SQL": "1",
+                "BILLING_SERVICE_URL": "http://localhost:8100/",
+                "CLOUD_DEPLOYMENT": "dev"
+            },
+            "autoStartBrowser": false,
+            "program": "${workspaceFolder}/manage.py"
+        },
+        {
+            "name": "Dagster: Debug Dagit UI",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "dagster",
+            "justMyCode": true,
+            "subProcess": true,
+            "envFile": "${workspaceFolder}/.env",
+            "args": ["dev", "--workspace", "${workspaceFolder}/.dagster_home/workspace.yaml"],
+            "env": {
+                "DAGSTER_HOME": "${workspaceFolder}/.dagster_home",
+                "DAGSTER_UI_PORT": "3030",
+                "DEBUG": "1"
+            }
+        }
+    ],
+    "inputs": [
+        {
+            "id": "pickVersion",
+            "type": "command",
+            "command": "extension.node-version"
+        }
+    ],
+    "compounds": [
+        {
+            "name": "PostHog",
+            "configurations": [
+                "Backend",
+                "Celery Threaded Pool",
+                "Celery Beat",
+                "Frontend",
+                "Plugin Server",
+                "Temporal Worker"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "group": "compound"
+            }
+        },
+        {
+            "name": "PostHog (no typegen)",
+            "configurations": [
+                "Backend",
+                "Celery Threaded Pool",
+                "Celery Beat",
+                "Frontend (no typegen)",
+                "Plugin Server",
+                "Temporal Worker"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "group": "compound"
+            }
+        },
+        {
+            "name": "PostHog (https)",
+            "configurations": [
+                "Backend",
+                "Celery Threaded Pool",
+                "Celery Beat",
+                "Frontend (https)",
+                "Plugin Server",
+                "Temporal Worker"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "group": "compound"
+            }
+        },
+        {
+            "name": "PostHog (local billing)",
+            "configurations": [
+                "Backend (with local billing)",
+                "Celery Threaded Pool",
+                "Frontend",
+                "Plugin Server",
+                "Temporal Worker"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "group": "compound"
+            }
+        }
+    ]
+}

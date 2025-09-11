@@ -1,0 +1,453 @@
+# serializer version: 1
+# name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings
+  '''
+  SELECT source.id,
+         source.id AS id,
+         source.matching_events AS matching_events
+  FROM
+    (SELECT aggregation_target AS actor_id,
+            step_0_matching_events AS matching_events,
+            actor_id AS id
+     FROM
+       (SELECT groupArray(10)(step_0_matching_event) AS step_0_matching_events,
+               groupArray(10)(step_1_matching_event) AS step_1_matching_events,
+               groupArray(10)(step_2_matching_event) AS step_2_matching_events,
+               groupArray(10)(final_matching_event) AS final_matching_events,
+               aggregation_target AS aggregation_target,
+               steps AS steps,
+               avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+               avg(step_2_conversion_time) AS step_2_average_conversion_time_inner,
+               median(step_1_conversion_time) AS step_1_median_conversion_time_inner,
+               median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+        FROM
+          (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
+                  tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
+                  tuple(latest_2, uuid_2, `$session_id_2`, `$window_id_2`) AS step_2_matching_event,
+                  if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) AS final_matching_event,
+                  aggregation_target AS aggregation_target,
+                  steps AS steps,
+                  max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
+                                  step_1_conversion_time AS step_1_conversion_time,
+                                  step_2_conversion_time AS step_2_conversion_time
+           FROM
+             (SELECT aggregation_target AS aggregation_target,
+                     timestamp AS timestamp,
+                     step_0 AS step_0,
+                     latest_0 AS latest_0,
+                     uuid_0 AS uuid_0,
+                     `$session_id_0` AS `$session_id_0`,
+                     `$window_id_0` AS `$window_id_0`,
+                     step_1 AS step_1,
+                     latest_1 AS latest_1,
+                     uuid_1 AS uuid_1,
+                     `$session_id_1` AS `$session_id_1`,
+                     `$window_id_1` AS `$window_id_1`,
+                     step_2 AS step_2,
+                     latest_2 AS latest_2,
+                     uuid_2 AS uuid_2,
+                     `$session_id_2` AS `$session_id_2`,
+                     `$window_id_2` AS `$window_id_2`,
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                     if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time,
+                     tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
+                     tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
+                     tuple(latest_2, uuid_2, `$session_id_2`, `$window_id_2`) AS step_2_matching_event,
+                     if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) AS final_matching_event
+              FROM
+                (SELECT aggregation_target AS aggregation_target,
+                        timestamp AS timestamp,
+                        step_0 AS step_0,
+                        latest_0 AS latest_0,
+                        uuid_0 AS uuid_0,
+                        `$session_id_0` AS `$session_id_0`,
+                        `$window_id_0` AS `$window_id_0`,
+                        step_1 AS step_1,
+                        min(latest_1) OVER (PARTITION BY aggregation_target
+                                            ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) AS latest_1,
+                                           min(uuid_1) OVER (PARTITION BY aggregation_target
+                                                             ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) AS uuid_1,
+                                                            min(`$session_id_1`) OVER (PARTITION BY aggregation_target
+                                                                                       ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) AS `$session_id_1`,
+                                                                                      min(`$window_id_1`) OVER (PARTITION BY aggregation_target
+                                                                                                                ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) AS `$window_id_1`,
+                                                                                                               step_2 AS step_2,
+                                                                                                               min(latest_2) OVER (PARTITION BY aggregation_target
+                                                                                                                                   ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) AS latest_2,
+                                                                                                                                  min(uuid_2) OVER (PARTITION BY aggregation_target
+                                                                                                                                                    ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) AS uuid_2,
+                                                                                                                                                   min(`$session_id_2`) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                              ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) AS `$session_id_2`,
+                                                                                                                                                                             min(`$window_id_2`) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) AS `$window_id_2`
+                 FROM
+                   (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                           if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                           e.uuid AS uuid,
+                           if(equals(e.event, 'step one'), 1, 0) AS step_0,
+                           if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
+                           if(ifNull(equals(step_0, 1), 0), uuid, NULL) AS uuid_0,
+                           if(ifNull(equals(step_0, 1), 0), e.`$session_id`, NULL) AS `$session_id_0`,
+                           if(ifNull(equals(step_0, 1), 0), e.`$window_id`, NULL) AS `$window_id_0`,
+                           if(equals(e.event, 'step two'), 1, 0) AS step_1,
+                           if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
+                           if(ifNull(equals(step_1, 1), 0), uuid, NULL) AS uuid_1,
+                           if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`,
+                           if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`,
+                           if(equals(e.event, 'step three'), 1, 0) AS step_2,
+                           if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2,
+                           if(ifNull(equals(step_2, 1), 0), uuid, NULL) AS uuid_2,
+                           if(ifNull(equals(step_2, 1), 0), e.`$session_id`, NULL) AS `$session_id_2`,
+                           if(ifNull(equals(step_2, 1), 0), e.`$window_id`, NULL) AS `$window_id_2`
+                    FROM events AS e
+                    LEFT OUTER JOIN
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                              person_distinct_id_overrides.distinct_id AS distinct_id
+                       FROM person_distinct_id_overrides
+                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                       GROUP BY person_distinct_id_overrides.distinct_id
+                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                    WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))))))
+              WHERE ifNull(equals(step_0, 1), 0)))
+        GROUP BY aggregation_target,
+                 steps
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
+     WHERE in(steps,
+              [1, 2, 3])
+     ORDER BY aggregation_target ASC) AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.1
+  '''
+  SELECT DISTINCT session_replay_events.session_id AS session_id
+  FROM session_replay_events
+  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s1']))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.2
+  '''
+  SELECT source.id,
+         source.id AS id,
+         source.matching_events AS matching_events
+  FROM
+    (SELECT aggregation_target AS actor_id,
+            step_1_matching_events AS matching_events,
+            actor_id AS id
+     FROM
+       (SELECT groupArray(10)(step_0_matching_event) AS step_0_matching_events,
+               groupArray(10)(step_1_matching_event) AS step_1_matching_events,
+               groupArray(10)(step_2_matching_event) AS step_2_matching_events,
+               groupArray(10)(final_matching_event) AS final_matching_events,
+               aggregation_target AS aggregation_target,
+               steps AS steps,
+               avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+               avg(step_2_conversion_time) AS step_2_average_conversion_time_inner,
+               median(step_1_conversion_time) AS step_1_median_conversion_time_inner,
+               median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+        FROM
+          (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
+                  tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
+                  tuple(latest_2, uuid_2, `$session_id_2`, `$window_id_2`) AS step_2_matching_event,
+                  if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) AS final_matching_event,
+                  aggregation_target AS aggregation_target,
+                  steps AS steps,
+                  max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
+                                  step_1_conversion_time AS step_1_conversion_time,
+                                  step_2_conversion_time AS step_2_conversion_time
+           FROM
+             (SELECT aggregation_target AS aggregation_target,
+                     timestamp AS timestamp,
+                     step_0 AS step_0,
+                     latest_0 AS latest_0,
+                     uuid_0 AS uuid_0,
+                     `$session_id_0` AS `$session_id_0`,
+                     `$window_id_0` AS `$window_id_0`,
+                     step_1 AS step_1,
+                     latest_1 AS latest_1,
+                     uuid_1 AS uuid_1,
+                     `$session_id_1` AS `$session_id_1`,
+                     `$window_id_1` AS `$window_id_1`,
+                     step_2 AS step_2,
+                     latest_2 AS latest_2,
+                     uuid_2 AS uuid_2,
+                     `$session_id_2` AS `$session_id_2`,
+                     `$window_id_2` AS `$window_id_2`,
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                     if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time,
+                     tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
+                     tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
+                     tuple(latest_2, uuid_2, `$session_id_2`, `$window_id_2`) AS step_2_matching_event,
+                     if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) AS final_matching_event
+              FROM
+                (SELECT aggregation_target AS aggregation_target,
+                        timestamp AS timestamp,
+                        step_0 AS step_0,
+                        latest_0 AS latest_0,
+                        uuid_0 AS uuid_0,
+                        `$session_id_0` AS `$session_id_0`,
+                        `$window_id_0` AS `$window_id_0`,
+                        step_1 AS step_1,
+                        min(latest_1) OVER (PARTITION BY aggregation_target
+                                            ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) AS latest_1,
+                                           min(uuid_1) OVER (PARTITION BY aggregation_target
+                                                             ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) AS uuid_1,
+                                                            min(`$session_id_1`) OVER (PARTITION BY aggregation_target
+                                                                                       ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) AS `$session_id_1`,
+                                                                                      min(`$window_id_1`) OVER (PARTITION BY aggregation_target
+                                                                                                                ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) AS `$window_id_1`,
+                                                                                                               step_2 AS step_2,
+                                                                                                               min(latest_2) OVER (PARTITION BY aggregation_target
+                                                                                                                                   ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) AS latest_2,
+                                                                                                                                  min(uuid_2) OVER (PARTITION BY aggregation_target
+                                                                                                                                                    ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) AS uuid_2,
+                                                                                                                                                   min(`$session_id_2`) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                              ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) AS `$session_id_2`,
+                                                                                                                                                                             min(`$window_id_2`) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) AS `$window_id_2`
+                 FROM
+                   (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                           if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                           e.uuid AS uuid,
+                           if(equals(e.event, 'step one'), 1, 0) AS step_0,
+                           if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
+                           if(ifNull(equals(step_0, 1), 0), uuid, NULL) AS uuid_0,
+                           if(ifNull(equals(step_0, 1), 0), e.`$session_id`, NULL) AS `$session_id_0`,
+                           if(ifNull(equals(step_0, 1), 0), e.`$window_id`, NULL) AS `$window_id_0`,
+                           if(equals(e.event, 'step two'), 1, 0) AS step_1,
+                           if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
+                           if(ifNull(equals(step_1, 1), 0), uuid, NULL) AS uuid_1,
+                           if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`,
+                           if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`,
+                           if(equals(e.event, 'step three'), 1, 0) AS step_2,
+                           if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2,
+                           if(ifNull(equals(step_2, 1), 0), uuid, NULL) AS uuid_2,
+                           if(ifNull(equals(step_2, 1), 0), e.`$session_id`, NULL) AS `$session_id_2`,
+                           if(ifNull(equals(step_2, 1), 0), e.`$window_id`, NULL) AS `$window_id_2`
+                    FROM events AS e
+                    LEFT OUTER JOIN
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                              person_distinct_id_overrides.distinct_id AS distinct_id
+                       FROM person_distinct_id_overrides
+                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                       GROUP BY person_distinct_id_overrides.distinct_id
+                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                    WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))))))
+              WHERE ifNull(equals(step_0, 1), 0)))
+        GROUP BY aggregation_target,
+                 steps
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
+     WHERE in(steps,
+              [2, 3])
+     ORDER BY aggregation_target ASC) AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.3
+  '''
+  SELECT DISTINCT session_replay_events.session_id AS session_id
+  FROM session_replay_events
+  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s2']))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.4
+  '''
+  SELECT source.id,
+         source.id AS id,
+         source.matching_events AS matching_events
+  FROM
+    (SELECT aggregation_target AS actor_id,
+            step_1_matching_events AS matching_events,
+            actor_id AS id
+     FROM
+       (SELECT groupArray(10)(step_0_matching_event) AS step_0_matching_events,
+               groupArray(10)(step_1_matching_event) AS step_1_matching_events,
+               groupArray(10)(step_2_matching_event) AS step_2_matching_events,
+               groupArray(10)(final_matching_event) AS final_matching_events,
+               aggregation_target AS aggregation_target,
+               steps AS steps,
+               avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+               avg(step_2_conversion_time) AS step_2_average_conversion_time_inner,
+               median(step_1_conversion_time) AS step_1_median_conversion_time_inner,
+               median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+        FROM
+          (SELECT tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
+                  tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
+                  tuple(latest_2, uuid_2, `$session_id_2`, `$window_id_2`) AS step_2_matching_event,
+                  if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) AS final_matching_event,
+                  aggregation_target AS aggregation_target,
+                  steps AS steps,
+                  max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
+                                  step_1_conversion_time AS step_1_conversion_time,
+                                  step_2_conversion_time AS step_2_conversion_time
+           FROM
+             (SELECT aggregation_target AS aggregation_target,
+                     timestamp AS timestamp,
+                     step_0 AS step_0,
+                     latest_0 AS latest_0,
+                     uuid_0 AS uuid_0,
+                     `$session_id_0` AS `$session_id_0`,
+                     `$window_id_0` AS `$window_id_0`,
+                     step_1 AS step_1,
+                     latest_1 AS latest_1,
+                     uuid_1 AS uuid_1,
+                     `$session_id_1` AS `$session_id_1`,
+                     `$window_id_1` AS `$window_id_1`,
+                     step_2 AS step_2,
+                     latest_2 AS latest_2,
+                     uuid_2 AS uuid_2,
+                     `$session_id_2` AS `$session_id_2`,
+                     `$window_id_2` AS `$window_id_2`,
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                     if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time,
+                     tuple(latest_0, uuid_0, `$session_id_0`, `$window_id_0`) AS step_0_matching_event,
+                     tuple(latest_1, uuid_1, `$session_id_1`, `$window_id_1`) AS step_1_matching_event,
+                     tuple(latest_2, uuid_2, `$session_id_2`, `$window_id_2`) AS step_2_matching_event,
+                     if(isNull(latest_0), tuple(NULL, NULL, NULL, NULL), if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) AS final_matching_event
+              FROM
+                (SELECT aggregation_target AS aggregation_target,
+                        timestamp AS timestamp,
+                        step_0 AS step_0,
+                        latest_0 AS latest_0,
+                        uuid_0 AS uuid_0,
+                        `$session_id_0` AS `$session_id_0`,
+                        `$window_id_0` AS `$window_id_0`,
+                        step_1 AS step_1,
+                        min(latest_1) OVER (PARTITION BY aggregation_target
+                                            ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) AS latest_1,
+                                           min(uuid_1) OVER (PARTITION BY aggregation_target
+                                                             ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) AS uuid_1,
+                                                            min(`$session_id_1`) OVER (PARTITION BY aggregation_target
+                                                                                       ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) AS `$session_id_1`,
+                                                                                      min(`$window_id_1`) OVER (PARTITION BY aggregation_target
+                                                                                                                ORDER BY timestamp DESC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) AS `$window_id_1`,
+                                                                                                               step_2 AS step_2,
+                                                                                                               min(latest_2) OVER (PARTITION BY aggregation_target
+                                                                                                                                   ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) AS latest_2,
+                                                                                                                                  min(uuid_2) OVER (PARTITION BY aggregation_target
+                                                                                                                                                    ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) AS uuid_2,
+                                                                                                                                                   min(`$session_id_2`) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                              ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) AS `$session_id_2`,
+                                                                                                                                                                             min(`$window_id_2`) OVER (PARTITION BY aggregation_target
+                                                                                                                                                                                                       ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) AS `$window_id_2`
+                 FROM
+                   (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                           if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                           e.uuid AS uuid,
+                           if(equals(e.event, 'step one'), 1, 0) AS step_0,
+                           if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
+                           if(ifNull(equals(step_0, 1), 0), uuid, NULL) AS uuid_0,
+                           if(ifNull(equals(step_0, 1), 0), e.`$session_id`, NULL) AS `$session_id_0`,
+                           if(ifNull(equals(step_0, 1), 0), e.`$window_id`, NULL) AS `$window_id_0`,
+                           if(equals(e.event, 'step two'), 1, 0) AS step_1,
+                           if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
+                           if(ifNull(equals(step_1, 1), 0), uuid, NULL) AS uuid_1,
+                           if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`,
+                           if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`,
+                           if(equals(e.event, 'step three'), 1, 0) AS step_2,
+                           if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2,
+                           if(ifNull(equals(step_2, 1), 0), uuid, NULL) AS uuid_2,
+                           if(ifNull(equals(step_2, 1), 0), e.`$session_id`, NULL) AS `$session_id_2`,
+                           if(ifNull(equals(step_2, 1), 0), e.`$window_id`, NULL) AS `$window_id_2`
+                    FROM events AS e
+                    LEFT OUTER JOIN
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                              person_distinct_id_overrides.distinct_id AS distinct_id
+                       FROM person_distinct_id_overrides
+                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                       GROUP BY person_distinct_id_overrides.distinct_id
+                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                    WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))))))
+              WHERE ifNull(equals(step_0, 1), 0)))
+        GROUP BY aggregation_target,
+                 steps
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
+     WHERE ifNull(equals(steps, 2), 0)
+     ORDER BY aggregation_target ASC) AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.5
+  '''
+  SELECT DISTINCT session_replay_events.session_id AS session_id
+  FROM session_replay_events
+  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s2']))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---

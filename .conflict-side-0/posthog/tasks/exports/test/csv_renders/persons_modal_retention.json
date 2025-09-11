@@ -1,0 +1,89 @@
+{
+    "csv_rows": [
+        "person,Week 0,Week 1,Week 2,Week 3,Week 4,Week 5,Week 6,Week 7,Week 8,Week 9,Week 10",
+        "talent1974@yahoo.com,1,1,1,1,1,1,1,1,1,1,0",
+        "few2035@protonmail.com,1,1,1,1,1,1,1,1,1,0,0",
+        ""
+    ],
+    "response": {
+        "result": [
+            {
+                "person": {
+                    "type": "person",
+                    "id": "018768a9-a830-0000-b9f8-ae480a10ca90",
+                    "uuid": "018768a9-a830-0000-b9f8-ae480a10ca90",
+                    "created_at": "2023-04-19T12:40:29.833305Z",
+                    "properties": {
+                        "name": "Shaunta Owen",
+                        "email": "talent1974@yahoo.com",
+                        "$geoip_country_code": "US"
+                    },
+                    "is_identified": false,
+                    "name": "talent1974@yahoo.com",
+                    "distinct_ids": ["3tLhzgJQWLIsWLNl", "c37443ea-fe72-597f-05c5-92ce5fb03a43"],
+                    "matched_recordings": [],
+                    "value_at_data_point": null
+                },
+                "appearances": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0]
+            },
+            {
+                "person": {
+                    "type": "person",
+                    "id": "018769ce-05e5-0000-48b0-9bf78c97f1fc",
+                    "uuid": "018769ce-05e5-0000-48b0-9bf78c97f1fc",
+                    "created_at": "2023-04-19T12:40:29.823227Z",
+                    "properties": {
+                        "name": "Phylicia Valenzuela",
+                        "email": "few2035@protonmail.com",
+                        "$geoip_country_code": "SM"
+                    },
+                    "is_identified": false,
+                    "name": "few2035@protonmail.com",
+                    "distinct_ids": ["83db23d7-8520-e01a-f7db-8f96bf135755", "RPQRbF8NmsBd8uIs"],
+                    "matched_recordings": [],
+                    "value_at_data_point": null
+                },
+                "appearances": [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0]
+            }
+        ],
+        "next": null,
+        "missing_persons": 0,
+        "filters": {
+            "breakdown_attribution_type": "first_touch",
+            "breakdown_normalize_url": false,
+            "breakdown_values": [0],
+            "date_from": "-11d",
+            "display": "ActionsTable",
+            "insight": "RETENTION",
+            "limit": 100,
+            "period": "Week",
+            "retention_type": "retention_first_time",
+            "returning_entity": {
+                "id": "$pageview",
+                "type": "events",
+                "order": null,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "sampling_factor": "",
+            "target_entity": {
+                "id": "$pageview",
+                "type": "events",
+                "order": null,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "total_intervals": 11
+        }
+    }
+}

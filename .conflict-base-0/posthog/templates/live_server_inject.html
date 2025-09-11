@@ -1,0 +1,13 @@
+{% if debug and js_url %}
+<!-- Code injected by live-server -->
+<script type="text/javascript">
+    if ('EventSource' in window) {
+        ;(function () {
+            var jsUrl = '{{ js_url }}'.replace(/\/$/, '')
+            var eventSource = new EventSource(jsUrl + '/_reload');
+            eventSource.onmessage = () => window.location.reload()
+            console.log('Live reload enabled.')
+        })()
+    }
+</script>
+{% endif %}

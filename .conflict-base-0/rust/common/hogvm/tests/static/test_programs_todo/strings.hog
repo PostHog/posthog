@@ -1,0 +1,26 @@
+print(trim('  hello  world  '))
+print(trimLeft('  hello world  '))
+print(trimRight('  hello world  '))
+print(trim('xxxx  hello  world  xx', 'x'))
+print(trimLeft('xxxx  hello  world  xx', 'x'))
+print(trimRight('xxxx  hello  world  xx', 'x'))
+print(splitByString(' ', 'hello world and more'))
+print(splitByString(' ', 'hello world and more', 1))
+print(splitByString(' ', 'hello world and more', 2))
+print(splitByString(' ', 'hello world and more', 10))
+print(like('banana', 'N'))
+print(like('banana', 'n'))
+print(like('banana', 'naan'))
+print(ilike('banana', 'N'))
+print(ilike('banana', 'n'))
+print(ilike('banana', 'naan'))
+print(notLike('banana', 'N'))
+print(notILike('banana', 'NO'))
+print(position('abc', 'a')) // 1
+print(position('abc', 'b')) // 2
+print(position('abc', 'c')) // 3
+print(position('abc', 'd')) // 0
+print(positionCaseInsensitive('AbC', 'a')) // 1
+print(positionCaseInsensitive('AbC', 'b')) // 2
+print(positionCaseInsensitive('AbC', 'c')) // 3
+print(positionCaseInsensitive('AbC', 'd')) // 0

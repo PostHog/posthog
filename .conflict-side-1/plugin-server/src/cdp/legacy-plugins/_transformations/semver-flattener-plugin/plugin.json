@@ -1,0 +1,18 @@
+{
+    "name": "posthog-semver-flattener",
+    "url": "https://github.com/PostHog/semver-flattener-plugin",
+    "main": "index.ts",
+    "config": [
+        {
+            "markdown": "Processes specified properties to flatten sematic versions. Assumes any property contains a string which matches [the SemVer specification](https://semver.org/#backusnaur-form-grammar-for-valid-semver-versions)"
+        },
+        {
+            "key": "properties",
+            "name": "comma separated properties to explode version number from",
+            "type": "string",
+            "hint": "my_version_number,app_version",
+            "default": "",
+            "required": true
+        }
+    ]
+}

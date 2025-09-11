@@ -1,0 +1,1120 @@
+{
+    "csv_rows": [
+        "series,custom name,1-Apr-2022,1-May-2022,1-Jun-2022,1-Jul-2022",
+        "pineapple_on_pizza_survey - Belarus,Yes,0,0,0,1",
+        "pineapple_on_pizza_survey - Canada,Yes,1,1,0,0",
+        "pineapple_on_pizza_survey - Denmark,Yes,0,2,0,0",
+        "pineapple_on_pizza_survey - Georgia,Yes,0,0,1,0",
+        "pineapple_on_pizza_survey - Germany,Yes,3,0,0,0",
+        "pineapple_on_pizza_survey - India,Yes,1,4,3,1",
+        "pineapple_on_pizza_survey - Ireland,Yes,0,1,1,0",
+        "pineapple_on_pizza_survey - Luxembourg,Yes,0,0,1,0",
+        "pineapple_on_pizza_survey - Netherlands,Yes,0,0,1,0",
+        "pineapple_on_pizza_survey - Norway,Yes,0,0,1,0",
+        "pineapple_on_pizza_survey - Poland,Yes,0,1,0,0",
+        "pineapple_on_pizza_survey - Russia,Yes,1,2,0,0",
+        "pineapple_on_pizza_survey - Slovenia,Yes,1,1,0,0",
+        "pineapple_on_pizza_survey - Switzerland,Yes,0,1,0,0",
+        "pineapple_on_pizza_survey - United Kingdom,Yes,1,2,1,2",
+        "pineapple_on_pizza_survey - United States,Yes,3,6,4,1",
+        "pineapple_on_pizza_survey - Australia,No,0,2,0,0",
+        "pineapple_on_pizza_survey - Canada,No,1,0,0,0",
+        "pineapple_on_pizza_survey - Denmark,No,1,1,1,0",
+        "pineapple_on_pizza_survey - Estonia,No,0,0,1,0",
+        "pineapple_on_pizza_survey - France,No,2,0,0,0",
+        "pineapple_on_pizza_survey - Germany,No,2,1,1,0",
+        "pineapple_on_pizza_survey - India,No,0,2,1,2",
+        "pineapple_on_pizza_survey - Ireland,No,0,0,1,0",
+        "pineapple_on_pizza_survey - Italy,No,1,1,0,0",
+        "pineapple_on_pizza_survey - Netherlands,No,0,0,2,0",
+        "pineapple_on_pizza_survey - New Zealand,No,0,0,1,0",
+        "pineapple_on_pizza_survey - Nigeria,No,0,0,2,0",
+        "pineapple_on_pizza_survey - North Macedonia,No,1,0,0,0",
+        "pineapple_on_pizza_survey - Norway,No,0,0,0,1",
+        "pineapple_on_pizza_survey - Romania,No,0,0,0,1",
+        "pineapple_on_pizza_survey - Spain,No,0,1,1,0",
+        "pineapple_on_pizza_survey - Sweden,No,1,0,0,0",
+        "pineapple_on_pizza_survey - Switzerland,No,1,1,0,0",
+        "pineapple_on_pizza_survey - Tunisia,No,0,1,0,0",
+        "pineapple_on_pizza_survey - United Kingdom,No,1,2,1,1",
+        "pineapple_on_pizza_survey - United States,No,0,2,1,1",
+        ""
+    ],
+    "response": {
+        "result": [
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 0,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "Yes",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["true"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Belarus",
+                "count": 1,
+                "data": [0, 0, 0, 1],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Belarus"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 0,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "Yes",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["true"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Canada",
+                "count": 2,
+                "data": [1, 1, 0, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Canada"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 0,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "Yes",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["true"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Denmark",
+                "count": 2,
+                "data": [0, 2, 0, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Denmark"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 0,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "Yes",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["true"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Georgia",
+                "count": 1,
+                "data": [0, 0, 1, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Georgia"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 0,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "Yes",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["true"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Germany",
+                "count": 3,
+                "data": [3, 0, 0, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Germany"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 0,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "Yes",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["true"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - India",
+                "count": 9,
+                "data": [1, 4, 3, 1],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "India"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 0,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "Yes",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["true"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Ireland",
+                "count": 2,
+                "data": [0, 1, 1, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Ireland"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 0,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "Yes",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["true"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Luxembourg",
+                "count": 1,
+                "data": [0, 0, 1, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Luxembourg"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 0,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "Yes",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["true"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Netherlands",
+                "count": 1,
+                "data": [0, 0, 1, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Netherlands"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 0,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "Yes",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["true"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Norway",
+                "count": 1,
+                "data": [0, 0, 1, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Norway"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 0,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "Yes",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["true"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Poland",
+                "count": 1,
+                "data": [0, 1, 0, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Poland"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 0,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "Yes",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["true"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Russia",
+                "count": 3,
+                "data": [1, 2, 0, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Russia"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 0,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "Yes",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["true"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Slovenia",
+                "count": 2,
+                "data": [1, 1, 0, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Slovenia"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 0,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "Yes",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["true"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Switzerland",
+                "count": 1,
+                "data": [0, 1, 0, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Switzerland"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 0,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "Yes",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["true"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - United Kingdom",
+                "count": 6,
+                "data": [1, 2, 1, 2],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "United Kingdom"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 0,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "Yes",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["true"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - United States",
+                "count": 14,
+                "data": [3, 6, 4, 1],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "United States"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 1,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "No",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["false"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Australia",
+                "count": 2,
+                "data": [0, 2, 0, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Australia"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 1,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "No",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["false"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Canada",
+                "count": 1,
+                "data": [1, 0, 0, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Canada"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 1,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "No",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["false"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Denmark",
+                "count": 3,
+                "data": [1, 1, 1, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Denmark"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 1,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "No",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["false"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Estonia",
+                "count": 1,
+                "data": [0, 0, 1, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Estonia"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 1,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "No",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["false"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - France",
+                "count": 2,
+                "data": [2, 0, 0, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "France"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 1,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "No",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["false"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Germany",
+                "count": 4,
+                "data": [2, 1, 1, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Germany"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 1,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "No",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["false"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - India",
+                "count": 5,
+                "data": [0, 2, 1, 2],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "India"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 1,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "No",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["false"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Ireland",
+                "count": 1,
+                "data": [0, 0, 1, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Ireland"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 1,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "No",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["false"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Italy",
+                "count": 2,
+                "data": [1, 1, 0, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Italy"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 1,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "No",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["false"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Netherlands",
+                "count": 2,
+                "data": [0, 0, 2, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Netherlands"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 1,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "No",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["false"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - New Zealand",
+                "count": 1,
+                "data": [0, 0, 1, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "New Zealand"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 1,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "No",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["false"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Nigeria",
+                "count": 2,
+                "data": [0, 0, 2, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Nigeria"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 1,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "No",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["false"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - North Macedonia",
+                "count": 1,
+                "data": [1, 0, 0, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "North Macedonia"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 1,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "No",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["false"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Norway",
+                "count": 1,
+                "data": [0, 0, 0, 1],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Norway"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 1,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "No",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["false"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Romania",
+                "count": 1,
+                "data": [0, 0, 0, 1],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Romania"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 1,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "No",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["false"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Spain",
+                "count": 2,
+                "data": [0, 1, 1, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Spain"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 1,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "No",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["false"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Sweden",
+                "count": 1,
+                "data": [1, 0, 0, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Sweden"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 1,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "No",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["false"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Switzerland",
+                "count": 2,
+                "data": [1, 1, 0, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Switzerland"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 1,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "No",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["false"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - Tunisia",
+                "count": 1,
+                "data": [0, 1, 0, 0],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "Tunisia"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 1,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "No",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["false"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - United Kingdom",
+                "count": 5,
+                "data": [1, 2, 1, 1],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "United Kingdom"
+            },
+            {
+                "action": {
+                    "id": "pineapple_on_pizza_survey",
+                    "type": "events",
+                    "order": 1,
+                    "name": "pineapple_on_pizza_survey",
+                    "custom_name": "No",
+                    "math": "dau",
+                    "math_property": null,
+                    "math_group_type_index": null,
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "does_pineapple_go_on_pizza",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["false"]
+                            }
+                        ]
+                    }
+                },
+                "label": "pineapple_on_pizza_survey - United States",
+                "count": 4,
+                "data": [0, 2, 1, 1],
+                "labels": ["1-Apr-2022", "1-May-2022", "1-Jun-2022", "1-Jul-2022"],
+                "days": ["2022-04-01", "2022-05-01", "2022-06-01", "2022-07-01"],
+                "breakdown_value": "United States"
+            }
+        ]
+    }
+}

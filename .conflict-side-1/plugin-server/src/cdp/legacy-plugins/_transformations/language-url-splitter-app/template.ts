@@ -1,0 +1,75 @@
+import { processEvent } from '.'
+
+import { LegacyTransformationPlugin } from '../../types'
+
+export const languageUrlSplitterApp: LegacyTransformationPlugin = {
+    processEvent,
+    template: {
+        free: true,
+        status: 'stable',
+        type: 'transformation',
+        id: 'plugin-language-url-splitter-app',
+        name: 'Language URL stripper',
+        description: 'Replace the language from the URL with a custom value',
+        icon_url: '/static/hedgehog/builder-hog-01.png',
+        category: ['Transformation'],
+        code_language: 'javascript',
+        code: `return event`,
+        inputs_schema: [
+            {
+                key: 'pattern',
+                label: 'Pattern',
+                type: 'string',
+                default: '^/([a-z]{2})(?=/|#|\\?|$)',
+                description: 'Ininitalized with `const regexp = new RegExp($pattern)`',
+                required: true,
+                templating: false,
+            },
+            {
+                key: 'matchGroup',
+                label: 'Match group',
+                type: 'string',
+                default: '1',
+                description: 'Used in: `const value = regexp.match($pathname)[$matchGroup]`',
+                required: true,
+                templating: false,
+            },
+            {
+                key: 'property',
+                label: 'Property',
+                type: 'string',
+                default: 'locale',
+                description: 'Name of the event property we will store the matched value in',
+                required: true,
+                templating: false,
+            },
+            {
+                key: 'replacePattern',
+                label: 'Replacement pattern',
+                type: 'string',
+                default: '^(/[a-z]{2})(/|(?=/|#|\\?|$))',
+                description: 'Initialized with `new RegExp($pattern)`, leave empty to disable path cleanup.',
+                required: true,
+                templating: false,
+            },
+            {
+                key: 'replaceKey',
+                label: 'Replacement key',
+                type: 'string',
+                default: '$pathname',
+                description: 'Where to store the updated path. Keep as `$pathname` to override.',
+                required: true,
+                templating: false,
+            },
+            {
+                key: 'replaceValue',
+                label: 'Replacement value',
+                type: 'string',
+                default: '/',
+                description: '`properties[key] = $pathname.replace(pattern, value)`',
+                required: true,
+                templating: false,
+            },
+        ],
+    },
+}

@@ -1,0 +1,181 @@
+import { Meta } from '@storybook/addon-docs'
+
+<Meta title=" How to build a form?" />
+
+# How to build a form?
+
+The steps below work, but may change at any moment. All feedback and suggestions welcome!
+
+## 1. Start with the data
+
+You should always [think data first](https://keajs.org/blog/data-first-frontend-revolution/). Forms are no exception.
+Start by considering which data in which logic you will to expose to a form.
+
+For example, this `featureFlagLogic` already has a loader called `featureFlag`. Let's use that in a form by
+creating a new `forms` object:
+
+```ts
+export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagLogicProps>>({
+    path: (key) => ['scenes', 'feature-flags', 'featureFlagLogic', key],
+    props: {} as FeatureFlagLogicProps,
+    key: ({ id }) => id ?? 'new',
+
+    loaders: ({ values, props }) => ({
+        featureFlag: [
+            { ...NEW_FLAG } as FeatureFlagModel,
+            {
+                loadFeatureFlag: () => api.get(`api/projects/${values.currentProjectId}/feature_flags/${props.id}`),
+            },
+        ],
+    }),
+
+    forms: ({ actions }) => ({
+        featureFlag: {
+            // not really needed again since loader already defines it
+            defaults: { ...NEW_FLAG } as FeatureFlagModel,
+
+            // sync validation, will be shown as errors in the form
+            errors: (featureFlag) => ({
+                key: !featureFlag.key ? 'Must have a key' : undefined,
+            }),
+
+            // called on the form's onSubmit, unless a validation fails
+            submit: async (featureFlag, breakpoint) => {
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                const { created_at, id, ...flag } = featureFlag
+                const newFeatureFlag = updatedFlag.id
+                    ? await api.update(`api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`, flag)
+                    : await api.create(`api/projects/${values.currentProjectId}/feature_flags`, flag)
+                breakpoint()
+                actions.setFeatureFlagValues(newFeatureFlag)
+                lemonToast.success('Feature flag saved')
+                featureFlagsLogic.findMounted()?.actions.updateFlag(featureFlag)
+                router.actions.replace(urls.featureFlag(featureFlag.id))
+            },
+        },
+    }),
+})
+```
+
+The code above will add [a few actions, reducers and selectors](https://github.com/keajs/kea-forms/blob/main/src/plugin.ts#L24-L139)
+to `featureFlagLogic`. This is the list as of kea-forms v0.2.1:
+
+```tsx
+export interface featureFlagLogicType extends Logic {
+    actions: {
+        // kea-loaders
+        loadFeatureFlag: () => void
+        loadFeatureFlagSuccess: (featureFlag: any, payload?: any) => void
+        loadFeatureFlagFailure: (error: string, errorObject?: any) => void
+
+        // kea-forms
+        setFeatureFlagValue: (key: FieldName, value: any) => void
+        setFeatureFlagValues: (values: DeepPartial<FeatureFlagType>) => void
+        touchFeatureFlagField: (key: string) => void
+        resetFeatureFlag: (values?: FeatureFlagType) => void
+        submitFeatureFlag: () => void
+        submitFeatureFlagRequest: (featureFlag: FeatureFlagType) => void
+        submitFeatureFlagSuccess: (featureFlag: FeatureFlagType) => void
+        submitFeatureFlagFailure: (error: Error) => void
+    }
+    values: {
+        // kea-loaders
+        featureFlag: FeatureFlagType
+        featureFlagLoading: boolean
+
+        // kea-forms
+        isFeatureFlagSubmitting: boolean
+        showFeatureFlagErrors: boolean
+        featureFlagChanged: boolean
+        featureFlagTouches: Record<string, boolean>
+    }
+}
+```
+
+The latest documentation can be found here: https://github.com/keajs/kea-forms
+
+## 2. Build the interface
+
+With the logic in order, you may now pull in the `<Form />`, `<Field />` and `<Group />` tags to build your form.
+
+```tsx
+import { Form, Group } from 'kea-forms'
+import { Field } from 'lib/forms/Field'
+import { featureFlagLogic, FeatureFlagLogicProps } from './featureFlagLogic'
+
+export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
+    const logicProps: FeatureFlagLogicProps = { id: id ? parseInt(id) : 'new' }
+    const {
+        featureFlag, // the values in the object are the values in the form
+        isFeatureFlagSubmitting, // if the submit action is doing something
+    } = useValues(featureFlagLogic(logicProps))
+    const {
+        submitFeatureFlag, // if we need to submit it outside the normal form submit
+        setFeatureFlagValue, // if we need to update any field outside the <Field /> tags
+    } = useActions(featureFlagLogic(logicProps))
+
+    return (
+        <Form
+            logic={featureFlagLogic}
+            props={logicProps}
+            formKey="featureFlag"
+            enableFormOnSubmit // makes the HTML "submit" button work directly
+        >
+            <Field name="active">
+                {/* value, onChange, onChangeEvent, name, label, id */}
+                {({ value, onChange }) => (
+                    <LemonSwitch
+                        checked={value}
+                        onChange={onChange}
+                        label={
+                            value ? (
+                                <span className="text-success">Enabled</span>
+                            ) : (
+                                <span className="text-danger">Disabled</span>
+                            )
+                        }
+                    />
+                )}
+            </Field>
+
+            <Field name="name" label="Description">
+                <LemonTextArea
+                    // value and onChange added automatically to Lemon components
+                    className="ph-ignore-input"
+                    data-attr="feature-flag-description"
+                    placeholder="Adding a helpful description can ensure others know what this feature is for."
+                />
+            </Field>
+
+            {featureFlag?.filters?.multivariate?.variants?.map((_, index) => (
+                // using <Group /> to scope the next fields
+                <Group key={index} name={['filters', 'multivariate', 'variants', index]}>
+                    <Field name="name">
+                        {/* This will update featureFlag.filters.multivariate.variants[index].name */}
+                        {/* If you don't specify ({ value, onChange }) => (), we add these two props automatically */}
+                        <LemonInput
+                            data-attr="feature-flag-variant-name"
+                            className="ph-ignore-input"
+                            placeholder="Description"
+                        />
+                    </Form.Item>
+                </Group>
+            )}
+
+            <LemonButton
+                loading={isFeatureFlagSubmitting}
+                icon={<SaveOutlined />}
+                htmlType="submit"
+                type="primary"
+                data-attr="feature-flag-submit-bottom"
+            >
+                Save changes
+            </LemonButton>
+        </Form>
+    )
+}
+```
+
+## 3. Select your components
+
+The (WIP) list of form elements in storybook should serve as your guide.

@@ -1,0 +1,12 @@
+#!/bin/sh
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+
+CYCLOTRON_DATABASE_NAME=${CYCLOTRON_DATABASE_NAME:-cyclotron}
+CYCLOTRON_DATABASE_URL=${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/$CYCLOTRON_DATABASE_NAME}
+
+echo "Performing cyclotron migrations for $CYCLOTRON_DATABASE_URL (DATABASE_NAME=$CYCLOTRON_DATABASE_NAME)"
+
+cd $SCRIPT_DIR/..
+
+sqlx database create -D "$CYCLOTRON_DATABASE_URL"
+sqlx migrate run -D "$CYCLOTRON_DATABASE_URL" --source cyclotron-core/migrations/

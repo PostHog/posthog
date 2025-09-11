@@ -1,0 +1,3 @@
+Problem with your fish: You forgot to feed your fish
+Problem with your food: Your fish are hungry
+Unknown problem: NotImplementedError('Your fish are hungry')

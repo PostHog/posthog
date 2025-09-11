@@ -1,0 +1,88 @@
+#!/bin/bash
+
+while test $# -gt 0; do
+  case "$1" in
+  -h | --help)
+    echo "USAGE:"
+    echo "    bin/plugin-server [FLAGS]"
+    echo " "
+    echo "FLAGS:"
+    echo "    -h, --help           Print this help information."
+    echo "    --no-restart-loop    Run without restart loop. Recommended when deferring resiliency to e.g. docker-compose."
+    exit 0
+    ;;
+  --no-restart-loop)
+    NO_RESTART_LOOP='true'
+    shift
+    ;;
+  *)
+    break
+    ;;
+  esac
+done
+
+export BASE_DIR=$(dirname $(dirname "$PWD/${0#./}"))
+
+export KAFKA_HOSTS=${KAFKA_HOSTS:-'kafka:9092'}
+
+
+# NOTE: This is no longer used and will be removed in the future. Startup is now managed directly in the helm chart repo
+if [[ -n $INJECT_EC2_CLIENT_RACK ]]; then
+  # To avoid cross-AZ Kafka traffic, set KAFKA_CLIENT_RACK from the EC2 metadata endpoint.
+  # TODO: switch to the downwards API when https://github.com/kubernetes/kubernetes/issues/40610 is released
+  TOKEN=$(curl --max-time 0.1 -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+  export KAFKA_CLIENT_RACK=$(curl --max-time 0.1 -H "X-aws-ec2-metadata-token: $TOKEN" -v http://169.254.169.254/latest/meta-data/placement/availability-zone-id)
+  # Allows the above exported KAFKA_CLIENT_RACK to be used like foo-$KAFKA_CLIENT_RACK in the following vars
+  export KAFKA_CLIENT_ID=$(echo $KAFKA_CLIENT_ID | envsubst)
+  export KAFKA_PRODUCER_CLIENT_ID=$(echo $KAFKA_PRODUCER_CLIENT_ID | envsubst)
+fi
+
+./bin/migrate-check
+
+cd plugin-server
+
+if [[ -n $DEBUG ]]; then
+  echo "🧐 Verifying installed packages..."
+  pnpm --filter=@posthog/plugin-server install
+fi
+
+if [ $? -ne 0 ]; then
+  echo "💥 Verification failed!"
+  exit 1
+fi
+
+if [[ -n $DEBUG ]]; then
+  if [[ -n $NO_WATCH ]]; then
+    cmd="pnpm start:devNoWatch"
+  else
+    cmd="pnpm start:dev"
+  fi
+else
+  cmd="node dist/index.js"
+fi
+
+if [[ -n $NO_RESTART_LOOP ]]; then
+  echo "▶️ Starting plugin server..."
+  trap 'kill -TERM $child 2>/dev/null; while kill -0 $child 2>/dev/null; do sleep 1; done' EXIT
+  $cmd &
+  child=$!
+  wait $child
+else
+  echo "🔁 Starting plugin server in a resiliency loop..."
+  while true; do
+    $cmd
+    status=$?
+    # Check if child was terminated by SIGKILL (kill -9 node)
+    if [ $status -gt 128 ]; then
+      sig=$((status - 128))
+      if [ $sig -eq 9 ]; then
+        echo "☠️ Plugin server killed by SIGKILL, breaking loop"
+        break
+      fi
+    else
+      echo "💥 Plugin server crashed!"
+      echo "⌛️ Waiting 2 seconds before restarting..."
+      sleep 2
+    fi
+  done
+fi

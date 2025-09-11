@@ -1,0 +1,40 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block heading %}An issue has been assigned to you{% endblock %}
+{% block section %}
+<!-- prettier-ignore -->
+<p>
+    <b>{{ assigner.first_name }}</b> has assigned you an error tracking issue in project <b>{{ team }}</b>.
+</p>
+<p>
+    <b>Issue:</b> {{ assignment.issue.name }}
+</p>
+{% if assignment.issue.description %}
+<p>
+    <b>Description:</b> {{ assignment.issue.description }}
+</p>
+{% endif %}
+<p>
+    <b>Status:</b> {{ assignment.issue.status }}
+</p>
+<div class="mb mt text-center">
+    <a class="button" href="{{ site_url }}/project/{{ team.id }}/error_tracking/{{ assignment.issue.id }}">View issue details</a>
+</div>
+<div class="mt">
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{{ site_url }}/project/{{ team.id }}/error_tracking/{{ assignment.issue.id }}">{{ site_url }}/project/{{ team.id }}/error_tracking/{{ assignment.issue.id }}</a>
+    </p>
+</div>
+{% endblock %}
+
+{% block footer %}
+Need help?
+<a href="https://posthog.com/questions?{{ utm_tags }}"
+    target="_blank"><b>Visit support</b></a>
+or
+<a href="https://posthog.com/docs?{{ utm_tags }}"
+    target="_blank"><b>Read our documentation</b></a>.<br /><br />
+
+<a href="{% absolute_uri '/settings/user-notifications' %}">Manage these notifications in PostHog</a>
+
+{% endblock %}

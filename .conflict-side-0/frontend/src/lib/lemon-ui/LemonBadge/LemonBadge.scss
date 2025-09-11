@@ -1,0 +1,123 @@
+.LemonBadge {
+    --lemon-badge-color: var(--color-accent);
+    --lemon-badge-size: 1.5rem;
+    --lemon-badge-font-size: 0.75rem;
+    --lemon-badge-position-offset: 0.5rem;
+    --lemon-badge-border-width: 0.125rem;
+
+    position: absolute;
+    z-index: 1; // Make sure it is at least in front of non-absolute items
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: fit-content;
+    min-width: var(--lemon-badge-size); // This is a minimum to accomodate multiple digits
+    height: var(--lemon-badge-size);
+
+    // Just enough so the overall size is unaffected with a single digit (i.e. badge stays round)
+    padding: calc(var(--lemon-badge-size) / 8);
+    font-size: var(--lemon-badge-font-size);
+    font-weight: 700;
+    line-height: var(--lemon-badge-size);
+    color: var(--color-bg-surface-primary);
+    pointer-events: none;
+    user-select: none;
+    background: var(--lemon-badge-color);
+    border: var(--lemon-badge-border-width) solid var(--color-bg-surface-primary);
+    border-radius: calc(var(--lemon-badge-size) / 2);
+
+    > * {
+        // For non-text content, make sure that content fills up the whole badge, and that the badge stays round
+        width: calc(var(--lemon-badge-size) - var(--lemon-badge-border-width) * 2);
+        height: calc(var(--lemon-badge-size) - var(--lemon-badge-border-width) * 2);
+        margin: calc(-1 * var(--lemon-badge-size) / 8);
+    }
+
+    &.LemonBadge--success {
+        --lemon-badge-color: var(--success);
+    }
+
+    &.LemonBadge--warning {
+        --lemon-badge-color: var(--warning);
+    }
+
+    &.LemonBadge--danger {
+        --lemon-badge-color: var(--danger);
+    }
+
+    &.LemonBadge--muted {
+        --lemon-badge-color: var(--color-text-secondary);
+    }
+
+    &.LemonBadge--data {
+        --lemon-badge-color: var(--data-color-1);
+    }
+
+    &.LemonBadge--position-none {
+        position: relative;
+    }
+
+    &.LemonBadge--position-top-left {
+        top: calc(var(--lemon-badge-position-offset) * -1);
+        left: calc(var(--lemon-badge-position-offset) * -1);
+    }
+
+    &.LemonBadge--position-top-right {
+        top: calc(var(--lemon-badge-position-offset) * -1);
+        right: calc(var(--lemon-badge-position-offset) * -1);
+    }
+
+    &.LemonBadge--position-bottom-left {
+        bottom: calc(var(--lemon-badge-position-offset) * -1);
+        left: calc(var(--lemon-badge-position-offset) * -1);
+    }
+
+    &.LemonBadge--position-bottom-right {
+        right: calc(var(--lemon-badge-position-offset) * -1);
+        bottom: calc(var(--lemon-badge-position-offset) * -1);
+    }
+
+    &.LemonBadge--small {
+        --lemon-badge-size: 1.125rem;
+        --lemon-badge-font-size: 0.625rem;
+    }
+
+    &.LemonBadge--large {
+        --lemon-badge-size: 1.75rem;
+        --lemon-badge-font-size: 0.875rem;
+    }
+
+    &.LemonBadge--dot {
+        width: calc(var(--lemon-badge-size) * 0.5 + var(--lemon-badge-border-width));
+        min-width: 0;
+        height: calc(var(--lemon-badge-size) * 0.5 + var(--lemon-badge-border-width));
+    }
+
+    &.LemonBadge--active {
+        z-index: var(--z-raised); // In croweded badge situation, show active ones above the rest
+        outline: calc(var(--lemon-badge-font-size) / 5) solid var(--lemon-badge-color);
+    }
+
+    &.LemonBadge--enter {
+        opacity: 0;
+        transform: scale(0.5);
+    }
+
+    &.LemonBadge--enter-active {
+        opacity: 1;
+        transition: all 200ms ease-out;
+        transform: scale(1);
+    }
+
+    &.LemonBadge--exit {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    &.LemonBadge--exit-active {
+        opacity: 0;
+        transition: all 200ms ease-in;
+        transform: scale(0.5);
+    }
+}

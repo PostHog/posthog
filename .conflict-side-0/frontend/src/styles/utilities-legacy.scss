@@ -1,0 +1,38 @@
+// className="(.+\s)*mb(\s.+)*"
+
+.subtitle {
+    display: flex;
+    align-items: center;
+    margin-top: 12px;
+    font-size: 22px;
+    font-weight: bold;
+    line-height: 26px;
+
+    &.highlighted {
+        padding: 1rem 1rem 1rem 0.5rem;
+    }
+}
+
+.l3 {
+    /* Level 3 title (ideally H3) */
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 19px;
+}
+
+.l4 {
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.col {
+    position: relative;
+    max-width: 100%;
+    min-height: 1px;
+}
+
+.highlighted {
+    border-radius: var(--radius);
+    animation: highlight 2000ms ease-out;
+    scroll-margin-top: var(--breadcrumbs-height-full);
+}

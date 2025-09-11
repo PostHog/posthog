@@ -1,0 +1,48 @@
+-- This util helps with differences between jsonStringify in python and node
+let printQ := (q) -> print(replaceAll(jsonStringify(q), ' ', ''))
+
+let Hello := (props) -> <span>hello: {props.value}</span>
+print(Hello({ 'value': 'world' }))
+print(<Hello value='world' />)
+
+print(<hr/>)
+
+let b := <div>outer. <Hello value='hello' /></div>
+print(b)
+
+print(<hr/>)
+
+let Filter := (props) -> {
+    let query := sql(true)
+    if (props.name) {
+        query := sql({query} and properties.name = {props.name})
+    }
+    if (props.email) {
+        query := sql({query} and properties.email = {props.email})
+    }
+    return query
+}
+let query1 := <Filter name='John' email='john@gmail.com' />
+printQ(query1)
+
+let query2 := sql(true and <Filter name='John' email='john@gmail.com' />)
+printQ(query2)
+
+let query3a := (
+    select
+        distinct(properties.name) as name,
+        distinct(properties.email) as email
+    from events
+    where {Filter({'name': 'John', 'email': 'john@gmail.com'})}
+)
+let query3b := (
+    select
+        distinct(properties.name) as name,
+        distinct(properties.email) as email
+    from events
+    where <Filter name='John' email='john@gmail.com' />
+)
+printQ(query3a)
+printQ(query3b)
+-- Filter must be expanded
+print('HogQLXAttribute' in jsonStringify(query3b) ? 'FAILED' : 'PASSED')

@@ -1,0 +1,7 @@
+id,created_at,name,email,phone,address,metadata
+cus_1,"2023-01-01","John Doe","john.doe@example.com","+1234567890","{""country"": ""US""}","{""id"": ""cus_1_metadata""}"
+cus_2,"2023-01-02","Jane Doe","jane.doe@example.com","+1234567890","{""country"": ""US""}","{""id"": ""cus_2_metadata""}"
+cus_3,"2023-01-03","John Smith","john.smith@example.com","+1234567890","{""country"": ""CA""}","{""id"": ""cus_3_metadata""}"
+cus_4,"2023-01-06","Jane Smith","jane.smith@example.com","+1234567890","{""country"": ""CA""}","{""id"": ""cus_4_metadata""}"
+cus_5,"2023-01-07","John Doe Jr","john.doejr@example.com","+1234567890","{""country"": ""UK""}","{""id"": ""cus_5_metadata""}"
+cus_6,"2023-01-08","John Doe Jr Jr","john.doejrjr@example.com","+1234567890","{""country"": ""UK""}","{""id"": ""cus_6_metadata""}"

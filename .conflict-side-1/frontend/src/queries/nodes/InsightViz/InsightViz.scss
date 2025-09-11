@@ -1,0 +1,201 @@
+.InsightViz {
+    display: flex;
+    flex: 1; // important for when rendered within a flex parent
+    flex-direction: column;
+    gap: 1rem;
+    container-type: inline-size;
+
+    .PropertyGroupFilters__add-filter-group-inline {
+        display: block;
+    }
+
+    .PropertyGroupFilters__add-filter-group-after {
+        display: none;
+    }
+
+    &.InsightViz--horizontal {
+        flex-flow: row wrap;
+        align-items: flex-start;
+
+        .EditorFiltersWrapper {
+            width: 100%;
+
+            @container (min-width: 768px) {
+                width: 30%;
+                min-width: 26rem;
+                max-width: 30rem;
+            }
+        }
+
+        // If horizontal, hide the inline add filter group button and display the one after
+        .PropertyGroupFilters__add-filter-group-inline {
+            display: none;
+        }
+
+        .PropertyGroupFilters__add-filter-group-after {
+            display: block;
+        }
+    }
+}
+
+.InsightVizDisplay {
+    --insight-viz-min-height: min(calc(80vh - 6rem), 32rem);
+
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+
+    .NotebookNode &,
+    .InsightCard &,
+    .ExportedInsight &,
+    .ErrorTracking__breakdowns &,
+    .WebAnalyticsDashboard & {
+        flex: 1;
+        height: 100%;
+
+        .LineGraph {
+            padding: 0.5rem;
+        }
+    }
+
+    .InsightVizDisplay__content {
+        position: relative;
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        height: 100%;
+        padding: 0.5rem;
+
+        &--with-legend {
+            flex-direction: row;
+        }
+
+        .InsightVizDisplay__content__left {
+            position: relative;
+            display: flex;
+            flex: 1;
+            flex-direction: column;
+            width: 100%;
+        }
+
+        .InsightVizDisplay__content__right {
+            display: flex;
+            flex-shrink: 1;
+            align-items: center;
+            width: fit-content;
+            max-width: 45%;
+            max-height: var(--insight-viz-min-height);
+            margin: 1rem;
+        }
+    }
+
+    .InsightDisplayConfig {
+        padding: 0.5rem;
+        border-bottom-width: 1px;
+    }
+}
+
+.WebAnalyticsDashboard {
+    .InsightVizDisplay {
+        --insight-viz-min-height: 25rem;
+    }
+}
+
+.RevenueAnalyticsDashboard {
+    .InsightVizDisplay {
+        --insight-viz-min-height: 20rem;
+    }
+}
+
+.RetentionContainer {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    width: 100%;
+
+    .RetentionContainer__graph {
+        flex: 1;
+        margin: 0.5rem;
+    }
+
+    .RetentionContainer__table {
+        flex-shrink: 0;
+    }
+
+    .LineGraph {
+        position: relative !important;
+        width: 100% !important;
+        height: 100%;
+        min-height: 30vh;
+    }
+
+    .NotebookNode &,
+    .InsightCard &,
+    .ExportedInsight &,
+    .WebAnalyticsDashboard & {
+        .LineGraph {
+            position: relative;
+            min-height: 100px;
+        }
+    }
+}
+
+.TrendsInsight {
+    position: relative;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: var(--insight-viz-min-height);
+    margin: 0.5rem;
+
+    .NotebookNode &,
+    .InsightCard &,
+    .ExportedInsight &,
+    .WebAnalyticsDashboard & {
+        min-height: auto;
+    }
+
+    &--ActionsTable,
+    &--WorldMap,
+    &--BoldNumber {
+        min-height: auto;
+        margin: 0;
+    }
+
+    &--BoldNumber {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+}
+
+.FunnelInsight {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    width: 100%;
+
+    &--type-steps-vertical,
+    &--type-time_to_convert,
+    &--type-trends {
+        min-height: var(--insight-viz-min-height);
+
+        .NotebookNode &,
+        .InsightCard &,
+        .ExportedInsight &,
+        .WebAnalyticsDashboard & {
+            min-height: auto;
+        }
+    }
+}
+
+.funnel-significance-highlight {
+    display: inline-flex;
+    color: var(--color-bg-surface-primary);
+    background: var(--color-accent);
+
+    .LemonIcon {
+        color: var(--color-bg-surface-primary);
+    }
+}

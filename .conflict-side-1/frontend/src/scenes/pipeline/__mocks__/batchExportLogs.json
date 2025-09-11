@@ -1,0 +1,35 @@
+{
+    "count": 4,
+    "next": null,
+    "previous": null,
+    "results": [
+        {
+            "log_source_id": "018cf79f-a9e5-0001-cd6a-edc4886d939d",
+            "instance_id": "62acf018-c2e4-47a8-88ff-20839ca84816",
+            "timestamp": "2024-01-11T09:09:07.849132Z",
+            "level": "INFO",
+            "message": "Successfully finished exporting batch 2024-01-11 08:00:00+00:00 - 2024-01-11 09:00:00+00:00"
+        },
+        {
+            "log_source_id": "018cf79f-a9e5-0001-cd6a-edc4886d939d",
+            "instance_id": "62acf018-c2e4-47a8-88ff-20839ca84816",
+            "timestamp": "2024-01-11T09:03:23.257635Z",
+            "level": "INFO",
+            "message": "BatchExporting 109171 rows"
+        },
+        {
+            "log_source_id": "018cf79f-a9e5-0001-cd6a-edc4886d939d",
+            "instance_id": "62acf018-c2e4-47a8-88ff-20839ca84816",
+            "timestamp": "2024-01-11T09:03:23.053067Z",
+            "level": "INFO",
+            "message": "Exporting batch 2024-01-11T08:00:00+00:00 - 2024-01-11T09:00:00+00:00"
+        },
+        {
+            "log_source_id": "018cf79f-a9e5-0001-cd6a-edc4886d939d",
+            "instance_id": "62acf018-c2e4-47a8-88ff-20839ca84816",
+            "timestamp": "2024-01-11T09:03:23.011577Z",
+            "level": "INFO",
+            "message": "Creating batch export for range 2024-01-11T08:00:00+00:00 - 2024-01-11T09:00:00+00:00"
+        }
+    ]
+}

@@ -1,0 +1,87 @@
+.EditableField {
+    display: flex;
+    align-items: center;
+    max-width: 100%;
+
+    &:not(.EditableField--multiline) {
+        line-height: 1.15em;
+    }
+
+    i {
+        color: var(--color-text-secondary);
+    }
+
+    .EditableField__notice {
+        margin-left: 0.5rem;
+        font-size: 1.5rem;
+        color: var(--color-text-secondary);
+    }
+
+    .EditableField__highlight {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        width: fit-content;
+        max-width: calc(100% + 0.5rem);
+        padding: 0.25rem; // Some padding to give the focus outline more breathing space
+        margin: -0.25rem;
+        overflow: auto;
+    }
+
+    .EditableField__display {
+        overflow: hidden;
+        white-space: pre-wrap;
+    }
+
+    &.EditableField--editing .EditableField__highlight {
+        flex-grow: 1;
+        align-items: flex-end;
+        width: auto;
+        max-width: calc(100% + 0.5rem);
+        border-radius: var(--radius);
+        outline: 1px solid var(--color-border-primary);
+    }
+
+    &.EditableField--underlined {
+        .EditableField__highlight {
+            padding-top: 0;
+            padding-bottom: 0;
+            margin-top: 0;
+            margin-bottom: 0;
+        }
+
+        &.EditableField--editing .EditableField__highlight {
+            outline: none;
+
+            input {
+                margin-bottom: -1px;
+                border-bottom: 1px dashed var(--color-text-secondary);
+            }
+        }
+    }
+
+    .EditableField__actions {
+        display: flex;
+        flex-shrink: 0;
+        gap: 0.5rem;
+        align-items: center;
+        margin-left: 0.5rem;
+        overflow: hidden;
+    }
+
+    input,
+    textarea {
+        max-width: 100%;
+        padding: 0;
+        font: inherit;
+        color: var(--text-3000);
+        background: transparent;
+        border: none;
+        outline: none;
+    }
+
+    textarea {
+        align-self: center;
+        width: 100%;
+    }
+}

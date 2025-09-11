@@ -1,0 +1,20 @@
+{% load i18n %}
+<!-- In case there are no apps, we also don't want to appear -->
+{% if app_list %}
+<div class="app-redis module">
+  <table>
+    <caption>
+      API Key
+    </caption>
+    <tr class="model-values">
+      <th scope="row">
+        <a href="{% url 'api_key_search' %}" aria-current="page">Search</a>
+      </th>
+
+      <td>
+        <a href="{% url 'api_key_search' %}" class="viewlink">{% translate 'View' %}</a>
+      </td>
+    </tr>
+  </table>
+</div>
+{% endif %}

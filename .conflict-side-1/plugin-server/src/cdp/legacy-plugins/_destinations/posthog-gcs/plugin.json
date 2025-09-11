@@ -1,0 +1,30 @@
+{
+    "name": "GCS Export",
+    "url": "https://github.com/PostHog/posthog-gcs-plugin",
+    "description": "Sends events to GCS on ingestion.",
+    "main": "index.ts",
+    "posthogVersion": ">= 1.25.0",
+    "config": [
+        {
+            "key": "googleCloudKeyJson",
+            "name": "JSON file with your google cloud key",
+            "type": "attachment",
+            "required": true,
+            "secret": true
+        },
+        {
+            "key": "bucketName",
+            "hint": "Bucket name",
+            "name": "Table ID",
+            "type": "string",
+            "required": true
+        },
+        {
+            "key": "exportEventsToIgnore",
+            "name": "Events to ignore",
+            "type": "string",
+            "default": "$feature_flag_called",
+            "hint": "Comma separated list of events to ignore"
+        }
+    ]
+}

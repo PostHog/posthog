@@ -1,0 +1,24 @@
+.insights-label {
+    max-width: 100%;
+
+    .value {
+        padding-right: 4px;
+        margin-left: 0.3rem;
+        font-size: 1.176em;
+        font-weight: bold;
+    }
+
+    .graph-series-glyph {
+        padding: 0 6px;
+        margin-right: 4px;
+        margin-left: 2px;
+    }
+
+    .color-icon {
+        box-sizing: border-box;
+        margin-right: 6px;
+        margin-left: 2px;
+        border: 2px solid #fff;
+        border-radius: 50%;
+    }
+}

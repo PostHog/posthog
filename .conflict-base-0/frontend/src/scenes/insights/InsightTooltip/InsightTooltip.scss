@@ -1,0 +1,105 @@
+.InsightTooltipWrapper {
+    position: absolute;
+    z-index: var(--z-graph-tooltip);
+    pointer-events: none;
+    transition: all 0.4s;
+
+    &:has(.ScrollableShadows--left),
+    &:has(.ScrollableShadows--right),
+    &:has(.ScrollableShadows--top),
+    &:has(.ScrollableShadows--bottom) {
+        pointer-events: auto;
+    }
+}
+
+.InsightTooltip {
+    max-width: 30rem;
+    overflow: hidden;
+    font-size: 0.8125rem;
+    background: var(--color-bg-surface-primary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-elevation-3000);
+
+    &--embedded {
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+    }
+
+    .LemonRow {
+        font-size: 0.8125rem;
+    }
+
+    .LemonTable {
+        font-size: 0.75rem;
+        border: none;
+        border-bottom-right-radius: 0;
+        border-bottom-left-radius: 0;
+
+        &:not(:last-child) {
+            border-bottom: 1px solid var(--color-border-primary);
+        }
+
+        .insights-label {
+            margin: 0;
+        }
+
+        .datum-column {
+            padding-left: 0.5rem;
+            overflow-wrap: anywhere;
+        }
+
+        .LemonTable__content > table > thead {
+            letter-spacing: 0;
+
+            .datum-column {
+                .LemonTable__header-content {
+                    white-space: nowrap;
+                }
+            }
+        }
+
+        .LemonTable__content > table {
+            .datum-label-column {
+                display: flex;
+                align-items: center;
+                font-weight: 600;
+            }
+
+            .series-data-cell {
+                font-weight: 600;
+            }
+
+            .tag-pill {
+                margin-right: 0;
+                overflow: hidden;
+                color: var(--primary-alt);
+                vertical-align: middle;
+                background-color: var(--color-border-primary);
+                border: 0;
+            }
+        }
+    }
+
+    .table-subtext {
+        padding: 0.5rem 1rem;
+        font-size: 0.75rem;
+        color: var(--color-text-secondary);
+        text-align: center;
+        background-color: var(--color-bg-surface-primary);
+
+        .table-subtext-truncated {
+            margin-bottom: 4px;
+        }
+
+        .table-subtext-click-to-inspect {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            color: var(--color-text-primary);
+            white-space: nowrap;
+        }
+    }
+}

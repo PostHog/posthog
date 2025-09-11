@@ -1,0 +1,65 @@
+.PropertyFilterButton {
+    display: inline-flex;
+    gap: 0.375rem;
+    align-items: center;
+    height: 2rem;
+    padding: 0.25rem 0.625rem;
+    overflow: hidden;
+    color: var(--text-3000);
+    white-space: nowrap;
+    cursor: default;
+    background: var(--color-border-primary);
+    border: 1px solid var(--secondary-3000-button-border);
+    border-radius: 99rem;
+    outline: 0;
+
+    &[aria-disabled='true']:not(.LemonButton--loading) {
+        cursor: not-allowed;
+        opacity: var(--opacity-disabled);
+    }
+
+    &:hover:not([aria-disabled='true']),
+    &:focus {
+        border-color: var(--secondary-3000-button-border-hover);
+    }
+
+    &:not(.PropertyFilterButton--clickable) {
+        border-color: transparent;
+    }
+
+    &.PropertyFilterButton--clickable {
+        touch-action: manipulation; // faster clicks
+        cursor: pointer;
+    }
+
+    &.PropertyFilterButton--closable {
+        padding-right: 0.5rem;
+    }
+
+    > :not(.PropertyFilterButton-content) {
+        flex-shrink: 0;
+    }
+
+    .PropertyFilterButton-content {
+        flex: 1;
+        overflow: hidden;
+        text-align: left;
+        text-overflow: ellipsis;
+    }
+
+    // Property type icon
+    > .LemonIcon {
+        font-size: 1rem;
+    }
+
+    // Close button
+    .LemonButton {
+        margin: 0 -0.375rem 0 -0.125rem;
+        border-radius: 99rem;
+    }
+
+    .LemonButton__chrome {
+        min-height: auto;
+        padding: 0.1875rem;
+    }
+}

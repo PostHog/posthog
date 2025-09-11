@@ -1,0 +1,8 @@
+{% extends "admin/index.html" %}
+{% block content %}
+<div id="content-main">
+  {% include "admin/app_list.html" with app_list=app_list show_changelinks=True %}
+  {% include "redis/app.html" with app_list=app_list %}
+  {% include "api_key_search/app.html" with app_list=app_list %}
+</div>
+{% endblock %}

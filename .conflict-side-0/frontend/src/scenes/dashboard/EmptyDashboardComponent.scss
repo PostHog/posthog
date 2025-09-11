@@ -1,0 +1,38 @@
+@import '../../styles/mixins';
+
+.EmptyDashboard {
+    position: relative;
+    margin-top: 1rem;
+
+    .EmptyDashboard__fade {
+        position: relative;
+        height: 150px;
+        margin-top: 1rem;
+        overflow: hidden;
+
+        &::after {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 10rem;
+            pointer-events: none;
+            content: '';
+            background: linear-gradient(to top, var(--color-bg-primary), transparent);
+        }
+    }
+
+    .EmptyDashboard__cta {
+        position: absolute;
+        top: 16px;
+        left: 50%;
+        z-index: var(--z-content-overlay);
+        width: 360px;
+        max-width: calc(100% - 32px);
+        padding: 1.5rem;
+        background: var(--color-bg-surface-primary);
+        border-width: 1px;
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-elevation-3000);
+        transform: translateX(-50%);
+    }
+}

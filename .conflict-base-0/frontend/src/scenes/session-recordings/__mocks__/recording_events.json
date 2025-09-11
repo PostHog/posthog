@@ -1,0 +1,96 @@
+[
+    {
+        "id": "$pageview1",
+        "event": "$pageview",
+        "name": "$event_before_recording_starts",
+        "type": "events",
+        "order": 0,
+        "timestamp": "2021-12-09T19:35:59.223000Z",
+        "properties": {
+            "$window_id": "17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f",
+            "$current_url": "https://example.com/"
+        },
+        "elements": [],
+        "elements_hash": ""
+    },
+    {
+        "id": "$pageview2",
+        "name": "$pageview",
+        "event": "$pageview",
+        "type": "events",
+        "order": 1,
+        "timestamp": "2021-12-09T19:36:59.223000Z",
+        "properties": {
+            "$window_id": "17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f",
+            "$current_url": "https://example.com/"
+        },
+        "elements": [],
+        "elements_hash": ""
+    },
+    {
+        "id": "blah",
+        "name": "blah",
+        "event": "blah",
+        "type": "events",
+        "order": 2,
+        "timestamp": "2021-12-09T19:37:39.223000Z",
+        "properties": {
+            "$window_id": "17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f"
+        },
+        "elements": [],
+        "elements_hash": ""
+    },
+    {
+        "id": "$autocapture",
+        "name": "$autocapture",
+        "event": "$autocapture",
+        "type": "events",
+        "order": 3,
+        "timestamp": "2021-12-09T19:37:39.223000Z",
+        "properties": {
+            "$window_id": "wrong_window_id",
+            "$event_name": "click"
+        },
+        "elements": [],
+        "elements_hash": ""
+    },
+    {
+        "id": "backend event",
+        "name": "backend event",
+        "event": "backend event",
+        "type": "events",
+        "order": 4,
+        "timestamp": "2021-12-09T19:37:40.223000Z",
+        "properties": {
+            "$window_id": null
+        },
+        "elements": [],
+        "elements_hash": ""
+    },
+    {
+        "id": "nightly",
+        "name": "nightly",
+        "event": "nightly",
+        "type": "events",
+        "order": 5,
+        "timestamp": "2021-12-09T19:38:39.223000Z",
+        "properties": {
+            "$window_id": "182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841"
+        },
+        "elements": [],
+        "elements_hash": ""
+    },
+    {
+        "id": "gooddog",
+        "name": "gooddog",
+        "event": "gooddog",
+        "type": "events",
+        "order": 6,
+        "timestamp": "2021-12-09T19:39:39.223000Z",
+        "properties": {
+            "$window_id": "182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841"
+        },
+        "elements": [],
+        "elements_hash": ""
+    }
+]

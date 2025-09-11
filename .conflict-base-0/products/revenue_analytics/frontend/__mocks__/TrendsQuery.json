@@ -1,0 +1,87 @@
+{
+    "cache_key": "cache_bf0485f087120264df9f35c33170f487",
+    "cache_target_age": "2025-04-19T15:08:34.498483Z",
+    "calculation_trigger": null,
+    "error": null,
+    "hasMore": false,
+    "hogql": null,
+    "is_cached": false,
+    "last_refresh": "2025-04-18T15:08:34.498483Z",
+    "modifiers": {
+        "bounceRateDurationSeconds": null,
+        "bounceRatePageViewMode": "count_pageviews",
+        "customChannelTypeRules": null,
+        "dataWarehouseEventsModifiers": [
+            {
+                "distinct_id_field": "id",
+                "id_field": "id",
+                "table_name": "stripe.production.charge_revenue_view",
+                "timestamp_field": "timestamp"
+            }
+        ],
+        "debug": null,
+        "inCohortVia": "auto",
+        "materializationMode": "legacy_null_as_null",
+        "optimizeJoinedFilters": false,
+        "personsArgMaxVersion": "auto",
+        "personsJoinMode": null,
+        "personsOnEventsMode": "person_id_override_properties_joined",
+        "propertyGroupsMode": null,
+        "s3TableUseInvalidColumns": null,
+        "sessionTableVersion": "auto",
+        "sessionsV2JoinMode": "string",
+        "useMaterializedViews": true,
+        "usePresortedEventsTable": false
+    },
+    "next_allowed_client_refresh": "2025-04-18T15:23:34.498483Z",
+    "query_status": null,
+    "results": [
+        {
+            "data": [568439.36, 846853.6800000016, 731161.5699999998, 755890.2800000014],
+            "labels": ["Jan 2024", "Feb 2024", "Mar 2024", "Apr 2024"],
+            "days": ["2024-01-01", "2024-02-01", "2024-03-01", "2024-04-01"],
+            "count": 2902344.8900000025,
+            "label": "stripe.production.charge_revenue_view",
+            "filter": {
+                "insight": "TRENDS",
+                "properties": [],
+                "filter_test_accounts": false,
+                "date_to": "2024-04-30T23:59:59.999999Z",
+                "date_from": "2024-01-01T00:00:00Z",
+                "entity_type": "events",
+                "interval": "month",
+                "aggregationAxisFormat": "numeric",
+                "aggregationAxisPrefix": "$",
+                "display": "ActionsLineGraph",
+                "resultCustomizationBy": "value",
+                "showAlertThresholdLines": false,
+                "showLegend": false,
+                "showMultipleYAxes": false,
+                "showPercentStackView": false,
+                "showValuesOnSeries": false,
+                "smoothingIntervals": 1,
+                "yAxisScaleType": "linear"
+            },
+            "action": {
+                "days": [
+                    "2024-01-01T00:00:00Z",
+                    "2024-02-01T00:00:00Z",
+                    "2024-03-01T00:00:00Z",
+                    "2024-04-01T00:00:00Z"
+                ],
+                "id": "stripe.production.charge_revenue_view",
+                "type": "events",
+                "order": 0,
+                "name": "stripe.production.charge_revenue_view",
+                "custom_name": "Gross revenue",
+                "math": "sum",
+                "math_property": "amount",
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            }
+        }
+    ],
+    "timezone": "UTC",
+    "timings": []
+}

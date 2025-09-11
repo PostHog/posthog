@@ -1,0 +1,8 @@
+#!/bin/bash
+set -e
+
+if [ -z "$POSTHOG_SKIP_MIGRATION_CHECKS" ]; then
+	python manage.py migrate --check
+	python manage.py migrate_clickhouse --check
+	python manage.py run_async_migrations --check
+fi

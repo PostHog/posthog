@@ -1,0 +1,25 @@
+.ActionsPie {
+    display: flex;
+    flex: 1;
+    flex-direction: row;
+    gap: 0.5rem;
+    width: 100%;
+    height: 100%;
+
+    .ActionsPie__component {
+        flex: 1;
+        min-width: 33%;
+        padding: 1rem;
+
+        .ActionsPie__chart {
+            position: relative;
+            width: 100%;
+            height: calc(100% - 4.5rem); // 4.5rem is the height of the number below the chart
+            transition: height 0.5s;
+        }
+
+        h3 {
+            letter-spacing: -0.025em;
+        }
+    }
+}

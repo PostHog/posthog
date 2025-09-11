@@ -1,0 +1,35 @@
+[package]
+name = "hook-worker"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+axum = { workspace = true }
+chrono = { workspace = true }
+envconfig = { workspace = true }
+futures = "0.3"
+health = { path = "../common/health" }
+hook-common = { path = "../hook-common" }
+http = { workspace = true }
+metrics = { workspace = true }
+rdkafka = { workspace = true }
+reqwest = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = { version = "2.2" }
+common-metrics = { path = "../common/metrics" }
+common-dns = { path = "../common/dns" }
+common-kafka = { path = "../common/kafka" }
+common-alloc = { path = "../common/alloc" }
+
+[dev-dependencies]
+httpmock = { workspace = true }

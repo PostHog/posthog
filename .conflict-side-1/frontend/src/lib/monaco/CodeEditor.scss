@@ -1,0 +1,37 @@
+.monaco-editor,
+.monaco-diff-editor {
+    .suggest-widget .monaco-list .monaco-list-row > .contents {
+        display: block !important;
+    }
+
+    .suggest-widget .monaco-list .monaco-list-row > .contents > .main {
+        width: 100%;
+
+        .left > .signature-label {
+            width: 100%;
+            text-align: right;
+        }
+    }
+}
+
+.editor-wrapper .monaco-editor,
+.editor-wrapper .monaco-diff-editor,
+.editor-wrapper .overflow-guard {
+    border-radius: 0;
+}
+
+.CodeEditorResizeable,
+.CodeEditorInline {
+    .monaco-editor {
+        /* stylelint-disable custom-property-pattern */
+        --vscode-textLink-foreground: transparent;
+        --vscode-focusBorder: transparent;
+        /* stylelint-enable custom-property-pattern */
+
+        border-radius: var(--radius);
+
+        .overflow-guard {
+            border-radius: var(--radius);
+        }
+    }
+}

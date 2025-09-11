@@ -1,0 +1,50 @@
+.PlanComparisonModal {
+    max-width: 900px;
+}
+
+table.PlanComparison {
+    table-layout: fixed;
+
+    td {
+        padding: 0.75rem 1rem;
+        vertical-align: top;
+
+        &.PlanTable__td__upgradeButton {
+            padding-top: 1rem;
+            padding-bottom: 1rem;
+        }
+    }
+
+    th {
+        padding: 0.75rem 1rem;
+        font-weight: 600;
+        text-align: left;
+        vertical-align: top;
+
+        &.PlanTable__th__section {
+            padding: 0.25rem 1rem;
+            font-weight: 500;
+        }
+
+        &.PlanTable__th__feature {
+            padding: 0.75rem 1rem 0.75rem 3.25rem;
+            font-weight: 600;
+
+            &.PlanTable__th__feature--reduced_padding {
+                padding: 0.75rem 1rem;
+            }
+        }
+
+        &.PlanTable__th__last-feature {
+            padding-bottom: 2rem;
+        }
+
+        p {
+            font-weight: 400;
+        }
+    }
+}
+
+.PlanTable__tr__border {
+    border-bottom: 3px rgb(0 0 0 / 7%) dotted;
+}

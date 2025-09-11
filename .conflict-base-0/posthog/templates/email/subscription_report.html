@@ -1,0 +1,60 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
+
+{% if inviter %}
+<h1 class="invite-header">
+    {% if self_invite %}
+        You have been subscribed
+    {% else %}
+        <strong>{{ inviter.first_name }}</strong> has subscribed you 
+    {% endif %}
+
+    to the {{ resource_noun }} <strong>{{ resource_name }}</strong> on PostHog.
+</h1>
+
+<p>
+{{ invite_summary }}
+</p>
+
+{% if invite_message %}
+
+<div class="invite-message">
+    <div class="invite-message-divider"></div>
+        "{{ invite_message }}"
+</div>
+{% endif %}
+
+{% else %}
+
+<p><strong>Hello,</strong></p>
+<p>
+    Your subscription to the {{ resource_noun }}
+    <strong>{{ resource_name }}</strong> is ready!
+
+    {% if resource_noun == "Dashboard" %}
+    Email subscriptions are limited to at most 6 insights.
+    {% endif %}
+</p>
+{% endif %}
+
+{% if images|length < total_asset_count  %}
+<p class="text-center muted font-bold">
+    SHOWING {{ images|length }} OF {{ total_asset_count }} DASHBOARD INSIGHTS
+</p>
+{% endif %}
+
+{% for image in images %}
+<img class="insight-image mb" src="{{ image }}" />
+{% endfor %}
+
+<div class="mb mt text-center">
+    <a class="button primary" href="{{ resource_url }}">View in PostHog</a>
+</div>
+
+<div class="divider"></div>
+
+<p class="text-center">
+    <a target="_blank" href="{{ subscription_url }}"><b>Manage this subscription in PostHog</b></a>
+    or
+    <a target="_blank" href="{{ unsubscribe_url }}"><b>unsubscribe now.</b></a>
+</p>
+{% endblock %}{% load posthog_filters %}

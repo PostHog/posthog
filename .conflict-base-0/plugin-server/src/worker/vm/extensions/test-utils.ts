@@ -1,0 +1,33 @@
+import fs from 'fs'
+import path from 'path'
+
+import { parseJSON } from '../../../utils/json-parse'
+
+const consoleFile = path.join(process.cwd(), 'tmp', 'test-console.txt')
+
+export const writeToFile = {
+    console: {
+        log: (...args: any[]): void => {
+            fs.appendFileSync(consoleFile, `${JSON.stringify(args)}\n`)
+        },
+        reset(): void {
+            fs.mkdirSync(path.join(process.cwd(), 'tmp'), { recursive: true })
+            fs.writeFileSync(consoleFile, '')
+        },
+        read(): any[] {
+            try {
+                return fs
+                    .readFileSync(consoleFile)
+                    .toString()
+                    .split('\n')
+                    .filter((str) => !!str)
+                    .map((part) => parseJSON(part))
+            } catch (error) {
+                if (error.code === 'ENOENT') {
+                    return []
+                }
+                throw error
+            }
+        },
+    },
+}

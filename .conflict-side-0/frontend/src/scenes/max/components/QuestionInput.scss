@@ -1,0 +1,45 @@
+.QuestionInput__SuggestionsList {
+    &.QuestionInput__SuggestionsList-enter {
+        opacity: 0;
+        transform: translateY(-0.5rem);
+    }
+
+    &.QuestionInput__SuggestionsList-enter-active {
+        opacity: 1;
+        transition:
+            opacity 150ms ease-out,
+            transform 150ms ease-out;
+        transform: translateY(0);
+    }
+
+    &.QuestionInput__SuggestionsList-exit {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+
+    &.QuestionInput__SuggestionsList-exit-active {
+        opacity: 0;
+        transition:
+            opacity 150ms ease-out,
+            transform 150ms ease-out;
+        transform: scale(0.95) translateY(-0.5rem);
+    }
+}
+
+.QuestionInput__QuestionSuggestion {
+    opacity: 0;
+    animation: QuestionInput__QuestionSuggestion__slide-in-fade-down 60ms ease-out forwards;
+    animation-delay: calc(var(--index) * 25ms);
+}
+
+@keyframes QuestionInput__QuestionSuggestion__slide-in-fade-down {
+    from {
+        opacity: 0;
+        transform: translateY(-0.5rem);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

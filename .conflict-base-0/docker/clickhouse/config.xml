@@ -1,0 +1,396 @@
+<?xml version="1.0"?>
+<!--
+  NOTE: User and query level settings are set up in "users.xml" file.
+  If you have accidentally specified user-level settings here, server won't start.
+  You can either move the settings to the right place inside "users.xml" file
+   or add <skip_check_for_incorrect_settings>1</skip_check_for_incorrect_settings> here.
+-->
+<clickhouse>
+    <logger>
+        <level>warning</level>
+        <log>/var/log/clickhouse-server/clickhouse-server.log</log>
+        <errorlog>/var/log/clickhouse-server/clickhouse-server.err.log</errorlog>
+        <size>1000M</size>
+        <count>10</count>
+    </logger>
+
+    <http_port>8123</http_port>
+    <mysql_port>9004</mysql_port>
+    <postgresql_port>9005</postgresql_port>
+    <https_port>8443</https_port>
+    <tcp_port_secure>9440</tcp_port_secure>
+    <interserver_http_port>9009</interserver_http_port>
+    <max_connections>4096</max_connections>
+    <keep_alive_timeout>3</keep_alive_timeout>
+
+    <openSSL>
+        <server>
+            <certificateFile>/etc/clickhouse-server/server.crt</certificateFile>
+            <privateKeyFile>/etc/clickhouse-server/server.key</privateKeyFile>
+            <dhParamsFile>/etc/clickhouse-server/dhparam.pem</dhParamsFile>
+            <verificationMode>none</verificationMode>
+            <loadDefaultCAFile>true</loadDefaultCAFile>
+            <cacheSessions>true</cacheSessions>
+            <disableProtocols>sslv2,sslv3</disableProtocols>
+            <preferServerCiphers>true</preferServerCiphers>
+        </server>
+
+        <client>
+            <loadDefaultCAFile>true</loadDefaultCAFile>
+            <cacheSessions>true</cacheSessions>
+            <disableProtocols>sslv2,sslv3</disableProtocols>
+            <preferServerCiphers>true</preferServerCiphers>
+            <invalidCertificateHandler>
+                <name>RejectCertificateHandler</name>
+            </invalidCertificateHandler>
+        </client>
+    </openSSL>
+
+    <!-- Maximum number of concurrent queries. -->
+    <max_concurrent_queries>200</max_concurrent_queries>
+
+    <!-- Maximum memory usage (resident set size) for server process.
+         Zero value or unset means default. Default is "max_server_memory_usage_to_ram_ratio" of available
+    physical RAM.
+         If the value is larger than "max_server_memory_usage_to_ram_ratio" of available physical RAM, it
+    will be cut down.
+
+         The constraint is checked on query execution time.
+         If a query tries to allocate memory and the current memory usage plus allocation is greater
+          than specified threshold, exception will be thrown.
+
+         It is not practical to set this constraint to small values like just a few gigabytes,
+          because memory allocator will keep this amount of memory in caches and the server will deny service
+    of queries.
+      -->
+    <max_server_memory_usage>0</max_server_memory_usage>
+
+    <!-- Maximum number of threads in the Global thread pool.
+    This will default to a maximum of 10000 threads if not specified.
+    This setting will be useful in scenarios where there are a large number
+    of distributed queries that are running concurrently but are idling most
+    of the time, in which case a higher number of threads might be required.
+    -->
+
+    <background_message_broker_schedule_pool_size>10</background_message_broker_schedule_pool_size>
+    <max_thread_pool_size>10000</max_thread_pool_size>
+
+    <!-- Number of workers to recycle connections in background (see also drain_timeout).
+         If the pool is full, connection will be drained synchronously. -->
+    <!-- <max_threads_for_connection_collector>10</max_threads_for_connection_collector> -->
+
+    <!-- On memory constrained environments you may have to set this to value larger than 1.
+      -->
+    <max_server_memory_usage_to_ram_ratio>0.9</max_server_memory_usage_to_ram_ratio>
+
+    <!-- Simple server-wide memory profiler. Collect a stack trace at every peak allocation step (in
+    bytes).
+         Data will be stored in system.trace_log table with query_id = empty string.
+         Zero means disabled.
+      -->
+    <total_memory_profiler_step>4194304</total_memory_profiler_step>
+
+    <!-- Collect random allocations and deallocations and write them into system.trace_log with
+    'MemorySample' trace_type.
+         The probability is for every alloc/free regardless to the size of the allocation.
+         Note that sampling happens only when the amount of untracked memory exceeds the untracked memory
+    limit,
+          which is 4 MiB by default but can be lowered if 'total_memory_profiler_step' is lowered.
+         You may want to set 'total_memory_profiler_step' to 1 for extra fine grained sampling.
+      -->
+    <total_memory_tracker_sample_probability>0</total_memory_tracker_sample_probability>
+
+    <!-- Set limit on number of open files (default: maximum). This setting makes sense on Mac OS X
+    because getrlimit() fails to retrieve
+         correct maximum value. -->
+    <!-- <max_open_files>262144</max_open_files> -->
+
+    <!-- Size of cache of uncompressed blocks of data, used in tables of MergeTree family.
+         In bytes. Cache is single for server. Memory is allocated only on demand.
+         Cache is used when 'use_uncompressed_cache' user setting turned on (off by default).
+         Uncompressed cache is advantageous only for very short queries and in rare cases.
+
+         Note: uncompressed cache can be pointless for lz4, because memory bandwidth
+         is slower than multi-core decompression on some server configurations.
+         Enabling it can sometimes paradoxically make queries slower.
+      -->
+    <uncompressed_cache_size>8589934592</uncompressed_cache_size>
+
+    <!-- Approximate size of mark cache, used in tables of MergeTree family.
+         In bytes. Cache is single for server. Memory is allocated only on demand.
+         You should not lower this value.
+      -->
+    <mark_cache_size>5368709120</mark_cache_size>
+
+    <mmap_cache_size>1000</mmap_cache_size>
+
+    <!-- Cache size in bytes for compiled expressions.-->
+    <compiled_expression_cache_size>134217728</compiled_expression_cache_size>
+
+    <!-- Cache size in elements for compiled expressions.-->
+    <compiled_expression_cache_elements_size>10000</compiled_expression_cache_elements_size>
+
+    <!-- Path to data directory, with trailing slash. -->
+    <path>/var/lib/clickhouse/</path>
+
+    <!-- Path to temporary data for processing hard queries. -->
+    <tmp_path>/var/lib/clickhouse/tmp/</tmp_path>
+
+    <!-- Directory with user provided files that are accessible by 'file' table function. -->
+    <user_files_path>/var/lib/clickhouse/user_files/</user_files_path>
+
+    <user_directories>
+        <users_xml>
+            <!-- Path to configuration file with predefined users. -->
+            <path>users.xml</path>
+        </users_xml>
+        <local_directory>
+            <!-- Path to folder where users created by SQL commands are stored. -->
+            <path>/var/lib/clickhouse/access/</path>
+        </local_directory>
+
+    </user_directories>
+
+    <default_profile>default</default_profile>
+
+    <custom_settings_prefixes></custom_settings_prefixes>
+
+    <default_database>default</default_database>
+
+    <mlock_executable>true</mlock_executable>
+
+    <!-- Reallocate memory for machine code ("text") using huge pages. Highly experimental. -->
+    <remap_executable>false</remap_executable>
+
+    <remote_url_allow_hosts>
+        <host_regexp>.*</host_regexp>
+    </remote_url_allow_hosts>
+
+    <zookeeper>
+        <node>
+            <host>zookeeper</host>
+            <port>2181</port>
+        </node>
+    </zookeeper>
+
+    <!-- Reloading interval for embedded dictionaries, in seconds. Default: 3600. -->
+    <builtin_dictionaries_reload_interval>3600</builtin_dictionaries_reload_interval>
+
+    <!-- Maximum session timeout, in seconds. Default: 3600. -->
+    <max_session_timeout>3600</max_session_timeout>
+
+    <!-- Default session timeout, in seconds. Default: 60. -->
+    <default_session_timeout>60</default_session_timeout>
+
+    <!-- Query log. Used only for queries with setting log_queries = 1. -->
+    <query_log>
+        <!-- What table to insert data. If table is not exist, it will be created.
+             When query log structure is changed after system update,
+              then old table will be renamed and new table will be created automatically.
+        -->
+        <database>system</database>
+        <table>query_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+
+        <!-- Interval of flushing data. -->
+        <flush_interval_milliseconds>500</flush_interval_milliseconds>
+        <!-- Maximal size in lines for the logs. When non-flushed logs amount reaches max_size, logs dumped to the disk. -->
+        <max_size_rows>8388608</max_size_rows>
+        <!-- Pre-allocated size in lines for the logs. -->
+        <reserved_size_rows>8192</reserved_size_rows>
+        <!-- Lines amount threshold, reaching it launches flushing logs to the disk in background. -->
+        <buffer_size_rows_flush_threshold>524288</buffer_size_rows_flush_threshold>
+        <!-- Indication whether logs should be dumped to the disk in case of a crash -->
+        <flush_on_crash>true</flush_on_crash>
+
+        <!-- example of using a different storage policy for a system table -->
+        <!-- storage_policy>local_ssd</storage_policy -->
+    </query_log>
+
+    <!-- Query thread log. Has information about all threads participated in query execution.
+         Used only for queries with setting log_query_threads = 1. -->
+    <query_thread_log>
+        <database>system</database>
+        <table>query_thread_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <max_size_rows>8388608</max_size_rows>
+        <reserved_size_rows>8192</reserved_size_rows>
+        <buffer_size_rows_flush_threshold>524288</buffer_size_rows_flush_threshold>
+        <flush_on_crash>false</flush_on_crash>
+    </query_thread_log>
+
+    <!-- Query views log. Has information about all dependent views associated with a query.
+         Used only for queries with setting log_query_views = 1. -->
+    <query_views_log>
+        <database>system</database>
+        <table>query_views_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+    </query_views_log>
+
+
+    <text_log>
+        <database>system</database>
+        <table>text_log</table>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <level>trace</level>
+    </text_log>
+
+    <!-- Metric log contains rows with current values of ProfileEvents, CurrentMetrics collected
+    with "collect_interval_milliseconds" interval. -->
+    <metric_log>
+        <database>system</database>
+        <table>metric_log</table>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <collect_interval_milliseconds>1000</collect_interval_milliseconds>
+    </metric_log>
+
+    <!--
+        Asynchronous metric log contains values of metrics from
+        system.asynchronous_metrics.
+    -->
+    <asynchronous_metric_log>
+        <database>system</database>
+        <table>asynchronous_metric_log</table>
+        <!--
+            Asynchronous metrics are updated once a minute, so there is
+            no need to flush more often.
+        -->
+        <flush_interval_milliseconds>7000</flush_interval_milliseconds>
+    </asynchronous_metric_log>
+
+    <!--
+        OpenTelemetry log contains OpenTelemetry trace spans.
+    -->
+    <opentelemetry_span_log>
+        <!--
+            The default table creation code is insufficient, this <engine> spec
+            is a workaround. There is no 'event_time' for this log, but two times,
+            start and finish. It is sorted by finish time, to avoid inserting
+            data too far away in the past (probably we can sometimes insert a span
+            that is seconds earlier than the last span in the table, due to a race
+            between several spans inserted in parallel). This gives the spans a
+            global order that we can use to e.g. retry insertion into some external
+            system.
+        -->
+        <engine>
+            engine MergeTree
+            partition by toYYYYMM(finish_date)
+            order by (finish_date, finish_time_us, trace_id)
+        </engine>
+        <database>system</database>
+        <table>opentelemetry_span_log</table>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+    </opentelemetry_span_log>
+
+
+    <!-- Crash log. Stores stack traces for fatal errors.
+         This table is normally empty. -->
+    <crash_log>
+        <database>system</database>
+        <table>crash_log</table>
+
+        <partition_by />
+        <flush_interval_milliseconds>1000</flush_interval_milliseconds>
+        <max_size_rows>1024</max_size_rows>
+        <reserved_size_rows>1024</reserved_size_rows>
+        <buffer_size_rows_flush_threshold>512</buffer_size_rows_flush_threshold>
+        <flush_on_crash>true</flush_on_crash>
+    </crash_log>
+
+    <!-- Session log. Stores user log in (successful or not) and log out events. -->
+    <session_log>
+        <database>system</database>
+        <table>session_log</table>
+
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+    </session_log>
+
+    <backup_log>
+        <database>system</database>
+        <table>backup_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+    </backup_log>
+
+    <!-- Custom TLD lists.
+         Format: <name>/path/to/file</name>
+
+         Changes will not be applied w/o server restart.
+         Path to the list is under top_level_domains_path (see above).
+    -->
+    <top_level_domains_lists>
+        <!--
+        <public_suffix_list>/path/to/public_suffix_list.dat</public_suffix_list>
+        -->
+    </top_level_domains_lists>
+
+    <!-- Configuration of external dictionaries. See:
+         https://clickhouse.com/docs/en/sql-reference/dictionaries/external-dictionaries/external-dicts
+    -->
+    <dictionaries_config>*_dictionary.xml</dictionaries_config>
+
+    <!-- Configuration of user defined executable functions -->
+    <user_defined_executable_functions_config>*_function.xml</user_defined_executable_functions_config>
+
+    <distributed_ddl>
+        <!-- Path in ZooKeeper to queue with DDL queries -->
+        <path>/clickhouse/task_queue/ddl</path>
+    </distributed_ddl>
+
+    <!-- Example of parameters for GraphiteMergeTree table engine -->
+    <graphite_rollup_example>
+        <pattern>
+            <regexp>click_cost</regexp>
+            <function>any</function>
+            <retention>
+                <age>0</age>
+                <precision>3600</precision>
+            </retention>
+            <retention>
+                <age>86400</age>
+                <precision>60</precision>
+            </retention>
+        </pattern>
+        <default>
+            <function>max</function>
+            <retention>
+                <age>0</age>
+                <precision>60</precision>
+            </retention>
+            <retention>
+                <age>3600</age>
+                <precision>300</precision>
+            </retention>
+            <retention>
+                <age>86400</age>
+                <precision>3600</precision>
+            </retention>
+        </default>
+    </graphite_rollup_example>
+
+    <!-- Directory in <clickhouse-path> containing schema files for various input formats.
+         The directory will be created if it doesn't exist.
+      -->
+    <format_schema_path>/var/lib/clickhouse/format_schemas/</format_schema_path>
+
+    <!-- Default query masking rules, matching lines would be replaced with something else in the
+    logs
+        (both text logs and system.query_log).
+        name - name for the rule (optional)
+        regexp - RE2 compatible regular expression (mandatory)
+        replace - substitution string for sensitive data (optional, by default - six asterisks)
+    -->
+    <query_masking_rules>
+        <rule>
+            <name>hide encrypt/decrypt arguments</name>
+            <regexp>((?:aes_)?(?:encrypt|decrypt)(?:_mysql)?)\s*\(\s*(?:'(?:\\'|.)+'|.*?)\s*\)</regexp>
+            <!-- or more secure, but also more invasive:
+                (aes_\w+)\s*\(.*\)
+            -->
+            <replace>\1(???)</replace>
+        </rule>
+    </query_masking_rules>
+</clickhouse>

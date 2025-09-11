@@ -1,0 +1,70 @@
+name: Automerge
+
+env:
+    MERGE_METHOD: 'squash'
+    MERGE_RETRY_SLEEP: 300000
+    # MERGE_ERROR_FAIL: Set this to "true" to have the action exit with error code 1
+    # when the pull request could not be merged successfully during a run.
+    MERGE_ERROR_FAIL: true
+
+on:
+    pull_request:
+        types:
+            - labeled
+            - unlabeled
+            - synchronize
+            - opened
+            - edited
+            - ready_for_review
+            - reopened
+            - unlocked
+    check_suite:
+        types:
+            - completed
+    status: {}
+
+jobs:
+    automerge:
+        name: Automerge if requested
+        runs-on: ubuntu-24.04
+        env:
+            IS_POSTHOG_BOT_AVAILABLE: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN != '' }}
+        steps:
+            # must have an id so subsequent steps can use the output
+            - id: automergeStep
+              name: Automerge
+              if: env.IS_POSTHOG_BOT_AVAILABLE == 'true'
+              uses: pascalgn/automerge-action@d1203c0bf94a827b991e5de69d662e9163304fa0 # v0.16.3
+              env:
+                  GITHUB_TOKEN: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+
+            # the automerge documentation claims it adds these outputs but we don't get them
+            # maybe because it was a fake PR 🤷
+            - name: Print Automerge Outputs as JSON
+              if: ${{ always() }}
+              run: |
+                  echo "For future debugging... the Automerge Outputs are:"
+                  if [[ "${{ steps.automergeStep.outputs.mergeResult }}" != "" ]]; then
+                      echo '{"mergeResult": "${{ steps.automergeStep.outputs.mergeResult }}", "pullRequestNumber": "${{ steps.automergeStep.outputs.pullRequestNumber }}"}' | jq .
+                  else
+                      echo "No outputs from Automerge action."
+                  fi
+
+            # a CDP destination is setup to alert when we get this event
+            - name: Send Automerge Event to PostHog
+              if: ${{ failure() }}
+              uses: PostHog/posthog-github-action@v0.1
+              with:
+                  posthog-token: '${{ secrets.POSTHOG_API_TOKEN }}'
+                  event: 'posthog-github-automerge-pr-status'
+                  properties: >-
+                      {
+                        "prUrl": "${{ github.event.pull_request.html_url }}",
+                        "jobStatus": "${{ job.status }}",
+                        "prTitle": "${{ github.event.pull_request.title }}",
+                        "prNumber": "${{ github.event.pull_request.number }}",
+                        "prState": "${{ github.event.pull_request.mergeable_state }}",
+                        "mergeResult": "${{ steps.automergeStep.outputs.mergeResult }}",
+                        "pullRequestNumber": "${{ steps.automergeStep.outputs.pullRequestNumber }}",
+                        "automergeOutcome": "${{ steps.automergeStep.outcome }}"
+                      }

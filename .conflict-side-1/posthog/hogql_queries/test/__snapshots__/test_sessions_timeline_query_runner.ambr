@@ -1,0 +1,498 @@
+# serializer version: 1
+# name: TestSessionsTimelineQueryRunner.test_before_and_after
+  '''
+  SELECT e.uuid AS uuid,
+         e.timestamp AS timestamp,
+         e.event AS event,
+         e.properties AS properties,
+         e.distinct_id AS distinct_id,
+         e.elements_chain AS elements_chain,
+         e.session_id AS formal_session_id,
+         first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
+                                   ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
+                                  dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
+  FROM
+    (SELECT uuid AS uuid,
+                    person_id AS person_id,
+                    timestamp AS timestamp,
+                    event AS event,
+                    properties AS properties,
+                    distinct_id AS distinct_id,
+                    elements_chain AS elements_chain,
+                    session_id AS session_id,
+                    prev_session_id AS prev_session_id,
+                    sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
+                                  and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
+                                                                             ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
+     FROM
+       (SELECT events.uuid AS uuid,
+               if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.event AS event,
+               events.properties AS properties,
+               events.distinct_id AS distinct_id,
+               events.elements_chain AS elements_chain,
+               events.`$session_id` AS session_id,
+               lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
+                                                         ORDER BY timestamp ASC) AS prev_session_id
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+        ORDER BY timestamp DESC
+        LIMIT 1001)) AS e
+  LEFT JOIN
+    (SELECT session_replay_events.start_time AS start_time,
+            session_replay_events.end_time AS end_time,
+            session_replay_events.session_id AS session_id
+     FROM
+       (SELECT min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+               max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC')) AS end_time,
+               session_replay_events.session_id AS session_id
+        FROM session_replay_events
+        WHERE equals(session_replay_events.team_id, 99999)
+        GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
+  ORDER BY e.timestamp DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsTimelineQueryRunner.test_before_and_after_defaults
+  '''
+  SELECT e.uuid AS uuid,
+         e.timestamp AS timestamp,
+         e.event AS event,
+         e.properties AS properties,
+         e.distinct_id AS distinct_id,
+         e.elements_chain AS elements_chain,
+         e.session_id AS formal_session_id,
+         first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
+                                   ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
+                                  dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
+  FROM
+    (SELECT uuid AS uuid,
+                    person_id AS person_id,
+                    timestamp AS timestamp,
+                    event AS event,
+                    properties AS properties,
+                    distinct_id AS distinct_id,
+                    elements_chain AS elements_chain,
+                    session_id AS session_id,
+                    prev_session_id AS prev_session_id,
+                    sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
+                                  and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
+                                                                             ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
+     FROM
+       (SELECT events.uuid AS uuid,
+               if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.event AS event,
+               events.properties AS properties,
+               events.distinct_id AS distinct_id,
+               events.elements_chain AS elements_chain,
+               events.`$session_id` AS session_id,
+               lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
+                                                         ORDER BY timestamp ASC) AS prev_session_id
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+        ORDER BY timestamp DESC
+        LIMIT 1001)) AS e
+  LEFT JOIN
+    (SELECT session_replay_events.start_time AS start_time,
+            session_replay_events.end_time AS end_time,
+            session_replay_events.session_id AS session_id
+     FROM
+       (SELECT min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+               max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC')) AS end_time,
+               session_replay_events.session_id AS session_id
+        FROM session_replay_events
+        WHERE equals(session_replay_events.team_id, 99999)
+        GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
+  ORDER BY e.timestamp DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsTimelineQueryRunner.test_event_limit_and_has_more
+  '''
+  SELECT e.uuid AS uuid,
+         e.timestamp AS timestamp,
+         e.event AS event,
+         e.properties AS properties,
+         e.distinct_id AS distinct_id,
+         e.elements_chain AS elements_chain,
+         e.session_id AS formal_session_id,
+         first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
+                                   ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
+                                  dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
+  FROM
+    (SELECT uuid AS uuid,
+                    person_id AS person_id,
+                    timestamp AS timestamp,
+                    event AS event,
+                    properties AS properties,
+                    distinct_id AS distinct_id,
+                    elements_chain AS elements_chain,
+                    session_id AS session_id,
+                    prev_session_id AS prev_session_id,
+                    sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
+                                  and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
+                                                                             ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
+     FROM
+       (SELECT events.uuid AS uuid,
+               if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.event AS event,
+               events.properties AS properties,
+               events.distinct_id AS distinct_id,
+               events.elements_chain AS elements_chain,
+               events.`$session_id` AS session_id,
+               lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
+                                                         ORDER BY timestamp ASC) AS prev_session_id
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+        ORDER BY timestamp DESC
+        LIMIT 3)) AS e
+  LEFT JOIN
+    (SELECT session_replay_events.start_time AS start_time,
+            session_replay_events.end_time AS end_time,
+            session_replay_events.session_id AS session_id
+     FROM
+       (SELECT min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+               max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC')) AS end_time,
+               session_replay_events.session_id AS session_id
+        FROM session_replay_events
+        WHERE equals(session_replay_events.team_id, 99999)
+        GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
+  ORDER BY e.timestamp DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsTimelineQueryRunner.test_formal_and_informal_sessions_global
+  '''
+  SELECT e.uuid AS uuid,
+         e.timestamp AS timestamp,
+         e.event AS event,
+         e.properties AS properties,
+         e.distinct_id AS distinct_id,
+         e.elements_chain AS elements_chain,
+         e.session_id AS formal_session_id,
+         first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
+                                   ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
+                                  dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
+  FROM
+    (SELECT uuid AS uuid,
+                    person_id AS person_id,
+                    timestamp AS timestamp,
+                    event AS event,
+                    properties AS properties,
+                    distinct_id AS distinct_id,
+                    elements_chain AS elements_chain,
+                    session_id AS session_id,
+                    prev_session_id AS prev_session_id,
+                    sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
+                                  and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
+                                                                             ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
+     FROM
+       (SELECT events.uuid AS uuid,
+               if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.event AS event,
+               events.properties AS properties,
+               events.distinct_id AS distinct_id,
+               events.elements_chain AS elements_chain,
+               events.`$session_id` AS session_id,
+               lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
+                                                         ORDER BY timestamp ASC) AS prev_session_id
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+        ORDER BY timestamp DESC
+        LIMIT 1001)) AS e
+  LEFT JOIN
+    (SELECT session_replay_events.start_time AS start_time,
+            session_replay_events.end_time AS end_time,
+            session_replay_events.session_id AS session_id
+     FROM
+       (SELECT min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+               max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC')) AS end_time,
+               session_replay_events.session_id AS session_id
+        FROM session_replay_events
+        WHERE equals(session_replay_events.team_id, 99999)
+        GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
+  ORDER BY e.timestamp DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsTimelineQueryRunner.test_formal_session_with_recording
+  '''
+  SELECT e.uuid AS uuid,
+         e.timestamp AS timestamp,
+         e.event AS event,
+         e.properties AS properties,
+         e.distinct_id AS distinct_id,
+         e.elements_chain AS elements_chain,
+         e.session_id AS formal_session_id,
+         first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
+                                   ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
+                                  dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
+  FROM
+    (SELECT uuid AS uuid,
+                    person_id AS person_id,
+                    timestamp AS timestamp,
+                    event AS event,
+                    properties AS properties,
+                    distinct_id AS distinct_id,
+                    elements_chain AS elements_chain,
+                    session_id AS session_id,
+                    prev_session_id AS prev_session_id,
+                    sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
+                                  and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
+                                                                             ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
+     FROM
+       (SELECT events.uuid AS uuid,
+               if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.event AS event,
+               events.properties AS properties,
+               events.distinct_id AS distinct_id,
+               events.elements_chain AS elements_chain,
+               events.`$session_id` AS session_id,
+               lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
+                                                         ORDER BY timestamp ASC) AS prev_session_id
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+        ORDER BY timestamp DESC
+        LIMIT 1001)) AS e
+  LEFT JOIN
+    (SELECT session_replay_events.start_time AS start_time,
+            session_replay_events.end_time AS end_time,
+            session_replay_events.session_id AS session_id
+     FROM
+       (SELECT min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+               max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC')) AS end_time,
+               session_replay_events.session_id AS session_id
+        FROM session_replay_events
+        WHERE equals(session_replay_events.team_id, 99999)
+        GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
+  ORDER BY e.timestamp DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsTimelineQueryRunner.test_formal_sessions_for_person
+  '''
+  SELECT e.uuid AS uuid,
+         e.timestamp AS timestamp,
+         e.event AS event,
+         e.properties AS properties,
+         e.distinct_id AS distinct_id,
+         e.elements_chain AS elements_chain,
+         e.session_id AS formal_session_id,
+         first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
+                                   ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
+                                  dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
+  FROM
+    (SELECT uuid AS uuid,
+                    person_id AS person_id,
+                    timestamp AS timestamp,
+                    event AS event,
+                    properties AS properties,
+                    distinct_id AS distinct_id,
+                    elements_chain AS elements_chain,
+                    session_id AS session_id,
+                    prev_session_id AS prev_session_id,
+                    sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
+                                  and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
+                                                                             ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
+     FROM
+       (SELECT events.uuid AS uuid,
+               if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.event AS event,
+               events.properties AS properties,
+               events.distinct_id AS distinct_id,
+               events.elements_chain AS elements_chain,
+               events.`$session_id` AS session_id,
+               lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
+                                                         ORDER BY timestamp ASC) AS prev_session_id
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(equals(person_id, '00000000-0000-0000-0000-000000000000'), 0))
+        ORDER BY timestamp DESC
+        LIMIT 1001)) AS e
+  LEFT JOIN
+    (SELECT session_replay_events.start_time AS start_time,
+            session_replay_events.end_time AS end_time,
+            session_replay_events.session_id AS session_id
+     FROM
+       (SELECT min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+               max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC')) AS end_time,
+               session_replay_events.session_id AS session_id
+        FROM session_replay_events
+        WHERE equals(session_replay_events.team_id, 99999)
+        GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
+  ORDER BY e.timestamp DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsTimelineQueryRunner.test_formal_sessions_global
+  '''
+  SELECT e.uuid AS uuid,
+         e.timestamp AS timestamp,
+         e.event AS event,
+         e.properties AS properties,
+         e.distinct_id AS distinct_id,
+         e.elements_chain AS elements_chain,
+         e.session_id AS formal_session_id,
+         first_value(e.uuid) OVER (PARTITION BY tuple(e.person_id, e.session_id_flip_index)
+                                   ORDER BY toInt64(e.timestamp) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid,
+                                  dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
+  FROM
+    (SELECT uuid AS uuid,
+                    person_id AS person_id,
+                    timestamp AS timestamp,
+                    event AS event,
+                    properties AS properties,
+                    distinct_id AS distinct_id,
+                    elements_chain AS elements_chain,
+                    session_id AS session_id,
+                    prev_session_id AS prev_session_id,
+                    sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
+                                  and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
+                                                                             ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
+     FROM
+       (SELECT events.uuid AS uuid,
+               if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.event AS event,
+               events.properties AS properties,
+               events.distinct_id AS distinct_id,
+               events.elements_chain AS elements_chain,
+               events.`$session_id` AS session_id,
+               lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
+                                                         ORDER BY timestamp ASC) AS prev_session_id
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greater(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+        ORDER BY timestamp DESC
+        LIMIT 1001)) AS e
+  LEFT JOIN
+    (SELECT session_replay_events.start_time AS start_time,
+            session_replay_events.end_time AS end_time,
+            session_replay_events.session_id AS session_id
+     FROM
+       (SELECT min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+               max(toTimeZone(session_replay_events.max_last_timestamp, 'UTC')) AS end_time,
+               session_replay_events.session_id AS session_id
+        FROM session_replay_events
+        WHERE equals(session_replay_events.team_id, 99999)
+        GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
+  ORDER BY e.timestamp DESC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---

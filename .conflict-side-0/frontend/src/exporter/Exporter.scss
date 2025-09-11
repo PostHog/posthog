@@ -1,0 +1,63 @@
+@import '../styles/mixins';
+@import '../styles/global';
+
+body.ExporterBody {
+    overflow: initial;
+}
+
+.Exporter {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    padding: 1rem;
+
+    &--recording {
+        height: 100vh;
+        max-height: 100vh;
+    }
+
+    .SharedDashboard-header {
+        .SharedDashboard-header-team {
+            display: none;
+        }
+
+        @include screen($md) {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            justify-content: space-between;
+
+            .SharedDashboard-header-title {
+                max-width: 50%;
+                text-align: center;
+            }
+
+            .SharedDashboard-header-team {
+                display: block;
+            }
+        }
+    }
+}
+
+html.export-type-image {
+    // We don't want scrollbars to show in image captures
+    ::-webkit-scrollbar {
+        display: none;
+    }
+
+    body {
+        // Put Inter high on the list so that rendered images are the same no matter which platform it is rendered on.
+        font-family:
+            'Emoji Flags Polyfill', Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji',
+            'Segoe UI Emoji', 'Segoe UI Symbol';
+    }
+}
+
+html.export-type-embed {
+    overflow: hidden;
+    overflow-y: auto;
+
+    .Exporter {
+        padding: 0;
+    }
+}

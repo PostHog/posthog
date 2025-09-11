@@ -1,0 +1,105 @@
+name: Build and cache Docker image test
+
+inputs:
+    actions-id-token-request-url:
+        required: true
+        description: "ACTIONS_ID_TOKEN_REQUEST_URL, issued by GitHub when permission 'id-token' is set to 'write'"
+    save:
+        required: false
+        default: 'false'
+        description: Whether to save the image in the Depot ephemeral registry after building it
+    push-image:
+        required: false
+        default: 'false'
+        description: Whether to push the built image - requires aws-access-key and aws-access-secret
+    aws-access-key:
+        required: false
+        description: AWS key to log into ECR (required when push-image is true)
+    aws-access-secret:
+        required: false
+        description: AWS secret to log into ECR (required when push-image is true)
+    dockerhub-username:
+        required: false
+        description: Dockerhub username for pushing image
+    dockerhub-password:
+        required: false
+        description: Dockerhub password for pushing image
+    pr-number:
+        required: false
+        default: ''
+        description: PR number for tagging the image
+    no-cache:
+        required: false
+        default: 'false'
+        description: Whether to disable caching on the docker depot build
+
+outputs:
+    tag:
+        description: The tag of the image that was built
+        value: ${{ steps.emit.outputs.tag }}
+    build-id:
+        description: The ID of the build
+        value: ${{ steps.build.outputs.build-id }}
+
+runs:
+    using: 'composite'
+    steps:
+        - name: Checkout
+          uses: actions/checkout@v4
+
+        - name: Set up Docker Buildx
+          uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3
+
+        - name: Set up QEMU
+          uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3
+
+        - name: Set up Depot CLI
+          uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1
+
+        - name: Configure AWS credentials
+          if: ${{ inputs.push-image == 'true' }}
+          uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4
+          with:
+              aws-access-key-id: ${{ inputs.aws-access-key }}
+              aws-secret-access-key: ${{ inputs.aws-access-secret }}
+              aws-region: us-east-1
+
+        - name: Login to DockerHub
+          if: ${{ inputs.push-image == 'true' }}
+          uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
+          with:
+              username: ${{ inputs.dockerhub-username }}
+              password: ${{ inputs.dockerhub-password }}
+
+        - name: Login to Amazon ECR
+          if: ${{ inputs.push-image == 'true' }}
+          id: aws-ecr
+          uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2
+
+        - name: Emit image tag
+          id: emit
+          shell: bash
+          run: |
+              TAGS="posthog/posthog:${{ github.sha }}"
+              if [[ -n "${{ steps.aws-ecr.outputs.registry }}" ]]; then
+                TAGS="$TAGS,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:${{ github.sha }}"
+              fi
+              if [[ "${{ inputs.pr-number }}" != "" ]]; then
+                TAGS="$TAGS,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:pr-${{ inputs.pr-number }}"
+              fi
+              echo "tag=$TAGS" >> $GITHUB_OUTPUT
+
+        - name: Build image
+          id: build
+          uses: depot/build-push-action@636daae76684e38c301daa0c5eca1c095b24e780 # v1
+          with:
+              context: .
+              buildx-fallback: false # buildx is so slow it's better to just fail
+              tags: ${{ steps.emit.outputs.tag }}
+              platforms: linux/amd64,linux/arm64
+              build-args: COMMIT_HASH=${{ github.sha }}
+              save: ${{ inputs.save }}
+              push: ${{ inputs.push-image }}
+              no-cache: ${{ inputs.no-cache }}
+          env:
+              ACTIONS_ID_TOKEN_REQUEST_URL: ${{ inputs.actions-id-token-request-url }}

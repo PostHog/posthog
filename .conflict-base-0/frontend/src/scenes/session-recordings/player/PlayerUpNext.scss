@@ -1,0 +1,45 @@
+.PlayerUpNext {
+    z-index: 11;
+    transition: 250ms transform ease-out;
+}
+
+.PlayerUpNextButton {
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    cursor: pointer;
+    backdrop-filter: blur(5px);
+
+    .PlayerUpNextButtonBackground {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 0;
+        color: var(--primary-alt);
+        background-color: var(--color-border-primary);
+    }
+
+    &.PlayerUpNextButton--animating {
+        .PlayerUpNextButtonBackground {
+            animation: PlayerUpNextButtonBackground__expand 3s linear forwards;
+        }
+    }
+
+    &:hover {
+        .PlayerUpNextButtonBackground {
+            width: 100%;
+            animation: none;
+        }
+    }
+}
+
+@keyframes PlayerUpNextButtonBackground__expand {
+    0% {
+        width: 0;
+    }
+
+    100% {
+        width: 100%;
+    }
+}

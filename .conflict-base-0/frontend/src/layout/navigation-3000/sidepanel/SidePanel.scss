@@ -1,0 +1,123 @@
+.SidePanel3000 {
+    position: relative;
+    z-index: var(--z-main-nav);
+    box-sizing: content-box;
+    display: flex;
+    flex-shrink: 0;
+    width: 3rem;
+    background: var(--color-bg-surface-secondary);
+
+    &--open {
+        position: relative;
+
+        // NOTE: This is only a default, as the resizer will override this
+        width: min(30%, 40rem);
+        min-width: 28rem;
+        max-width: 60%;
+
+        @media (max-width: 1200px) {
+            position: fixed;
+            top: 0;
+            right: 0;
+            max-width: calc(100vw - var(--side-panel-bar-width));
+            box-shadow: 0 0 30px rgb(0 0 0 / 20%);
+
+            [theme='dark'] & {
+                box-shadow: none;
+            }
+        }
+    }
+
+    &--resizing {
+        // Stop the content from stealing focus whilst resizing
+        pointer-events: none;
+    }
+}
+
+.SidePanel3000__bar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: var(--side-panel-bar-width);
+    height: 100vh;
+    overflow: hidden;
+    user-select: none;
+    border-left-width: 1px;
+
+    .LemonButton__icon {
+        transform: rotate(-90deg);
+    }
+}
+
+.SidePanel3000__tabs {
+    flex: 1;
+    width: var(--side-panel-bar-width);
+    overflow: hidden auto;
+
+    &::-webkit-scrollbar {
+        display: none;
+    }
+}
+
+.SidePanel3000__tabs-content {
+    display: flex;
+    gap: 0.25rem;
+    align-items: center;
+    height: var(--side-panel-bar-width);
+    margin-top: calc(calc(var(--side-panel-bar-width) - 0.25rem) * -1);
+    transform: rotate(90deg);
+    transform-origin: bottom left;
+
+    // NOTE: The below overrides make is to that the shadows are below the buttons after rotation
+    // This is very very specific to SidePanel, hence !important is used universally
+    .LemonButton {
+        padding-right: 1px !important; // padding-bottom in regular buttons
+        padding-bottom: 0 !important;
+
+        .LemonButton__chrome {
+            padding: 0.25rem
+                calc(
+                    var(--lemon-button-padding-right, var(--lemon-button-padding-horizontal)) +
+                        var(--lemon-button-chrome-depth) * 0.5
+                )
+                0.25rem
+                calc(
+                    var(--lemon-button-padding-left, var(--lemon-button-padding-horizontal)) - var(
+                            --lemon-button-chrome-depth
+                        ) *
+                        0.5
+                ) !important;
+
+            &::after {
+                inset: -1px calc(var(--lemon-button-chrome-depth) - 1px) -1px -1px !important;
+                box-shadow: var(--lemon-button-chrome-depth) 0 0 -1px var(--lemon-button-frame-bg-color) !important;
+            }
+        }
+
+        &:hover:not([aria-disabled='true']),
+        &:not([aria-disabled='true']):active {
+            .LemonButton__chrome {
+                transform: translateX(var(--lemon-button-depth)) !important;
+
+                &::after {
+                    box-shadow: calc(var(--lemon-button-chrome-depth) - var(--lemon-button-depth)) 0 0 -1px
+                        var(--lemon-button-frame-bg-color) !important;
+                }
+
+                &::before {
+                    right: calc(var(--lemon-button-depth) - 1px) !important;
+                    bottom: -1px !important;
+                }
+            }
+        }
+    }
+}
+
+.SidePanel3000__content {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    height: 100vh;
+    overflow-y: auto;
+    border-left-width: 1px;
+}

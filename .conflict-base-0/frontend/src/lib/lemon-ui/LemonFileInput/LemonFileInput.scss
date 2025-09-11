@@ -1,0 +1,16 @@
+.FileDropTarget {
+    position: relative;
+}
+
+.FileDropTarget--active::after {
+    --file-drop-target-padding: 0.5rem;
+
+    position: absolute;
+    top: calc(-1 * var(--file-drop-target-padding));
+    left: calc(-1 * var(--file-drop-target-padding));
+    width: calc(100% + var(--file-drop-target-padding) * 2);
+    height: calc(100% + var(--file-drop-target-padding) * 2);
+    content: '';
+    border: 3px dashed var(--color-accent);
+    border-radius: var(--radius);
+}

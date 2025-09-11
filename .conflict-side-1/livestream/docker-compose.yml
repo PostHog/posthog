@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+    postgres:
+        image: postgres:16-alpine
+        restart: always
+        ports:
+            - '5432:5432'
+        environment:
+            POSTGRES_USER: postgres
+            POSTGRES_PASSWORD: postgres
+            POSTGRES_DB: liveevents
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U postgres']
+            interval: 5s
+            timeout: 5s
+
+    redis:
+        image: redis:alpine
+        restart: always
+        ports:
+            - '6379:6379'
+
+    redpanda:
+        image: vectorized/redpanda:v23.2.17
+        command:
+            - redpanda start
+            - --smp 1
+            - --overprovisioned
+            - --node-id 0
+            - --kafka-addr PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+            - --advertise-kafka-addr PLAINTEXT://redpanda:29092,OUTSIDE://localhost:9092
+            - --pandaproxy-addr 0.0.0.0:8082
+            - --advertise-pandaproxy-addr localhost:8082
+        ports:
+            - 8081:8081
+            - 8082:8082
+            - 9092:9092
+            - 29092:29092
+
+    console:
+        image: docker.redpanda.com/redpandadata/console:v2.3.8
+        restart: on-failure
+        entrypoint: /bin/sh
+        command: -c "echo \"$$CONSOLE_CONFIG_FILE\" > /tmp/config.yml; /app/console"
+        environment:
+            CONFIG_FILEPATH: /tmp/config.yml
+            CONSOLE_CONFIG_FILE: |
+                kafka:
+                  brokers: ["redpanda:29092"]
+                  schemaRegistry:
+                    enabled: true
+                    urls: ["http://redpanda:8081"]
+                connect:
+                  enabled: true
+                  clusters:
+                    - name: datagen
+                      url: http://connect:8083
+        ports:
+            - '8088:8088'
+        depends_on:
+            - redpanda

@@ -1,0 +1,515 @@
+# serializer version: 1
+# name: ClickhouseTestFunnelGroups.test_funnel_aggregation_with_groups
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
+         countIf(ifNull(equals(steps, 2), 0)) AS step_2,
+         avg(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,
+         median(step_1_median_conversion_time_inner) AS step_1_median_conversion_time
+  FROM
+    (SELECT aggregation_target AS aggregation_target,
+            steps AS steps,
+            avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) AS step_1_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target AS aggregation_target,
+               steps AS steps,
+               max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
+                               step_1_conversion_time AS step_1_conversion_time
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  timestamp AS timestamp,
+                  step_0 AS step_0,
+                  latest_0 AS latest_0,
+                  step_1 AS step_1,
+                  latest_1 AS latest_1,
+                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+           FROM
+             (SELECT aggregation_target AS aggregation_target,
+                     timestamp AS timestamp,
+                     step_0 AS step_0,
+                     latest_0 AS latest_0,
+                     step_1 AS step_1,
+                     min(latest_1) OVER (PARTITION BY aggregation_target
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1
+              FROM
+                (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                        e.`$group_0` AS aggregation_target,
+                        if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                        if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
+                        if(equals(e.event, 'paid'), 1, 0) AS step_1,
+                        if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
+                 FROM events AS e
+                 WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(notEquals(nullIf(nullIf(e.`$group_0`, ''), 'null'), ''), 1)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+           WHERE ifNull(equals(step_0, 1), 0)))
+     GROUP BY aggregation_target,
+              steps
+     HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                   and isNull(max(max_steps))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: ClickhouseTestFunnelGroups.test_funnel_aggregation_with_groups.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT aggregation_target AS actor_id
+  FROM
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                               step_1_conversion_time
+        FROM
+          (SELECT *,
+                  if(latest_0 <= latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
+           FROM
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+              FROM
+                (SELECT e.timestamp as timestamp,
+                        e."$group_0" as aggregation_target,
+                        if(event = 'user signed up', 1, 0) as step_0,
+                        if(step_0 = 1, timestamp, null) as latest_0,
+                        if(event = 'paid', 1, 0) as step_1,
+                        if(step_1 = 1, timestamp, null) as latest_1
+                 FROM events e
+                 WHERE team_id = 99999
+                   AND event IN ['paid', 'user signed up']
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                   AND ((NOT has([''], "$group_0"))
+                        AND (NOT has([''], "$group_0")))
+                   AND (step_0 = 1
+                        OR step_1 = 1) ))
+           WHERE step_0 = 1 ))
+     GROUP BY aggregation_target,
+              steps
+     HAVING steps = max(max_steps))
+  WHERE steps IN [1, 2]
+  ORDER BY aggregation_target
+  LIMIT 100
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: ClickhouseTestFunnelGroups.test_funnel_group_aggregation_with_groups_entity_filtering
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
+         countIf(ifNull(equals(steps, 2), 0)) AS step_2,
+         avg(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,
+         median(step_1_median_conversion_time_inner) AS step_1_median_conversion_time
+  FROM
+    (SELECT aggregation_target AS aggregation_target,
+            steps AS steps,
+            avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) AS step_1_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target AS aggregation_target,
+               steps AS steps,
+               max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
+                               step_1_conversion_time AS step_1_conversion_time
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  timestamp AS timestamp,
+                  step_0 AS step_0,
+                  latest_0 AS latest_0,
+                  step_1 AS step_1,
+                  latest_1 AS latest_1,
+                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+           FROM
+             (SELECT aggregation_target AS aggregation_target,
+                     timestamp AS timestamp,
+                     step_0 AS step_0,
+                     latest_0 AS latest_0,
+                     step_1 AS step_1,
+                     min(latest_1) OVER (PARTITION BY aggregation_target
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1
+              FROM
+                (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                        e.`$group_0` AS aggregation_target,
+                        if(and(equals(e.event, 'user signed up'), ifNull(equals(nullIf(nullIf(e.`$group_0`, ''), 'null'), 'org:5'), 0)), 1, 0) AS step_0,
+                        if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
+                        if(equals(e.event, 'paid'), 1, 0) AS step_1,
+                        if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
+                 FROM events AS e
+                 WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(notEquals(nullIf(nullIf(e.`$group_0`, ''), 'null'), ''), 1)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+           WHERE ifNull(equals(step_0, 1), 0)))
+     GROUP BY aggregation_target,
+              steps
+     HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                   and isNull(max(max_steps))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: ClickhouseTestFunnelGroups.test_funnel_group_aggregation_with_groups_entity_filtering.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT aggregation_target AS actor_id
+  FROM
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                               step_1_conversion_time
+        FROM
+          (SELECT *,
+                  if(latest_0 <= latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
+           FROM
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+              FROM
+                (SELECT e.timestamp as timestamp,
+                        e."$group_0" as aggregation_target,
+                        if(event = 'user signed up'
+                           AND (has(['org:5'], "$group_0")), 1, 0) as step_0,
+                        if(step_0 = 1, timestamp, null) as latest_0,
+                        if(event = 'paid', 1, 0) as step_1,
+                        if(step_1 = 1, timestamp, null) as latest_1
+                 FROM events e
+                 WHERE team_id = 99999
+                   AND event IN ['paid', 'user signed up']
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                   AND ((NOT has([''], "$group_0"))
+                        AND (NOT has([''], "$group_0")))
+                   AND (step_0 = 1
+                        OR step_1 = 1) ))
+           WHERE step_0 = 1 ))
+     GROUP BY aggregation_target,
+              steps
+     HAVING steps = max(max_steps))
+  WHERE steps IN [1, 2]
+  ORDER BY aggregation_target
+  LIMIT 100
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: ClickhouseTestFunnelGroups.test_funnel_with_groups_entity_filtering
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
+         countIf(ifNull(equals(steps, 2), 0)) AS step_2,
+         avg(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,
+         median(step_1_median_conversion_time_inner) AS step_1_median_conversion_time
+  FROM
+    (SELECT aggregation_target AS aggregation_target,
+            steps AS steps,
+            avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) AS step_1_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target AS aggregation_target,
+               steps AS steps,
+               max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
+                               step_1_conversion_time AS step_1_conversion_time
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  timestamp AS timestamp,
+                  step_0 AS step_0,
+                  latest_0 AS latest_0,
+                  step_1 AS step_1,
+                  latest_1 AS latest_1,
+                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+           FROM
+             (SELECT aggregation_target AS aggregation_target,
+                     timestamp AS timestamp,
+                     step_0 AS step_0,
+                     latest_0 AS latest_0,
+                     step_1 AS step_1,
+                     min(latest_1) OVER (PARTITION BY aggregation_target
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1
+              FROM
+                (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                        if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                        if(and(equals(e.event, 'user signed up'), ifNull(equals(nullIf(nullIf(e.`$group_0`, ''), 'null'), 'org:5'), 0)), 1, 0) AS step_0,
+                        if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
+                        if(equals(e.event, 'paid'), 1, 0) AS step_1,
+                        if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
+                 FROM events AS e
+                 LEFT OUTER JOIN
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                           person_distinct_id_overrides.distinct_id AS distinct_id
+                    FROM person_distinct_id_overrides
+                    WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                    GROUP BY person_distinct_id_overrides.distinct_id
+                    HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+           WHERE ifNull(equals(step_0, 1), 0)))
+     GROUP BY aggregation_target,
+              steps
+     HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                   and isNull(max(max_steps))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: ClickhouseTestFunnelGroups.test_funnel_with_groups_entity_filtering.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT aggregation_target AS actor_id
+  FROM
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                               step_1_conversion_time
+        FROM
+          (SELECT *,
+                  if(latest_0 <= latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
+           FROM
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+              FROM
+                (SELECT e.timestamp as timestamp,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+                        if(event = 'user signed up'
+                           AND (has(['org:5'], "$group_0")), 1, 0) as step_0,
+                        if(step_0 = 1, timestamp, null) as latest_0,
+                        if(event = 'paid', 1, 0) as step_1,
+                        if(step_1 = 1, timestamp, null) as latest_1
+                 FROM events e
+                 LEFT OUTER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 99999
+                      AND distinct_id IN
+                        (SELECT distinct_id
+                         FROM events
+                         WHERE team_id = 99999
+                           AND event IN ['paid', 'user signed up']
+                           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 WHERE team_id = 99999
+                   AND event IN ['paid', 'user signed up']
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                   AND (step_0 = 1
+                        OR step_1 = 1) ))
+           WHERE step_0 = 1 ))
+     GROUP BY aggregation_target,
+              steps
+     HAVING steps = max(max_steps))
+  WHERE steps IN [1, 2]
+  ORDER BY aggregation_target
+  LIMIT 100
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: ClickhouseTestFunnelGroups.test_funnel_with_groups_global_filtering
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
+         countIf(ifNull(equals(steps, 2), 0)) AS step_2,
+         avg(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,
+         median(step_1_median_conversion_time_inner) AS step_1_median_conversion_time
+  FROM
+    (SELECT aggregation_target AS aggregation_target,
+            steps AS steps,
+            avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) AS step_1_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target AS aggregation_target,
+               steps AS steps,
+               max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
+                               step_1_conversion_time AS step_1_conversion_time
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  timestamp AS timestamp,
+                  step_0 AS step_0,
+                  latest_0 AS latest_0,
+                  step_1 AS step_1,
+                  latest_1 AS latest_1,
+                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
+                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+           FROM
+             (SELECT aggregation_target AS aggregation_target,
+                     timestamp AS timestamp,
+                     step_0 AS step_0,
+                     latest_0 AS latest_0,
+                     step_1 AS step_1,
+                     min(latest_1) OVER (PARTITION BY aggregation_target
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1
+              FROM
+                (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                        if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                        if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                        if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
+                        if(equals(e.event, 'paid'), 1, 0) AS step_1,
+                        if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
+                 FROM events AS e
+                 LEFT OUTER JOIN
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                           person_distinct_id_overrides.distinct_id AS distinct_id
+                    FROM person_distinct_id_overrides
+                    WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                    GROUP BY person_distinct_id_overrides.distinct_id
+                    HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 LEFT JOIN
+                   (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                           groups.group_type_index AS index,
+                           groups.group_key AS key
+                    FROM groups
+                    WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+                    GROUP BY groups.group_type_index,
+                             groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                 WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+           WHERE ifNull(equals(step_0, 1), 0)))
+     GROUP BY aggregation_target,
+              steps
+     HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                   and isNull(max(max_steps))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=23622320128,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: ClickhouseTestFunnelGroups.test_funnel_with_groups_global_filtering.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT aggregation_target AS actor_id
+  FROM
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                               step_1_conversion_time
+        FROM
+          (SELECT *,
+                  if(latest_0 <= latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
+           FROM
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    min(latest_1) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
+              FROM
+                (SELECT e.timestamp as timestamp,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+                        if(event = 'user signed up', 1, 0) as step_0,
+                        if(step_0 = 1, timestamp, null) as latest_0,
+                        if(event = 'paid', 1, 0) as step_1,
+                        if(step_1 = 1, timestamp, null) as latest_1
+                 FROM events e
+                 LEFT OUTER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 99999
+                      AND distinct_id IN
+                        (SELECT distinct_id
+                         FROM events
+                         WHERE team_id = 99999
+                           AND event IN ['paid', 'user signed up']
+                           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') )
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 LEFT JOIN
+                   (SELECT group_key,
+                           argMax(group_properties, _timestamp) AS group_properties_0
+                    FROM groups
+                    WHERE team_id = 99999
+                      AND group_type_index = 0
+                    GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                 WHERE team_id = 99999
+                   AND event IN ['paid', 'user signed up']
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                   AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+                   AND (step_0 = 1
+                        OR step_1 = 1) ))
+           WHERE step_0 = 1 ))
+     GROUP BY aggregation_target,
+              steps
+     HAVING steps = max(max_steps))
+  WHERE steps IN [1, 2]
+  ORDER BY aggregation_target
+  LIMIT 100
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---

@@ -1,0 +1,12 @@
+{
+    "name": "ph-shotgun-processevent-app",
+    "url": "https://github.com/lamothearthur/ph-shotgun-processevent-app",
+    "description": "A custom app to rename specific event names during the migration of Shotgun events from US to EU",
+    "main": "index.ts",
+    "posthogVersion": ">= 1.25.0",
+    "config": [
+        {
+            "markdown": "Process and modify specific event properties as they are ingested by PostHog"
+        }
+    ]
+}

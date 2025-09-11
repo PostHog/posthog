@@ -1,0 +1,45 @@
+{% if debug %}
+<div id="bottom-notice" class="tricolor click-close" style="display: none">
+    <div>
+        <span
+            ><span>PostHog running in </span><b><code style="background: 0; color: white">DEBUG</code></b> mode!</span
+        >
+    </div>
+    <div>
+        <span>
+            <span>Current branch: </span
+            ><b><code id="bottom-notice-branch" style="background: 0; color: white">{{ git_branch|default:"unknown" }}</code></b
+            ><span></span>
+        </span>
+    </div>
+    <div>
+        <span
+            ><span>Current revision: </span
+            ><b><code id="bottom-notice-revision" style="background: 0; color: white">{{ git_rev|default:"unknown" }}</code></b
+            ><span></span></span
+        >
+    </div>
+    <button title="Close debug bar">
+        <code style="background: 0; color: white">×</code>
+    </button>
+</div>
+<script>
+    document.getElementById('bottom-notice').addEventListener('click', function (e) {
+        if (e.target.tagName !== 'SPAN') {
+            document.getElementById('bottom-notice').remove()
+        }
+    })
+</script>
+{% elif not e2e_testing %}
+<script>
+    if (location.protocol !== 'https:') {
+        const element = document.createElement('div')
+        element.id = 'bottom-notice'
+        element.className = 'warning'
+        element.innerHTML =
+            '<div>PostHog dangerously running in&nbsp;<b><code style="background: 0; color: white">PRODUCTION</code></b>&nbsp;mode without&nbsp;TLS! ' +
+            'Use a&nbsp;valid TLS&nbsp;certificate and&nbsp;route&nbsp;to&nbsp;<code style="background: 0; color: white">https://</code>.</div>'
+        document.body.prepend(element)
+    }
+</script>
+{% endif %}

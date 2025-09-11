@@ -1,0 +1,90 @@
+import { Meta } from '@storybook/addon-docs'
+
+<Meta title=" How to create stories?" />
+
+# How to create stories?
+
+There are three types of stories:
+
+- Markdown stories
+- Scene stories
+- Component stories
+
+Choose the type most suited for your case.
+
+## Markdown stories
+
+Documents, such as the one you're reading, go in `frontend/src/stories/*.stories.mdx`.
+
+Tip: you may want to add a space in front of the title for the doc to be ordered before other components in the sidebar.
+
+```md
+<!-- frontend/src/stories/New Page.stories.mdx -->
+
+import { Meta } from '@storybook/addon-docs';
+
+<Meta title=" New Page" />
+
+# Page Title
+
+Write your content here...
+```
+
+## Component stories
+
+There are a few differences between component and scene stories:
+
+- Pass a `component` to the default export, for Storybook to create a table with the component's props.
+- Remove the custom `parameters` object that is in use in scene stories (that defaults the scene to open in "canvas" mode).
+- Add any changes to arguments in [`argTypes`](https://storybook.js.org/docs/react/api/argtypes)
+
+```tsx
+// frontend/src/lib/lemon-ui/LemonSwitch/LemonSwitch.stories.tsx
+import { Meta, StoryObj } from '@storybook/react'
+
+import { LemonSwitch, LemonSwitchProps } from './LemonSwitch'
+
+type Story = StoryObj<typeof LemonSwitch>
+const meta: Meta<typeof LemonSwitch> = {
+    title: 'Lemon UI/Lemon Switch',
+    component: LemonSwitch,
+    argTypes: {
+        loading: {
+            control: {
+                type: 'boolean',
+            },
+        },
+        label: {
+            name: 'label',
+            type: { name: 'string', required: false },
+            defaultValue: 'Hello',
+            description: 'demo description',
+            table: {
+                type: { summary: 'string' },
+                defaultValue: { summary: 'Hello' },
+            },
+            control: {
+                type: 'text',
+            },
+        },
+    },
+    tags: ['autodocs'],
+}
+export default meta
+
+export function LemonSwitch_(props: LemonSwitchProps): JSX.Element {
+    const [isChecked, setIsChecked] = useState(false)
+
+    return (
+        <LemonSwitch
+            {...props}
+            checked={props.checked !== undefined ? props.checked : isChecked}
+            onChange={setIsChecked}
+        />
+    )
+}
+```
+
+## Scene stories
+
+[Read more here](/docs/how-to-build-a-scene--page#6-create-a-story-for-your-scene)

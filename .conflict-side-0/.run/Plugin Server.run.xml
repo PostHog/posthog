@@ -1,0 +1,17 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Plugin Server" type="js.build_tools.npm">
+    <package-json value="$PROJECT_DIR$/plugin-server/package.json" />
+    <command value="run" />
+    <scripts>
+      <script value="start:dev" />
+    </scripts>
+    <node-interpreter value="project" />
+    <envs>
+      <env name="CLICKHOUSE_SECURE" value="False" />
+      <env name="DATABASE_URL" value="postgres://posthog:posthog@localhost:5432/posthog" />
+      <env name="KAFKA_HOSTS" value="localhost:9092" />
+      <env name="OBJECT_STORAGE_ENABLED" value="True" />
+    </envs>
+    <method v="2" />
+  </configuration>
+</component>
