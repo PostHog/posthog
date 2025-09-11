@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from braintrust import EvalCase
+from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
 
@@ -187,17 +188,16 @@ async def eval_tool_call_dashboard_creation(patch_get_stream_writer, pytestconfi
             **messages,
         )
 
-        config = {
+        config: RunnableConfig = {
             "configurable": {
                 "thread_id": conversation.id,
             }
         }
         result = await dashboard_creation_node.arun(state, config)
-        state = PartialAssistantState.model_validate(result)
-        message = state.messages[-1]
+        final_state = PartialAssistantState.model_validate(result)
+        message = final_state.messages[-1]
 
-        # Return the message content as a string, but wrap it properly for the scorer
-        return message.content if isinstance(message.content, str) else str(message.content)
+        return message.content  # type: ignore
 
     await MaxPublicEval(
         experiment_name="tool_call_dashboard_creation",
