@@ -83,7 +83,7 @@ fn get_repo_name(git_dir: &Path) -> Option<String> {
 
         for line in config_content.lines() {
             let line = line.trim();
-            if line.starts_with("url = ") && line.ends_with(".git") {
+            if line.starts_with("url = ") {
                 let url = line.trim_start_matches("url = ");
                 if let Some(repo_name) = url.split('/').next_back() {
                     let clean_name = repo_name.trim_end_matches(".git");
