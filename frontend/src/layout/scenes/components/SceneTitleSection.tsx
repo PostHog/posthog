@@ -103,26 +103,32 @@ export function SceneTitleSection({
                         {actions && <SceneActions className="shrink-0 ml-auto" />}
                     </div>
                 )}
-                <div className="flex gap-2 [&_svg]:size-6 items-center w-full">
-                    <span
-                        className={buttonPrimitiveVariants({
-                            size: 'base',
-                            iconOnly: true,
-                            className: 'rounded-sm h-[var(--button-height-lg)]',
-                            inert: true,
-                        })}
-                        aria-hidden
-                    >
-                        {icon}
-                    </span>
-                    <SceneName
-                        name={name}
-                        isLoading={isLoading}
-                        onChange={onNameChange}
-                        canEdit={canEdit}
-                        forceEdit={forceEdit}
-                        renameDebounceMs={renameDebounceMs}
-                    />
+                <div className="flex w-full justify-between">
+                    <div className="flex gap-2 [&_svg]:size-6 items-center w-full">
+                        <span
+                            className={buttonPrimitiveVariants({
+                                size: 'base',
+                                iconOnly: true,
+                                className: 'rounded-sm h-[var(--button-height-lg)]',
+                                inert: true,
+                            })}
+                            aria-hidden
+                        >
+                            {icon}
+                        </span>
+                        <SceneName
+                            name={name}
+                            isLoading={isLoading}
+                            onChange={onNameChange}
+                            canEdit={canEdit}
+                            forceEdit={forceEdit}
+                            renameDebounceMs={renameDebounceMs}
+                        />
+                    </div>
+                    {/* If we're not showing breadcrumbs, we want to show the actions inline with the title */}
+                    {!willShowBreadcrumbs && (
+                        <div className="pt-1 shrink-0">{actions && <SceneActions className="shrink-0 ml-auto" />}</div>
+                    )}
                 </div>
                 {description !== null && (description || canEdit) && (
                     <div className="flex gap-2 [&_svg]:size-6 items-center w-full">
@@ -138,8 +144,6 @@ export function SceneTitleSection({
                     </div>
                 )}
             </div>
-            {/* If we're not showing breadcrumbs, we want to show the actions inline with the title */}
-            {!willShowBreadcrumbs && <div className="">{actions && <SceneActions className="shrink-0 ml-auto" />}</div>}
         </div>
     )
 }
