@@ -70,7 +70,7 @@ class QueryExecutorNode(AssistantNode):
         if isinstance(viz_message.answer, AssistantHogQLQuery):
             formatted_query_result = f"{example_prompt}\n\n{SQL_QUERY_PROMPT.format(query=viz_message.answer.query)}\n\n{formatted_query_result}"
 
-        partial_state = PartialAssistantState(
+        return PartialAssistantState(
             messages=[
                 AssistantToolCallMessage(content=formatted_query_result, id=str(uuid4()), tool_call_id=tool_call_id)
             ],
@@ -79,8 +79,6 @@ class QueryExecutorNode(AssistantNode):
             root_tool_insight_type=None,
             rag_context=None,
         )
-
-        return partial_state
 
     def _get_example_prompt(self, viz_message: VisualizationMessage) -> str:
         if isinstance(viz_message.answer, AssistantTrendsQuery):
