@@ -5,8 +5,12 @@ from functools import partial
 
 import pytest
 
-from braintrust import EvalAsync, Metadata, init_logger
+from braintrust import EvalAsync, EvalCase, Metadata, init_logger
 from braintrust.framework import EvalData, EvalScorer, EvalTask, Input, Output
+
+from posthog.models.utils import uuid7
+
+from ee.hogai.eval.schema import DatasetInput
 
 
 async def BaseMaxEval(
@@ -32,15 +36,24 @@ async def BaseMaxEval(
     if case_filter:
         if asyncio.iscoroutine(data):
             data = await data
-        data = [case for case in data if case_filter in str(case.input)]  # type: ignore
+        filtered_data = (case for case in data if case_filter in str(case.input))  # type: ignore
 
     timeout = 60 * 8  # 8 minutes
     if os.getenv("EVAL_MODE") == "offline":
         timeout = 60 * 60  # 1 hour
 
+        # Reset trace IDs for DatasetInput, so we use distinct IDs instead
+        def data_generator():
+            for case in filtered_data:
+                if isinstance(case, EvalCase) and isinstance(case.input, DatasetInput):
+                    case.input.trace_id = str(uuid7())
+                yield case
+
+        filtered_data = data_generator()
+
     result = await EvalAsync(
         project_name,
-        data=data,
+        data=filtered_data,  # type: ignore
         task=task,
         scores=scores,
         timeout=timeout,

@@ -1,6 +1,4 @@
-import json
 import base64
-import urllib.parse
 from typing import Any, cast
 from uuid import UUID
 
@@ -23,6 +21,7 @@ from dags.max_ai.snapshot_team_data import (
     snapshot_clickhouse_team_data,
     snapshot_postgres_team_data,
 )
+from dags.max_ai.utils import EvaluationResults, format_results
 from ee.hogai.eval.schema import DatasetInput, EvalsDockerImageConfig, TeamEvaluationSnapshot
 
 
@@ -118,9 +117,6 @@ def get_registry_credentials():
     }
 
 
-EvaluationResults = list[dict[Any, Any]]
-
-
 def unpack_evaluation_results(metadata: RawMetadataMapping | None) -> EvaluationResults | None:
     if not metadata:
         return None
@@ -140,105 +136,6 @@ def get_last_dataset_materialization_metadata(
     if not last_materialization_event or not last_materialization_event.asset_materialization:
         return None
     return unpack_evaluation_results(last_materialization_event.asset_materialization.metadata)
-
-
-def format_results(
-    dataset_id: UUID,
-    dataset_name: str,
-    experiment_id: str,
-    results: EvaluationResults,
-    prev_results: EvaluationResults | None = None,
-) -> tuple[list[dict[str, Any]], str]:
-    experiment_summaries = []
-    for result in results:
-        # Find corresponding previous result by project_name
-        prev_result = None
-        if prev_results:
-            for prev in prev_results:
-                if prev.get("project_name") == result.get("project_name"):
-                    prev_result = prev
-                    break
-
-        # Format scores as bullet points with improvements/regressions and baseline comparison
-        scores_list = []
-        for key, value in (result.get("scores") or {}).items():
-            score = (
-                f"{(value['score'] * 100):.2f}%" if isinstance(value.get("score"), int | float) else value.get("score")
-            )
-            baseline_comparison = None
-            diff_highlight = ""
-            diff_emoji = "🆕"
-
-            if prev_result:
-                prev_scores = prev_result.get("scores", {})
-                prev_score_data = prev_scores.get(key)
-                if prev_score_data:
-                    prev_score = prev_score_data.get("score", 0)
-                    current_score = value.get("score", 0)
-                    diff_val = current_score - prev_score
-
-                    diff_highlight = "**" if abs(diff_val) > 0.01 else ""
-                    diff_sign = "+" if diff_val > 0 else ("" if diff_val < 0 else "±")
-
-                    # Calculate improvements/regressions (simplified logic)
-                    improvements = 1 if diff_val > 0.01 else 0
-                    regressions = 1 if diff_val < -0.01 else 0
-
-                    baseline_comparison = f"{diff_highlight}{diff_sign}{(diff_val * 100):.2f}%{diff_highlight} (improvements: {improvements}, regressions: {regressions})"
-                    diff_emoji = "🟢" if diff_val > 0.01 else ("🔴" if diff_val < -0.01 else "🔵")
-
-            score_line = f"{diff_emoji} **{key}**: **{score}**"
-            if baseline_comparison:
-                score_line += f", {baseline_comparison}"
-            scores_list.append(score_line)
-
-        scores_text = "\n\n".join(scores_list)
-
-        # Format key metrics concisely
-        metrics = result.get("metrics", {})
-        if metrics:
-            duration = f"⏱️ {metrics['duration']['metric']:.2f} s" if metrics.get("duration") else None
-            total_tokens = (
-                f"🔢 {int(metrics['total_tokens']['metric'])} tokens" if metrics.get("total_tokens") else None
-            )
-            cost = f"💵 ${metrics['estimated_cost']['metric']:.4f} in tokens" if metrics.get("estimated_cost") else None
-            metrics_text = ", ".join(filter(None, [duration, total_tokens, cost]))
-        else:
-            metrics_text = "No metrics reported"
-
-        traces_filter = [
-            {
-                "key": "ai_experiment_name",
-                "value": [result.get("project_name", "")],
-                "operator": "exact",
-                "type": "event",
-            },
-            {
-                "key": "ai_experiment_id",
-                "value": [experiment_id],
-                "operator": "exact",
-                "type": "event",
-            },
-        ]
-        summary_parts = [
-            f"**Experiment**: {result.get('project_name', '')}",
-            scores_text,
-            f"Baseline: Previous run 🔍 [Traces](https://us.posthog.com/llm-analytics/traces?filters={urllib.parse.quote(json.dumps(traces_filter))})",
-            f"Avg. case performance: {metrics_text}",
-        ]
-        experiment_summaries.append("\n\n".join(summary_parts))
-
-    total_experiments = len(results)
-    total_metrics = sum(len(result.get("scores", {})) for result in results)
-
-    body_parts = [
-        f"🧠 **AI eval results** for dataset [{dataset_name}](https://us.posthog.com/llm-analytics/datasets/{dataset_id})",
-        f"Evaluated **{total_experiments}** experiment{'' if total_experiments == 1 else 's'}, comprising **{total_metrics}** metric{'' if total_metrics == 1 else 's'}.",
-        *experiment_summaries,
-    ]
-    formatted_markdown = "\n\n".join(body_parts)
-    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": formatted_markdown}}]
-    return blocks, formatted_markdown
 
 
 @dagster.op
@@ -290,7 +187,6 @@ def spawn_evaluation_container(
             "ANTHROPIC_API_KEY": settings.ANTHROPIC_API_KEY,
             "GEMINI_API_KEY": settings.GEMINI_API_KEY,
             "INKEEP_API_KEY": settings.INKEEP_API_KEY,
-            "PPLX_API_KEY": settings.PPLX_API_KEY,
             "AZURE_INFERENCE_ENDPOINT": settings.AZURE_INFERENCE_ENDPOINT,
             "AZURE_INFERENCE_CREDENTIAL": settings.AZURE_INFERENCE_CREDENTIAL,
         },

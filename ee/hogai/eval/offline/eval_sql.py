@@ -12,7 +12,6 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 
 from posthog.models import Team
-from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.eval.base import MaxPrivateEval
@@ -57,9 +56,9 @@ async def call_graph(entry: DatasetInput, *args):
             "callbacks": eval_ctx.get_callback_handlers(entry.trace_id),
             "configurable": {
                 "thread_id": conversation.id,
-                "user": eval_ctx.user,
                 "team": team,
-                "distinct_id": eval_ctx.user.distinct_id,
+                "user": eval_ctx.user,
+                "distinct_id": eval_ctx.distinct_id,
             },
         },
     )
@@ -102,12 +101,7 @@ def generate_test_cases(eval_ctx: EvaluationContext):
     for entry in eval_ctx.dataset_inputs:
         metadata: EvalMetadata = {"team_id": entry.team_id}
         yield EvalCase(
-            input=DatasetInput.model_validate(
-                {
-                    **entry.model_dump(exclude_unset=True),
-                    "trace_id": str(uuid7()),
-                }
-            ),
+            input=entry,
             expected=entry.expected["output"],
             metadata=cast(dict, metadata),
         )
