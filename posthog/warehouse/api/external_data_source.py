@@ -30,7 +30,6 @@ from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer, SimpleExternalDataSchemaSerializer
 from posthog.warehouse.data_load.service import (
     cancel_external_data_workflow,
-    delete_data_import_folder,
     delete_external_data_schedule,
     is_any_external_data_schema_paused,
     sync_external_data_job_workflow,
@@ -488,18 +487,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             .select_related("table")
             .all()
         ):
-            # Delete data from S3 if it exists
-            try:
-                delete_data_import_folder(schema.folder_path())
-            except Exception as e:
-                logger.exception(f"Could not clean up data import folder: {schema.folder_path()}", exc_info=e)
-                pass
-
             # Delete temporal schedule
             delete_external_data_schedule(str(schema.id))
 
-            # Soft delete postgres models
+            # Delete data from S3 if it exists
             schema.delete_table()
+            # Soft delete postgres models
             schema.soft_delete()
 
         # Delete the old source schedule if it still exists
