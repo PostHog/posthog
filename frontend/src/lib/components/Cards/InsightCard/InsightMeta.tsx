@@ -95,14 +95,17 @@ export function InsightMeta({
 
     const otherDashboards = nameSortedDashboards.filter((d) => !dashboards?.includes(d.id))
 
-    const canViewInsight = accessLevelSatisfied(
-        AccessControlResourceType.Insight,
-        insight.user_access_level,
-        AccessControlLevel.Viewer
-    )
-    const canEditInsight = canViewInsight
-        ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Editor)
-        : false
+    const canViewInsight = insight.user_access_level
+        ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Viewer)
+        : true
+    const canEditInsight =
+        insight.user_access_level && canViewInsight
+            ? accessLevelSatisfied(
+                  AccessControlResourceType.Insight,
+                  insight.user_access_level,
+                  AccessControlLevel.Editor
+              )
+            : true
 
     // For dashboard-specific actions (remove from dashboard, change tile color), check dashboard permissions
     const currentDashboard = dashboardId ? nameSortedDashboards.find((d) => d.id === dashboardId) : null
@@ -112,7 +115,7 @@ export function InsightMeta({
               currentDashboard.user_access_level,
               AccessControlLevel.Editor
           )
-        : false
+        : true
 
     const summary = useSummarizeInsight()(insight.query)
 

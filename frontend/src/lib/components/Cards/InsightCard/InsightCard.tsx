@@ -164,11 +164,9 @@ function InsightCardInternal(
     // Empty states that completely replace the Query component.
     const BlockingEmptyState = (() => {
         // Check for access denied - use the same logic as other components
-        const canViewInsight = accessLevelSatisfied(
-            AccessControlResourceType.Insight,
-            insight?.user_access_level,
-            'viewer'
-        )
+        const canViewInsight = insight?.user_access_level
+            ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, 'viewer')
+            : true
 
         if (!canViewInsight) {
             const errorMessage = getAccessControlDisabledReason(
