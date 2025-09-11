@@ -8,7 +8,7 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 export function SceneBreadcrumbBackButton(): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
 
-    return breadcrumbs.length > 2 ? (
+    return breadcrumbs.length > 1 ? (
         <Link
             className="flex items-center gap-1 text-tertiary text-xs pl-[var(--button-padding-x-lg)]"
             aria-label={`Go back to ${breadcrumbs[breadcrumbs.length - 2].name}`}

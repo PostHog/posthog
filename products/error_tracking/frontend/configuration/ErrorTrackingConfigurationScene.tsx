@@ -6,6 +6,7 @@ import { Settings } from 'scenes/settings/Settings'
 import { settingsLogic } from 'scenes/settings/settingsLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { Breadcrumb } from '~/types'
 
 import { ErrorTrackingSetupPrompt } from '../components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
@@ -90,8 +91,13 @@ export const scene: SceneExport<ErrorTrackingConfigurationSceneLogicProps> = {
 
 export function ErrorTrackingConfigurationScene(): JSX.Element {
     return (
-        <ErrorTrackingSetupPrompt>
-            <Settings logicKey={ERROR_TRACKING_LOGIC_KEY} sectionId="environment-error-tracking" handleLocally />
-        </ErrorTrackingSetupPrompt>
+        <>
+            <div className="mb-2">
+                <SceneBreadcrumbBackButton />
+            </div>
+            <ErrorTrackingSetupPrompt>
+                <Settings logicKey={ERROR_TRACKING_LOGIC_KEY} sectionId="environment-error-tracking" handleLocally />
+            </ErrorTrackingSetupPrompt>
+        </>
     )
 }
