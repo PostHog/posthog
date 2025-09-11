@@ -124,38 +124,38 @@ function SortableSceneTab({ tab }: { tab: SceneTab }): JSX.Element {
             {...listeners}
             className="grow-0 shrink basis-auto min-w-[40px] max-w-[200px]"
         >
-            <HoverCard>
-                <HoverCardTrigger>
-                    <SceneTabContextMenu tab={tab}>
+            <SceneTabContextMenu tab={tab}>
+                <HoverCard>
+                    <HoverCardTrigger>
                         <SceneTabComponent tab={tab} isDragging={isDragging} />
-                    </SceneTabContextMenu>
-                </HoverCardTrigger>
-                <HoverCardContent
-                    className="break-words"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => e.stopPropagation()}
-                >
-                    <ButtonPrimitive
-                        iconOnly
-                        size="xs"
-                        tooltip="Copy tab URL for sharing"
-                        className="text-primary float-right"
-                        onClick={() => {
-                            try {
-                                navigator.clipboard.writeText(
-                                    `${window.location.origin}${tab.pathname}${tab.search}${tab.hash}`
-                                )
-                                lemonToast.success('URL copied to clipboard')
-                            } catch (error) {
-                                lemonToast.error(`Failed to copy URL to clipboard ${error}`)
-                            }
-                        }}
+                    </HoverCardTrigger>
+                    <HoverCardContent
+                        className="break-words"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
                     >
-                        <IconShare />
-                    </ButtonPrimitive>
-                    <span className="text-primary text-sm font-semibold">{tab.title}</span>
-                </HoverCardContent>
-            </HoverCard>
+                        <ButtonPrimitive
+                            iconOnly
+                            size="xs"
+                            tooltip="Copy tab URL for sharing"
+                            className="text-primary float-right"
+                            onClick={() => {
+                                try {
+                                    navigator.clipboard.writeText(
+                                        `${window.location.origin}${tab.pathname}${tab.search}${tab.hash}`
+                                    )
+                                    lemonToast.success('URL copied to clipboard')
+                                } catch (error) {
+                                    lemonToast.error(`Failed to copy URL to clipboard ${error}`)
+                                }
+                            }}
+                        >
+                            <IconShare />
+                        </ButtonPrimitive>
+                        <span className="text-primary text-sm font-semibold">{tab.title}</span>
+                    </HoverCardContent>
+                </HoverCard>
+            </SceneTabContextMenu>
         </div>
     )
 }
