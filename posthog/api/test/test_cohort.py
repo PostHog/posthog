@@ -24,7 +24,7 @@ from posthog.schema import PersonsOnEventsMode, PropertyOperator
 
 from posthog.api.test.test_exports import TestExportMixin
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models import Action, FeatureFlag, Person
+from posthog.models import Action, FeatureFlag, Person, User
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.cohort import CohortType
@@ -918,26 +918,39 @@ email@example.org,
         # Create cohorts by self.user
         self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
-            data={"name": "my_cohort_1", "groups": [{"properties": {"prop": 5}}]},
+            data={"name": "self_user_cohort_1", "groups": [{"properties": {"prop": 5}}]},
         )
 
         self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
-            data={"name": "my_cohort_2", "groups": [{"properties": {"prop": 5}}]},
+            data={"name": "self_user_cohort_2", "groups": [{"properties": {"prop": 5}}]},
+        )
+        other_user = User.objects.create_user(email="other@test.com", password="password", first_name="Other")
+        other_user_cohort = Cohort.objects.create(
+            team=self.team,
+            name="other_user_cohort",
+            created_by=other_user,
         )
 
         # Test no filter returns all cohorts
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()
-        self.assertEqual(len(response["results"]), 2)
+        self.assertEqual(len(response["results"]), 3)
 
-        # Test filter by self.user (should return both cohorts)
+        # Test filter by self.user's cohorts
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts?created_by_id={self.user.id}").json()
         self.assertEqual(len(response["results"]), 2)
         for cohort in response["results"]:
             self.assertEqual(cohort["created_by"]["id"], self.user.id)
+            self.assertEqual(cohort["name"][:-2], "self_user_cohort")
 
-        # Test filter by non-existent user (should return no cohorts)
-        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?created_by_id=99999").json()
+        # Test filter by other_user's cohorts
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?created_by_id={other_user.id}").json()
+        self.assertEqual(len(response["results"]), 1)
+        self.assertEqual(response["results"][0]["name"], other_user_cohort.name)
+
+        # Test filter by blank user (should return no cohorts)
+        blank_user = User.objects.create_user(email="blank@test.com", password="password", first_name="blank")
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?created_by_id={blank_user.id}").json()
         self.assertEqual(len(response["results"]), 0)
 
     def test_cohort_list_with_combined_filters(self):
