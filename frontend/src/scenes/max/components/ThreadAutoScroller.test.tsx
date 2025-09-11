@@ -32,6 +32,8 @@ function MockScrollable({ children }: { children: React.ReactNode }): JSX.Elemen
 describe('ThreadAutoScroller', () => {
     beforeEach(() => {
         initKeaTests()
+        // jsdom doesn't implement scrollTo on elements; mock it
+        ;(HTMLElement.prototype as any).scrollTo = jest.fn()
     })
 
     it('sets user scroll flag when not at bottom using scroll metrics', () => {
