@@ -394,7 +394,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     errorElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
                 } else {
                     lemonToast.error(
-                        'There was an error submiting this cohort. Make sure the cohort filters are correct.'
+                        'There was an error submitting this cohort. Make sure the cohort filters are correct.'
                     )
                 }
             }, 1)
