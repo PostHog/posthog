@@ -5,6 +5,7 @@ from typing import Any, cast
 from uuid import uuid4
 
 import structlog
+from langchain_core.agents import AgentAction
 from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_stream_writer
 from langgraph.types import StreamWriter
@@ -100,36 +101,61 @@ class SessionSummarizationNode(AssistantNode):
         message = (notebook_message, {"langgraph_node": AssistantNodeName.SESSION_SUMMARIZATION})
         writer(("session_summarization_node", "messages", message))
 
-    async def _generate_replay_filters(self, plain_text_query: str) -> MaxRecordingUniversalFilters | None:
-        """Generates replay filters to get session ids by directly using SearchSessionRecordingsTool."""
+    async def _generate_replay_filters(
+        self, plain_text_query: str, conversation_id: str, start_time: float
+    ) -> MaxRecordingUniversalFilters | str | None:
+        """
+        Generates replay filters to get session ids by directly using SearchSessionRecordingsTool.
+
+        Returns:
+            - filters: MaxRecordingUniversalFilters if successful
+            - question: str if clarification is needed
+            - None if there's an error
+        """
         from products.replay.backend.max_tools import SearchSessionRecordingsTool
 
-        # Create the tool instance
+        # Create the tool instance with minimal context (no current_filters for fresh generation)
         tool = SearchSessionRecordingsTool(team=self._team, user=self._user)
-        # Set up minimal context for the tool (no current_filters for fresh generation)
         tool._context = {"current_filters": {}}
         try:
-            # Call the tool's implementation directly
-            content, filters = await tool._arun_impl(change=plain_text_query)
-            # Check if filters were generated successfully
-            if not filters:
-                self.logger.error(
-                    f"Filter generation failed: {filters}",
-                    extra={
-                        "team_id": getattr(self._team, "id", "unknown"),
-                        "user_id": getattr(self._user, "id", "unknown"),
-                        "query": plain_text_query,
-                        "content": content,
-                    },
+            # Call the tool's graph directly to use the same implementation as in the tool (avoid duplication)
+            result = await tool._invoke_graph(change=plain_text_query)
+            if not result.get("output"):
+                self._log_failure(
+                    f"SearchSessionRecordingsTool returned no output for session summarization (query: {plain_text_query})",
+                    conversation_id,
+                    start_time,
                 )
                 return None
-            if filters is str:
-                # TODO: Understand how to return the clarificationquestion to the user
-                pass
-            return filters
+            output = result["output"]
+            # Return filters if generated successfully
+            if isinstance(output, MaxRecordingUniversalFilters):
+                return output
+            # Return clarification question if needed
+            if not result.get("intermediate_steps") or not len(result["intermediate_steps"][-1]):
+                self._log_failure(
+                    f"SearchSessionRecordingsTool returned no intermediate steps for session summarization (query: {plain_text_query}): {result}",
+                    conversation_id,
+                    start_time,
+                )
+                return None
+            last_step = result["intermediate_steps"][-1][0]
+            if (
+                not isinstance(last_step, AgentAction)
+                or last_step.tool != "ask_user_for_help"
+                or not isinstance(last_step.tool_input, str)
+            ):
+                self._log_failure(
+                    f"SearchSessionRecordingsTool last step was neither filters nor ask_user_for_help "
+                    f"for session summarization (query: {plain_text_query}): {result}",
+                    conversation_id,
+                    start_time,
+                )
+                return None
+            return last_step.tool_input
         except Exception as e:
             self.logger.exception(
-                f"Error generating replay filters: {e}",
+                f"Unexpected error generating replay filters for session summarization: {e}",
                 extra={
                     "team_id": getattr(self._team, "id", "unknown"),
                     "user_id": getattr(self._user, "id", "unknown"),
@@ -343,15 +369,29 @@ class SessionSummarizationNode(AssistantNode):
                 replay_filters = self._convert_current_filters_to_recordings_query(current_filters)
             # If not - generate filters to get session ids from DB
             else:
-                generated_filters = await self._generate_replay_filters(state.session_summarization_query)
-                if not generated_filters:
-                    self._log_failure(
-                        f"No Replay filters were generated for session summarization: {state.session_summarization_query}",
-                        conversation_id,
-                        start_time,
-                    )
+                filter_generation_result = await self._generate_replay_filters(
+                    plain_text_query=state.session_summarization_query,
+                    conversation_id=conversation_id,
+                    start_time=start_time,
+                )
+                if filter_generation_result is None:
                     return self._create_error_response(self._base_error_instructions, state)
-                replay_filters = self._convert_max_filters_to_recordings_query(generated_filters)
+                # Check if we got a clarification question instead of filters
+                if isinstance(filter_generation_result, str):
+                    # Return the clarification question to the user
+                    return PartialAssistantState(
+                        messages=[
+                            AssistantToolCallMessage(
+                                content=filter_generation_result,
+                                tool_call_id=state.root_tool_call_id or "unknown",
+                                id=str(uuid4()),
+                            ),
+                        ],
+                        session_summarization_query=None,
+                        root_tool_call_id=None,
+                    )
+                # Use filters when generated successfully
+                replay_filters = self._convert_max_filters_to_recordings_query(filter_generation_result)
             # Query the filters to get session ids
             session_ids = await database_sync_to_async(self._get_session_ids_with_filters, thread_sensitive=False)(
                 replay_filters
