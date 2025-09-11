@@ -129,6 +129,15 @@ export class HogFlowExecutorService {
             return earlyExitResult
         }
 
+        const currentAction = invocation.state.currentAction
+            ? `[Action:${invocation.state.currentAction.id}]`
+            : 'trigger'
+        logs.push({
+            level: 'debug',
+            message: `Starting workflow execution for HogFlow at ${currentAction}`,
+            timestamp: DateTime.now(),
+        })
+
         while (!result || !result.finished) {
             const nextInvocation: CyclotronJobInvocationHogFlow = result?.invocation ?? invocation
 
@@ -250,6 +259,11 @@ export class HogFlowExecutorService {
                 return result
             }
 
+            result.logs.push({
+                level: 'debug',
+                message: `Executing action ${actionIdForLogging(currentAction)}`,
+                timestamp: DateTime.now(),
+            })
             logger.debug('🦔', `[HogFlowActionRunner] Running action ${currentAction.type}`, {
                 action: currentAction,
                 invocation,
