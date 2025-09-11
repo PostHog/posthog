@@ -8,7 +8,6 @@ from dlt.sources.helpers.rest_client.paginators import BasePaginator
 
 from posthog.temporal.data_imports.pipelines.helpers import initial_datetime
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.pipelines.pipeline.utils import _get_column_hints, _get_primary_keys
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from posthog.temporal.data_imports.sources.reddit_ads.settings import REDDIT_ADS_CONFIG
@@ -55,50 +54,57 @@ def get_resource(
 
     config = REDDIT_ADS_CONFIG[name]
 
+    # Build endpoint configuration
+    endpoint = config.resource["endpoint"]
+    if not isinstance(endpoint, dict):
+        raise ValueError(f"Expected endpoint to be a dict, got {type(endpoint)}")
+
     # Calculate dates dynamically for incremental endpoints only
     starts_at, ends_at = None, None
     if should_use_incremental_field:
         starts_at, ends_at = _get_incremental_date_range(should_use_incremental_field, db_incremental_field_last_value)
 
-    # Build endpoint configuration
     endpoint_config = {
-        "data_selector": config.data_selector,
-        "path": config.path_template.format(account_id=account_id),
-        "method": config.method,
-        "params": config.params.copy() if config.params else {},
+        "data_selector": endpoint["data_selector"],
+        "path": endpoint["path"].format(account_id=account_id) if endpoint["path"] else "",
+        "method": endpoint["method"],
+        "params": endpoint["params"].copy() if endpoint["params"] else {},
     }
 
     # Handle incremental parameters for non-metrics endpoints
-    if should_use_incremental_field and not config.is_stats and config.incremental_fields:
-        incremental_field = config.incremental_fields[0]  # Use first incremental field
-        if incremental_field["field"] == "modified_at":
-            endpoint_config["params"]["modified_at[after]"] = {
-                "type": "incremental",
-                "cursor_path": "modified_at",
-                "initial_value": starts_at,
-            }
+    if should_use_incremental_field and endpoint.get("incremental"):
+        incremental_config = endpoint["incremental"]
+        if incremental_config and incremental_config.get("cursor_path") == "modified_at":
+            if isinstance(endpoint_config["params"], dict):
+                endpoint_config["params"]["modified_at[after]"] = {
+                    "type": "incremental",
+                    "cursor_path": "modified_at",
+                    "initial_value": starts_at,
+                }
 
     # Handle JSON body for POST requests (metrics endpoints)
-    if config.json_body_template:
-        json_body = config.json_body_template.copy()
-        if config.is_stats:
-            json_body["data"]["starts_at"] = starts_at
-            json_body["data"]["ends_at"] = ends_at
-        endpoint_config["json"] = json_body
+    if endpoint.get("json"):
+        json_data = endpoint["json"]
+        if json_data is not None:
+            json_body = json_data.copy()
+            if endpoint.get("incremental"):
+                json_body["data"]["starts_at"] = starts_at
+                json_body["data"]["ends_at"] = ends_at
+            endpoint_config["json"] = json_body
 
     # Build the complete resource configuration
     resource: EndpointResource = {
-        "name": config.name,
-        "table_name": config.table_name,
-        "primary_key": config.primary_key,
+        "name": config.resource["name"],
+        "table_name": config.resource["table_name"],
+        "primary_key": config.resource["primary_key"],
         "write_disposition": {
             "disposition": "merge",
             "strategy": "upsert",
         }
         if should_use_incremental_field
         else "replace",
-        "endpoint": endpoint_config,
-        "table_format": config.table_format,
+        "endpoint": endpoint_config,  # type: ignore[typeddict-item]
+        "table_format": config.resource["table_format"],
     }
 
     return resource
@@ -176,8 +182,9 @@ def reddit_ads_source(
     return SourceResponse(
         name=endpoint,
         items=resource,
-        primary_keys=_get_primary_keys(resource),
-        column_hints=_get_column_hints(resource),
+        primary_keys=list(endpoint_config.resource["primary_key"])
+        if isinstance(endpoint_config.resource["primary_key"], list | tuple)
+        else None,
         partition_count=1,
         partition_size=endpoint_config.partition_size,
         partition_mode=endpoint_config.partition_mode,

@@ -67,7 +67,7 @@ class RedditAdsSource(BaseSource[RedditAdsSourceConfig], OAuthMixin):
     def get_schemas(self, config: RedditAdsSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
             SourceSchema(
-                name=endpoint_config.name,
+                name=str(endpoint_config.resource["name"]),
                 supports_incremental=endpoint_config.incremental_fields is not None,
                 supports_append=endpoint_config.incremental_fields is not None,
                 incremental_fields=endpoint_config.incremental_fields or [],
