@@ -144,10 +144,10 @@ StateType = TypeVar("StateType", bound=BaseModel)
 PartialStateType = TypeVar("PartialStateType", bound=BaseModel)
 
 
-class Insight(BaseModel):
+class InsightQuery(BaseModel):
     """
-    A single insight to be included in a dashboard.
-    This is used to represent an insight in the tool call messages.
+    A single insight query to be included in a dashboard.
+    Includes the name and description of the insight to be included in the dashboard.
     """
 
     name: str = Field(
@@ -273,7 +273,7 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The user's queries to search for insights.
     """
-    search_insights_queries: Optional[list[Insight]] = Field(default=None)
+    search_insights_queries: Optional[list[InsightQuery]] = Field(default=None)
 
 
 class AssistantState(_SharedAssistantState):
@@ -354,7 +354,6 @@ class InsightCreationArtifact(InsightArtifact):
 
     id: str
     query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
-    description: str
 
 
 class InsightSearchArtifact(InsightArtifact):

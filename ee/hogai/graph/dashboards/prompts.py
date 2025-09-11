@@ -15,7 +15,10 @@ Examples:
 - User wants revenue and conversion data → "Revenue & Conversions"
 
 User Query: {user_query}
-Insight descriptions: {insights_summary}
+Insight descriptions:
+\n\n
+
+{insights_summary}
 
 Generate only the dashboard name, nothing else.
 """

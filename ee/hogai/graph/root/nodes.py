@@ -49,7 +49,7 @@ from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.helpers import find_last_ui_context
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import BaseState, BaseStateWithMessages
+from ee.hogai.utils.types.base import BaseState, BaseStateWithMessages, InsightQuery
 
 from .prompts import (
     ROOT_BILLING_CONTEXT_ERROR_PROMPT,
@@ -724,10 +724,17 @@ class RootNodeTools(AssistantNode):
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif tool_call.name == "create_dashboard":
+            # Convert raw data to InsightQuery objects
+            raw_queries = tool_call.args["search_insights_queries"]
+            if isinstance(raw_queries, list):
+                search_insights_queries = [InsightQuery.model_validate(query) for query in raw_queries]
+            else:
+                search_insights_queries = [InsightQuery.model_validate(raw_queries)]
+
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
                 create_dashboard_query=tool_call.args["create_dashboard_query"],
-                search_insights_queries=tool_call.args["search_insights_queries"],
+                search_insights_queries=search_insights_queries,
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif ToolClass := get_contextual_tool_class(tool_call.name):

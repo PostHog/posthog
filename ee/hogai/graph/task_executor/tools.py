@@ -116,7 +116,7 @@ class SubgraphTaskExecutorTool(TaskExecutorTool[InsightCreationTaskExecutionResu
             logger.warning("Task failed: no artifacts extracted", task_id=task.id)
             return self._failed_result(task)
 
-        final_result = await _generate_final_result(task, last_message.content, config)
+        final_result = await self._generate_final_result(task, last_message.content, config)
 
         if self._task_progress_callback:
             self._task_progress_callback(task.id, None)
@@ -225,7 +225,7 @@ class NodeTaskExecutorTool(TaskExecutorTool[InsightSearchTaskExecutionResult]):
                 logger.warning("Task failed: no artifacts extracted", task_id=task.id)
                 return self._failed_result(task)
 
-            final_result = await _generate_final_result(task, task_result, config)
+            final_result = await self._generate_final_result(task, task_result, config)
 
             if self._task_progress_callback:
                 self._task_progress_callback(task.id, None)
@@ -249,7 +249,9 @@ class NodeTaskExecutorTool(TaskExecutorTool[InsightSearchTaskExecutionResult]):
         """Extract artifacts from node execution results."""
         artifacts: list[InsightSearchArtifact] = []
         task_result = (
-            result.messages[0].content if result.messages and isinstance(result.messages[0], AssistantMessage) else ""
+            result.messages[0].content
+            if result.messages and isinstance(result.messages[0], AssistantToolCallMessage)
+            else ""
         )
 
         if result.insight_ids:
