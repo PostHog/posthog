@@ -107,10 +107,10 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
         partition_format="month",
         partition_size=1,
     ),
-    "campaign_metrics": EndpointConfig(
+    "campaign_report": EndpointConfig(
         resource={
-            "name": "campaign_metrics",
-            "table_name": "campaign_metrics",
+            "name": "campaign_report",
+            "table_name": "campaign_report",
             "primary_key": ["campaign_id", "date"],
             "endpoint": {
                 "path": "/ad_accounts/{account_id}/reports",
@@ -177,10 +177,10 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
         partition_format="month",
         partition_size=1,
     ),
-    "ad_group_metrics": EndpointConfig(
+    "ad_group_report": EndpointConfig(
         resource={
-            "name": "ad_group_metrics",
-            "table_name": "ad_group_metrics",
+            "name": "ad_group_report",
+            "table_name": "ad_group_report",
             "primary_key": ["ad_group_id", "date"],
             "endpoint": {
                 "path": "/ad_accounts/{account_id}/reports",
@@ -246,10 +246,10 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
         partition_format="month",
         partition_size=1,
     ),
-    "ad_metrics": EndpointConfig(
+    "ad_report": EndpointConfig(
         resource={
-            "name": "ad_metrics",
-            "table_name": "ad_metrics",
+            "name": "ad_report",
+            "table_name": "ad_report",
             "primary_key": ["ad_id", "date"],
             "endpoint": {
                 "path": "/ad_accounts/{account_id}/reports",
