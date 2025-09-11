@@ -6,13 +6,16 @@ import { IconPlusSmall } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
@@ -47,8 +50,12 @@ export const QueryDatabase = (): JSX.Element => {
         renameDraft,
     } = useActions(queryDatabaseLogic)
     const { deleteDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { newTab } = useActions(sceneLogic)
 
     const { deleteDraft } = useActions(draftsLogic)
+
+    const useSceneTabs = featureFlags[FEATURE_FLAGS.SCENE_TABS]
 
     const treeRef = useRef<LemonTreeRef>(null)
     useEffect(() => {
@@ -163,6 +170,19 @@ export const QueryDatabase = (): JSX.Element => {
                             >
                                 <ButtonPrimitive menuItem>Query</ButtonPrimitive>
                             </DropdownMenuItem>
+
+                            {useSceneTabs ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        newTab(urls.sqlEditor(`SELECT * FROM ${item.name}`))
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Query in new Tab</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
+
                             <DropdownMenuItem
                                 asChild
                                 onClick={(e) => {
@@ -203,7 +223,9 @@ export const QueryDatabase = (): JSX.Element => {
                                         asChild
                                         onClick={(e) => {
                                             e.stopPropagation()
-                                            if (router.values.location.pathname.endsWith(urls.sqlEditor())) {
+                                            if (featureFlags[FEATURE_FLAGS.SCENE_TABS]) {
+                                                router.actions.push(urls.sqlView(item.record?.view.id))
+                                            } else if (router.values.location.pathname.endsWith(urls.sqlEditor())) {
                                                 multitabEditorLogic({
                                                     key: `hogQLQueryEditor/${router.values.location.pathname}`,
                                                 }).actions.editView(item.record?.view.query.query, item.record?.view)
@@ -214,6 +236,17 @@ export const QueryDatabase = (): JSX.Element => {
                                     >
                                         <ButtonPrimitive menuItem>Edit view definition</ButtonPrimitive>
                                     </DropdownMenuItem>
+                                    {useSceneTabs ? (
+                                        <DropdownMenuItem
+                                            asChild
+                                            onClick={() => {
+                                                newTab(urls.sqlView(item.record?.view.id))
+                                            }}
+                                        >
+                                            <ButtonPrimitive menuItem>Edit view definition in new tab</ButtonPrimitive>
+                                        </DropdownMenuItem>
+                                    ) : null}
+
                                     <DropdownMenuItem
                                         asChild
                                         onClick={(e) => {

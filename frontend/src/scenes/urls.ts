@@ -99,6 +99,7 @@ export const urls = {
 
         return '/sql'
     },
+    sqlView: (view: string): string => `/sql/views/${view}`,
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     comments: (): string => '/data-management/comments',

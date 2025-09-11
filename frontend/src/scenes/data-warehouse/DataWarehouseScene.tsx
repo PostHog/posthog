@@ -81,7 +81,14 @@ export function DataWarehouseScene(): JSX.Element {
             render: (_, view) => (
                 <div className="flex items-center gap-1">
                     <StatusIcon status={view.status} />
-                    <LemonTableLink to={urls.sqlEditor(undefined, view.id)} title={view.name} />
+                    <LemonTableLink
+                        to={
+                            featureFlags[FEATURE_FLAGS.SCENE_TABS]
+                                ? urls.sqlView(view.id)
+                                : urls.sqlEditor(undefined, view.id)
+                        }
+                        title={view.name}
+                    />
                 </div>
             ),
         },

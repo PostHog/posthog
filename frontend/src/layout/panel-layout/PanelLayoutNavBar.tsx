@@ -8,7 +8,6 @@ import {
     IconChevronRight,
     IconClock,
     IconDatabase,
-    IconDatabaseBolt,
     IconFolderOpen,
     IconGear,
     IconHome,
@@ -212,19 +211,19 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     : 'Open project tree',
             tooltipDocLink: 'https://posthog.com/blog/redesigned-nav-menu',
         },
-        {
-            identifier: 'Database',
-            label: 'Database',
-            icon: <IconDatabaseBolt />,
-            onClick: (e) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Database')
-                }
-            },
-            showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Database' ? 'Close database' : 'Open database',
-            tooltipDocLink: 'https://posthog.com/docs/data-warehouse/sql',
-        },
+        // {
+        //     identifier: 'Database',
+        //     label: 'Database',
+        //     icon: <IconDatabaseBolt />,
+        //     onClick: (e) => {
+        //         if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+        //             handlePanelTriggerClick('Database')
+        //         }
+        //     },
+        //     showChevron: true,
+        //     tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Database' ? 'Close database' : 'Open database',
+        //     tooltipDocLink: 'https://posthog.com/docs/data-warehouse/sql',
+        // },
         {
             identifier: 'DataManagement',
             label: 'Data management',

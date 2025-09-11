@@ -66,7 +66,6 @@ import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import {
     ScenePanel,
@@ -130,10 +129,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const [tags, setTags] = useState(insight.tags)
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
-    const { breadcrumbs } = useValues(breadcrumbsLogic)
-    const lastBreadcrumb = breadcrumbs[breadcrumbs.length - 1]
-    const defaultInsightName =
-        typeof lastBreadcrumb?.name === 'string' ? lastBreadcrumb.name : insight.name || insight.derived_name
+    const insightName = insight.name || insight.derived_name
 
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
 
@@ -268,7 +264,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     tooltipPlacement="bottom"
                                     onClick={() => {
                                         if (isDataVisualizationNode(query) && insight.short_id) {
-                                            router.actions.push(urls.sqlEditor(undefined, undefined, insight.short_id))
+                                            if (featureFlags[FEATURE_FLAGS.SCENE_TABS]) {
+                                                push(urls.insightEdit(insight.short_id))
+                                            } else {
+                                                push(urls.sqlEditor(undefined, undefined, insight.short_id))
+                                            }
                                         } else if (insight.short_id) {
                                             push(urls.insightEdit(insight.short_id))
                                         } else {
@@ -853,7 +853,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
             </ScenePanel>
 
             <SceneTitleSection
-                name={defaultInsightName || ''}
+                name={insightName || ''}
                 description={insight?.description || ''}
                 resourceType={{
                     type: 'product_analytics',
@@ -866,7 +866,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 }}
                 canEdit={canEditInsight}
                 isLoading={insightLoading && !insight?.id}
-                forceEdit={insightMode === ItemMode.Edit}
+                // forceEdit={insightMode === ItemMode.Edit}
                 // Renaming insights is too fast, so we need to debounce it
                 renameDebounceMs={1000}
             />

@@ -103,13 +103,23 @@ const pathPrefixesOnboardingNotRequiredFor = [
     urls.oauthAuthorize(),
 ]
 
-const DelayedLoadingSpinner = (): JSX.Element => {
+const DelayedLoadingSpinner = ({ layout }: { layout?: string }): JSX.Element => {
     const [show, setShow] = useState(false)
     useEffect(() => {
         const timeout = window.setTimeout(() => setShow(true), 500)
         return () => window.clearTimeout(timeout)
     }, [])
-    return <>{show ? <Spinner /> : null}</>
+    if (!show) {
+        return <></>
+    }
+    if (layout === 'app-raw') {
+        return (
+            <div className="ml-4">
+                <Spinner className="text-primary" />
+            </div>
+        )
+    }
+    return <Spinner />
 }
 
 export const sceneLogic = kea<sceneLogicType>([
@@ -443,10 +453,12 @@ export const sceneLogic = kea<sceneLogicType>([
             },
         ],
         activeLoadedScene: [
-            (s) => [s.activeSceneId, s.activeExportedScene, s.sceneParams, s.activeTabId],
-            (activeSceneId, activeExportedScene, sceneParams, activeTabId): LoadedScene | null => {
+            (s) => [s.activeSceneId, s.activeExportedScene, s.sceneParams, s.activeTabId, s.sceneConfig],
+            (activeSceneId, activeExportedScene, sceneParams, activeTabId, sceneConfig): LoadedScene | null => {
                 return {
-                    ...(activeExportedScene ?? { component: DelayedLoadingSpinner }),
+                    ...(activeExportedScene ?? {
+                        component: () => <DelayedLoadingSpinner layout={sceneConfig?.layout} />,
+                    }),
                     id: activeSceneId ?? Scene.Error404,
                     tabId: activeTabId ?? undefined,
                     sceneParams: sceneParams,

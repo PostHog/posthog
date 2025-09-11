@@ -366,6 +366,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         },
     })),
     tabAwareUrlToAction(({ actions, values }) => ({
+        '/sql/:shortId': () => {
+            if (values.insightMode !== ItemMode.Edit) {
+                actions.setInsightMode(ItemMode.Edit, InsightEventSource.Browser)
+            }
+        },
         '/insights/:shortId(/:mode)(/:itemId)': (
             { shortId, mode, itemId }, // url params
             { dashboard, alert_id, ...searchParams }, // search params

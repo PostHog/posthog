@@ -29,6 +29,7 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 
@@ -261,7 +262,7 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
 export function OutputPane(): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
-    const { editingView } = useValues(multitabEditorLogic)
+    const { editingView, useSceneTabs } = useValues(multitabEditorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const {
@@ -432,38 +433,38 @@ export function OutputPane(): JSX.Element {
     }, [response])
 
     const hasColumns = columns.length > 1
+    const tabContent = [
+        {
+            key: OutputTab.Results,
+            label: 'Results',
+            icon: <IconTableChart />,
+        },
+        {
+            key: OutputTab.Visualization,
+            label: 'Visualization',
+            icon: <IconGraph />,
+        },
+        {
+            key: OutputTab.Variables,
+            label: <Tooltip title={editingView ? 'Variables are not allowed in views.' : undefined}>Variables</Tooltip>,
+            disabled: editingView,
+            icon: <IconBrackets />,
+        },
+        {
+            key: OutputTab.Materialization,
+            label: 'Materialization',
+            icon: <IconBolt />,
+        },
+    ]
 
     return (
-        <div className="OutputPane flex flex-col w-full flex-1 bg-white dark:bg-black">
-            <div className="flex flex-row justify-between align-center w-full min-h-[50px] overflow-y-auto">
-                <div className="flex min-h-[50px] gap-2 ml-4">
-                    {[
-                        {
-                            key: OutputTab.Results,
-                            label: 'Results',
-                            icon: <IconTableChart />,
-                        },
-                        {
-                            key: OutputTab.Visualization,
-                            label: 'Visualization',
-                            icon: <IconGraph />,
-                        },
-                        {
-                            key: OutputTab.Variables,
-                            label: (
-                                <Tooltip title={editingView ? 'Variables are not allowed in views.' : undefined}>
-                                    Variables
-                                </Tooltip>
-                            ),
-                            disabled: editingView,
-                            icon: <IconBrackets />,
-                        },
-                        {
-                            key: OutputTab.Materialization,
-                            label: 'Materialization',
-                            icon: <IconBolt />,
-                        },
-                    ].map((tab) => (
+        <div
+            className={cn('OutputPane flex flex-col w-full flex-1', !useSceneTabs ? 'bg-white dark:bg-black' : '')}
+            style={{ height: '63%' }}
+        >
+            <div className="flex flex-row justify-between align-center w-full min-h-[53px] overflow-y-auto">
+                <div className={cn('flex min-h-[53px] gap-2', useSceneTabs ? 'ml-2' : 'ml-4')}>
+                    {tabContent.map((tab) => (
                         <div
                             key={tab.key}
                             className={clsx(
@@ -512,7 +513,7 @@ export function OutputPane(): JSX.Element {
                                             onClick={() => toggleChartSettingsPanel()}
                                             tooltip="Visualization settings"
                                         />
-                                        {editingInsight && (
+                                        {!useSceneTabs && editingInsight && (
                                             <LemonButton
                                                 disabledReason={!updateInsightButtonEnabled && 'No updates to save'}
                                                 type="primary"
@@ -537,7 +538,7 @@ export function OutputPane(): JSX.Element {
                                                 Save insight
                                             </LemonButton>
                                         )}
-                                        {!editingInsight && (
+                                        {!useSceneTabs && !editingInsight && (
                                             <LemonButton
                                                 disabledReason={!hasColumns ? 'No results to save' : undefined}
                                                 type="primary"
@@ -552,7 +553,7 @@ export function OutputPane(): JSX.Element {
                             </div>
                         </>
                     )}
-                    {activeTab === OutputTab.Results && (
+                    {!useSceneTabs && activeTab === OutputTab.Results && (
                         <LemonButton
                             disabledReason={!hasColumns && !editingInsight ? 'No results to visualize' : undefined}
                             type="secondary"
@@ -598,7 +599,7 @@ export function OutputPane(): JSX.Element {
                     )}
                 </div>
             </div>
-            <div className="flex flex-1 relative bg-dark">
+            <div className={cn('flex flex-1 relative', useSceneTabs ? 'bg-white dark:bg-black' : '')}>
                 <Content
                     activeTab={activeTab}
                     responseError={responseError}
@@ -728,7 +729,7 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
           : responseError
 
     return (
-        <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-auto')}>
+        <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-auto')} style={{ height: '53%' }}>
             <InsightErrorState
                 query={sourceQuery}
                 excludeDetail
@@ -848,7 +849,7 @@ const Content = ({
                 : 'Query results will be visualized here.'
         return (
             <div
-                className="flex flex-1 justify-center items-center border-t"
+                className="flex flex-1 justify-center items-center border"
                 data-attr="sql-editor-output-pane-empty-state"
             >
                 <span className="text-secondary mt-3">

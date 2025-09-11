@@ -1,7 +1,7 @@
 import { Monaco } from '@monaco-editor/react'
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import isEqual from 'lodash.isequal'
 import { Uri, editor } from 'monaco-editor'
@@ -10,12 +10,16 @@ import posthog from 'posthog-js'
 import { LemonDialog, LemonInput, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { removeUndefinedAndNull } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { insightsApi } from 'scenes/insights/utils/api'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -30,10 +34,13 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import {
+    Breadcrumb,
     ChartDisplayType,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
     ExportContext,
+    InsightLogicProps,
+    InsightShortId,
     LineageGraph,
     QueryBasedInsightModel,
     QueryTabState,
@@ -173,15 +180,19 @@ export type UpdateViewPayload = Partial<DatabaseSchemaViewTable> & {
 export const multitabEditorLogic = kea<multitabEditorLogicType>([
     path(['data-warehouse', 'editor', 'multitabEditorLogic']),
     props({} as MultitabEditorLogicProps),
-    key((props) => props.key),
+    key((props) => props.tabId || props.key),
     connect(() => ({
         values: [
             dataWarehouseViewsLogic,
-            ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById'],
+            ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById', 'updatingDataWarehouseSavedQuery'],
             userLogic,
             ['user'],
             draftsLogic,
             ['drafts'],
+            featureFlagLogic,
+            ['featureFlags'],
+            outputPaneLogic,
+            ['activeTab as activeOutputTab'],
         ],
         actions: [
             dataWarehouseViewsLogic,
@@ -640,6 +651,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
         },
         createTab: async ({ query = '', view, insight, draft }) => {
+            if (values.useSceneTabs) {
+                actions.setTabs([])
+            }
             const mountedCodeEditorLogic =
                 codeEditorLogic.findMounted() ||
                 codeEditorLogic({
@@ -658,7 +672,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             const tabName = draft?.name || view?.name || insight?.name || `${NEW_QUERY} ${nextUntitledNumber}`
 
             if (props.monaco) {
-                const uri = props.monaco.Uri.parse(currentModelCount.toString())
+                const uri = props.monaco.Uri.parse(props.tabId + '/' + currentModelCount.toString())
                 const model = props.monaco.editor.createModel(query, 'hogQL', uri)
                 props.editor?.setModel(model)
 
@@ -699,7 +713,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             } else if (query) {
                 // if navigating from URL without monaco loaded
                 const queries = [
-                    ...values.allTabs,
+                    ...(values.useSceneTabs ? [] : values.allTabs),
                     {
                         query,
                         path: currentModelCount.toString(),
@@ -1045,6 +1059,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 ...values.sourceQuery,
                 source: newSource,
             })
+            // TODO: why are we mounting it?
             dataNodeLogic({
                 key: values.dataLogicKey,
                 query: newSource,
@@ -1152,10 +1167,16 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             })
         },
         saveAsInsightSubmit: async ({ name }) => {
+            const query = { ...values.sourceQuery }
+            if (values.activeOutputTab === OutputTab.Results) {
+                query.display = ChartDisplayType.ActionsTable
+            }
+
             const insight = await insightsApi.create({
                 name,
-                query: values.sourceQuery,
+                query,
                 saved: true,
+                // TODO: add dashboards
             })
 
             lemonToast.info(`You're now viewing ${insight.name || insight.derived_name || name}`)
@@ -1397,6 +1418,40 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 return allTabs.find((tab) => tab.uri.toString() === activeModelUri?.uri.toString())
             },
         ],
+        useSceneTabs: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.SCENE_TABS]],
+        currentInternalTab: [
+            (s) => [s.allTabs, s.activeModelUri],
+            (allTabs, activeModelUri) => {
+                return allTabs.find((tab) => tab.uri.toString() === activeModelUri?.uri.toString())
+            },
+        ],
+        breadcrumbs: [
+            (s) => [s.editingView, s.editingInsight],
+            (editingView, editingInsight): Breadcrumb[] => {
+                return editingView
+                    ? [
+                          {
+                              key: Scene.SQLEditor,
+                              name: editingView.name ?? 'View',
+                              path: urls.sqlView(editingView.id),
+                          },
+                      ]
+                    : editingInsight
+                      ? [
+                            {
+                                key: Scene.Insight,
+                                name: editingInsight.name || editingInsight.derived_name || 'Insight',
+                                path: urls.insightEdit(editingInsight.id),
+                            },
+                        ]
+                      : [
+                            {
+                                key: Scene.SQLEditor,
+                                name: '...',
+                            },
+                        ]
+            },
+        ],
         suggestedSource: [
             (s) => [s.suggestionPayload],
             (suggestionPayload) => {
@@ -1447,12 +1502,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             },
         ],
         editingView: [
-            (s) => [s.activeModelUri, s.allTabs],
-            (activeModelUri, allTabs) => {
-                const currentTab = allTabs.find(
-                    (tab: QueryTab) => tab.uri.toString() === activeModelUri?.uri.toString()
-                )
-                return currentTab?.view
+            (s) => [s.currentInternalTab],
+            (currentInternalTab) => {
+                return currentInternalTab?.view
             },
         ],
         changesToSave: [
@@ -1526,6 +1578,17 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                       })
             },
         ],
+        insightLogicProps: [
+            (s) => [s.editingInsight, s.tabId],
+            (editingInsight, tabId) => {
+                return {
+                    dashboardItemId: editingInsight?.short_id ?? 'new',
+                    cachedInsight: editingInsight ?? null,
+                    // doNotLoad: true,
+                    tabId,
+                } as InsightLogicProps
+            },
+        ],
         localStorageResponse: [
             (s) => [s.activeModelUri],
             (activeModelUri) => {
@@ -1533,22 +1596,80 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             },
         ],
         isDraft: [
-            (s) => [s.activeModelUri, s.allTabs],
-            (activeModelUri, allTabs) => {
-                const currentTab = allTabs.find((tab) => tab.uri.toString() === activeModelUri?.uri.toString())
-                return currentTab ? !!currentTab.draft?.id : false
+            (s) => [s.currentInternalTab],
+            (currentInternalTab) => {
+                return currentInternalTab ? !!currentInternalTab.draft?.id : false
             },
         ],
         currentDraft: [
-            (s) => [s.activeModelUri, s.allTabs],
-            (activeModelUri, allTabs) => {
-                const currentTab = allTabs.find((tab) => tab.uri.toString() === activeModelUri?.uri.toString())
-                return currentTab ? currentTab.draft : null
+            (s) => [s.currentInternalTab],
+            (currentInternalTab) => {
+                return currentInternalTab ? currentInternalTab.draft : null
             },
         ],
     }),
-    urlToAction(({ actions, values, props }) => ({
+    tabAwareUrlToAction(({ actions, values, props }) => ({
+        [urls.sqlView(':viewId')]: async ({ viewId }) => {
+            if (values.dataWarehouseSavedQueries.length === 0) {
+                await dataWarehouseViewsLogic.asyncActions.loadDataWarehouseSavedQueries()
+            }
+            const view = values.dataWarehouseSavedQueries.find((n) => n.id === viewId)
+            if (!view || typeof view.query === 'undefined') {
+                lemonToast.error('View not found')
+                return
+            }
+            actions.editView(view.query.query, view)
+        },
+        [urls.insightEdit(':shortId' as InsightShortId)]: async ({ shortId } = {}, searchParams) => {
+            if (!shortId) {
+                return
+            }
+            if (shortId === 'new') {
+                // Add new blank tab
+                actions.createTab()
+                return
+            }
+
+            // Open Insight
+            const insight = await insightsApi.getByShortId(shortId as InsightShortId, undefined, 'async')
+            if (!insight) {
+                lemonToast.error('Insight not found')
+                return
+            }
+
+            let query = ''
+            if (insight.query?.kind === NodeKind.DataVisualizationNode) {
+                query = (insight.query as DataVisualizationNode).source.query
+            }
+
+            actions.editInsight(query, insight)
+
+            // Only run the query if the results aren't already cached locally
+            if (insight.query?.kind === NodeKind.DataVisualizationNode && insight.query && !searchParams.open_query) {
+                // TODO: Why are we mounting it?
+                dataNodeLogic({
+                    key: values.dataLogicKey,
+                    query: (insight.query as DataVisualizationNode).source,
+                }).mount()
+
+                const response = dataNodeLogic({
+                    key: values.dataLogicKey,
+                    query: (insight.query as DataVisualizationNode).source,
+                }).values.response
+
+                if (!response) {
+                    actions.runQuery()
+                }
+            } else {
+                actions.runQuery()
+            }
+        },
         [urls.sqlEditor()]: async (_, searchParams) => {
+            if (values.useSceneTabs) {
+                // use the #q={} param to update the tabs
+                return
+            }
+
             if (
                 !searchParams.open_query &&
                 !searchParams.open_view &&
@@ -1642,6 +1763,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         insight.query &&
                         !searchParams.open_query
                     ) {
+                        // TODO: Why are we mounting it?
                         dataNodeLogic({
                             key: values.dataLogicKey,
                             query: (insight.query as DataVisualizationNode).source,
@@ -1691,7 +1813,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             })
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadQueryTabState()
+    afterMount(({ actions, values }) => {
+        if (!values.useSceneTabs) {
+            actions.loadQueryTabState()
+        }
     }),
 ])

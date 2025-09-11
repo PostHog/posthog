@@ -1,11 +1,8 @@
 import { useActions, useValues } from 'kea'
 
 import { AlertDeletionWarning } from 'lib/components/Alerts/AlertDeletionWarning'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { Link } from 'lib/lemon-ui/Link'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
-import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
 import { insightLogic } from '../insightLogic'
@@ -20,27 +17,47 @@ export function InsightsNav(): JSX.Element {
         <>
             <FunnelsCue />
             {insight.short_id && <AlertDeletionWarning />}
-            <LemonTabs
-                activeKey={activeView}
-                onChange={(newKey) => setActiveView(newKey)}
-                tabs={tabs.map(({ label, type, dataAttr }) => ({
-                    key: type,
-                    label: (
-                        <Link to={INSIGHT_TYPE_URLS[type]} preventClick data-attr={dataAttr}>
-                            <Tooltip
-                                placement="top"
-                                title={
-                                    INSIGHT_TYPES_METADATA[type].tooltipDescription ||
-                                    INSIGHT_TYPES_METADATA[type].description
-                                }
-                                docLink={INSIGHT_TYPES_METADATA[type].tooltipDocLink}
-                            >
-                                <span>{label}</span>
-                            </Tooltip>
-                        </Link>
-                    ),
-                }))}
-            />
+            <div className="flex items-center gap-2">
+                <span>Insight type:</span>
+                <div className="flex items-center gap-1" data-attr="insight-type-selector">
+                    {tabs.map((tab) => (
+                        <LemonButton
+                            onClick={() => setActiveView(tab.type)}
+                            key={tab.type}
+                            type={tab.type === activeView ? 'primary' : 'secondary'}
+                            size="xsmall"
+                            data-attr={tab.dataAttr}
+                            tooltip={
+                                INSIGHT_TYPES_METADATA[tab.type].tooltipDescription ||
+                                INSIGHT_TYPES_METADATA[tab.type].description
+                            }
+                        >
+                            {tab.label}
+                        </LemonButton>
+                    ))}
+                </div>
+            </div>
+            {/*<LemonTabs*/}
+            {/*    activeKey={activeView}*/}
+            {/*    onChange={(newKey) => setActiveView(newKey)}*/}
+            {/*    tabs={tabs.map(({ label, type, dataAttr }) => ({*/}
+            {/*        key: type,*/}
+            {/*        label: (*/}
+            {/*            <Link to={INSIGHT_TYPE_URLS[type]} preventClick data-attr={dataAttr}>*/}
+            {/*                <Tooltip*/}
+            {/*                    placement="top"*/}
+            {/*                    title={*/}
+            {/*                        INSIGHT_TYPES_METADATA[type].tooltipDescription ||*/}
+            {/*                        INSIGHT_TYPES_METADATA[type].description*/}
+            {/*                    }*/}
+            {/*                    docLink={INSIGHT_TYPES_METADATA[type].tooltipDocLink}*/}
+            {/*                >*/}
+            {/*                    <span>{label}</span>*/}
+            {/*                </Tooltip>*/}
+            {/*            </Link>*/}
+            {/*        ),*/}
+            {/*    }))}*/}
+            {/*/>*/}
         </>
     )
 }

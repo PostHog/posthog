@@ -9,7 +9,7 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
-import { DashboardPrivilegeLevel } from 'lib/constants'
+import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -19,6 +19,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -86,6 +87,7 @@ export function InsightMeta({
     const { exportContext } = useValues(insightDataLogic(insightProps))
     const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
     const { nameSortedDashboards } = useValues(dashboardsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const otherDashboards = nameSortedDashboards.filter((d) => !dashboards?.includes(d.id))
 
@@ -131,7 +133,7 @@ export function InsightMeta({
                         <>
                             <LemonButton
                                 to={
-                                    isDataVisualizationNode(insight.query)
+                                    isDataVisualizationNode(insight.query) && !featureFlags[FEATURE_FLAGS.SCENE_TABS]
                                         ? urls.sqlEditor(undefined, undefined, short_id)
                                         : urls.insightEdit(short_id)
                                 }

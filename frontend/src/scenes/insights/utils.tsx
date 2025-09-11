@@ -18,7 +18,6 @@ import {
     BreakdownFilter,
     DataWarehouseNode,
     EventsNode,
-    HogQLQuery,
     InsightVizNode,
     Node,
     NodeKind,
@@ -410,7 +409,7 @@ export const INSIGHT_TYPE_URLS = {
     PATHS: urls.insightNew({ type: InsightType.PATHS }),
     JSON: urls.insightNew({ query: examples.EventsTableFull }),
     HOG: urls.insightNew({ query: examples.Hoggonacci }),
-    SQL: urls.sqlEditor((examples.HogQLForDataVisualization as HogQLQuery)['query']),
+    SQL: urls.insightNew({ query: examples.HogQLForDataVisualization }),
 }
 
 /** Combines a list of words, separating with the correct punctuation. For example: [a, b, c, d] -> "a, b, c, and d"  */

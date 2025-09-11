@@ -7,6 +7,8 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
@@ -36,6 +38,8 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             ['database', 'posthogTables', 'dataWarehouseTables', 'databaseLoading', 'views', 'viewsMapById'],
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueryMapById', 'dataWarehouseSavedQueriesLoading'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             dataWarehouseViewsLogic,
@@ -215,7 +219,11 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         updateDataWarehouseSavedQuerySuccess: async ({ payload }) => {
             lemonToast.success(`${payload?.name ?? 'View'} successfully updated`)
             if (payload) {
-                router.actions.push(urls.sqlEditor(undefined, payload.id))
+                router.actions.push(
+                    values.featureFlags[FEATURE_FLAGS.SCENE_TABS]
+                        ? urls.sqlView(payload.id)
+                        : urls.sqlEditor(undefined, payload.id)
+                )
             }
         },
         saveSchema: async () => {

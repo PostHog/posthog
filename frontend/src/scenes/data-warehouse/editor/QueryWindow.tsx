@@ -2,18 +2,20 @@ import { Monaco } from '@monaco-editor/react'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import type { editor as importedEditor } from 'monaco-editor'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconBook, IconDownload, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
-import { LemonDivider, Spinner } from '@posthog/lemon-ui'
+import { LemonButtonProps, LemonDivider, Spinner } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { QueryDatabase } from 'scenes/data-warehouse/editor/sidebar/QueryDatabase'
 import { urls } from 'scenes/urls'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -49,11 +51,12 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         inProgressViewEdits,
         activeTab,
         editorKey,
+        useSceneTabs,
     } = useValues(multitabEditorLogic)
     const codeEditorKey = `hogQLQueryEditor/${tabId}/${router.values.location.pathname}`
+    const [showDatabase, setShowDatabase] = useState(true)
 
-    const { activePanelIdentifier } = useValues(panelLayoutLogic)
-    const { setActivePanelIdentifier } = useActions(panelLayoutLogic)
+    const {} = useActions(panelLayoutLogic)
 
     const {
         renameTab,
@@ -68,14 +71,13 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         saveAsView,
         saveDraft,
         updateView,
+        openHistoryModal,
     } = useActions(multitabEditorLogic)
-    const { openHistoryModal } = useActions(multitabEditorLogic)
 
     const { saveOrUpdateDraft } = useActions(draftsLogic)
     const { response } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
-    const { sidebarWidth } = useValues(editorSizingLogic)
-    const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
+
     const { featureFlags } = useValues(featureFlagLogic)
 
     const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
@@ -96,204 +98,57 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
 
     const isMaterializedView = editingView?.is_materialized === true
 
-    const renderSidebarButton = (): JSX.Element => {
-        if (activePanelIdentifier !== 'Database') {
+    function SidebarButton({
+        size,
+        label,
+        closeLabel,
+    }: {
+        size?: LemonButtonProps['size']
+        label?: React.ReactNode
+        closeLabel?: React.ReactNode
+    }): JSX.Element {
+        if (!showDatabase) {
+            //} || activePanelIdentifier !== 'Database' || sidebarWidth === 0) {
             return (
                 <LemonButton
-                    onClick={() => setActivePanelIdentifier('Database')}
+                    onClick={() => {
+                        setShowDatabase(true)
+                        // toggleLayoutPanelPinned(true)
+                        // setActivePanelIdentifier('Database')
+                    }}
                     className="rounded-none"
                     icon={<IconSidebarClose />}
                     type="tertiary"
-                    size="small"
-                />
+                    size={size ?? 'small'}
+                >
+                    {label}
+                </LemonButton>
             )
         }
 
-        if (sidebarWidth === 0) {
+        if (closeLabel) {
             return (
                 <LemonButton
-                    onClick={() => resetDefaultSidebarWidth()}
+                    onClick={() => {
+                        // showLayoutPanel(false)
+                        // clearActivePanelIdentifier()
+                        setShowDatabase(false)
+                    }}
                     className="rounded-none"
                     icon={<IconSidebarClose />}
-                    type="tertiary"
-                    size="small"
-                />
+                    type="secondary"
+                    size={size ?? 'small'}
+                >
+                    {closeLabel}
+                </LemonButton>
             )
         }
 
         return <></>
     }
 
-    return (
-        <div className="flex flex-1 flex-col h-full overflow-hidden">
-            {!featureFlags[FEATURE_FLAGS.SCENE_TABS] || allTabs.length > 1 ? (
-                <div className="flex flex-row overflow-x-auto">
-                    {renderSidebarButton()}
-                    <QueryTabs
-                        models={allTabs}
-                        onClick={selectTab}
-                        onClear={deleteTab}
-                        onAdd={createTab}
-                        onRename={renameTab}
-                        activeModelUri={activeModelUri}
-                    />
-                </div>
-            ) : null}
-            {(editingView || editingInsight) && (
-                <div className="h-5 bg-warning-highlight">
-                    <span className="pl-2 text-xs">
-                        {editingView && (
-                            <>
-                                Editing {isDraft ? 'draft of ' : ''} {isMaterializedView ? 'materialized view' : 'view'}{' '}
-                                "{editingView.name}"
-                            </>
-                        )}
-                        {editingInsight && (
-                            <>
-                                Editing insight "
-                                <Link to={urls.insightView(editingInsight.short_id)}>{editingInsight.name}</Link>"
-                            </>
-                        )}
-                    </span>
-                </div>
-            )}
-            <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b">
-                <RunButton />
-                <LemonDivider vertical />
-                {isDraft && featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS] && (
-                    <>
-                        <LemonButton
-                            type="tertiary"
-                            size="xsmall"
-                            id="sql-editor-query-window-save-as-draft"
-                            onClick={() => {
-                                if (editingView) {
-                                    saveOrUpdateDraft(
-                                        {
-                                            kind: NodeKind.HogQLQuery,
-                                            query: queryInput,
-                                        },
-                                        editingView.id,
-                                        currentDraft?.id || undefined,
-                                        activeTab
-                                    )
-                                } else {
-                                    saveOrUpdateDraft(
-                                        {
-                                            kind: NodeKind.HogQLQuery,
-                                            query: queryInput,
-                                        },
-                                        undefined,
-                                        currentDraft?.id || undefined,
-                                        activeTab
-                                    )
-                                }
-                            }}
-                        >
-                            Save
-                        </LemonButton>
-                        <LemonButton
-                            type="tertiary"
-                            size="xsmall"
-                            id="sql-editor-query-window-publish-draft"
-                            disabledReason={editingViewDisabledReason}
-                            onClick={() => {
-                                if (editingView && currentDraft?.id && activeTab) {
-                                    updateView(
-                                        {
-                                            id: editingView.id,
-                                            query: {
-                                                ...sourceQuery.source,
-                                                query: queryInput,
-                                            },
-                                            name: editingView.name,
-                                            types: response && 'types' in response ? (response?.types ?? []) : [],
-                                            shouldRematerialize: isMaterializedView,
-                                            edited_history_id: activeTab.view?.latest_history_id,
-                                        },
-                                        currentDraft.id
-                                    )
-                                } else {
-                                    saveAsView(false, currentDraft?.id)
-                                }
-                            }}
-                            tooltip={
-                                editingView
-                                    ? 'Publishing will update the view with these changes.'
-                                    : 'The view this draft is based on has been deleted. Publishing will create a new view.'
-                            }
-                        >
-                            {!editingView && <IconInfo className="mr-1" color="var(--warning)" />}
-                            Publish
-                        </LemonButton>
-                    </>
-                )}
-                {editingView && !isDraft && activeModelUri && (
-                    <>
-                        {featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS] && (
-                            <LemonButton
-                                type="tertiary"
-                                size="xsmall"
-                                id="sql-editor-query-window-save-draft"
-                                onClick={() => {
-                                    saveDraft(activeModelUri, queryInput, editingView.id)
-                                }}
-                            >
-                                Save draft
-                            </LemonButton>
-                        )}
-                        <LemonButton
-                            onClick={() =>
-                                updateView({
-                                    id: editingView.id,
-                                    query: {
-                                        ...sourceQuery.source,
-                                        query: queryInput,
-                                    },
-                                    types: response && 'types' in response ? (response?.types ?? []) : [],
-                                    shouldRematerialize: isMaterializedView,
-                                    edited_history_id: inProgressViewEdits[editingView.id],
-                                })
-                            }
-                            disabledReason={editingViewDisabledReason}
-                            icon={<EditingViewButtonIcon />}
-                            type="tertiary"
-                            size="xsmall"
-                            id={`sql-editor-query-window-update-${isMaterializedView ? 'materialize' : 'view'}`}
-                        >
-                            {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
-                        </LemonButton>
-                    </>
-                )}
-                {editingView && (
-                    <>
-                        <LemonButton
-                            onClick={() => openHistoryModal()}
-                            icon={<IconBook />}
-                            type="tertiary"
-                            size="xsmall"
-                            id="sql-editor-query-window-history"
-                        >
-                            History
-                        </LemonButton>
-                    </>
-                )}
-                {!editingInsight && !editingView && (
-                    <>
-                        <LemonButton
-                            onClick={() => saveAsView()}
-                            icon={<IconDownload />}
-                            type="tertiary"
-                            size="xsmall"
-                            data-attr="sql-editor-save-view-button"
-                            id="sql-editor-query-window-save-as-view"
-                        >
-                            Save as view
-                        </LemonButton>
-                    </>
-                )}
-                <FixErrorButton type="tertiary" size="xsmall" source="action-bar" />
-            </div>
+    let queryPane = (
+        <>
             <QueryPane
                 originalValue={originalQueryInput}
                 queryInput={suggestedQueryInput}
@@ -328,15 +183,232 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
             />
             <InternalQueryWindow key={editorKey} />
             <QueryHistoryModal />
+        </>
+    )
+
+    if (showDatabase) {
+        queryPane = (
+            <div style={{ display: 'flex', height: '100%', width: '100%' }}>
+                <div
+                    style={{
+                        width: '300px',
+                        height: '100%',
+                    }}
+                >
+                    <QueryDatabase />
+                </div>
+                <div style={{ flex: 1, height: '100%' }}>{queryPane}</div>
+            </div>
+        )
+    }
+
+    const output = (
+        <div className="flex flex-1 flex-col h-full overflow-hidden">
+            {(!useSceneTabs && !featureFlags[FEATURE_FLAGS.SCENE_TABS]) || allTabs.length > 1 ? (
+                <div className="flex flex-row overflow-x-auto">
+                    <SidebarButton />
+                    <QueryTabs
+                        models={allTabs}
+                        onClick={selectTab}
+                        onClear={deleteTab}
+                        onAdd={createTab}
+                        onRename={renameTab}
+                        activeModelUri={activeModelUri}
+                    />
+                </div>
+            ) : null}
+            {!useSceneTabs && (editingView || editingInsight) && (
+                <div className="h-5 bg-warning-highlight">
+                    <span className="pl-2 text-xs">
+                        {editingView && (
+                            <>
+                                Editing {isDraft ? 'draft of ' : ''} {isMaterializedView ? 'materialized view' : 'view'}{' '}
+                                "{editingView.name}"
+                            </>
+                        )}
+                        {!useSceneTabs && editingInsight && (
+                            <>
+                                Editing insight "
+                                <Link to={urls.insightView(editingInsight.short_id)}>{editingInsight.name}</Link>"
+                            </>
+                        )}
+                    </span>
+                </div>
+            )}
+            <div
+                className={
+                    useSceneTabs
+                        ? 'flex flex-row justify-start align-center w-full pl-2 pr-2 mb-1'
+                        : 'flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b'
+                }
+            >
+                {useSceneTabs && !showDatabase && (
+                    <>
+                        <SidebarButton
+                            size={useSceneTabs ? 'small' : 'xsmall'}
+                            label="Show database"
+                            closeLabel="Hide database"
+                        />
+                        <LemonDivider vertical />
+                    </>
+                )}
+                {useSceneTabs && showDatabase && (
+                    <div style={{ width: '292px' }}>
+                        <SidebarButton
+                            size={useSceneTabs ? 'small' : 'xsmall'}
+                            label="Show database"
+                            closeLabel="Hide database"
+                        />
+                    </div>
+                )}
+                <RunButton />
+                <LemonDivider vertical />
+                {isDraft && featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS] && (
+                    <>
+                        <LemonButton
+                            type="tertiary"
+                            size={useSceneTabs ? 'small' : 'xsmall'}
+                            id="sql-editor-query-window-save-as-draft"
+                            onClick={() => {
+                                if (editingView) {
+                                    saveOrUpdateDraft(
+                                        {
+                                            kind: NodeKind.HogQLQuery,
+                                            query: queryInput,
+                                        },
+                                        editingView.id,
+                                        currentDraft?.id || undefined,
+                                        activeTab
+                                    )
+                                } else {
+                                    saveOrUpdateDraft(
+                                        {
+                                            kind: NodeKind.HogQLQuery,
+                                            query: queryInput,
+                                        },
+                                        undefined,
+                                        currentDraft?.id || undefined,
+                                        activeTab
+                                    )
+                                }
+                            }}
+                        >
+                            Save
+                        </LemonButton>
+                        <LemonButton
+                            type="tertiary"
+                            size={useSceneTabs ? 'small' : 'xsmall'}
+                            id="sql-editor-query-window-publish-draft"
+                            disabledReason={editingViewDisabledReason}
+                            onClick={() => {
+                                if (editingView && currentDraft?.id && activeTab) {
+                                    updateView(
+                                        {
+                                            id: editingView.id,
+                                            query: {
+                                                ...sourceQuery.source,
+                                                query: queryInput,
+                                            },
+                                            name: editingView.name,
+                                            types: response && 'types' in response ? (response?.types ?? []) : [],
+                                            shouldRematerialize: isMaterializedView,
+                                            edited_history_id: activeTab.view?.latest_history_id,
+                                        },
+                                        currentDraft.id
+                                    )
+                                } else {
+                                    saveAsView(false, currentDraft?.id)
+                                }
+                            }}
+                            tooltip={
+                                editingView
+                                    ? 'Publishing will update the view with these changes.'
+                                    : 'The view this draft is based on has been deleted. Publishing will create a new view.'
+                            }
+                        >
+                            {!editingView && <IconInfo className="mr-1" color="var(--warning)" />}
+                            Publish
+                        </LemonButton>
+                    </>
+                )}
+                {!useSceneTabs && editingView && !isDraft && activeModelUri && (
+                    <>
+                        {featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS] && (
+                            <LemonButton
+                                type="tertiary"
+                                size={useSceneTabs ? 'small' : 'xsmall'}
+                                id="sql-editor-query-window-save-draft"
+                                onClick={() => {
+                                    saveDraft(activeModelUri, queryInput, editingView.id)
+                                }}
+                            >
+                                Save draft
+                            </LemonButton>
+                        )}
+                        <LemonButton
+                            onClick={() =>
+                                updateView({
+                                    id: editingView.id,
+                                    query: {
+                                        ...sourceQuery.source,
+                                        query: queryInput,
+                                    },
+                                    types: response && 'types' in response ? (response?.types ?? []) : [],
+                                    shouldRematerialize: isMaterializedView,
+                                    edited_history_id: inProgressViewEdits[editingView.id],
+                                })
+                            }
+                            disabledReason={editingViewDisabledReason}
+                            icon={<EditingViewButtonIcon />}
+                            type="tertiary"
+                            size={useSceneTabs ? 'small' : 'xsmall'}
+                            id={`sql-editor-query-window-update-${isMaterializedView ? 'materialize' : 'view'}`}
+                        >
+                            {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
+                        </LemonButton>
+                    </>
+                )}
+                {editingView && (
+                    <>
+                        <LemonButton
+                            onClick={() => openHistoryModal()}
+                            icon={<IconBook />}
+                            type="tertiary"
+                            size={useSceneTabs ? 'small' : 'xsmall'}
+                            id="sql-editor-query-window-history"
+                        >
+                            History
+                        </LemonButton>
+                    </>
+                )}
+                {!useSceneTabs && !editingInsight && !editingView && (
+                    <>
+                        <LemonButton
+                            onClick={() => saveAsView()}
+                            icon={<IconDownload />}
+                            type="tertiary"
+                            size={useSceneTabs ? 'small' : 'xsmall'}
+                            data-attr="sql-editor-save-view-button"
+                            id="sql-editor-query-window-save-as-view"
+                        >
+                            Save as view
+                        </LemonButton>
+                    </>
+                )}
+                <FixErrorButton type="tertiary" size={useSceneTabs ? 'small' : 'xsmall'} source="action-bar" />
+            </div>
+            {queryPane}
         </div>
     )
+
+    return output
 }
 
 function RunButton(): JSX.Element {
     const { runQuery } = useActions(multitabEditorLogic)
     const { cancelQuery } = useActions(dataNodeLogic)
     const { responseLoading } = useValues(dataNodeLogic)
-    const { metadata, queryInput, isSourceQueryLastRun } = useValues(multitabEditorLogic)
+    const { metadata, queryInput, isSourceQueryLastRun, useSceneTabs } = useValues(multitabEditorLogic)
 
     const isUsingIndices = metadata?.isUsingIndices === 'yes'
 
@@ -368,10 +440,17 @@ function RunButton(): JSX.Element {
             }}
             icon={responseLoading ? <IconCancel /> : <IconPlayFilled color={iconColor} />}
             type="tertiary"
-            size="xsmall"
+            size={useSceneTabs ? 'small' : 'xsmall'}
             tooltip={tooltipContent}
         >
-            {responseLoading ? 'Cancel' : 'Run'}
+            {responseLoading ? (
+                'Cancel'
+            ) : (
+                <span className="flex gap-2">
+                    <span>Run</span>
+                    <KeyboardShortcut cmd enter />
+                </span>
+            )}
         </LemonButton>
     )
 }
