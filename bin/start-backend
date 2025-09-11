@@ -9,4 +9,4 @@ export CLICKHOUSE_API_PASSWORD="apipass"
 export CLICKHOUSE_APP_USER="app"
 export CLICKHOUSE_APP_PASSWORD="apppass"
 
-uvicorn --reload posthog.asgi:application --host 0.0.0.0 --log-level debug --reload-include "posthog/" --reload-include "ee/" --reload-include "products/"
+uvicorn --reload posthog.asgi:application --host 127.0.0.1 --log-level debug --reload-include "posthog/" --reload-include "ee/" --reload-include "products/"
