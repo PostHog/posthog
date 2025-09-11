@@ -11,6 +11,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { LemonSelect } from '@posthog/lemon-ui'
 
 export function StreamlitDashboard(): JSX.Element {
     const { apps, isLoading: appsLoading, runningApps, pendingApps, failedApps } = useValues(streamlitAppsLogic)
@@ -19,12 +20,24 @@ export function StreamlitDashboard(): JSX.Element {
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
     const [newAppName, setNewAppName] = useState('')
     const [newAppDescription, setNewAppDescription] = useState('')
+    const [appType, setAppType] = useState<'default' | 'custom'>('default')
+    const [entrypointFile, setEntrypointFile] = useState<File | null>(null)
+    const [requirementsFile, setRequirementsFile] = useState<File | null>(null)
 
     const handleCreateApp = () => {
         if (newAppName.trim()) {
-            createApp(newAppName.trim(), newAppDescription.trim())
+            createApp(
+                newAppName.trim(), 
+                newAppDescription.trim(), 
+                appType, 
+                entrypointFile || undefined, 
+                requirementsFile || undefined
+            )
             setNewAppName('')
             setNewAppDescription('')
+            setAppType('default')
+            setEntrypointFile(null)
+            setRequirementsFile(null)
             setIsCreateModalOpen(false)
         }
     }
@@ -219,6 +232,49 @@ export function StreamlitDashboard(): JSX.Element {
                                     rows={3}
                                 />
                             </div>
+                            
+                            <div>
+                                <label className="block text-sm font-medium mb-2">App Type</label>
+                                <LemonSelect
+                                    value={appType}
+                                    onChange={setAppType}
+                                    options={[
+                                        { label: 'Default Hello World', value: 'default' },
+                                        { label: 'Custom Uploaded App', value: 'custom' },
+                                    ]}
+                                    fullWidth
+                                />
+                            </div>
+                            
+                            {appType === 'custom' && (
+                                <>
+                                    <div>
+                                        <label className="block text-sm font-medium mb-2">Entrypoint File (Python)</label>
+                                        <input
+                                            type="file"
+                                            accept=".py"
+                                            onChange={(e) => setEntrypointFile(e.target.files?.[0] || null)}
+                                            className="w-full p-2 border rounded"
+                                        />
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                            Main Python file for your Streamlit app
+                                        </p>
+                                    </div>
+                                    
+                                    <div>
+                                        <label className="block text-sm font-medium mb-2">Requirements File (Optional)</label>
+                                        <input
+                                            type="file"
+                                            accept=".txt"
+                                            onChange={(e) => setRequirementsFile(e.target.files?.[0] || null)}
+                                            className="w-full p-2 border rounded"
+                                        />
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                            requirements.txt file for Python dependencies
+                                        </p>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     </LemonModal>
 
