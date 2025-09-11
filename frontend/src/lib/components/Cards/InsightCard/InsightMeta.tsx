@@ -4,12 +4,12 @@ import React from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
-import { DashboardPrivilegeLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -28,7 +28,13 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { isDataVisualizationNode } from '~/queries/utils'
-import { ExporterFormat, InsightColor, QueryBasedInsightModel } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ExporterFormat,
+    InsightColor,
+    QueryBasedInsightModel,
+} from '~/types'
 
 import { InsightCardProps } from './InsightCard'
 import { InsightDetails } from './InsightDetails'
@@ -89,10 +95,46 @@ export function InsightMeta({
 
     const otherDashboards = nameSortedDashboards.filter((d) => !dashboards?.includes(d.id))
 
-    // (@zach) Access Control TODO: add access control checks for remove from dashboard
-    const editable = insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
+    const canViewInsight = accessLevelSatisfied(
+        AccessControlResourceType.Insight,
+        insight.user_access_level,
+        AccessControlLevel.Viewer
+    )
+    const canEditInsight = canViewInsight
+        ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Editor)
+        : false
 
     const summary = useSummarizeInsight()(insight.query)
+
+    // If user can't view the insight, show minimal interface
+    if (!canViewInsight) {
+        return (
+            <CardMeta
+                ribbonColor={ribbonColor}
+                showEditingControls={false}
+                showDetailsControls={false}
+                setAreDetailsShown={setAreDetailsShown}
+                areDetailsShown={areDetailsShown}
+                detailsTooltip="Show insight details, such as creator, last edit, and applied filters."
+                topHeading={null}
+                content={
+                    <InsightMetaContent
+                        link={undefined}
+                        title="Access denied"
+                        fallbackTitle={summary}
+                        description={undefined}
+                        loading={loading}
+                        loadingQueued={loadingQueued}
+                        tags={[]}
+                    />
+                }
+                metaDetails={null}
+                samplingFactor={samplingFactor}
+                moreButtons={null}
+            />
+        )
+    }
+
     const refreshDisabledReason =
         nextAllowedClientRefresh && dayjs(nextAllowedClientRefresh).isAfter(dayjs())
             ? 'You are viewing the most recent calculated results.'
@@ -127,7 +169,7 @@ export function InsightMeta({
             moreButtons={
                 <>
                     {/* Insight related */}
-                    {editable && (
+                    {canEditInsight && (
                         <>
                             <LemonButton
                                 to={
@@ -155,7 +197,7 @@ export function InsightMeta({
                     </LemonButton>
 
                     {/* Dashboard related */}
-                    {editable && (
+                    {canEditInsight && (
                         <>
                             <LemonDivider />
                             {updateColor && (
@@ -298,7 +340,7 @@ export function InsightMeta({
                 </>
             }
             moreTooltip={
-                editable ? 'Rename, duplicate, export, refresh and more…' : 'Duplicate, export, refresh and more…'
+                canEditInsight ? 'Rename, duplicate, export, refresh and more…' : 'Duplicate, export, refresh and more…'
             }
         />
     )
