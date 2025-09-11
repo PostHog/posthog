@@ -16,7 +16,7 @@ fn make_git_dir_with_config(config_content: &str) -> PathBuf {
 }
 
 #[test]
-fn test_get_remote_url_with_dot_git() {
+fn test_get_repo_infos_https_with_dot_git() {
     let cfg = r#"
 [core]
     repositoryformatversion = 0
@@ -25,13 +25,16 @@ fn test_get_remote_url_with_dot_git() {
     fetch = +refs/heads/*:refs/remotes/origin/*
 "#;
     let git_dir = make_git_dir_with_config(cfg);
-    let url = get_remote_url(&git_dir).expect("expected some url");
-    assert_eq!(url, "https://github.com/PostHog/posthog.git");
+    assert_eq!(
+        get_remote_url(&git_dir).as_deref(),
+        Some("https://github.com/PostHog/posthog.git")
+    );
+    assert_eq!(get_repo_name(&git_dir).as_deref(), Some("posthog"));
     let _ = fs::remove_dir_all(git_dir.parent().unwrap());
 }
 
 #[test]
-fn test_get_remote_url_without_dot_git() {
+fn test_get_repo_infos_https_without_dot_git() {
     let cfg = r#"
 [core]
     repositoryformatversion = 0
@@ -40,38 +43,47 @@ fn test_get_remote_url_without_dot_git() {
     fetch = +refs/heads/*:refs/remotes/origin/*
 "#;
     let git_dir = make_git_dir_with_config(cfg);
-    let url = get_remote_url(&git_dir).expect("expected some url");
-    assert_eq!(url, "https://github.com/PostHog/posthog.git");
+    assert_eq!(
+        get_remote_url(&git_dir).as_deref(),
+        Some("https://github.com/PostHog/posthog.git")
+    );
+    assert_eq!(get_repo_name(&git_dir).as_deref(), Some("posthog"));
     let _ = fs::remove_dir_all(git_dir.parent().unwrap());
 }
 
 #[test]
-fn test_get_repo_name_with_dot_git() {
+fn test_get_repo_infos_ssh_with_dot_git() {
     let cfg = r#"
 [core]
     repositoryformatversion = 0
 [remote "origin"]
-    url = https://github.com/PostHog/posthog.git
+    url = git@github.com:PostHog/posthog.git
     fetch = +refs/heads/*:refs/remotes/origin/*
 "#;
     let git_dir = make_git_dir_with_config(cfg);
-    let name = get_repo_name(&git_dir).expect("expected some name");
-    assert_eq!(name, "posthog");
+    assert_eq!(
+        get_remote_url(&git_dir).as_deref(),
+        Some("git@github.com:PostHog/posthog.git")
+    );
+    assert_eq!(get_repo_name(&git_dir).as_deref(), Some("posthog"));
     let _ = fs::remove_dir_all(git_dir.parent().unwrap());
 }
 
 #[test]
-fn test_get_repo_name_without_dot_git() {
+fn test_get_repo_infos_ssh_without_dot_git() {
     let cfg = r#"
 [core]
     repositoryformatversion = 0
 [remote "origin"]
-    url = https://github.com/PostHog/posthog
+    url = git@github.com:PostHog/posthog
     fetch = +refs/heads/*:refs/remotes/origin/*
 "#;
     let git_dir = make_git_dir_with_config(cfg);
-    let name = get_repo_name(&git_dir).expect("expected some name");
-    assert_eq!(name, "posthog");
+    assert_eq!(
+        get_remote_url(&git_dir).as_deref(),
+        Some("git@github.com:PostHog/posthog.git")
+    );
+    assert_eq!(get_repo_name(&git_dir).as_deref(), Some("posthog"));
     let _ = fs::remove_dir_all(git_dir.parent().unwrap());
 }
 
