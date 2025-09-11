@@ -15,13 +15,19 @@ export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
         type: 'function_email',
         name: 'Email',
         description: 'Send an email to the user.',
-        config: { template_id: 'template-email', inputs: {} },
+        config: {
+            template_id: 'template-email',
+            inputs: {},
+        },
     },
     {
         type: 'function_sms',
         name: 'SMS',
         description: 'Send an SMS to the user.',
-        config: { template_id: 'template-twilio', inputs: {} },
+        config: {
+            template_id: 'template-twilio',
+            inputs: {},
+        },
     },
     {
         type: 'function',

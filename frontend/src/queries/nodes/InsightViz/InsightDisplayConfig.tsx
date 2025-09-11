@@ -95,7 +95,11 @@ export function InsightDisplayConfig(): JSX.Element {
     )
 
     const advancedOptions: LemonMenuItems = [
-        ...(((isTrends || isRetention) && display !== ChartDisplayType.CalendarHeatmap) || isLifecycle
+        ...((isTrends && display !== ChartDisplayType.CalendarHeatmap) ||
+        isRetention ||
+        isTrendsFunnel ||
+        isStickiness ||
+        isLifecycle
             ? [
                   {
                       title: 'Display',
@@ -299,7 +303,11 @@ export function InsightDisplayConfig(): JSX.Element {
             </div>
             <div className="flex items-center gap-x-2 flex-wrap">
                 {advancedOptions.length > 0 && (
-                    <LemonMenu items={advancedOptions} closeOnClickInside={false}>
+                    <LemonMenu
+                        items={advancedOptions}
+                        closeOnClickInside={false}
+                        placement={isTrendsFunnel ? 'bottom-end' : undefined}
+                    >
                         <LemonButton size="small" disabledReason={editingDisabledReason}>
                             <span className="font-medium whitespace-nowrap">
                                 Options

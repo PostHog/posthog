@@ -76,6 +76,10 @@ const createIncomingEventsWithTeam = (events: PipelineEvent[], team: Team): Inco
             },
             team: team,
             message: createKafkaMessage(e),
+            headers: {
+                token: e.token || '',
+                distinct_id: e.distinct_id || '',
+            },
         })
     )
 }
@@ -664,6 +668,56 @@ describe('IngestionConsumer', () => {
                     events: [expect.any(Object)],
                 },
             })
+        })
+
+        it('should preserve headers when grouping events by distinct_id', () => {
+            const events = [
+                createEvent({ distinct_id: 'distinct-id-1' }),
+                createEvent({ distinct_id: 'distinct-id-2' }),
+            ]
+
+            // Create messages with custom headers
+            const messages: IncomingEventWithTeam[] = events.map((event, index) => {
+                const message = createKafkaMessage(event)
+                message.headers = [
+                    { token: Buffer.from(team.api_token) },
+                    { distinct_id: Buffer.from(event.distinct_id || '') },
+                    { timestamp: Buffer.from((Date.now() + index * 1000).toString()) },
+                ]
+
+                return {
+                    event: { ...event, team_id: team.id },
+                    team: team,
+                    message: message,
+                    headers: {
+                        token: team.api_token,
+                        distinct_id: event.distinct_id || '',
+                        timestamp: (Date.now() + index * 1000).toString(),
+                    },
+                }
+            })
+
+            const batches = ingester['groupEventsByDistinctId'](messages)
+
+            expect(Object.keys(batches)).toHaveLength(2)
+
+            // Check that headers are preserved in the grouped events
+            expect(batches[`${team.api_token}:distinct-id-1`].events[0].headers).toEqual({
+                token: team.api_token,
+                distinct_id: 'distinct-id-1',
+                timestamp: expect.any(String),
+            })
+
+            expect(batches[`${team.api_token}:distinct-id-2`].events[0].headers).toEqual({
+                token: team.api_token,
+                distinct_id: 'distinct-id-2',
+                timestamp: expect.any(String),
+            })
+
+            // Verify the timestamp values are different
+            const timestamp1 = parseInt(batches[`${team.api_token}:distinct-id-1`].events[0].headers.timestamp!)
+            const timestamp2 = parseInt(batches[`${team.api_token}:distinct-id-2`].events[0].headers.timestamp!)
+            expect(timestamp2 - timestamp1).toBe(1000)
         })
     })
 

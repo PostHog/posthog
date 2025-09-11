@@ -350,7 +350,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                         description={survey.description}
                         resourceType={{
                             type: 'survey',
-                            typePlural: 'surveys',
                         }}
                         canEdit
                         onNameChange={(name) => updateSurvey({ id, name })}

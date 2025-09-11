@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonInput, LemonTextArea, Spinner } from '@posthog/lemon-ui'
+import { IconCode } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonTextArea, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -68,13 +69,26 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element 
                     </div>
 
                     <div className="p-3 space-y-2 rounded border flex-2 min-w-100 bg-surface-primary">
-                        <h3>Email template</h3>
+                        <div className="flex justify-between items-center">
+                            <h3>Email template</h3>
+                            <Tooltip
+                                title="You can use Liquid templating in any email text field."
+                                docLink="https://liquidjs.com/filters/overview.html"
+                            >
+                                <span>
+                                    <IconCode fontSize={24} />
+                                </span>
+                            </Tooltip>
+                        </div>
                         {messageLoading ? (
                             <Spinner className="text-lg" />
                         ) : (
                             <EmailTemplater
                                 value={template?.content.email}
                                 onChange={(value) => setTemplateValue('content.email', value)}
+                                onChangeTemplating={(templating) =>
+                                    setTemplateValue('content.email.templating', templating)
+                                }
                                 type="native_email_template"
                             />
                         )}

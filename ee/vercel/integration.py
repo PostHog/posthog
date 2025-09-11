@@ -1,12 +1,13 @@
 import copy
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import Any, Literal
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
+from django.utils import timezone
 from django.utils.text import slugify
 
 import structlog
@@ -27,6 +28,8 @@ from posthog.utils import absolute_uri
 from ee.vercel.client import VercelAPIClient
 
 logger = structlog.get_logger(__name__)
+
+VercelItemType = Literal["flag", "experiment"]
 
 
 @dataclass
@@ -516,20 +519,22 @@ class VercelIntegration:
         )
 
     @staticmethod
-    def _get_vercel_item_id(item_type: str, item_id: str | int) -> str:
+    def _get_vercel_item_id(item_type: VercelItemType, item_id: str | int) -> str:
         return f"{item_type}_{item_id}"
 
     @staticmethod
     def _sync_item_to_vercel(
         team: Team,
-        item_type: str,
-        item_id: str | int,
+        item_type: VercelItemType,
+        item_pk: str | int,
         vercel_item: dict,
         created: bool,
     ) -> None:
         setup_result = VercelIntegration._setup_vercel_client_for_team(team)
         if not setup_result:
             return
+
+        item_id = VercelIntegration._get_vercel_item_id(item_type, item_pk)
 
         if created:
             result = setup_result.client.create_experimentation_items(
@@ -553,12 +558,11 @@ class VercelIntegration:
                     integration="vercel",
                 )
         else:
-            update_data = {k: v for k, v in vercel_item.items() if k not in ("id", "createdAt")}
             result = setup_result.client.update_experimentation_item(
                 integration_config_id=setup_result.integration_config_id,
                 resource_id=setup_result.resource_id,
-                item_id=vercel_item["id"],
-                data=update_data,
+                item_id=item_id,
+                data=vercel_item,
             )
             if result.success:
                 logger.info(
@@ -578,17 +582,17 @@ class VercelIntegration:
 
     @staticmethod
     def sync_feature_flag_to_vercel(feature_flag: FeatureFlag, created: bool) -> None:
-        vercel_item = VercelIntegration._convert_feature_flag_to_vercel_item(feature_flag)
+        vercel_item = VercelIntegration._convert_feature_flag_to_vercel_item(feature_flag, created)
         VercelIntegration._sync_item_to_vercel(
             team=feature_flag.team,
-            item_type="feature_flag",
-            item_id=feature_flag.pk,
+            item_type="flag",
+            item_pk=feature_flag.pk,
             vercel_item=vercel_item,
             created=created,
         )
 
     @staticmethod
-    def _delete_item_from_vercel(team: Team, item_type: str, item_id: str) -> None:
+    def _delete_item_from_vercel(team: Team, item_type: VercelItemType, item_id: str) -> None:
         setup_result = VercelIntegration._setup_vercel_client_for_team(team)
         if not setup_result:
             return
@@ -621,17 +625,17 @@ class VercelIntegration:
     def delete_feature_flag_from_vercel(feature_flag: FeatureFlag) -> None:
         VercelIntegration._delete_item_from_vercel(
             team=feature_flag.team,
-            item_type="feature_flag",
+            item_type="flag",
             item_id=VercelIntegration._get_vercel_item_id("flag", feature_flag.pk),
         )
 
     @staticmethod
     def sync_experiment_to_vercel(experiment: Experiment, created: bool) -> None:
-        vercel_item = VercelIntegration._convert_experiment_to_vercel_item(experiment)
+        vercel_item = VercelIntegration._convert_experiment_to_vercel_item(experiment, created)
         VercelIntegration._sync_item_to_vercel(
             team=experiment.team,
             item_type="experiment",
-            item_id=experiment.pk,
+            item_pk=experiment.pk,
             vercel_item=vercel_item,
             created=created,
         )
@@ -645,29 +649,31 @@ class VercelIntegration:
         )
 
     @staticmethod
-    def _convert_feature_flag_to_vercel_item(feature_flag: FeatureFlag) -> dict:
+    def _convert_feature_flag_to_vercel_item(feature_flag: FeatureFlag, created: bool) -> dict:
         return {
-            "id": VercelIntegration._get_vercel_item_id("flag", feature_flag.pk),
+            **({"id": VercelIntegration._get_vercel_item_id("flag", feature_flag.pk)} if created else {}),
             "slug": feature_flag.key,
             "origin": absolute_uri(f"/project/{feature_flag.team.id}/feature_flags/{feature_flag.pk}"),
             "category": "flag",
             "name": feature_flag.key,
             "description": feature_flag.name,
             "isArchived": feature_flag.deleted,
-            "createdAt": feature_flag.created_at.timestamp(),
+            "createdAt": int(feature_flag.created_at.timestamp() * 1000),
+            "updatedAt": int(timezone.now().timestamp() * 1000),
         }
 
     @staticmethod
-    def _convert_experiment_to_vercel_item(experiment: Experiment) -> dict:
+    def _convert_experiment_to_vercel_item(experiment: Experiment, created: bool) -> dict:
         return {
-            "id": VercelIntegration._get_vercel_item_id("experiment", experiment.pk),
+            **({"id": VercelIntegration._get_vercel_item_id("experiment", experiment.pk)} if created else {}),
             "slug": slugify(experiment.name) or f"experiment-{experiment.pk}",
             "origin": absolute_uri(f"/project/{experiment.team.id}/experiments/{experiment.pk}"),
             "category": "experiment",
             "name": experiment.name,
             "description": experiment.description or "",
             "isArchived": experiment.archived or experiment.deleted,
-            "createdAt": experiment.created_at.timestamp(),
+            "createdAt": int(experiment.created_at.timestamp() * 1000),
+            "updatedAt": int(experiment.updated_at.timestamp() * 1000),
         }
 
 

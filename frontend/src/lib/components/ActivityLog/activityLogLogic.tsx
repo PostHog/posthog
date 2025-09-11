@@ -18,6 +18,7 @@ import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { alertConfigurationActivityDescriber } from 'scenes/alerts/activityDescriptions'
 import { annotationActivityDescriber } from 'scenes/annotations/activityDescriptions'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
+import { dashboardActivityDescriber } from 'scenes/dashboard/dashboardActivityDescriber'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
 import { batchExportActivityDescriber } from 'scenes/data-pipelines/batch-exports/activityDescriptions'
 import { batchImportActivityDescriber } from 'scenes/data-pipelines/batch-imports/activityDescriptions'
@@ -107,6 +108,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return batchExportActivityDescriber
         case ActivityScope.BATCH_IMPORT:
             return batchImportActivityDescriber
+        case ActivityScope.DASHBOARD:
+            return dashboardActivityDescriber
         case ActivityScope.FEATURE_FLAG:
             return flagActivityDescriber
         case ActivityScope.PLUGIN:
@@ -118,6 +121,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return cohortActivityDescriber
         case ActivityScope.INSIGHT:
             return insightActivityDescriber
+        case ActivityScope.DASHBOARD:
+            return dashboardActivityDescriber
         case ActivityScope.PERSON:
             return personActivityDescriber
         case ActivityScope.GROUP:

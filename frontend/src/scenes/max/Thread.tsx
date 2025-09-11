@@ -29,7 +29,11 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
+import {
+    InsightBreakdownSummary,
+    PropertiesSummary,
+    SeriesSummary,
+} from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -57,10 +61,11 @@ import {
     TaskExecutionMessage,
     TaskExecutionStatus,
     VisualizationItem,
+    VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
-import { ProductKey } from '~/types'
+import { InsightShortId, ProductKey } from '~/types'
 
 import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
@@ -639,7 +644,7 @@ const Visualization = React.memo(function Visualization({
                     {!isHogQLQuery(query.source) && (
                         <div className="flex flex-wrap gap-4 mt-1 *:grow">
                             <PropertiesSummary properties={query.source.properties} />
-                            <BreakdownSummary query={query.source} />
+                            <InsightBreakdownSummary query={query.source} />
                         </div>
                     )}
                 </>
@@ -679,7 +684,7 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
     status,
     isEditingInsight,
 }: {
-    message: VisualizationItem
+    message: VisualizationMessage
     status?: MessageStatus
     isEditingInsight: boolean
 }): JSX.Element | null {
@@ -723,11 +728,15 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                               )}
                               {!isEditingInsight && (
                                   <LemonButton
-                                      to={urls.insightNew({ query })}
+                                      to={
+                                          message.short_id
+                                              ? urls.insightView(message.short_id as InsightShortId)
+                                              : urls.insightNew({ query })
+                                      }
                                       icon={<IconOpenInNew />}
                                       size="xsmall"
                                       targetBlank
-                                      tooltip="Open as new insight"
+                                      tooltip={message.short_id ? 'Open insight' : 'Open as new insight'}
                                   />
                               )}
                               <LemonButton
@@ -745,7 +754,7 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                               {!isHogQLQuery(query.source) && (
                                   <div className="flex flex-wrap gap-4 mt-1 *:grow">
                                       <PropertiesSummary properties={query.source.properties} />
-                                      <BreakdownSummary query={query.source} />
+                                      <InsightBreakdownSummary query={query.source} />
                                   </div>
                               )}
                           </>

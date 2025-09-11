@@ -100,6 +100,8 @@ export type HogFunctionInvocationGlobals = {
         body: Record<string, any>
         stringBody: string
     }
+
+    unsubscribe_url?: string // For email actions, the unsubscribe URL to use
 }
 
 export type HogFunctionInvocationGlobalsWithInputs = HogFunctionInvocationGlobals & {
@@ -185,11 +187,14 @@ export type MinimalAppMetric = {
     metric_kind: 'failure' | 'success' | 'other' | 'email' | 'billing'
     metric_name:
         | 'early_exit'
+        | 'triggered'
+        | 'trigger_failed'
         | 'succeeded'
         | 'failed'
         | 'filtered'
         | 'disabled_temporarily'
         | 'disabled_permanently'
+        | 'rate_limited'
         | 'masked'
         | 'filtering_failed'
         | 'inputs_failed'
@@ -311,7 +316,11 @@ export type HogFunctionInputSchemaType = {
     requires_field?: string
     integration_field?: string
     requiredScopes?: string
-    templating?: boolean
+    /**
+     * templating: true indicates the field supports templating. Alternatively
+     * it can be set to 'hog' or 'liquid' to specify the default templating engine to use.
+     */
+    templating?: boolean | 'hog' | 'liquid'
 }
 
 export type HogFunctionTypeType =

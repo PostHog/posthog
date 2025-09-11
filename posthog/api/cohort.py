@@ -48,11 +48,17 @@ from posthog.constants import (
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import LABEL_TEAM_ID
-from posthog.models import Cohort, FeatureFlag, Person
-from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, load_activity, log_activity
+from posthog.models import Cohort, FeatureFlag, Person, User
+from posthog.models.activity_logging.activity_log import (
+    Change,
+    Detail,
+    dict_changes_between,
+    load_activity,
+    log_activity,
+)
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.cohort import CohortOrEmpty
+from posthog.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, CohortOrEmpty
 from posthog.models.cohort.util import get_dependent_cohorts, print_cohort_hogql_query
 from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.feature_flag.flag_matching import (
@@ -67,6 +73,7 @@ from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.models.person.sql import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.team.team import Team
+from posthog.models.utils import UUIDT
 from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
 from posthog.queries.base import property_group_to_Q
 from posthog.queries.person_query import PersonQuery
@@ -183,17 +190,14 @@ logger = structlog.get_logger(__name__)
 class CSVConfig:
     """Configuration constants for CSV processing"""
 
+    PERSON_ID_HEADERS = ["person_id", "person-id", "Person .id"]
     DISTINCT_ID_HEADERS = ["distinct_id", "distinct-id"]
     ENCODING = "utf-8"
 
     class ErrorMessages:
         EMPTY_FILE = "CSV file is empty. Please upload a CSV file with at least one row of data."
-        MISSING_DISTINCT_ID = (
-            "Multi-column CSV must contain a 'distinct_id' or 'distinct-id' column header. Found columns: {columns}"
-        )
-        NO_VALID_IDS = (
-            "CSV file contains no valid distinct IDs. Please ensure your file has data rows with distinct IDs."
-        )
+        MISSING_ID_COLUMN = "Multi-column CSV must contain at least one column with a supported ID header: 'person_id', 'Person .id' (PostHog export format), 'distinct_id', or 'distinct-id'. Found columns: {columns}"
+        NO_VALID_IDS = "CSV file contains no valid person or distinct IDs. Please ensure your file has data rows with person IDs or distinct IDs."
         ENCODING_ERROR = "CSV file encoding is not supported. Please save your file as UTF-8 and try again."
         FORMAT_ERROR = "CSV file format is invalid. Please check your file format and try again."
         GENERIC_ERROR = "An error occurred while processing your CSV file. Please try again or contact support if the problem persists."
@@ -322,17 +326,39 @@ class CohortSerializer(serializers.ModelSerializer):
         non_empty_cols = [col for col in first_row if col.strip()]
         return len(non_empty_cols) <= 1
 
-    def _find_distinct_id_column(self, headers: list[str]) -> int | None:
-        """Find the index of the distinct_id column in headers"""
-        normalized_headers = [h.lower().strip() for h in headers]
-        for i, header in enumerate(normalized_headers):
+    def _is_person_id_header(self, header: str) -> bool:
+        """Check if header indicates person_id column"""
+        person_id_headers_lower = [h.lower() for h in CSVConfig.PERSON_ID_HEADERS]
+        return header.strip().lower() in person_id_headers_lower
+
+    def _find_id_column(self, headers: list[str]) -> tuple[int, str] | None:
+        """Find the index and type of the ID column in headers with person_id preference over distinct_id"""
+        normalized_headers = [h.strip() for h in headers]
+        normalized_lower_headers = [h.lower() for h in normalized_headers]
+
+        # First, look for person_id columns (preferred) - use case-insensitive matching
+        person_id_headers_lower = [h.lower() for h in CSVConfig.PERSON_ID_HEADERS]
+        for i, header in enumerate(normalized_lower_headers):
+            if header in person_id_headers_lower:
+                return i, "person_id"
+
+        # Then, look for distinct_id columns
+        for i, header in enumerate(normalized_lower_headers):
             if header in CSVConfig.DISTINCT_ID_HEADERS:
-                return i
+                return i, "distinct_id"
+
         return None
 
-    def _extract_distinct_ids_single_column(self, first_row: list[str], reader: Iterator[list[str]]) -> list[str]:
+    def _extract_ids_single_column(
+        self, first_row: list[str], reader: Iterator[list[str]], skip_header: bool = False
+    ) -> list[str]:
         """Process single-column CSV format"""
-        distinct_ids = [first_row[0].strip()] if first_row and first_row[0].strip() != "" else []
+        distinct_ids = []
+
+        # Include first row only if it's not a header
+        if not skip_header and first_row and first_row[0].strip() != "":
+            distinct_ids.append(first_row[0].strip())
+
         for row in reader:
             if len(row) > 0:
                 stripped_id = row[0].strip()
@@ -340,39 +366,41 @@ class CohortSerializer(serializers.ModelSerializer):
                     distinct_ids.append(stripped_id)
         return distinct_ids
 
-    def _extract_distinct_ids_multi_column(
-        self, reader: Iterator[list[str]], distinct_id_col: int, cohort_pk: int
-    ) -> list[str]:
+    def _extract_ids_multi_column(self, reader: Iterator[list[str]], id_col: int, cohort_pk: int) -> list[str]:
         """Process multi-column CSV format with robust error handling"""
-        distinct_ids = []
+        ids = []
         skipped_rows = 0
 
         for row in reader:
             # Skip rows with incorrect number of columns
-            if len(row) <= distinct_id_col:
+            if len(row) <= id_col:
                 skipped_rows += 1
                 continue
 
-            # Extract distinct ID if present and non-empty
-            distinct_id = row[distinct_id_col].strip()
-            if distinct_id != "":
-                distinct_ids.append(distinct_id)
+            # Extract ID if present and non-empty
+            id_value = row[id_col].strip()
+            if id_value != "":
+                ids.append(id_value)
 
         if skipped_rows > 0:
             logger.info(f"Skipped {skipped_rows} rows with incorrect column count in CSV for cohort {cohort_pk}")
 
-        return distinct_ids
+        return ids
 
-    def _validate_and_process_distinct_ids(self, distinct_ids: list[str], cohort: Cohort) -> None:
+    def _validate_and_process_ids(self, ids: list[str], id_type: str, cohort: Cohort) -> None:
         """Final validation and task scheduling"""
-        if not distinct_ids:
+        if not ids:
             raise ValidationError({"csv": [CSVConfig.ErrorMessages.NO_VALID_IDS]})
 
-        logger.info(f"Processing CSV upload for cohort {cohort.pk} with {len(distinct_ids)} distinct IDs")
-        calculate_cohort_from_list.delay(cohort.pk, distinct_ids, team_id=self.context["team_id"])
+        logger.info(f"Processing CSV upload for cohort {cohort.pk} with {len(ids)} {id_type}s")
+        calculate_cohort_from_list.delay(cohort.pk, ids, team_id=self.context["team_id"], id_type=id_type)
 
     def _handle_csv_errors(self, e: Exception, cohort: Cohort) -> None:
         """Centralized error handling with consistent exception capture"""
+
+        # Reset calculating flag on error
+        cohort.is_calculating = False
+        cohort.save(update_fields=["is_calculating"])
 
         if isinstance(e, UnicodeDecodeError):
             raise ValidationError({"csv": [CSVConfig.ErrorMessages.ENCODING_ERROR]})
@@ -388,28 +416,41 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def _calculate_static_by_csv(self, file, cohort: Cohort) -> None:
         """Main orchestration method for CSV processing - clear high-level flow"""
+        # Set calculating flag immediately so UI shows loading state
+        cohort.is_calculating = True
+        cohort.save(update_fields=["is_calculating"])
+
         try:
             first_row, reader = self._parse_csv_file(file)
 
             if self._is_single_column_format(first_row):
-                distinct_ids = self._extract_distinct_ids_single_column(first_row, reader)
+                # Check if single column header indicates person_id
+                if first_row and self._is_person_id_header(first_row[0]):
+                    ids = self._extract_ids_single_column(first_row, reader, skip_header=True)
+                    id_type = "person_id"
+                else:
+                    # Single column format treated as distinct_ids for backwards compatibility
+                    ids = self._extract_ids_single_column(first_row, reader, skip_header=False)
+                    id_type = "distinct_id"
             else:
-                distinct_id_col = self._find_distinct_id_column(first_row)
-                if distinct_id_col is None:
+                result = self._find_id_column(first_row)
+
+                if result is None:
                     available_headers = [h for h in first_row if h.strip()]
                     raise ValidationError(
                         {
                             "csv": [
-                                CSVConfig.ErrorMessages.MISSING_DISTINCT_ID.format(
+                                CSVConfig.ErrorMessages.MISSING_ID_COLUMN.format(
                                     columns=", ".join(available_headers) if available_headers else "none"
                                 )
                             ]
                         }
                     )
 
-                distinct_ids = self._extract_distinct_ids_multi_column(reader, distinct_id_col, cohort.pk)
+                id_col, id_type = result
+                ids = self._extract_ids_multi_column(reader, id_col, cohort.pk)
 
-            self._validate_and_process_distinct_ids(distinct_ids, cohort)
+            self._validate_and_process_ids(ids, id_type, cohort)
 
         except Exception as e:
             self._handle_csv_errors(e, cohort)
@@ -769,6 +810,39 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
 
+    @action(methods=["PATCH"], detail=True)
+    def add_persons_to_static_cohort(self, request: request.Request, **kwargs):
+        cohort: Cohort = self.get_object()
+        if not cohort.is_static:
+            raise ValidationError("Can only add users to static cohorts")
+        person_ids = request.data.get("person_ids", None)
+        if not isinstance(person_ids, list):
+            raise ValidationError("person_ids must be a list")
+        if len(person_ids) == 0:
+            raise ValidationError("person_ids cannot be empty")
+        if len(person_ids) > DEFAULT_COHORT_INSERT_BATCH_SIZE:
+            raise ValidationError("List size exceeds limit")
+        uuids = [
+            str(uuid)
+            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(team_id=self.team_id, uuid__in=person_ids)
+            .values_list("uuid", flat=True)
+        ]
+        if len(uuids) == 0:
+            raise ValidationError("No valid users to add to cohort")
+        cohort.insert_users_list_by_uuid(uuids, team_id=self.team_id)
+        log_activity(
+            organization_id=cast(UUIDT, self.organization_id),
+            team_id=self.team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=str(cohort.id),
+            scope="Cohort",
+            activity="persons_added_manually",
+            detail=Detail(changes=[Change(type="Cohort", action="changed")]),
+        )
+        return Response({"success": True}, status=200)
+
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
@@ -891,7 +965,7 @@ def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
         f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} where team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
         {"cohort_id": cohort.pk, "team_id": team_id},
     )
-    cohort.insert_users_list_by_uuid(items=[str(id[0]) for id in ids], team_id=team_id)
+    cohort.insert_users_list_by_uuid_into_pg_only(items=[str(id[0]) for id in ids], team_id=team_id)
 
 
 def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team):
@@ -1088,18 +1162,14 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
                     capture_exception(err)
 
                 if len(uuids_to_add_to_cohort) >= batchsize:
-                    cohort.insert_users_list_by_uuid(
-                        uuids_to_add_to_cohort, insert_in_clickhouse=True, batchsize=batchsize, team_id=team_id
-                    )
+                    cohort.insert_users_list_by_uuid(uuids_to_add_to_cohort, batchsize=batchsize, team_id=team_id)
                     uuids_to_add_to_cohort = []
 
             start += batchsize
             batch_of_persons = queryset[start : start + batchsize]
 
         if len(uuids_to_add_to_cohort) > 0:
-            cohort.insert_users_list_by_uuid(
-                uuids_to_add_to_cohort, insert_in_clickhouse=True, batchsize=batchsize, team_id=team_id
-            )
+            cohort.insert_users_list_by_uuid(uuids_to_add_to_cohort, batchsize=batchsize, team_id=team_id)
 
     except Exception as err:
         if settings.DEBUG or settings.TEST:
