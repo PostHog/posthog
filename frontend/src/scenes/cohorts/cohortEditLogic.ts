@@ -384,10 +384,20 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             cohortsModel.findMounted()?.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
             router.actions.push(urls.cohorts())
         },
-        submitCohort: () => {
-            if (values.cohortHasErrors) {
-                lemonToast.error('There was an error submiting this cohort. Make sure the cohort filters are correct.')
-            }
+        submitCohortFailure: () => {
+            // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
+            setTimeout(() => {
+                const errorElement =
+                    document.querySelector(`.Field--error`) ||
+                    document.querySelector(`.CohortCriteriaRow__Criteria--error`)
+                if (errorElement) {
+                    errorElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+                } else {
+                    lemonToast.error(
+                        'There was an error submiting this cohort. Make sure the cohort filters are correct.'
+                    )
+                }
+            }, 1)
         },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
             if (cohort.is_calculating) {
