@@ -51,8 +51,8 @@ export interface ExportedAsset {
 }
 
 const DEFAULT_FILTERS: AdvancedActivityLogFilters = {
-    start_date: undefined,
-    end_date: undefined,
+    start_date: '-30d',
+    end_date: null,
     users: [],
     scopes: [],
     activities: [],
