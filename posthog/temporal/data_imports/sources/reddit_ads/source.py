@@ -23,6 +23,7 @@ class RedditAdsSource(BaseSource[RedditAdsSourceConfig]):
             name=SchemaExternalDataSourceType.REDDIT_ADS,
             label="Reddit Ads",
             caption="",
+            iconPath="/static/services/reddit.png",
             fields=cast(list[FieldType], []),
             unreleasedSource=True,
         )
