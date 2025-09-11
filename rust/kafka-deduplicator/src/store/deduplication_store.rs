@@ -303,10 +303,11 @@ impl DeduplicationStore {
 
         // Clean up old entries from timestamp CF (they're timestamp-prefixed so easy to clean)
         let cf = self.store.get_cf_handle(Self::TIMESTAMP_CF)?;
-        
+
         // Get first key
         let mut first_iter = self.store.db.iterator_cf(&cf, rocksdb::IteratorMode::Start);
-        let (first_key_bytes, first_timestamp) = if let Some(Ok((first_key, _))) = first_iter.next() {
+        let (first_key_bytes, first_timestamp) = if let Some(Ok((first_key, _))) = first_iter.next()
+        {
             let first_key_parsed: TimestampKey = first_key.as_ref().try_into()?;
             (first_key.to_vec(), first_key_parsed.timestamp)
         } else {
@@ -328,7 +329,7 @@ impl DeduplicationStore {
 
         // Calculate the time range of data we have
         let time_range = last_timestamp.saturating_sub(first_timestamp);
-        
+
         if time_range == 0 {
             info!(
                 "Store {}:{} - All data has same timestamp {}, skipping cleanup",
@@ -339,7 +340,7 @@ impl DeduplicationStore {
 
         // Calculate how much of the time range to clean up (percentage)
         let cleanup_duration = (time_range as f64 * cleanup_percentage) as u64;
-        
+
         // Calculate the cutoff timestamp
         let cleanup_timestamp = first_timestamp + cleanup_duration;
 
@@ -490,7 +491,8 @@ impl DeduplicationStore {
     pub fn update_metrics(&self) -> Result<()> {
         self.store.update_db_metrics(Self::TIMESTAMP_CF)?;
         self.store.update_db_metrics(Self::UUID_CF)?;
-        self.store.update_db_metrics(Self::UUID_TIMESTAMP_INDEX_CF)?;
+        self.store
+            .update_db_metrics(Self::UUID_TIMESTAMP_INDEX_CF)?;
         Ok(())
     }
 

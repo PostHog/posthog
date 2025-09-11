@@ -220,7 +220,7 @@ impl StoreManager {
     /// This method:
     /// - Removes the store from the map
     /// - Drops the store (closing RocksDB)
-    /// - Deletes the store's files from disk (best effort)
+    /// - Deletes ALL files for this partition from disk (including old timestamp directories)
     pub fn remove(&self, topic: &str, partition: i32) -> Result<()> {
         let partition_key = Partition::new(topic.to_string(), partition);
 
@@ -231,34 +231,42 @@ impl StoreManager {
                 topic, partition
             );
 
-            // Get the actual store path from the store instance (it has the timestamp)
-            let store_path = store.get_db_path().display().to_string();
-
-            // Drop the store explicitly to close RocksDB
+            // Drop the store explicitly to close RocksDB before deleting files
             drop(store);
+        }
 
-            // Best effort deletion of the store directory
-            // We don't fail if this doesn't work - the directory might already be gone
-            // or might be recreated by a concurrent operation
-            let path_buf = PathBuf::from(&store_path);
-            if path_buf.exists() {
-                match std::fs::remove_dir_all(&path_buf) {
-                    Ok(_) => {
-                        info!(
-                            "Deleted store directory for partition {}:{} at path {}",
-                            topic, partition, store_path
-                        );
-                    }
-                    Err(e) => {
-                        // Log but don't fail - this might happen if another process
-                        // is already recreating the store
-                        warn!(
-                            "Failed to remove store directory for {}:{} at path {}: {}. This is usually harmless.",
-                            topic, partition, store_path, e
-                        );
-                    }
+        // Delete the entire topic_partition directory (not just the current timestamp subdirectory)
+        // This ensures we clean up all historical data for this partition
+        let partition_dir = format!(
+            "{}/{}_{}",
+            self.store_config.path.display(),
+            topic.replace('/', "_"),
+            partition
+        );
+        
+        let partition_path = PathBuf::from(&partition_dir);
+        if partition_path.exists() {
+            match std::fs::remove_dir_all(&partition_path) {
+                Ok(_) => {
+                    info!(
+                        "Deleted entire partition directory for {}:{} at path {}",
+                        topic, partition, partition_dir
+                    );
+                }
+                Err(e) => {
+                    // Log but don't fail - this might happen if another process
+                    // is already recreating the store
+                    warn!(
+                        "Failed to remove partition directory for {}:{} at path {}: {}. This is usually harmless.",
+                        topic, partition, partition_dir, e
+                    );
                 }
             }
+        } else {
+            debug!(
+                "Partition directory for {}:{} doesn't exist at path {}",
+                topic, partition, partition_dir
+            );
         }
 
         Ok(())
@@ -431,6 +439,20 @@ impl StoreManager {
                     _ = interval.tick() => {
                         info!("Cleanup task tick - running periodic cleanup check");
 
+                        // First, clean up orphaned directories (unassigned partitions)
+                        match manager.cleanup_orphaned_directories() {
+                            Ok(0) => {
+                                debug!("No orphaned directories found");
+                            }
+                            Ok(bytes_freed) => {
+                                info!("Cleaned up {} bytes of orphaned directories", bytes_freed);
+                            }
+                            Err(e) => {
+                                warn!("Failed to clean up orphaned directories: {}", e);
+                            }
+                        }
+
+                        // Then check if we need capacity-based cleanup
                         if manager.needs_cleanup() {
                             info!("Global capacity exceeded, triggering cleanup");
                             match manager.cleanup_old_entries_if_needed() {
@@ -592,6 +614,75 @@ impl StoreManager {
         }
 
         Ok(size)
+    }
+
+    /// Clean up orphaned directories that don't belong to any assigned partition
+    pub fn cleanup_orphaned_directories(&self) -> Result<u64> {
+        let mut total_freed = 0u64;
+        
+        // Build a set of currently assigned partition directories
+        let mut assigned_dirs = std::collections::HashSet::new();
+        for entry in self.stores.iter() {
+            let partition = entry.key();
+            let dir_name = format!(
+                "{}_{}",
+                partition.topic().replace('/', "_"),
+                partition.partition_number()
+            );
+            assigned_dirs.insert(dir_name);
+        }
+        
+        info!(
+            "Checking for orphaned directories. Currently assigned: {:?}",
+            assigned_dirs
+        );
+        
+        // Scan the store directory for all partition directories
+        if let Ok(entries) = std::fs::read_dir(&self.store_config.path) {
+            for entry in entries.flatten() {
+                if let Ok(metadata) = entry.metadata() {
+                    if metadata.is_dir() {
+                        let dir_name = entry.file_name().to_string_lossy().to_string();
+                        
+                        // Check if this directory matches the pattern topic_partition
+                        // and is not in our assigned set
+                        if dir_name.contains('_') && !assigned_dirs.contains(&dir_name) {
+                            // This is an orphaned directory
+                            let dir_path = entry.path();
+                            let dir_size = Self::get_directory_size(&dir_path).unwrap_or(0);
+                            
+                            match std::fs::remove_dir_all(&dir_path) {
+                                Ok(_) => {
+                                    info!(
+                                        "Removed orphaned directory {} ({:.2} MB)",
+                                        dir_name,
+                                        dir_size as f64 / (1024.0 * 1024.0)
+                                    );
+                                    total_freed += dir_size;
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        "Failed to remove orphaned directory {}: {}",
+                                        dir_name, e
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        if total_freed > 0 {
+            info!(
+                "Cleaned up {:.2} MB of orphaned directories",
+                total_freed as f64 / (1024.0 * 1024.0)
+            );
+        } else {
+            debug!("No orphaned directories found");
+        }
+        
+        Ok(total_freed)
     }
 }
 
