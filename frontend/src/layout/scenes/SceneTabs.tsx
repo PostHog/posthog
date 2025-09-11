@@ -8,6 +8,7 @@ import { IconPlus, IconSearch, IconShare, IconX } from '@posthog/icons'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
+import { IconMenu } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from 'lib/ui/HoverCard/HoverCard'
 import { cn } from 'lib/utils/css-classes'
@@ -18,6 +19,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
 import { sceneLogic } from '~/scenes/sceneLogic'
 
+import { navigationLogic } from '../navigation/navigationLogic'
 import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
 
 export interface SceneTabsProps {
@@ -29,7 +31,9 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const { newTab, reorderTabs } = useActions(sceneLogic)
     const { toggleSearchBar } = useActions(commandBarLogic)
     const { isLayoutPanelVisible } = useValues(panelLayoutLogic)
-
+    const { mobileLayout } = useValues(navigationLogic)
+    const { showLayoutNavBar } = useActions(panelLayoutLogic)
+    const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
@@ -45,6 +49,17 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                 className
             )}
         >
+            {/* rounded corner on the left to make scene curve into tab line */}
+            {mobileLayout && (
+                <ButtonPrimitive
+                    onClick={() => showLayoutNavBar(!isLayoutNavbarVisibleForMobile)}
+                    iconOnly
+                    className="ml-1"
+                >
+                    {isLayoutNavbarVisibleForMobile ? <IconX /> : <IconMenu />}
+                </ButtonPrimitive>
+            )}
+
             {/* rounded corner on the left to make scene curve into tab line */}
             {!isLayoutPanelVisible && (
                 <div className="absolute left-0 -bottom-1 size-2 bg-surface-tertiary">
