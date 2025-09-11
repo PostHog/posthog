@@ -32,7 +32,6 @@ class VercelRegionProxyMixin:
 
     CACHE_TTL = 300
     PROXY_TIMEOUT = 10
-    SAFE_HEADERS = {"authorization", "content-type", "x-vercel-auth", "x-vercel-signature", "user-agent"}
     US_DOMAIN = getattr(settings, "REGION_US_DOMAIN", "us.posthog.com")
     EU_DOMAIN = getattr(settings, "REGION_EU_DOMAIN", "eu.posthog.com")
 
@@ -103,13 +102,6 @@ class VercelRegionProxyMixin:
         pattern = r"^/api/vercel/v1/installations/[^/]+/?$"  #  /api/vercel/v1/installations/{installation_id}
         return bool(re.match(pattern, request.path))
 
-    def _build_proxy_headers(self, request: HttpRequest) -> dict[str, str]:
-        return {
-            key[5:].replace("_", "-").lower(): value
-            for key, value in request.META.items()
-            if key.startswith("HTTP_") and key[5:].replace("_", "-").lower() in self.SAFE_HEADERS
-        }
-
     def _proxy_to_eu(self, request: HttpRequest) -> Response:
         if self.current_region != "us":
             raise exceptions.APIException("Can only proxy from US region")
@@ -121,7 +113,7 @@ class VercelRegionProxyMixin:
             response = requests.request(
                 method=request.method or "GET",
                 url=target_url,
-                headers=self._build_proxy_headers(request),
+                headers=dict(request.headers),  # Django's headers object works directly
                 params=dict(request.GET.lists()) if request.GET else None,
                 data=request.body or None,
                 timeout=self.PROXY_TIMEOUT,

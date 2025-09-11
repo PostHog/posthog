@@ -172,27 +172,6 @@ class TestVercelRegionProxyMixin(VercelTestBase):
         result = self.test_viewset._extract_installation_id(request)
         assert result is None
 
-    def test_filters_headers_for_proxy_request(self):
-        factory = RequestFactory()
-        request = factory.get(
-            "/test/",
-            HTTP_AUTHORIZATION="Bearer token",
-            HTTP_X_VERCEL_AUTH="user",
-            HTTP_CONTENT_TYPE="application/json",
-            HTTP_USER_AGENT="test-agent",
-            HTTP_X_VERCEL_SIGNATURE="signature",
-            HTTP_X_UNSAFE_HEADER="unsafe",
-        )
-        headers = self.test_viewset._build_proxy_headers(request)
-        expected = {
-            "authorization": "Bearer token",
-            "x-vercel-auth": "user",
-            "content-type": "application/json",
-            "user-agent": "test-agent",
-            "x-vercel-signature": "signature",
-        }
-        assert headers == expected
-
     def test_determines_proxy_requirement(self):
         test_cases = [
             ("us_region_missing_installation", self.US_DOMAIN, "icfg_nonexistentinstallation", "eu"),
