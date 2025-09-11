@@ -149,6 +149,9 @@ export const experimentsLogic = kea<experimentsLogicType>([
             await breakpoint(300)
             actions.loadFeatureFlagModalFeatureFlags()
         },
+        resetFeatureFlagModalFilters: () => {
+            actions.loadFeatureFlagModalFeatureFlags()
+        },
     })),
     loaders(({ values }) => ({
         experiments: [
@@ -245,17 +248,30 @@ export const experimentsLogic = kea<experimentsLogicType>([
             (s) => [s.featureFlagModalFilters, s.featureFlagModalFeatureFlags, s.featureFlagModalPageFromURL],
             (filters, featureFlags, urlPage): PaginationManual => {
                 const currentPage = Math.max(filters.page || 1, urlPage)
+
+                const hasNextPage = featureFlags.count > currentPage * FLAGS_PER_PAGE
+                const hasPreviousPage = currentPage > 1
+                const needsPagination = featureFlags.count > FLAGS_PER_PAGE
+
                 return {
                     controlled: true,
                     pageSize: FLAGS_PER_PAGE,
                     currentPage,
                     entryCount: featureFlags.count,
-                    onForward: () => {
-                        experimentsLogic.actions.setFeatureFlagModalFilters({ page: currentPage + 1 })
-                    },
-                    onBackward: () => {
-                        experimentsLogic.actions.setFeatureFlagModalFilters({ page: Math.max(1, currentPage - 1) })
-                    },
+                    onForward:
+                        needsPagination && hasNextPage
+                            ? () => {
+                                  experimentsLogic.actions.setFeatureFlagModalFilters({ page: currentPage + 1 })
+                              }
+                            : undefined,
+                    onBackward:
+                        needsPagination && hasPreviousPage
+                            ? () => {
+                                  experimentsLogic.actions.setFeatureFlagModalFilters({
+                                      page: Math.max(1, currentPage - 1),
+                                  })
+                              }
+                            : undefined,
                 }
             },
         ],
@@ -325,9 +341,38 @@ export const experimentsLogic = kea<experimentsLogicType>([
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: false }]
         }
 
+        const changeFeatureFlagModalUrl = ():
+            | [
+                  string,
+                  Record<string, any>,
+                  Record<string, any>,
+                  {
+                      replace: boolean
+                  },
+              ]
+            | void => {
+            const searchParams: Record<string, string | number> = {
+                ...values.filters,
+            }
+
+            if (values.tab !== ExperimentsTabs.All) {
+                searchParams['tab'] = values.tab
+            }
+
+            // Add feature flag modal page to URL if not page 1
+            const modalPage = values.featureFlagModalFilters.page || 1
+            if (modalPage !== 1) {
+                searchParams['ff_page'] = modalPage
+            }
+
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: false }]
+        }
+
         return {
             setExperimentsFilters: changeUrl,
             setExperimentsTab: changeUrl,
+            setFeatureFlagModalFilters: changeFeatureFlagModalUrl,
+            resetFeatureFlagModalFilters: changeFeatureFlagModalUrl,
         }
     }),
     urlToAction(({ actions, values }) => ({

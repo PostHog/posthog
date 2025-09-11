@@ -530,6 +530,7 @@ const SelectExistingFeatureFlagModal = ({
                 filters={featureFlagModalFilters}
                 setFeatureFlagsFilters={setFeatureFlagModalFilters}
                 searchPlaceholder="Search for feature flags"
+                filtersConfig={{ search: true, type: true }}
             />
         </div>
     )

@@ -72,6 +72,7 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
                             filters={featureFlagModalFilters}
                             setFeatureFlagsFilters={setFeatureFlagModalFilters}
                             searchPlaceholder="Search for feature flags"
+                            filtersConfig={{ search: true, type: true }}
                         />
                     </div>
                     <LemonTable

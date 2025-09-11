@@ -390,6 +390,13 @@ export function OverViewTab({
             filters={filters}
             setFeatureFlagsFilters={setFeatureFlagsFilters}
             searchPlaceholder={searchPlaceholder || ''}
+            filtersConfig={{
+                search: true,
+                type: true,
+                status: true,
+                createdBy: true,
+                runtime: true,
+            }}
         />
     )
 
