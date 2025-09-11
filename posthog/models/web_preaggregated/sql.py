@@ -1,3 +1,5 @@
+import uuid
+
 from django.conf import settings
 
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
@@ -12,9 +14,9 @@ def is_eu_cluster() -> bool:
 
 
 def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, force_unique_zk_path=False, replace=False):
-    engine = MergeTreeEngine(
-        table_name, replication_scheme=ReplicationScheme.REPLICATED, force_unique_zk_path=force_unique_zk_path
-    )
+    engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
+    if force_unique_zk_path:
+        engine.set_zookeeper_path_key(str(uuid.uuid4()))
 
     return f"""
     {f"REPLACE TABLE {table_name}" if replace else f"CREATE TABLE IF NOT EXISTS {table_name}"} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
@@ -33,9 +35,9 @@ def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, force_unique_
 def HOURLY_TABLE_TEMPLATE(
     table_name, columns, order_by, ttl=None, on_cluster=True, force_unique_zk_path=False, replace=False
 ):
-    engine = MergeTreeEngine(
-        table_name, replication_scheme=ReplicationScheme.REPLICATED, force_unique_zk_path=force_unique_zk_path
-    )
+    engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
+    if force_unique_zk_path:
+        engine.set_zookeeper_path_key(str(uuid.uuid4()))
 
     ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
 
