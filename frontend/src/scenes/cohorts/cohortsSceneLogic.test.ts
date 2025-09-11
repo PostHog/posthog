@@ -162,6 +162,22 @@ describe('cohortsSceneLogic', () => {
                     }),
                 })
             })
+
+            it('calculates shouldShowEmptyState correctly', async () => {
+                router.actions.push(urls.cohorts())
+
+                // With cohorts loaded, should not show empty state
+                await expectLogic(logic).toDispatchActions(['loadCohortsSuccess'])
+                expect(logic.values.shouldShowEmptyState).toBe(false)
+
+                // With no cohorts and default filters, should show empty state
+                logic.actions.loadCohortsSuccess({ count: 0, results: [] })
+                expect(logic.values.shouldShowEmptyState).toBe(true)
+
+                // With no cohorts but with search filter, should not show empty state
+                logic.actions.setCohortFilters({ search: 'test' })
+                expect(logic.values.shouldShowEmptyState).toBe(false)
+            })
         })
     })
 })

@@ -6,6 +6,7 @@ import { PaginationManual } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { urls } from 'scenes/urls'
@@ -57,7 +58,7 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
             {
                 setCohortFilters: (state, { filters, replace }) => {
                     if (replace) {
-                        return { ...filters }
+                        return { ...DEFAULT_COHORT_FILTERS, ...filters }
                     }
                     return { ...state, ...filters }
                 },
@@ -111,21 +112,34 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
                 }
             },
         ],
+        shouldShowEmptyState: [
+            (s) => [s.cohorts, s.cohortFilters],
+            (cohorts: CountedPaginatedResponse<CohortType>, filters: CohortFilters): boolean => {
+                return cohorts.results.length === 0 && objectsEqual(filters, DEFAULT_COHORT_FILTERS)
+            },
+        ],
     }),
     loaders(({ values }) => ({
-        cohorts: {
-            __default: { count: 0, results: [] } as CountedPaginatedResponse<CohortType>,
-            loadCohorts: async () => {
-                const response = await api.cohorts.listPaginated({
-                    ...values.paramsFromFilters,
-                })
-                personsLogic.findMounted({ syncWithUrl: true })?.actions.loadCohorts()
-                return {
-                    count: response.count,
-                    results: response.results.map((cohort) => processCohort(cohort)),
-                }
+        cohorts: [
+            {
+                count: 0,
+                results: [],
+                filters: DEFAULT_COHORT_FILTERS,
+                offset: 0,
+            } as CountedPaginatedResponse<CohortType>,
+            {
+                loadCohorts: async () => {
+                    const response = await api.cohorts.listPaginated({
+                        ...values.paramsFromFilters,
+                    })
+                    personsLogic.findMounted({ syncWithUrl: true })?.actions.loadCohorts()
+                    return {
+                        count: response.count,
+                        results: response.results.map((cohort) => processCohort(cohort)),
+                    }
+                },
             },
-        },
+        ],
     })),
     listeners(({ actions, values }) => ({
         loadCohortsSuccess: async ({ cohorts }: { cohorts: CountedPaginatedResponse<CohortType> }) => {
@@ -135,7 +149,8 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
             }
             actions.setPollTimeout(window.setTimeout(actions.loadCohorts, POLL_TIMEOUT))
         },
-        setCohortFilters: async () => {
+        setCohortFilters: async (_, breakpoint) => {
+            await breakpoint(300)
             actions.loadCohorts()
         },
         deleteCohort: async ({ cohort }) => {
@@ -197,8 +212,12 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
                 type,
             }
 
-            filtersFromUrl.page = page !== undefined ? parseInt(page) : undefined
-            filtersFromUrl.created_by_id = created_by_id !== undefined ? parseInt(created_by_id) : undefined
+            if (page !== undefined) {
+                filtersFromUrl.page = parseInt(page)
+            }
+            if (created_by_id !== undefined) {
+                filtersFromUrl.created_by_id = parseInt(created_by_id)
+            }
 
             actions.setCohortFilters({ ...DEFAULT_COHORT_FILTERS, ...filtersFromUrl }, true)
         },

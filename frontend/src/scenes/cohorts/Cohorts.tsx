@@ -2,7 +2,6 @@ import './Cohorts.scss'
 
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useState } from 'react'
 
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
@@ -35,10 +34,9 @@ export const scene: SceneExport = {
 }
 
 export function Cohorts(): JSX.Element {
-    const { cohorts, cohortsLoading, pagination, cohortFilters } = useValues(cohortsSceneLogic)
+    const { cohorts, cohortsLoading, pagination, cohortFilters, shouldShowEmptyState } = useValues(cohortsSceneLogic)
     const { deleteCohort, exportCohortPersons, setCohortFilters } = useActions(cohortsSceneLogic)
     const { searchParams } = useValues(router)
-    const [searchTerm, setSearchTerm] = useState(cohortFilters.search || '')
 
     const columns: LemonTableColumns<CohortType> = [
         {
@@ -161,10 +159,9 @@ export function Cohorts(): JSX.Element {
                 type="search"
                 placeholder="Search for cohorts"
                 onChange={(search) => {
-                    setSearchTerm(search)
                     setCohortFilters({ search: search || undefined, page: 1 })
                 }}
-                value={searchTerm}
+                value={cohortFilters.search}
             />
             <div className="flex items-center gap-2">
                 <span>
@@ -242,7 +239,7 @@ export function Cohorts(): JSX.Element {
                 productKey={ProductKey.COHORTS}
                 thingName="cohort"
                 description="Use cohorts to group people together, such as users who used your app in the last week, or people who viewed the signup page but didn't convert."
-                isEmpty={cohorts.count == 0 && !cohortsLoading && !searchTerm}
+                isEmpty={shouldShowEmptyState}
                 docsURL="https://posthog.com/docs/data/cohorts"
                 action={() => router.actions.push(urls.cohort('new'))}
                 customHog={ListHog}
