@@ -667,7 +667,7 @@ describe('Hogflow Executor', () => {
                     // Should log error and continuation
                     expect(result.logs.map((l) => l.message)).toEqual(
                         expect.arrayContaining([
-                            expect.stringContaining('Errored: fail!'),
+                            expect.stringContaining('Could not execute bytecode for input field: name'),
                             expect.stringContaining('Continuing to next action'),
                             expect.stringContaining('Workflow moved to action [Action:exit]'),
                             expect.stringContaining('Workflow completed'),
@@ -703,7 +703,8 @@ describe('Hogflow Executor', () => {
                     // Should log error and abort
                     expect(result.logs.map((l) => l.message)).toEqual(
                         expect.arrayContaining([
-                            expect.stringContaining('Errored: fail!'),
+                            expect.stringContaining('Could not execute bytecode for input field: name'),
+                            expect.stringContaining('Workflow encountered an error:'),
                             expect.stringContaining("Workflow is aborting due to the action's error handling setting"),
                         ])
                     )

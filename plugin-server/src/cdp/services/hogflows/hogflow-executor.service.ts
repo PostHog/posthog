@@ -146,7 +146,7 @@ export class HogFlowExecutorService {
             logs.push(...result.logs)
             metrics.push(...result.metrics)
 
-            if (this.shouldEndHogFlowExecution(result)) {
+            if (this.shouldEndHogFlowExecution(result, logs)) {
                 break
             }
         }
@@ -157,7 +157,10 @@ export class HogFlowExecutorService {
         return result
     }
 
-    private shouldEndHogFlowExecution(result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>): boolean {
+    private shouldEndHogFlowExecution(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        logs: MinimalLogEntry[]
+    ): boolean {
         const finishedWithoutError = result.finished && !result.error
         const delayScheduled = Boolean(result.invocation.queueScheduledAt)
 
@@ -167,7 +170,11 @@ export class HogFlowExecutorService {
             const lastExecutedAction = result.invocation.hogFlow.actions.find((a) => a.id === lastExecutedActionId)
             if (lastExecutedAction?.on_error === 'abort') {
                 shouldAbortAfterError = true
-                this.log(result, 'info', `Workflow is aborting due to the action's error handling setting`)
+                logs.push({
+                    level: 'info',
+                    timestamp: DateTime.now(),
+                    message: `Workflow is aborting due to the action's error handling setting (on_error: 'abort')`,
+                })
             }
         }
 
