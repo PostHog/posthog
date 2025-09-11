@@ -13,6 +13,8 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
+
 import { Notebook } from './Notebook/Notebook'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
 import { NotebookExpandButton, NotebookSyncInfo, NotebookTableOfContentsButton } from './Notebook/NotebookMeta'
@@ -99,6 +101,7 @@ export function NotebookScene(): JSX.Element {
                 })}
             >
                 <div className="flex gap-2 items-center">
+                    <SceneBreadcrumbBackButton />
                     {isTemplate && <LemonTag type="highlight">TEMPLATE</LemonTag>}
                     <UserActivityIndicator at={notebook?.last_modified_at} by={notebook?.last_modified_by} />
                 </div>

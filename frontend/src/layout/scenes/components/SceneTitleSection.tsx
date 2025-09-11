@@ -17,6 +17,7 @@ import { FileSystemIconColor } from '~/types'
 import '../../panel-layout/ProjectTree/defaultTree'
 import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/defaultTree'
 import { SceneActions } from '../SceneActions'
+import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 
 type ResourceType = {
     to?: string
@@ -83,6 +84,7 @@ export function SceneTitleSection({
     if (!newSceneLayout) {
         return null
     }
+
     const icon = resourceType.forceIcon ? (
         <ProductIconWrapper type={resourceType.type} colorOverride={resourceType.forceIconColorOverride}>
             {resourceType.forceIcon}
@@ -94,6 +96,7 @@ export function SceneTitleSection({
         <div className="@container/scene-title-section">
             <div className="scene-title-section w-full flex flex-col lg:flex-row gap-3 group/colorful-product-icons colorful-product-icons-true items-start">
                 <div className="flex flex-col gap-1 flex-1 -ml-[var(--button-padding-x-sm)] order-last lg:order-first">
+                    <SceneBreadcrumbBackButton />
                     <div className="flex gap-2 [&_svg]:size-6 items-center w-full">
                         <span
                             className={buttonPrimitiveVariants({
