@@ -1,3 +1,3 @@
-ancestorEntries = ["frontend/__snapshots__/scenes-app-events--event-explorer--light.png"]
-ourEntries = ["frontend/__snapshots__/scenes-app-events--event-explorer--light.png"]
-theirEntries = ["frontend/__snapshots__/scenes-app-events--event-explorer--light.png"]
+ancestorEntries = ["frontend/__snapshots__/scenes-app-heatmaps--heatmaps-browser-with-page-selected--light.png"]
+ourEntries = ["frontend/__snapshots__/scenes-app-heatmaps--heatmaps-browser-with-page-selected--light.png"]
+theirEntries = ["frontend/__snapshots__/scenes-app-heatmaps--heatmaps-browser-with-page-selected--light.png"]
