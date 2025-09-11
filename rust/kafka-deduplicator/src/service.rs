@@ -134,8 +134,8 @@ impl KafkaDeduplicatorService {
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
         self.shutdown_tx = Some(shutdown_tx);
 
-        // Create processor pool with one worker per CPU
-        let num_workers = num_cpus::get();
+        // Create processor pool with configured number of workers
+        let num_workers = self.config.worker_threads;
         let (message_sender, processor_pool) = ProcessorPool::new(processor, num_workers);
 
         // Start the processor pool workers and get health status
