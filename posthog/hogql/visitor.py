@@ -224,6 +224,12 @@ class TraversingVisitor(Visitor[None]):
     def visit_string_type(self, node: ast.StringType):
         pass
 
+    def visit_string_json_type(self, node: ast.StringJSONType):
+        pass
+
+    def visit_string_array_type(self, node: ast.StringArrayType):
+        pass
+
     def visit_boolean_type(self, node: ast.BooleanType):
         pass
 

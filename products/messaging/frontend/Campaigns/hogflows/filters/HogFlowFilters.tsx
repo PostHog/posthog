@@ -2,6 +2,8 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
+import { FilterType } from '~/types'
+
 import { HogFlowAction } from '../types'
 
 export type HogFlowFiltersProps = {
@@ -15,10 +17,14 @@ export type HogFlowFiltersProps = {
  * Standard components wherever we do conditional matching to support whatever we know the hogflow engine supports
  */
 export function HogFlowFilters({ filters, setFilters, typeKey, buttonCopy }: HogFlowFiltersProps): JSX.Element {
+    const _setFilters = (filters: FilterType): void => {
+        // TODO: Improve the types here...
+        setFilters(filters as HogFlowAction['filters'])
+    }
     return (
         <ActionFilter
             filters={filters ?? {}}
-            setFilters={setFilters}
+            setFilters={_setFilters}
             typeKey={typeKey ?? 'hogflow-filters'}
             mathAvailability={MathAvailability.None}
             hideRename
