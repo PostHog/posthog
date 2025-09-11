@@ -36,6 +36,55 @@ impl CheckpointMode {
     }
 }
 
+/// encapsulates a single checkpoint attempt for a
+/// given source topic and partition
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CheckpointPath {
+    // source material (topic, partition, attempt timestamp in microseconds)
+    pub partition: Partition,
+    pub checkpoint_epoch_micros: u128,
+
+    // local checkpoint path and observability tag
+    pub local_path: PathBuf,
+    pub local_path_tag: String,
+
+    // remote storage checkpoint path
+    pub remote_path: String,
+}
+
+impl CheckpointPath {
+    pub fn new(partition: Partition, local_checkpoint_base_dir: &Path) -> Result<Self> {
+        let checkpoint_epoch_micros = Self::generate_checkpoint_timestamp()?;
+        let cp_topic_partition = format!(
+            "{}{}_{}",
+            CHECKPOINT_NAME_PREFIX,
+            &partition.topic(),
+            &partition.partition_number()
+        );
+
+        let remote_path = format!("{}/{}", &cp_topic_partition, checkpoint_epoch_micros);
+
+        let local_path = PathBuf::from(local_checkpoint_base_dir)
+            .join(cp_topic_partition)
+            .join(checkpoint_epoch_micros.to_string());
+        let local_path_tag = local_path.to_string_lossy().to_string();
+
+        Ok(Self {
+            partition,
+            checkpoint_epoch_micros,
+            local_path,
+            local_path_tag,
+            remote_path,
+        })
+    }
+
+    fn generate_checkpoint_timestamp() -> Result<u128> {
+        Ok(SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .context("failed to generate checkpoint timestamp")?
+            .as_micros())
+    }
+}
 /// Worker that handles checkpoint processing for individual partitions
 pub struct CheckpointWorker {
     /// Worker ID for logging
@@ -43,10 +92,7 @@ pub struct CheckpointWorker {
 
     mode: CheckpointMode,
 
-    partition: Partition,
-
-    /// Configuration
-    config: CheckpointConfig,
+    paths: CheckpointPath,
 
     /// Reference to the store manager
     store: DeduplicationStore,
@@ -58,17 +104,15 @@ pub struct CheckpointWorker {
 impl CheckpointWorker {
     pub fn new(
         worker_id: u32,
-        config: CheckpointConfig,
         mode: CheckpointMode,
-        partition: Partition,
+        paths: CheckpointPath,
         store: DeduplicationStore,
         exporter: Option<Arc<CheckpointExporter>>,
     ) -> Self {
         Self {
             worker_id,
             mode,
-            partition,
-            config,
+            paths,
             store,
             exporter,
         }
@@ -76,44 +120,24 @@ impl CheckpointWorker {
 
     /// Perform a checkpoint for the given (assumed active) partition and store
     pub async fn checkpoint_partition(&self) -> Result<Option<String>> {
-        let start_time = Instant::now();
-        let partition_tag = self.partition.to_string();
-
-        // Create checkpoint directory with timestamp (microseconds for uniqueness)
-        // and ensure the checkpoint name is unique and lexicographically sortable
-        let checkpoint_timestamp = self.generate_checkpoint_timestamp()?;
-        let checkpoint_name = self.build_checkpoint_name(checkpoint_timestamp);
-        let local_checkpoint_path =
-            PathBuf::from(&self.config.local_checkpoint_dir).join(&checkpoint_name);
-        let local_path_tag = local_checkpoint_path.to_string_lossy().to_string();
-
         info!(
             self.worker_id,
-            partition = partition_tag,
-            local_path = local_path_tag,
+            local_path = self.paths.local_path_tag,
             checkpoint_mode = self.mode.as_str(),
             "Checkpoint worker: initializing checkpoint"
         );
 
         // Ensure local checkpoint directory exists - results observed internally, safe to bubble up
-        self.create_partition_checkpoint_directory(&partition_tag, &local_path_tag)
-            .await?;
+        self.create_partition_checkpoint_directory().await?;
 
         // this creates the local RocksDB checkpoint - results observed internally, safe to bubble up
-        self.create_local_partition_checkpoint(
-            &local_checkpoint_path,
-            start_time,
-            &partition_tag,
-            &local_path_tag,
-        )
-        .await?;
+        self.create_local_partition_checkpoint().await?;
 
         // update store metrics - this can fail without blocking the checkpoint attempt
         if let Err(e) = self.store.update_metrics() {
             warn!(
                 self.worker_id,
-                partition = partition_tag,
-                local_path = local_path_tag,
+                local_path = self.paths.local_path_tag,
                 checkpoint_mode = self.mode.as_str(),
                 "Checkpoint worker: failed store metrics update after local chekcpoint: {}",
                 e
@@ -121,23 +145,13 @@ impl CheckpointWorker {
         }
 
         // export the checkpoint - observed internally, safe to return result
-        self.export_checkpoint(
-            &local_checkpoint_path,
-            &checkpoint_name,
-            &partition_tag,
-            &local_path_tag,
-        )
-        .await
+        self.export_checkpoint().await
     }
 
-    async fn create_partition_checkpoint_directory(
-        &self,
-        partition_tag: &str,
-        local_path_tag: &str,
-    ) -> Result<()> {
-        if let Err(e) = tokio::fs::create_dir_all(&self.config.local_checkpoint_dir)
+    async fn create_partition_checkpoint_directory(&self) -> Result<()> {
+        if let Err(e) = tokio::fs::create_dir_all(&self.paths.local_path)
             .await
-            .context("Failed to create local checkpoint directory")
+            .context("Checkpoint worker: failed to create local directory")
         {
             let tags = [
                 ("mode", self.mode.as_str()),
@@ -147,10 +161,9 @@ impl CheckpointWorker {
             metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
             error!(
                 self.worker_id,
-                partition = partition_tag,
-                local_path = local_path_tag,
+                local_path = self.paths.local_path_tag,
                 checkpoint_mode = self.mode.as_str(),
-                "Failed to create local checkpoint directory: {}",
+                "Checkpoint worker: failed to create local directory: {}",
                 e
             );
 
@@ -160,16 +173,12 @@ impl CheckpointWorker {
         Ok(())
     }
 
-    async fn create_local_partition_checkpoint(
-        &self,
-        local_checkpoint_path: &PathBuf,
-        start_time: Instant,
-        partition_tag: &str,
-        local_path_tag: &str,
-    ) -> Result<()> {
+    async fn create_local_partition_checkpoint(&self) -> Result<()> {
+        let start_time = Instant::now();
+
         match self
             .store
-            .create_checkpoint_with_metadata(local_checkpoint_path)
+            .create_checkpoint_with_metadata(&self.paths.local_path)
         {
             Ok(sst_files) => {
                 let checkpoint_duration = start_time.elapsed();
@@ -177,14 +186,14 @@ impl CheckpointWorker {
                     .record(checkpoint_duration.as_secs_f64());
 
                 metrics::histogram!(CHECKPOINT_FILE_COUNT_HISTOGRAM).record(sst_files.len() as f64);
-                if let Ok(checkpoint_size) = Self::get_directory_size(local_checkpoint_path).await {
+                if let Ok(checkpoint_size) = Self::get_directory_size(&self.paths.local_path).await
+                {
                     metrics::histogram!(CHECKPOINT_SIZE_HISTOGRAM).record(checkpoint_size as f64);
                 }
 
                 info!(
                     self.worker_id,
-                    partition = partition_tag,
-                    local_path = local_path_tag,
+                    local_path = self.paths.local_path_tag,
                     sst_file_count = sst_files.len(),
                     checkpoint_mode = self.mode.as_str(),
                     "Created local checkpoint",
@@ -210,8 +219,7 @@ impl CheckpointWorker {
                 metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
                 error!(
                     self.worker_id,
-                    partition = partition_tag,
-                    local_path = local_path_tag,
+                    local_path = self.paths.local_path_tag,
                     checkpoint_mode = self.mode.as_str(),
                     "Local checkpoint failed: {}",
                     error_chain.join(" -> ")
@@ -222,17 +230,10 @@ impl CheckpointWorker {
         }
     }
 
-    async fn export_checkpoint(
-        &self,
-        local_checkpoint_path: &Path,
-        checkpoint_name: &str,
-        partition_tag: &str,
-        local_path_tag: &str,
-    ) -> Result<Option<String>> {
+    async fn export_checkpoint(&self) -> Result<Option<String>> {
         info!(
             self.worker_id,
-            partition = partition_tag,
-            local_path = local_path_tag,
+            local_path = self.paths.local_path_tag,
             checkpoint_mode = self.mode.as_str(),
             "Checkpoint worker: exporting remote checkpoint",
         );
@@ -240,7 +241,7 @@ impl CheckpointWorker {
         match self.exporter.as_ref() {
             Some(exporter) => {
                 match exporter
-                    .export_checkpoint(local_checkpoint_path, checkpoint_name, self.mode)
+                    .export_checkpoint(&self.paths.local_path, &self.paths.remote_path, self.mode)
                     .await
                 {
                     Ok(remote_key_prefix) => {
@@ -252,8 +253,7 @@ impl CheckpointWorker {
                         metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
                         info!(
                             self.worker_id,
-                            partition = partition_tag,
-                            local_path = local_path_tag,
+                            local_path = self.paths.local_path_tag,
                             remote_path = remote_key_prefix,
                             checkpoint_mode = self.mode.as_str(),
                             "Checkpoint exported successfully"
@@ -271,8 +271,7 @@ impl CheckpointWorker {
                         metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
                         error!(
                             self.worker_id,
-                            partition = partition_tag,
-                            local_path = local_path_tag,
+                            local_path = self.paths.local_path_tag,
                             checkpoint_mode = self.mode.as_str(),
                             "Checkpoint failed to export: {}",
                             e
@@ -292,8 +291,7 @@ impl CheckpointWorker {
                 metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
                 warn!(
                     self.worker_id,
-                    partition = partition_tag,
-                    local_path = local_path_tag,
+                    local_path = self.paths.local_path_tag,
                     checkpoint_mode = self.mode.as_str(),
                     "Checkpoint upload skipped: no exporter configured",
                 );
@@ -301,27 +299,6 @@ impl CheckpointWorker {
                 Ok(None)
             }
         }
-    }
-
-    // TODO(eli): discussed breaking this in to path-like elements but so far
-    // I'm leaning towards keeping it a single directory name. It's sortable,
-    // simple to work with, and maintains a 1:1 mapping between local paths under
-    // base dir and S3 snapshot paths under bucket key prefix. Can revisit if needed
-    fn build_checkpoint_name(&self, checkpoint_timestamp: u128) -> String {
-        format!(
-            "{}{}_{}_{:018}",
-            CHECKPOINT_NAME_PREFIX,
-            self.partition.topic(),
-            self.partition.partition_number(),
-            checkpoint_timestamp
-        )
-    }
-
-    fn generate_checkpoint_timestamp(&self) -> Result<u128> {
-        Ok(SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .context("failed to generate checkpoint timestamp")?
-            .as_micros())
     }
 
     async fn get_directory_size(path: &Path) -> Result<u64> {
@@ -479,6 +456,7 @@ impl CheckpointManager {
                                     continue;
                             }
 
+                            let paths = CheckpointPath::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
                             // if the exporter is configured, clone it for the worker thread
                             let resolved_exporter = exporter.as_ref().map(|e| e.clone());
 
@@ -486,9 +464,8 @@ impl CheckpointManager {
                             worker_task_id += 1;
                             let worker = CheckpointWorker::new(
                                 worker_task_id,
-                                config.clone(),
                                 mode,
-                                partition.clone(),
+                                paths,
                                 store,
                                 resolved_exporter,
                             );
@@ -506,10 +483,10 @@ impl CheckpointManager {
                                     }
 
                                     result = worker.checkpoint_partition() => {
-                                        let status = match &result {
-                                            &Ok(Some(_)) => "success",
-                                            &Ok(None) => "skipped",
-                                            &Err(_) => "error",
+                                        let status = match result {
+                                            Ok(Some(_)) => "success",
+                                            Ok(None) => "skipped",
+                                            Err(_) => "error",
                                         };
                                         info!(worker_task_id, partition = partition_tag, result = status,
                                             "Checkpoint manager: checkpoint attempt completed");
@@ -668,7 +645,7 @@ impl CheckpointManager {
 
         let mut entries = tokio::fs::read_dir(&checkpoint_dir)
             .await
-            .context("Failed to read checkpoint directory")?;
+            .context("Checkpoint cleaner: failed to read checkpoint directory")?;
 
         let mut checkpoint_dirs = Vec::new();
 
@@ -695,12 +672,12 @@ impl CheckpointManager {
                 if let Err(e) = tokio::fs::remove_dir_all(checkpoint_dir).await {
                     warn!(
                         checkpoint_path = checkpoint_path,
-                        "Checkpoint manager: failed to remove old checkpoint: {}", e
+                        "Checkpoint cleaner: failed to remove old checkpoint: {}", e
                     );
                 } else {
                     info!(
                         checkpoint_path = checkpoint_path,
-                        "Checkpoint manager: removed old checkpoint"
+                        "Checkpoint cleaner: removed old checkpoint"
                     );
                 }
             }
