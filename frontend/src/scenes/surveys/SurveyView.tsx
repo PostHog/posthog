@@ -26,6 +26,7 @@ import { SurveyOverview } from 'scenes/surveys/SurveyOverview'
 import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
 import { SurveyResultDemo } from 'scenes/surveys/SurveyResultDemo'
 import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
+import { CreateTestResponses } from 'scenes/surveys/components/CreateTestResponses'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
@@ -93,6 +94,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                     <PageHeader
                         buttons={
                             <div className="flex gap-2 items-center">
+                                <CreateTestResponses />
                                 <SurveyFeedbackButton />
                                 {!newSceneLayout && (
                                     <>
