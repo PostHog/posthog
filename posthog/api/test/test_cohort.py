@@ -814,6 +814,62 @@ user789
         )
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_sets_is_calculating(self, patch_calculate_cohort_from_list):
+        """Test that is_calculating is set to True immediately when CSV is uploaded"""
+        Person.objects.create(team=self.team, distinct_ids=["user123"])
+
+        csv = SimpleUploadedFile(
+            "test.csv",
+            str.encode("""distinct_id
+user123
+user456
+"""),
+            content_type="application/csv",
+        )
+
+        # Create cohort with CSV upload
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_calculating", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort_id = response.json()["id"]
+
+        # Check that is_calculating was set to True
+        cohort = Cohort.objects.get(pk=cohort_id)
+        self.assertTrue(cohort.is_calculating, "is_calculating should be True immediately after CSV upload")
+
+        # Verify the task was called
+        patch_calculate_cohort_from_list.assert_called_once()
+
+    def test_static_cohort_csv_resets_is_calculating_on_error(self):
+        """Test that is_calculating is reset to False when CSV processing fails"""
+        # Try to upload an invalid CSV that will cause an error
+        csv = SimpleUploadedFile(
+            "invalid.csv",
+            str.encode(""),  # Empty CSV will trigger an error
+            content_type="application/csv",
+        )
+
+        # Try to create cohort with invalid CSV
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_error", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        # Should get an error response
+        self.assertEqual(response.status_code, 400)
+
+        # Check that no cohort was created with is_calculating stuck at True
+        # (The cohort shouldn't be created at all, but if error handling was wrong
+        # it might leave a cohort in calculating state)
+        calculating_cohorts = Cohort.objects.filter(team=self.team, name="test_error", is_calculating=True)
+        self.assertEqual(calculating_cohorts.count(), 0, "No cohort should be left in calculating state after error")
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_static_cohort_to_dynamic_cohort(self, patch_calculate_cohort, patch_calculate_cohort_from_list):
         self.team.app_urls = ["http://somewebsite.com"]
@@ -841,8 +897,9 @@ email@example.org,
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
-        self.assertFalse(response.json()["is_calculating"], False)
-        self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
+        # After CSV upload, is_calculating should be True since processing starts immediately
+        self.assertTrue(response.json()["is_calculating"])
+        self.assertTrue(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",

@@ -250,7 +250,12 @@ class ExportedAssetViewSet(
 
     def safely_get_queryset(self, queryset):
         if self.action == "list":
-            return queryset.filter(created_by=self.request.user)
+            queryset = queryset.filter(created_by=self.request.user)
+
+            context_path_filter = self.request.query_params.get("context_path")
+            if context_path_filter:
+                queryset = queryset.filter(export_context__path__icontains=context_path_filter)
+
         return queryset
 
     # TODO: This should be removed as it is only used by frontend exporter and can instead use the api/sharing.py endpoint
