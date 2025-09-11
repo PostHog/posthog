@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 from uuid import UUID
 
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
 from django.core.paginator import Paginator
 from django.db import models, transaction
@@ -116,7 +117,14 @@ class ActivityLog(UUIDTModel):
                 check=models.Q(team_id__isnull=False) | models.Q(organization_id__isnull=False),
             ),
         ]
-        indexes = [models.Index(fields=["team_id", "scope", "item_id"])]
+        indexes = [
+            models.Index(fields=["team_id", "scope", "item_id"]),
+            GinIndex(
+                name="activitylog_detail_gin",
+                fields=["detail"],
+                opclasses=["jsonb_ops"],
+            ),
+        ]
 
     team_id = models.PositiveIntegerField(null=True)
     organization_id = models.UUIDField(null=True)

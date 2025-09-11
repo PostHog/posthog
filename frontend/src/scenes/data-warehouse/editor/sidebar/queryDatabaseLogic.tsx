@@ -3,17 +3,16 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { subscriptions } from 'kea-subscriptions'
 
 import { IconDatabase, IconDocument, IconPlug, IconPlus } from '@posthog/icons'
-import { LemonMenuItem, lemonToast } from '@posthog/lemon-ui'
+import { LemonMenuItem } from '@posthog/lemon-ui'
 import { Spinner } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { DataWarehouseSourceIcon, mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 
 import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
 import {
@@ -348,10 +347,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         actions: [
             viewLinkLogic,
             ['toggleEditJoinModal', 'toggleJoinTableModal'],
-            databaseTableListLogic,
-            ['loadDatabase'],
-            dataWarehouseJoinsLogic,
-            ['loadJoins'],
+            dataWarehouseSettingsLogic,
+            ['deleteJoin'],
             draftsLogic,
             ['loadDrafts', 'renameDraft', 'loadMoreDrafts'],
         ],
@@ -808,19 +805,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                                   status: 'danger',
                                   onClick: () => {
                                       const join = joinsByFieldName[`${tableName}.${field.name}`]
-                                      void deleteWithUndo({
-                                          endpoint: api.dataWarehouseViewLinks.determineDeleteEndpoint(),
-                                          object: {
-                                              id: join.id,
-                                              name: `${join.field_name} on ${join.source_table_name}`,
-                                          },
-                                          callback: () => {
-                                              actions.loadDatabase()
-                                              actions.loadJoins()
-                                          },
-                                      }).catch((e) => {
-                                          lemonToast.error(`Failed to delete warehouse view link: ${e.detail}`)
-                                      })
+                                      actions.deleteJoin(join)
                                   },
                               },
                           ]

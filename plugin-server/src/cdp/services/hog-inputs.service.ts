@@ -96,7 +96,9 @@ export class HogInputsService {
         }
     }
 
-    public async loadIntegrationInputs(hogFunction: HogFunctionType): Promise<Record<string, any>> {
+    public async loadIntegrationInputs(
+        hogFunction: HogFunctionType
+    ): Promise<Record<string, { value: Record<string, any> | null }>> {
         const inputsToLoad: Record<string, number> = {}
 
         hogFunction.inputs_schema?.forEach((schema) => {
