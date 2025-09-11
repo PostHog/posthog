@@ -808,14 +808,14 @@ class RootNodeTools(AssistantNode):
                 tool_call_name = tool_call.name
                 if tool_call_name == "retrieve_billing_information":
                     return "billing"
-                elif tool_call_name == "create_dashboard":
+                if tool_call_name == "create_dashboard":
                     return "create_dashboard"
-                elif state.root_tool_insight_plan:
-                    return "insights"
-                elif state.search_insights_query:
-                    return "insights_search"
-                elif state.session_summarization_query:
-                    return "session_summarization"
-                else:
-                    return "search_documentation"
+            if state.root_tool_insight_plan:
+                return "insights"
+            elif state.search_insights_query:
+                return "insights_search"
+            elif state.session_summarization_query:
+                return "session_summarization"
+            else:
+                return "search_documentation"
         return "end"
