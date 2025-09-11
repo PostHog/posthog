@@ -1,1 +1,0 @@
-export { UploadedLogo } from './UploadedLogo'

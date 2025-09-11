@@ -1,5 +1,0 @@
-#!/bin/bash
-
-set -e
-
-./ee/bin/docker-ch-dev-backend & ./bin/docker-frontend

@@ -1,7 +1,0 @@
-debug: false
-kafka:
-    brokers: 'kafka:9092'
-    topic: 'events_plugin_ingestion'
-    group_id: 'livestream'
-mmdb:
-    path: 'GeoLite2-City.mmdb'

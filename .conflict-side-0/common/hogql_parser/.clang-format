@@ -1,4 +1,0 @@
-BasedOnStyle: Chromium
-ColumnLimit: 120
-AlignAfterOpenBracket: BlockIndent
-AllowShortIfStatementsOnASingleLine: WithoutElse
