@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Annotated, Any, Literal, Optional, Self, TypeVar, Union
+from typing import Annotated, Any, Generic, Literal, Optional, Self, TypeVar, Union
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import BaseMessage as LangchainBaseMessage
@@ -26,7 +26,9 @@ from posthog.schema import (
     PlanningMessage,
     ReasoningMessage,
     RetentionQuery,
+    TaskExecutionItem,
     TaskExecutionMessage,
+    TaskExecutionStatus,
     TrendsQuery,
     VisualizationMessage,
 )
@@ -142,6 +144,20 @@ StateType = TypeVar("StateType", bound=BaseModel)
 PartialStateType = TypeVar("PartialStateType", bound=BaseModel)
 
 
+class InsightQuery(BaseModel):
+    """
+    A single insight query to be included in a dashboard.
+    Includes the name and description of the insight to be included in the dashboard.
+    """
+
+    name: str = Field(
+        description="The short name of the insight to be included in the dashboard, it will be used in the dashboard tile. So keep it short and concise. It will be displayed as a header in the insight tile, so make sure it is starting with a capital letter. Be specific about time periods and filters if the user mentioned them. Do not be general or vague."
+    )
+    description: str = Field(
+        description="The detailed description of the insight to be included in the dashboard. Include all relevant context about the insight from earlier messages too, as the tool won't see that conversation history. Do not forget fiters, properties, event names if the user mentioned them. Be specific about time periods and filters if the user mentioned them. Do not be general or vague."
+    )
+
+
 class BaseState(BaseModel):
     """Base state class with reset functionality."""
 
@@ -249,6 +265,15 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The short ID of the notebook being used.
     """
+    create_dashboard_query: Optional[str] = Field(default=None)
+    """
+    The user's query for creating a dashboard with insights.
+    """
+    insight_ids: Optional[list[int]] = Field(default=None)
+    """
+    The user's queries to search for insights.
+    """
+    search_insights_queries: Optional[list[InsightQuery]] = Field(default=None)
 
 
 class AssistantState(_SharedAssistantState):
@@ -293,6 +318,7 @@ class AssistantNodeName(StrEnum):
     TITLE_GENERATOR = "title_generator"
     INSIGHTS_SEARCH = "insights_search"
     SESSION_SUMMARIZATION = "session_summarization"
+    DASHBOARD_CREATOR = "dashboard_creator"
 
 
 class AssistantMode(StrEnum):
@@ -313,9 +339,59 @@ class WithCommentary(BaseModel):
 
 class InsightArtifact(BaseModel):
     """
-    An artifacts created by a task.
+    An artifact created by a task.
     """
 
     id: str
-    query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
     description: str
+
+
+class InsightCreationArtifact(InsightArtifact):
+    """
+    An artifact created by an insight creation task.
+    """
+
+    query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
+
+
+class InsightSearchArtifact(InsightArtifact):
+    """
+    An artifact created by an insight search task.
+    """
+
+    insight_ids: list[int]
+    selection_reason: str
+
+
+ArtifactType = TypeVar("ArtifactType", bound=InsightArtifact)
+
+
+class TaskExecutionResult(BaseModel, Generic[ArtifactType]):
+    """
+    Generic result of task execution that can be used across different graph types.
+    """
+
+    id: str
+    description: str
+    result: str
+    artifacts: list[ArtifactType] = Field(default=[])
+    status: TaskExecutionStatus
+
+
+InsightCreationTaskExecutionResult = TaskExecutionResult[InsightCreationArtifact]
+InsightSearchTaskExecutionResult = TaskExecutionResult[InsightSearchArtifact]
+
+
+class BaseTaskExecutionState(BaseStateWithMessages, Generic[ArtifactType]):
+    """
+    Base state for task execution across different graph types.
+    """
+
+    tasks: Annotated[Optional[list[TaskExecutionItem]], replace] = Field(default=None)
+    """
+    The current tasks to execute.
+    """
+    task_results: Annotated[list[TaskExecutionResult[ArtifactType]], append] = Field(default=[])
+    """
+    Results of executed tasks.
+    """

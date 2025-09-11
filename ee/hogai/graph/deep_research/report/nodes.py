@@ -19,11 +19,11 @@ from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
     DeepResearchNodeName,
     DeepResearchState,
-    InsightArtifact,
     PartialDeepResearchState,
 )
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor
 from ee.hogai.notebook.notebook_serializer import NotebookContext
+from ee.hogai.utils.types.base import InsightCreationArtifact
 
 
 class FormattedInsight(BaseModel):
@@ -93,11 +93,14 @@ class DeepResearchReportNode(DeepResearchNode):
             messages=[notebook_update_message],
         )
 
-    def _collect_all_artifacts(self, state: DeepResearchState) -> list[InsightArtifact]:
+    def _collect_all_artifacts(self, state: DeepResearchState) -> list[InsightCreationArtifact]:
         """Collect all artifacts from task results."""
         artifacts = []
         for result in state.task_results:
-            artifacts.extend(result.artifacts)
+            creation_artifacts = [
+                artifact for artifact in result.artifacts if isinstance(artifact, InsightCreationArtifact)
+            ]
+            artifacts.extend(creation_artifacts)
 
         valid_ids = set()
         for intermediate_result in state.intermediate_results:
@@ -106,7 +109,7 @@ class DeepResearchReportNode(DeepResearchNode):
         artifacts = [artifact for artifact in artifacts if artifact.id in valid_ids]
         return artifacts
 
-    def _format_insights(self, artifacts: list[InsightArtifact]) -> list[FormattedInsight]:
+    def _format_insights(self, artifacts: list[InsightCreationArtifact]) -> list[FormattedInsight]:
         """Format insight artifacts using the query executor."""
         formatted_insights = []
 
@@ -190,7 +193,7 @@ class DeepResearchReportNode(DeepResearchNode):
 
         return "\n".join(formatted_parts)
 
-    def _create_context(self, artifacts: list[InsightArtifact]) -> NotebookContext:
+    def _create_context(self, artifacts: list[InsightCreationArtifact]) -> NotebookContext:
         """
         Create a context for the notebook serializer.
         """

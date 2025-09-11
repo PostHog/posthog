@@ -5,10 +5,16 @@ from typing import Annotated, Literal, Optional
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
-from posthog.schema import PlanningStepStatus, TaskExecutionItem, TaskExecutionStatus
+from posthog.schema import PlanningStepStatus
 
-from ee.hogai.utils.types import AssistantMessageUnion, InsightArtifact, add_and_merge_messages
-from ee.hogai.utils.types.base import BaseStateWithMessages, append, replace
+from ee.hogai.utils.types import AssistantMessageUnion, add_and_merge_messages
+from ee.hogai.utils.types.base import (
+    BaseTaskExecutionState,
+    InsightCreationArtifact,
+    TaskExecutionResult,
+    append,
+    replace,
+)
 
 
 class DeepResearchTodo(BaseModel):
@@ -22,16 +28,7 @@ class DeepResearchTodo(BaseModel):
     priority: Literal["low", "medium", "high"]
 
 
-class DeepResearchSingleTaskResult(BaseModel):
-    """
-    The result of an individual task.
-    """
-
-    id: str
-    description: str
-    result: str
-    artifacts: list[InsightArtifact] = Field(default=[])
-    status: TaskExecutionStatus
+DeepResearchSingleTaskResult = TaskExecutionResult[InsightCreationArtifact]
 
 
 class DeepResearchIntermediateResult(BaseModel):
@@ -43,18 +40,10 @@ class DeepResearchIntermediateResult(BaseModel):
     artifact_ids: list[str] = Field(default=[])
 
 
-class _SharedDeepResearchState(BaseStateWithMessages):
+class _SharedDeepResearchState(BaseTaskExecutionState[InsightCreationArtifact]):
     todos: Annotated[Optional[list[DeepResearchTodo]], replace] = Field(default=None)
     """
     The current TO-DO list.
-    """
-    tasks: Annotated[Optional[list[TaskExecutionItem]], replace] = Field(default=None)
-    """
-    The current tasks.
-    """
-    task_results: Annotated[list[DeepResearchSingleTaskResult], append] = Field(default=[])
-    """
-    Results of tasks executed by assistants.
     """
     intermediate_results: Annotated[list[DeepResearchIntermediateResult], append] = Field(default=[])
     """
