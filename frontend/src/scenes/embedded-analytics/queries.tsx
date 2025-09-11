@@ -1,10 +1,12 @@
+import { ChartAxis } from '~/queries/schema/schema-general'
+
 export interface QueryConfig {
     dateFrom: string
     dateTo: string
     requestNameBreakdownEnabled: boolean
 }
 
-export const createExpensiveQueriesColumns = (requestNameBreakdownEnabled: boolean) => {
+export const createExpensiveQueriesColumns = (requestNameBreakdownEnabled: boolean): ChartAxis[] => {
     const baseColumns = [
         {
             column: 'query_start_time',
@@ -31,16 +33,19 @@ export const createExpensiveQueriesColumns = (requestNameBreakdownEnabled: boole
             settings: { formatting: { prefix: '', suffix: '' } },
         },
     ]
-    
-    return requestNameBreakdownEnabled 
-        ? [...baseColumns, {
-            column: 'name',
-            settings: { formatting: { prefix: '', suffix: '' } },
-        }] 
+
+    return requestNameBreakdownEnabled
+        ? [
+              ...baseColumns,
+              {
+                  column: 'name',
+                  settings: { formatting: { prefix: '', suffix: '' } },
+              },
+          ]
         : baseColumns
 }
 
-export const createLast20QueriesColumns = (requestNameBreakdownEnabled: boolean) => {
+export const createLast20QueriesColumns = (requestNameBreakdownEnabled: boolean): ChartAxis[] => {
     const baseColumns = [
         {
             column: 'finished_at',
@@ -59,19 +64,22 @@ export const createLast20QueriesColumns = (requestNameBreakdownEnabled: boolean)
             settings: { formatting: { prefix: '', suffix: '' } },
         },
     ]
-    
-    return requestNameBreakdownEnabled 
-        ? [...baseColumns, {
-            column: 'name',
-            settings: { formatting: { prefix: '', suffix: '' } },
-        }] 
+
+    return requestNameBreakdownEnabled
+        ? [
+              ...baseColumns,
+              {
+                  column: 'name',
+                  settings: { formatting: { prefix: '', suffix: '' } },
+              },
+          ]
         : baseColumns
 }
 
-export const createApiQueriesCountQuery = ({ dateFrom, dateTo, requestNameBreakdownEnabled }: QueryConfig) => `
+export const createApiQueriesCountQuery = ({ dateFrom, dateTo, requestNameBreakdownEnabled }: QueryConfig): string => `
     select 
         event_date, 
-        ${requestNameBreakdownEnabled ? 'name,' : '' } 
+        ${requestNameBreakdownEnabled ? 'name,' : ''} 
         count(1) as number_of_queries
     from query_log
     where is_personal_api_key_request 
@@ -80,10 +88,10 @@ export const createApiQueriesCountQuery = ({ dateFrom, dateTo, requestNameBreakd
     group by event_date ${requestNameBreakdownEnabled ? ', name' : ''}
     order by event_date asc ${requestNameBreakdownEnabled ? ', name asc' : ''}`
 
-export const createApiReadTbQuery = ({ dateFrom, dateTo, requestNameBreakdownEnabled }: QueryConfig) => `
+export const createApiReadTbQuery = ({ dateFrom, dateTo, requestNameBreakdownEnabled }: QueryConfig): string => `
     select 
         event_date, 
-        ${requestNameBreakdownEnabled ? 'name,' : '' }
+        ${requestNameBreakdownEnabled ? 'name,' : ''}
         sum(read_bytes)/1e12 as read_tb
     from query_log
     where 
@@ -93,10 +101,10 @@ export const createApiReadTbQuery = ({ dateFrom, dateTo, requestNameBreakdownEna
     group by event_date ${requestNameBreakdownEnabled ? ', name' : ''}
     order by event_date asc ${requestNameBreakdownEnabled ? ', name asc' : ''}`
 
-export const createApiCpuSecondsQuery = ({ dateFrom, dateTo, requestNameBreakdownEnabled }: QueryConfig) => `
+export const createApiCpuSecondsQuery = ({ dateFrom, dateTo, requestNameBreakdownEnabled }: QueryConfig): string => `
     select 
         event_date, 
-        ${requestNameBreakdownEnabled ? 'name,' : '' }
+        ${requestNameBreakdownEnabled ? 'name,' : ''}
         sum(cpu_microseconds)/1e6 as cpu_sec
     from query_log
     where 
@@ -106,7 +114,7 @@ export const createApiCpuSecondsQuery = ({ dateFrom, dateTo, requestNameBreakdow
     group by event_date ${requestNameBreakdownEnabled ? ', name' : ''}
     order by event_date asc ${requestNameBreakdownEnabled ? ', name asc' : ''}`
 
-export const createApiQueriesPerKeyQuery = ({ dateFrom, dateTo }: QueryConfig) => `
+export const createApiQueriesPerKeyQuery = ({ dateFrom, dateTo }: QueryConfig): string => `
     select 
         event_date, 
         api_key_label, 
@@ -119,10 +127,10 @@ export const createApiQueriesPerKeyQuery = ({ dateFrom, dateTo }: QueryConfig) =
     group by event_date, api_key_label
     order by event_date`
 
-export const createLast20QueriesQuery = ({ dateFrom, dateTo, requestNameBreakdownEnabled }: QueryConfig) => `
+export const createLast20QueriesQuery = ({ dateFrom, dateTo, requestNameBreakdownEnabled }: QueryConfig): string => `
     select 
         event_time as finished_at, 
-        ${requestNameBreakdownEnabled ? 'name,' : '' }
+        ${requestNameBreakdownEnabled ? 'name,' : ''}
         query, 
         query_duration_ms, 
         api_key_label,
@@ -135,7 +143,7 @@ export const createLast20QueriesQuery = ({ dateFrom, dateTo, requestNameBreakdow
     order by event_time desc
     limit 20`
 
-export const createExpensiveQueriesQuery = ({ dateFrom, dateTo, requestNameBreakdownEnabled }: QueryConfig) => `
+export const createExpensiveQueriesQuery = ({ dateFrom, dateTo, requestNameBreakdownEnabled }: QueryConfig): string => `
     select 
         query_start_time, 
         ${requestNameBreakdownEnabled ? 'name,' : ''}

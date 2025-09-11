@@ -84,7 +84,7 @@ export const EmbeddedAnalyticsFilters = ({ tabs }: { tabs?: JSX.Element }): JSX.
                         dateFrom={dateFilter.dateFrom}
                         dateTo={dateFilter.dateTo}
                         onChange={setDates}
-                        forceGranularity='day'
+                        forceGranularity="day"
                         dateOptions={embeddedAnalyticsDateMapping}
                     />
                     <RequestNameBreakdownToggle />

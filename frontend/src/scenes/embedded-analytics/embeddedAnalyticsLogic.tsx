@@ -1,11 +1,11 @@
-import { actions, kea, key, path, props, reducers, selectors, events } from 'kea'
+import { actions, events, kea, key, path, props, reducers, selectors } from 'kea'
 
 import { dayjs } from 'lib/dayjs'
 import {
+    dateStringToDayJs,
     getDefaultInterval,
     isValidRelativeOrAbsoluteDate,
     updateDatesWithInterval,
-    dateStringToDayJs,
 } from 'lib/utils'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -14,14 +14,14 @@ import { ChartDisplayType, InsightLogicProps, IntervalType } from '~/types'
 import { EmbeddedAnalyticsTileId, EmbeddedQueryTile } from './common'
 import type { embeddedAnalyticsLogicType } from './embeddedAnalyticsLogicType'
 import {
-    createExpensiveQueriesColumns,
-    createLast20QueriesColumns,
-    createApiQueriesCountQuery,
-    createApiReadTbQuery,
     createApiCpuSecondsQuery,
+    createApiQueriesCountQuery,
     createApiQueriesPerKeyQuery,
-    createLast20QueriesQuery,
+    createApiReadTbQuery,
+    createExpensiveQueriesColumns,
     createExpensiveQueriesQuery,
+    createLast20QueriesColumns,
+    createLast20QueriesQuery,
 } from './queries'
 
 const INITIAL_DATE_FROM = '-7d' as string
@@ -38,18 +38,18 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
     path(['scenes', 'embedded-analytics', 'embeddedAnalyticsLogic']),
     props({} as EmbeddedAnalyticsLogicProps),
     key(({ dashboardId }) => dashboardId || 'default'),
-    
+
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setInterval: (interval: IntervalType) => ({ interval }),
-        setDatesAndInterval: (dateFrom: string | null, dateTo: string | null, interval?: IntervalType) => ({ 
-            dateFrom, 
-            dateTo, 
-            interval 
+        setDatesAndInterval: (dateFrom: string | null, dateTo: string | null, interval?: IntervalType) => ({
+            dateFrom,
+            dateTo,
+            interval,
         }),
         setRequestNameBreakdownEnabled: (enabled: boolean) => ({ enabled }),
     }),
-    
+
     reducers({
         dateFilter: [
             {
@@ -112,14 +112,12 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
             (dateFilter, requestNameBreakdownEnabled): EmbeddedQueryTile[] => {
                 const dateFromDayjs = dateStringToDayJs(dateFilter.dateFrom)
                 const dateToDayjs = dateFilter.dateTo ? dateStringToDayJs(dateFilter.dateTo) : null
-                
-                const dateFrom = dateFromDayjs 
+
+                const dateFrom = dateFromDayjs
                     ? dateFromDayjs.format('YYYY-MM-DD')
                     : dayjs().subtract(7, 'day').format('YYYY-MM-DD')
-                    
-                const dateTo = dateToDayjs 
-                    ? dateToDayjs.format('YYYY-MM-DD')
-                    : dayjs().format('YYYY-MM-DD')
+
+                const dateTo = dateToDayjs ? dateToDayjs.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD')
 
                 const queryConfig = {
                     dateFrom,
@@ -350,7 +348,7 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                         canOpenModal: false,
                     },
                 ]
-            }
+            },
         ],
     }),
 
