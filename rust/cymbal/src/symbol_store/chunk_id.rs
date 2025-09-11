@@ -204,11 +204,12 @@ mod test {
 
     use crate::{
         config::Config,
-        error::Error,
+        error::ResolveError,
         frames::RawFrame,
         langs::js::RawJSFrame,
         symbol_store::{
             chunk_id::{ChunkIdFetcher, OrChunkId},
+            hermesmap::HermesMapProvider,
             saving::SymbolSetRecord,
             sourcemap::{OwnedSourceMapCache, SourcemapProvider},
             Catalog, Provider, S3Client,
@@ -226,7 +227,7 @@ mod test {
     impl Provider for UnimplementedProvider {
         type Ref = Url;
         type Set = OwnedSourceMapCache;
-        type Err = Error;
+        type Err = ResolveError;
 
         async fn lookup(&self, _team_id: i32, _r: Self::Ref) -> Result<Arc<Self::Set>, Self::Err> {
             unimplemented!()
@@ -331,10 +332,21 @@ mod test {
         let client = Arc::new(client);
 
         let smp = SourcemapProvider::new(&config);
-        let chunk_id_fetcher =
-            ChunkIdFetcher::new(smp, client, db.clone(), config.object_storage_bucket);
+        let chunk_id_fetcher = ChunkIdFetcher::new(
+            smp,
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
 
-        let catalog = Catalog::new(chunk_id_fetcher);
+        let hermes_map_fetcher = ChunkIdFetcher::new(
+            HermesMapProvider {},
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket,
+        );
+
+        let catalog = Catalog::new(chunk_id_fetcher, hermes_map_fetcher);
 
         let mut frame = get_example_frame();
         frame.chunk_id = Some(chunk_id.clone());

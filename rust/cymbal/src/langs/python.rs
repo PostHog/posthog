@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 
 use crate::{
-    frames::{Context, ContextLine, Frame},
+    frames::{Context, ContextLine, Frame, FrameId},
     langs::CommonFrameMetadata,
 };
 
@@ -79,7 +79,7 @@ impl RawPythonFrame {
 impl From<&RawPythonFrame> for Frame {
     fn from(raw: &RawPythonFrame) -> Self {
         Frame {
-            raw_id: String::new(),
+            raw_id: FrameId::placeholder(),
             mangled_name: raw.function.clone(),
             line: raw.lineno,
             column: None,
