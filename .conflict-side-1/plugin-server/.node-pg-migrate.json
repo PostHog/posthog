@@ -1,0 +1,8 @@
+{
+    "migrationsTable": "pgmigrations",
+    "dir": "src/migrations",
+    "checkOrder": true,
+    "migrationFilenameFormat": "utc",
+    "createMigrationsSchema": false,
+    "createSchema": false
+}

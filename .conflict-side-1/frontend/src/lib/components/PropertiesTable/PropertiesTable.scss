@@ -1,0 +1,36 @@
+.properties-table-key {
+    display: flex;
+    min-width: 8rem;
+    max-width: 24rem;
+}
+
+.properties-table-value {
+    display: flex;
+    align-items: center;
+    min-width: 12rem;
+    max-width: fit-content;
+
+    .value-link {
+        > * {
+            vertical-align: middle;
+        }
+
+        > svg {
+            margin-left: 0.25rem;
+            font-size: 1rem;
+        }
+    }
+
+    .editable {
+        padding: 0.125rem 0.25rem;
+        margin-left: -0.25rem;
+        cursor: pointer;
+        border: 1px solid transparent;
+        border-radius: calc(var(--radius) * 0.75);
+
+        &:hover {
+            background: var(--color-bg-surface-primary);
+            border: 1px solid var(--color-border-primary);
+        }
+    }
+}

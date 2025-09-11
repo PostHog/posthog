@@ -1,0 +1,831 @@
+# serializer version: 1
+# name: TestClickhouseStickiness.test_aggregate_by_groups
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT groupArray(num_actors) AS counts,
+         groupArray(num_intervals) AS intervals
+  FROM
+    (SELECT sum(num_actors) AS num_actors,
+            num_intervals AS num_intervals
+     FROM
+       (SELECT 0 AS num_actors,
+               plus(numbers.number, 1) AS num_intervals
+        FROM numbers(ceil(divide(dateDiff('week', toStartOfWeek(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), 0), plus(toStartOfWeek(assumeNotNull(toDateTime('2020-02-15 23:59:59', 'UTC')), 0), toIntervalWeek(1))), 1))) AS numbers
+        UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
+                         num_intervals AS num_intervals
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  count() AS num_intervals
+           FROM
+             (SELECT e.`$group_0` AS aggregation_target,
+                     toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS start_of_interval
+              FROM events AS e SAMPLE 1
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-02-15 23:59:59', 'UTC'))), equals(e.event, 'watched movie'), ifNull(notEquals(nullIf(nullIf(e.`$group_0`, ''), 'null'), ''), 1), notEquals(e.`$group_0`, ''))
+              GROUP BY aggregation_target,
+                       start_of_interval
+              HAVING ifNull(greater(count(), 0), 0))
+           GROUP BY aggregation_target)
+        GROUP BY num_intervals
+        ORDER BY num_intervals ASC)
+     GROUP BY num_intervals
+     ORDER BY num_intervals ASC)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestClickhouseStickiness.test_aggregate_by_groups.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT aggregation_target AS actor_id
+  FROM
+    (SELECT e."$group_0" AS aggregation_target,
+            countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0)) as num_intervals
+     FROM events e
+     LEFT OUTER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 99999
+          AND distinct_id IN
+            (SELECT distinct_id
+             FROM events
+             WHERE team_id = 99999
+               AND event = 'watched movie'
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
+               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC') )
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     WHERE team_id = 99999
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC')
+       AND event = 'watched movie'
+       AND (NOT has([''], "$group_0")
+            AND NOT has([''], "$group_0"))
+     GROUP BY aggregation_target)
+  WHERE num_intervals = 1
+  LIMIT 100
+  OFFSET 0
+  '''
+# ---
+# name: TestClickhouseStickiness.test_aggregate_by_groups.2
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT aggregation_target AS actor_id
+  FROM
+    (SELECT e."$group_0" AS aggregation_target,
+            countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0)) as num_intervals
+     FROM events e
+     LEFT OUTER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 99999
+          AND distinct_id IN
+            (SELECT distinct_id
+             FROM events
+             WHERE team_id = 99999
+               AND event = 'watched movie'
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
+               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC') )
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     WHERE team_id = 99999
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC')
+       AND event = 'watched movie'
+       AND (NOT has([''], "$group_0")
+            AND NOT has([''], "$group_0"))
+     GROUP BY aggregation_target)
+  WHERE num_intervals = 2
+  LIMIT 100
+  OFFSET 0
+  '''
+# ---
+# name: TestClickhouseStickiness.test_aggregate_by_groups.3
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT aggregation_target AS actor_id
+  FROM
+    (SELECT e."$group_0" AS aggregation_target,
+            countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0)) as num_intervals
+     FROM events e
+     LEFT OUTER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 99999
+          AND distinct_id IN
+            (SELECT distinct_id
+             FROM events
+             WHERE team_id = 99999
+               AND event = 'watched movie'
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
+               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC') )
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     WHERE team_id = 99999
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC')
+       AND event = 'watched movie'
+       AND (NOT has([''], "$group_0")
+            AND NOT has([''], "$group_0"))
+     GROUP BY aggregation_target)
+  WHERE num_intervals = 3
+  LIMIT 100
+  OFFSET 0
+  '''
+# ---
+# name: TestClickhouseStickiness.test_compare
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT groupArray(num_actors) AS counts,
+         groupArray(num_intervals) AS intervals
+  FROM
+    (SELECT sum(num_actors) AS num_actors,
+            num_intervals AS num_intervals
+     FROM
+       (SELECT 0 AS num_actors,
+               plus(numbers.number, 1) AS num_intervals
+        FROM numbers(ceil(divide(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(1))), 1))) AS numbers
+        UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
+                         num_intervals AS num_intervals
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  count() AS num_intervals
+           FROM
+             (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                     toStartOfInterval(toTimeZone(e.timestamp, 'UTC'), toIntervalDay(1)) AS start_of_interval
+              FROM events AS e SAMPLE 1
+              LEFT OUTER JOIN
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
+              GROUP BY aggregation_target,
+                       start_of_interval
+              HAVING ifNull(greater(count(), 0), 0))
+           GROUP BY aggregation_target)
+        GROUP BY num_intervals
+        ORDER BY num_intervals ASC)
+     GROUP BY num_intervals
+     ORDER BY num_intervals ASC)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestClickhouseStickiness.test_compare.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT groupArray(num_actors) AS counts,
+         groupArray(num_intervals) AS intervals
+  FROM
+    (SELECT sum(num_actors) AS num_actors,
+            num_intervals AS num_intervals
+     FROM
+       (SELECT 0 AS num_actors,
+               plus(numbers.number, 1) AS num_intervals
+        FROM numbers(ceil(divide(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1)), plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(1))), 1))) AS numbers
+        UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
+                         num_intervals AS num_intervals
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  count() AS num_intervals
+           FROM
+             (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                     toStartOfInterval(toTimeZone(e.timestamp, 'UTC'), toIntervalDay(1)) AS start_of_interval
+              FROM events AS e SAMPLE 1
+              LEFT OUTER JOIN
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
+              GROUP BY aggregation_target,
+                       start_of_interval
+              HAVING ifNull(greater(count(), 0), 0))
+           GROUP BY aggregation_target)
+        GROUP BY num_intervals
+        ORDER BY num_intervals ASC)
+     GROUP BY num_intervals
+     ORDER BY num_intervals ASC)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestClickhouseStickiness.test_filter_by_group_properties
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT groupArray(num_actors) AS counts,
+         groupArray(num_intervals) AS intervals
+  FROM
+    (SELECT sum(num_actors) AS num_actors,
+            num_intervals AS num_intervals
+     FROM
+       (SELECT 0 AS num_actors,
+               plus(numbers.number, 1) AS num_intervals
+        FROM numbers(ceil(divide(dateDiff('week', toStartOfWeek(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), 0), plus(toStartOfWeek(assumeNotNull(toDateTime('2020-02-15 23:59:59', 'UTC')), 0), toIntervalWeek(1))), 1))) AS numbers
+        UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
+                         num_intervals AS num_intervals
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  count() AS num_intervals
+           FROM
+             (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                     toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS start_of_interval
+              FROM events AS e SAMPLE 1
+              LEFT OUTER JOIN
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              LEFT JOIN
+                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                        groups.group_type_index AS index,
+                        groups.group_key AS key
+                 FROM groups
+                 WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+                 GROUP BY groups.group_type_index,
+                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-02-15 23:59:59', 'UTC'))), equals(e.event, 'watched movie'), ifNull(equals(e__group_0.properties___industry, 'technology'), 0))
+              GROUP BY aggregation_target,
+                       start_of_interval
+              HAVING ifNull(greater(count(), 0), 0))
+           GROUP BY aggregation_target)
+        GROUP BY num_intervals
+        ORDER BY num_intervals ASC)
+     GROUP BY num_intervals
+     ORDER BY num_intervals ASC)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestClickhouseStickiness.test_filter_by_group_properties.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT aggregation_target AS actor_id
+  FROM
+    (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS aggregation_target,
+            countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0)) as num_intervals
+     FROM events e
+     LEFT OUTER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 99999
+          AND distinct_id IN
+            (SELECT distinct_id
+             FROM events
+             WHERE team_id = 99999
+               AND event = 'watched movie'
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
+               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC') )
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     LEFT JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 99999
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+     WHERE team_id = 99999
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC')
+       AND event = 'watched movie'
+       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+     GROUP BY aggregation_target)
+  WHERE num_intervals = 1
+  LIMIT 100
+  OFFSET 0
+  '''
+# ---
+# name: TestClickhouseStickiness.test_filter_by_group_properties.2
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT aggregation_target AS actor_id
+  FROM
+    (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS aggregation_target,
+            countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0)) as num_intervals
+     FROM events e
+     LEFT OUTER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 99999
+          AND distinct_id IN
+            (SELECT distinct_id
+             FROM events
+             WHERE team_id = 99999
+               AND event = 'watched movie'
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
+               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC') )
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     LEFT JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 99999
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+     WHERE team_id = 99999
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC')
+       AND event = 'watched movie'
+       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+     GROUP BY aggregation_target)
+  WHERE num_intervals = 2
+  LIMIT 100
+  OFFSET 0
+  '''
+# ---
+# name: TestClickhouseStickiness.test_filter_by_group_properties.3
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT aggregation_target AS actor_id
+  FROM
+    (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS aggregation_target,
+            countDistinct(toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0)) as num_intervals
+     FROM events e
+     LEFT OUTER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 99999
+          AND distinct_id IN
+            (SELECT distinct_id
+             FROM events
+             WHERE team_id = 99999
+               AND event = 'watched movie'
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
+               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC') )
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     LEFT JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 99999
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+     WHERE team_id = 99999
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC')
+       AND event = 'watched movie'
+       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+     GROUP BY aggregation_target)
+  WHERE num_intervals = 3
+  LIMIT 100
+  OFFSET 0
+  '''
+# ---
+# name: TestClickhouseStickiness.test_stickiness_all_time
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp
+  from events
+  WHERE team_id = 99999
+    AND timestamp > '2015-01-01'
+  order by timestamp
+  limit 1
+  '''
+# ---
+# name: TestClickhouseStickiness.test_stickiness_all_time.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT groupArray(num_actors) AS counts,
+         groupArray(num_intervals) AS intervals
+  FROM
+    (SELECT sum(num_actors) AS num_actors,
+            num_intervals AS num_intervals
+     FROM
+       (SELECT 0 AS num_actors,
+               plus(numbers.number, 1) AS num_intervals
+        FROM numbers(ceil(divide(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC')), toIntervalDay(1)), plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(1))), 1))) AS numbers
+        UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
+                         num_intervals AS num_intervals
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  count() AS num_intervals
+           FROM
+             (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                     toStartOfInterval(toTimeZone(e.timestamp, 'UTC'), toIntervalDay(1)) AS start_of_interval
+              FROM events AS e SAMPLE 1
+              LEFT OUTER JOIN
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
+              GROUP BY aggregation_target,
+                       start_of_interval
+              HAVING ifNull(greater(count(), 0), 0))
+           GROUP BY aggregation_target)
+        GROUP BY num_intervals
+        ORDER BY num_intervals ASC)
+     GROUP BY num_intervals
+     ORDER BY num_intervals ASC)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestClickhouseStickiness.test_stickiness_all_time.2
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp
+  from events
+  WHERE team_id = 99999
+    AND timestamp > '2015-01-01'
+  order by timestamp
+  limit 1
+  '''
+# ---
+# name: TestClickhouseStickiness.test_stickiness_all_time_with_sampling
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp
+  from events
+  WHERE team_id = 99999
+    AND timestamp > '2015-01-01'
+  order by timestamp
+  limit 1
+  '''
+# ---
+# name: TestClickhouseStickiness.test_stickiness_all_time_with_sampling.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT groupArray(num_actors) AS counts,
+         groupArray(num_intervals) AS intervals
+  FROM
+    (SELECT sum(num_actors) AS num_actors,
+            num_intervals AS num_intervals
+     FROM
+       (SELECT 0 AS num_actors,
+               plus(numbers.number, 1) AS num_intervals
+        FROM numbers(ceil(divide(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC')), toIntervalDay(1)), plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(1))), 1))) AS numbers
+        UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
+                         num_intervals AS num_intervals
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  count() AS num_intervals
+           FROM
+             (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                     toStartOfInterval(toTimeZone(e.timestamp, 'UTC'), toIntervalDay(1)) AS start_of_interval
+              FROM events AS e SAMPLE 1.0
+              LEFT OUTER JOIN
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
+              GROUP BY aggregation_target,
+                       start_of_interval
+              HAVING ifNull(greater(count(), 0), 0))
+           GROUP BY aggregation_target)
+        GROUP BY num_intervals
+        ORDER BY num_intervals ASC)
+     GROUP BY num_intervals
+     ORDER BY num_intervals ASC)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestClickhouseStickiness.test_stickiness_all_time_with_sampling.2
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT timestamp
+  from events
+  WHERE team_id = 99999
+    AND timestamp > '2015-01-01'
+  order by timestamp
+  limit 1
+  '''
+# ---
+# name: TestClickhouseStickiness.test_stickiness_hours
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT groupArray(num_actors) AS counts,
+         groupArray(num_intervals) AS intervals
+  FROM
+    (SELECT sum(num_actors) AS num_actors,
+            num_intervals AS num_intervals
+     FROM
+       (SELECT 0 AS num_actors,
+               plus(numbers.number, 1) AS num_intervals
+        FROM numbers(ceil(divide(dateDiff('hour', toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC')), toIntervalHour(1)), plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 20:00:00', 'UTC')), toIntervalHour(1)), toIntervalHour(1))), 1))) AS numbers
+        UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
+                         num_intervals AS num_intervals
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  count() AS num_intervals
+           FROM
+             (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                     toStartOfInterval(toTimeZone(e.timestamp, 'UTC'), toIntervalHour(1)) AS start_of_interval
+              FROM events AS e SAMPLE 1
+              LEFT OUTER JOIN
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC')), toIntervalHour(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 20:00:00', 'UTC'))), equals(e.event, 'watched movie'))
+              GROUP BY aggregation_target,
+                       start_of_interval
+              HAVING ifNull(greater(count(), 0), 0))
+           GROUP BY aggregation_target)
+        GROUP BY num_intervals
+        ORDER BY num_intervals ASC)
+     GROUP BY num_intervals
+     ORDER BY num_intervals ASC)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestClickhouseStickiness.test_stickiness_people_endpoint
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT aggregation_target AS actor_id
+  FROM
+    (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS aggregation_target,
+            countDistinct(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
+     FROM events e
+     LEFT OUTER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 99999
+          AND distinct_id IN
+            (SELECT distinct_id
+             FROM events
+             WHERE team_id = 99999
+               AND ((event = 'watched movie'))
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     WHERE team_id = 99999
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
+       AND ((event = 'watched movie'))
+     GROUP BY aggregation_target)
+  WHERE num_intervals = 1
+  LIMIT 100
+  OFFSET 0
+  '''
+# ---
+# name: TestClickhouseStickiness.test_stickiness_people_paginated
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT aggregation_target AS actor_id
+  FROM
+    (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS aggregation_target,
+            countDistinct(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
+     FROM events e
+     LEFT OUTER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 99999
+          AND distinct_id IN
+            (SELECT distinct_id
+             FROM events
+             WHERE team_id = 99999
+               AND ((event = 'watched movie'))
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     WHERE team_id = 99999
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
+       AND ((event = 'watched movie'))
+     GROUP BY aggregation_target)
+  WHERE num_intervals = 1
+  LIMIT 100
+  OFFSET 0
+  '''
+# ---
+# name: TestClickhouseStickiness.test_stickiness_people_paginated.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT aggregation_target AS actor_id
+  FROM
+    (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS aggregation_target,
+            countDistinct(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
+     FROM events e
+     LEFT OUTER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 99999
+          AND distinct_id IN
+            (SELECT distinct_id
+             FROM events
+             WHERE team_id = 99999
+               AND ((event = 'watched movie'))
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     WHERE team_id = 99999
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
+       AND ((event = 'watched movie'))
+     GROUP BY aggregation_target)
+  WHERE num_intervals = 1
+  LIMIT 100
+  OFFSET 100
+  '''
+# ---
+# name: TestClickhouseStickiness.test_stickiness_with_person_on_events_v2
+  '''
+  
+  SELECT DISTINCT person_id
+  FROM events
+  WHERE team_id = 99999
+    AND distinct_id = 'person2'
+  '''
+# ---
+# name: TestClickhouseStickiness.test_stickiness_with_person_on_events_v2.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT groupArray(num_actors) AS counts,
+         groupArray(num_intervals) AS intervals
+  FROM
+    (SELECT sum(num_actors) AS num_actors,
+            num_intervals AS num_intervals
+     FROM
+       (SELECT 0 AS num_actors,
+               plus(numbers.number, 1) AS num_intervals
+        FROM numbers(ceil(divide(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(1))), 1))) AS numbers
+        UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
+                         num_intervals AS num_intervals
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  count() AS num_intervals
+           FROM
+             (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                     toStartOfInterval(toTimeZone(e.timestamp, 'UTC'), toIntervalDay(1)) AS start_of_interval
+              FROM events AS e SAMPLE 1
+              LEFT OUTER JOIN
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
+              GROUP BY aggregation_target,
+                       start_of_interval
+              HAVING ifNull(greater(count(), 0), 0))
+           GROUP BY aggregation_target)
+        GROUP BY num_intervals
+        ORDER BY num_intervals ASC)
+     GROUP BY num_intervals
+     ORDER BY num_intervals ASC)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestClickhouseStickiness.test_timezones
+  '''
+  
+  SELECT countDistinct(aggregation_target),
+         num_intervals
+  FROM
+    (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS aggregation_target,
+            countDistinct(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
+     FROM events e
+     LEFT OUTER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 99999
+          AND distinct_id IN
+            (SELECT distinct_id
+             FROM events
+             WHERE team_id = 99999
+               AND event = '$pageview'
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
+               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-15 23:59:59', 'UTC') )
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     WHERE team_id = 99999
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-15 23:59:59', 'UTC')
+       AND event = '$pageview'
+     GROUP BY aggregation_target)
+  WHERE num_intervals <= 16
+  GROUP BY num_intervals
+  ORDER BY num_intervals
+  '''
+# ---
+# name: TestClickhouseStickiness.test_timezones.1
+  '''
+  
+  SELECT countDistinct(aggregation_target),
+         num_intervals
+  FROM
+    (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS aggregation_target,
+            countDistinct(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific'))) as num_intervals
+     FROM events e
+     LEFT OUTER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 99999
+          AND distinct_id IN
+            (SELECT distinct_id
+             FROM events
+             WHERE team_id = 99999
+               AND event = '$pageview'
+               AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'US/Pacific')), 'US/Pacific')
+               AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2021-05-15 23:59:59', 'US/Pacific') )
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     WHERE team_id = 99999
+       AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'US/Pacific')), 'US/Pacific')
+       AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2021-05-15 23:59:59', 'US/Pacific')
+       AND event = '$pageview'
+     GROUP BY aggregation_target)
+  WHERE num_intervals <= 16
+  GROUP BY num_intervals
+  ORDER BY num_intervals
+  '''
+# ---

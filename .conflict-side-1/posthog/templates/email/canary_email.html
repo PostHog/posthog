@@ -1,0 +1,11 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
+<p>
+    Good news!
+    
+    You have properly configured your email notifications for
+    <a href="{{ site_url }}" target="_blank">your PostHog instance</a>.
+    
+    Nothing else to do here, emails will now be sent when
+    applicable.
+</p>
+{% endblock %}{% load posthog_filters %} {% block heading %}Email successfully set up!{% endblock %}

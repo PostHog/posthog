@@ -1,0 +1,10 @@
+#!/bin/bash
+
+set -e
+
+# Check Kafka
+while true; do
+nc -z localhost 9092 && break || echo 'Checking Kafka status...' && sleep 1
+done
+
+./bin/check_clickhouse_up

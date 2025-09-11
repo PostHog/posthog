@@ -1,0 +1,90 @@
+.RollingDateRangeFilter {
+    display: flex;
+    align-items: center;
+    height: 1.6875rem;
+    min-height: 2rem;
+    padding: 1.25rem 0;
+    font-size: 0.875rem;
+    font-weight: normal;
+    line-height: 1.375em;
+    color: var(--text-3000);
+    cursor: pointer;
+    transition: background 0.3s ease;
+
+    &:hover {
+        background-color: var(--color-bg-primary);
+    }
+
+    input::-webkit-outer-spin-button,
+    input::-webkit-inner-spin-button {
+        margin: 0;
+        appearance: none;
+    }
+
+    /* Firefox */
+    input[type='number'] {
+        appearance: textfield;
+    }
+}
+
+.RollingDateRangeFilter__label {
+    flex-shrink: 0;
+    margin: 0 auto;
+}
+
+.RollingDateRangeFilter__counter {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    height: 1.6875rem;
+    margin: 0;
+    margin-right: 0.25rem;
+    margin-left: 0.25rem;
+    line-height: 1.5rem;
+    background-color: var(--color-bg-surface-primary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius);
+
+    .LemonInput {
+        width: 3rem;
+        height: unset;
+        min-height: 0;
+        padding: 0;
+        border: none;
+
+        input {
+            text-align: center;
+        }
+    }
+
+    .RollingDateRangeFilter__counter__step {
+        width: 1.25rem;
+        height: 100%;
+        padding: 0;
+        margin: 0;
+        text-align: center;
+        border-radius: calc(var(--radius) - 1px);
+
+        &:first-child {
+            border-top-right-radius: 0;
+            border-bottom-right-radius: 0;
+        }
+
+        &:last-child {
+            border-top-left-radius: 0;
+            border-bottom-left-radius: 0;
+        }
+
+        &:hover {
+            background-color: var(--color-bg-surface-primary);
+        }
+    }
+}
+
+.RollingDateRangeFilter__select {
+    width: 6rem;
+}
+
+.RollingDateRangeFilter__popover {
+    z-index: 9999;
+}

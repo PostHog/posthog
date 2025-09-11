@@ -1,0 +1,42 @@
+.LemonInput.CommandBar__input {
+    height: 3rem;
+    padding-right: 0.5rem;
+    padding-left: 1rem;
+    border-color: transparent !important;
+    border-radius: 0;
+}
+
+.SearchBarTab {
+    // TODO: not working, look to fix
+    &:hover {
+        border-left: 2px solid var(--color-border-primary);
+    }
+
+    &.SearchBarTab__active {
+        border-color: var(--color-accent);
+    }
+}
+
+.CommandBar__overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: var(--z-command-palette);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    padding: 0.75rem;
+    background-color: var(--modal-backdrop-color);
+    backdrop-filter: blur(var(--modal-backdrop-blur));
+
+    &-content {
+        width: 100%;
+        max-width: 62rem;
+        height: 100%;
+        max-height: 40rem;
+        overflow: hidden;
+    }
+}

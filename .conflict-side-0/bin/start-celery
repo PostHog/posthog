@@ -1,0 +1,14 @@
+#!/bin/bash
+# Starts a celery worker / heartbeat job. Must be run with a type of process: worker | beat
+
+set -e
+
+export CLICKHOUSE_API_USER="api"
+export CLICKHOUSE_API_PASSWORD="apipass"
+export CLICKHOUSE_APP_USER="app"
+export CLICKHOUSE_APP_PASSWORD="apppass"
+
+source ./bin/celery-queues.env
+
+# start celery worker with heartbeat (-B)
+python manage.py run_autoreload_celery --type=$1

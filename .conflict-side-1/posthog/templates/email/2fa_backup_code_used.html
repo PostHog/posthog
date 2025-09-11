@@ -1,0 +1,9 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block section %}
+<p>Hey, {{ user_name }},</p>
+
+<p>Someone used a backup code to bypass two-factor authentication and access {{ user_email }}.</p>
+
+<p>Hopefully, that was you—if so, there's no need for alarm. If it wasn't you then you should let us know urgently, as someone may have accessed your account without your permission. And that would be bad. </p>
+
+{% endblock %}

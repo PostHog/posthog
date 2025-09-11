@@ -1,0 +1,36 @@
+.PropertyFilters {
+    display: flex;
+    gap: 0.5rem;
+
+    .PropertyFilters__content {
+        display: flex;
+        flex: 1;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .PropertyFilters__prefix {
+        padding: 0 5px;
+        font-size: 18px;
+        color: var(--border-bold-3000);
+        user-select: none;
+    }
+
+    .logical-row-divider {
+        align-items: flex-start;
+        margin-top: 0.5rem;
+        margin-bottom: 0;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+
+        &::before,
+        &::after {
+            border-top: 1px solid var(--color-border-primary);
+        }
+
+        &::before {
+            width: 1.5%;
+        }
+    }
+}

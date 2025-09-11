@@ -1,0 +1,40 @@
+[
+    {
+        "id": 2,
+        "plugin": 4,
+        "enabled": true,
+        "order": 2,
+        "config": {
+            "host": "eu.posthog.com",
+            "replication": "1",
+            "disable_geoip": "No",
+            "project_api_key": "sdsdd",
+            "events_to_ignore": ""
+        },
+        "error": null,
+        "team_id": 2,
+        "plugin_info": {
+            "id": 4,
+            "plugin_type": "custom",
+            "name": "Replicator",
+            "description": "Replicator description",
+            "url": "https://github.com/PostHog/posthog-plugin-replicator",
+            "icon": null,
+            "config_schema": [],
+            "tag": "2dd67e1dec9c8b5febd7a6d9235c51072950cd37",
+            "latest_tag": "2dd67e1dec9c8b5febd7a6d9235c51072950cd37",
+            "is_global": false,
+            "organization_id": "018aaa96-00d3-0000-b845-8eb60884ff76",
+            "organization_name": "test 123",
+            "capabilities": {},
+            "metrics": {},
+            "public_jobs": {}
+        },
+        "delivery_rate_24h": null,
+        "created_at": "2023-12-22T18:23:03.907137Z",
+        "updated_at": "2023-12-22T18:42:54.074571Z",
+        "name": "Replicator",
+        "description": "Replicate PostHog event stream in another PostHog instance",
+        "deleted": false
+    }
+]

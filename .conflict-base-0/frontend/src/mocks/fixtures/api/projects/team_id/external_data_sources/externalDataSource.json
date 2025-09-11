@@ -1,0 +1,1864 @@
+{
+    "id": "018ef295-ff0f-0000-41f0-e447488369f6",
+    "created_at": "2024-04-18T19:01:40.240088Z",
+    "created_by": null,
+    "status": "Completed",
+    "source_type": "Stripe",
+    "latest_error": null,
+    "prefix": "prod_",
+    "revenue_analytics_config": {
+        "enabled": true,
+        "include_invoiceless_charges": true
+    },
+    "last_run_at": "2025-05-21T01:28:53.348767Z",
+    "schemas": [
+        {
+            "id": "0191b292-494b-0000-18fe-c66f2913c665",
+            "name": "Account",
+            "table": null,
+            "should_sync": false,
+            "last_synced_at": null,
+            "latest_error": null,
+            "incremental": false,
+            "status": null,
+            "sync_type": null,
+            "incremental_field": null,
+            "incremental_field_type": null,
+            "sync_frequency": "6hour",
+            "sync_time_of_day": null
+        },
+        {
+            "id": "018ef295-ff15-0000-968d-d709b7a7ef69",
+            "name": "BalanceTransaction",
+            "table": {
+                "id": "018ef297-d5dd-0000-dbfe-5d2ed3b5afc8",
+                "name": "prod_stripe_balancetransaction",
+                "columns": [
+                    {
+                        "key": "id",
+                        "name": "id",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "fee",
+                        "name": "fee",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "net",
+                        "name": "net",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "type",
+                        "name": "type",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "amount",
+                        "name": "amount",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "object",
+                        "name": "object",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "source_id",
+                        "name": "source_id",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "status",
+                        "name": "status",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "created_at",
+                        "name": "created_at",
+                        "type": "datetime",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "currency",
+                        "name": "currency",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "description",
+                        "name": "description",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "fee_details",
+                        "name": "fee_details",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "available_on",
+                        "name": "available_on",
+                        "type": "datetime",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "reporting_category",
+                        "name": "reporting_category",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    }
+                ],
+                "row_count": 140
+            },
+            "should_sync": true,
+            "last_synced_at": "2025-05-21T01:28:53.348767Z",
+            "latest_error": null,
+            "incremental": false,
+            "status": "Completed",
+            "sync_type": "full_refresh",
+            "incremental_field": null,
+            "incremental_field_type": null,
+            "sync_frequency": "24hour",
+            "sync_time_of_day": null
+        },
+        {
+            "id": "018ef295-ff33-0000-41d3-6a3ae32992c9",
+            "name": "Charge",
+            "table": {
+                "id": "018ef2a7-3849-0000-2109-def165b93ef5",
+                "name": "prod_stripe_charge",
+                "columns": [
+                    {
+                        "key": "id",
+                        "name": "id",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "paid",
+                        "name": "paid",
+                        "type": "boolean",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "amount",
+                        "name": "amount",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "object",
+                        "name": "object",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "source",
+                        "name": "source",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "status",
+                        "name": "status",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "created_at",
+                        "name": "created_at",
+                        "type": "datetime",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "invoice_id",
+                        "name": "invoice_id",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "outcome",
+                        "name": "outcome",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "captured",
+                        "name": "captured",
+                        "type": "boolean",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "currency",
+                        "name": "currency",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "customer_id",
+                        "name": "customer_id",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "disputed",
+                        "name": "disputed",
+                        "type": "boolean",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "livemode",
+                        "name": "livemode",
+                        "type": "boolean",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "metadata",
+                        "name": "metadata",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "refunded",
+                        "name": "refunded",
+                        "type": "boolean",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "description",
+                        "name": "description",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "receipt_url",
+                        "name": "receipt_url",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "failure_code",
+                        "name": "failure_code",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "fraud_details",
+                        "name": "fraud_details",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "radar_options",
+                        "name": "radar_options",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "receipt_email",
+                        "name": "receipt_email",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "payment_intent_id",
+                        "name": "payment_intent_id",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "payment_method_id",
+                        "name": "payment_method_id",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "amount_captured",
+                        "name": "amount_captured",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "amount_refunded",
+                        "name": "amount_refunded",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "billing_details",
+                        "name": "billing_details",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "failure_message",
+                        "name": "failure_message",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "balance_transaction_id",
+                        "name": "balance_transaction_id",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "statement_descriptor",
+                        "name": "statement_descriptor",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "payment_method_details",
+                        "name": "payment_method_details",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "calculated_statement_descriptor",
+                        "name": "calculated_statement_descriptor",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    }
+                ],
+                "row_count": 642
+            },
+            "should_sync": true,
+            "last_synced_at": "2025-05-20T01:59:56.339395Z",
+            "latest_error": "activity Heartbeat timeout",
+            "incremental": false,
+            "status": "Error",
+            "sync_type": "full_refresh",
+            "incremental_field": null,
+            "incremental_field_type": null,
+            "sync_frequency": "24hour",
+            "sync_time_of_day": null
+        },
+        {
+            "id": "018ef295-ff1f-0000-3d92-93dfc2d155a9",
+            "name": "Customer",
+            "table": {
+                "id": "018ef29f-7a07-0000-0d38-6f0e3e4e92c6",
+                "name": "prod_stripe_customer",
+                "columns": [
+                    {
+                        "key": "id",
+                        "name": "id",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "name",
+                        "name": "name",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "email",
+                        "name": "email",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "phone",
+                        "name": "phone",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "object",
+                        "name": "object",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "address",
+                        "name": "address",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "balance",
+                        "name": "balance",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "created_at",
+                        "name": "created_at",
+                        "type": "datetime",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "currency",
+                        "name": "currency",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "discount",
+                        "name": "discount",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "livemode",
+                        "name": "livemode",
+                        "type": "boolean",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "metadata",
+                        "name": "metadata",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "shipping",
+                        "name": "shipping",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "delinquent",
+                        "name": "delinquent",
+                        "type": "boolean",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "tax_exempt",
+                        "name": "tax_exempt",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "description",
+                        "name": "description",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "default_source",
+                        "name": "default_source",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "invoice_prefix",
+                        "name": "invoice_prefix",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "invoice_settings",
+                        "name": "invoice_settings",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "preferred_locales",
+                        "name": "preferred_locales",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "next_invoice_sequence",
+                        "name": "next_invoice_sequence",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    }
+                ],
+                "row_count": 172
+            },
+            "should_sync": true,
+            "last_synced_at": "2025-05-21T00:46:48.636478Z",
+            "latest_error": null,
+            "incremental": false,
+            "status": "Completed",
+            "sync_type": "full_refresh",
+            "incremental_field": null,
+            "incremental_field_type": null,
+            "sync_frequency": "24hour",
+            "sync_time_of_day": null
+        },
+        {
+            "id": "018ef295-ff2e-0000-35fb-8445ec1ba2d1",
+            "name": "Invoice",
+            "table": {
+                "id": "018ef2fb-4b05-0000-bf5f-c9675b11182b",
+                "name": "prod_stripe_invoice",
+                "columns": [
+                    {
+                        "key": "id",
+                        "name": "id",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "tax",
+                        "name": "tax",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "paid",
+                        "name": "paid",
+                        "type": "boolean",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "lines",
+                        "name": "lines",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "total",
+                        "name": "total",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "charge",
+                        "name": "charge",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "issuer",
+                        "name": "issuer",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "number",
+                        "name": "number",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "object",
+                        "name": "object",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "status",
+                        "name": "status",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "created_at",
+                        "name": "created_at",
+                        "type": "datetime",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "currency",
+                        "name": "currency",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "customer_id",
+                        "name": "customer_id",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "discount",
+                        "name": "discount",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "due_date",
+                        "name": "due_date",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "livemode",
+                        "name": "livemode",
+                        "type": "boolean",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "metadata",
+                        "name": "metadata",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "subtotal",
+                        "name": "subtotal",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "attempted",
+                        "name": "attempted",
+                        "type": "boolean",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "discounts",
+                        "name": "discounts",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "rendering",
+                        "name": "rendering",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "amount_due",
+                        "name": "amount_due",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "period_start_at",
+                        "name": "period_start_at",
+                        "type": "datetime",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "period_end_at",
+                        "name": "period_end_at",
+                        "type": "datetime",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "amount_paid",
+                        "name": "amount_paid",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "description",
+                        "name": "description",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "invoice_pdf",
+                        "name": "invoice_pdf",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "account_name",
+                        "name": "account_name",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "auto_advance",
+                        "name": "auto_advance",
+                        "type": "boolean",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "effective_at",
+                        "name": "effective_at",
+                        "type": "datetime",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "subscription_id",
+                        "name": "subscription_id",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "attempt_count",
+                        "name": "attempt_count",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "automatic_tax",
+                        "name": "automatic_tax",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "customer_name",
+                        "name": "customer_name",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "billing_reason",
+                        "name": "billing_reason",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "customer_email",
+                        "name": "customer_email",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "ending_balance",
+                        "name": "ending_balance",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "payment_intent",
+                        "name": "payment_intent",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "account_country",
+                        "name": "account_country",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "amount_shipping",
+                        "name": "amount_shipping",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "amount_remaining",
+                        "name": "amount_remaining",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "customer_address",
+                        "name": "customer_address",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "customer_tax_ids",
+                        "name": "customer_tax_ids",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "paid_out_of_band",
+                        "name": "paid_out_of_band",
+                        "type": "boolean",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "payment_settings",
+                        "name": "payment_settings",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "starting_balance",
+                        "name": "starting_balance",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "collection_method",
+                        "name": "collection_method",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "default_tax_rates",
+                        "name": "default_tax_rates",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "total_tax_amounts",
+                        "name": "total_tax_amounts",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "hosted_invoice_url",
+                        "name": "hosted_invoice_url",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "status_transitions",
+                        "name": "status_transitions",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "customer_tax_exempt",
+                        "name": "customer_tax_exempt",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "total_excluding_tax",
+                        "name": "total_excluding_tax",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "subscription_details",
+                        "name": "subscription_details",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "webhooks_delivered_at",
+                        "name": "webhooks_delivered_at",
+                        "type": "datetime",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "subtotal_excluding_tax",
+                        "name": "subtotal_excluding_tax",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "total_discount_amounts",
+                        "name": "total_discount_amounts",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "pre_payment_credit_notes_amount",
+                        "name": "pre_payment_credit_notes_amount",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "post_payment_credit_notes_amount",
+                        "name": "post_payment_credit_notes_amount",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    }
+                ],
+                "row_count": 4254
+            },
+            "should_sync": true,
+            "last_synced_at": "2025-05-20T18:36:38.478748Z",
+            "latest_error": "ResourceExtractionError: In processing pipe Invoice: extraction of resource Invoice in generator convert_types caused an exception: Cancelled",
+            "incremental": false,
+            "status": "Error",
+            "sync_type": "full_refresh",
+            "incremental_field": null,
+            "incremental_field_type": null,
+            "sync_frequency": "12hour",
+            "sync_time_of_day": "03:00:00"
+        },
+        {
+            "id": "018ef295-ff28-0000-2394-df3bb3bbe2d0",
+            "name": "Price",
+            "table": {
+                "id": "018ef296-09c0-0000-4fe3-1b0247bc32f2",
+                "name": "prod_stripe_price",
+                "columns": [
+                    {
+                        "key": "id",
+                        "name": "id",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "type",
+                        "name": "type",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "active",
+                        "name": "active",
+                        "type": "boolean",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "object",
+                        "name": "object",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "created_at",
+                        "name": "created_at",
+                        "type": "datetime",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "product_id",
+                        "name": "product_id",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "currency",
+                        "name": "currency",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "livemode",
+                        "name": "livemode",
+                        "type": "boolean",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "metadata",
+                        "name": "metadata",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "nickname",
+                        "name": "nickname",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "recurring",
+                        "name": "recurring",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "tiers_mode",
+                        "name": "tiers_mode",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "tiers",
+                        "name": "tiers",
+                        "type": "array",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "unit_amount",
+                        "name": "unit_amount",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "tax_behavior",
+                        "name": "tax_behavior",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "billing_scheme",
+                        "name": "billing_scheme",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "unit_amount_decimal",
+                        "name": "unit_amount_decimal",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    }
+                ],
+                "row_count": 6
+            },
+            "should_sync": true,
+            "last_synced_at": "2025-05-21T00:29:26.396912Z",
+            "latest_error": null,
+            "incremental": false,
+            "status": "Completed",
+            "sync_type": "full_refresh",
+            "incremental_field": null,
+            "incremental_field_type": null,
+            "sync_frequency": "24hour",
+            "sync_time_of_day": null
+        },
+        {
+            "id": "018ef295-ff24-0000-5a61-f0de70549328",
+            "name": "Product",
+            "table": {
+                "id": "018ef296-05fc-0000-7882-592b4a8ec18d",
+                "name": "prod_stripe_product",
+                "columns": [
+                    {
+                        "key": "id",
+                        "name": "id",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "name",
+                        "name": "name",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "type",
+                        "name": "type",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "active",
+                        "name": "active",
+                        "type": "boolean",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "images",
+                        "name": "images",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "object",
+                        "name": "object",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "created_at",
+                        "name": "created_at",
+                        "type": "datetime",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "updated_at",
+                        "name": "updated_at",
+                        "type": "datetime",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "features",
+                        "name": "features",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "livemode",
+                        "name": "livemode",
+                        "type": "boolean",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "metadata",
+                        "name": "metadata",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "tax_code",
+                        "name": "tax_code",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "attributes",
+                        "name": "attributes",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "description",
+                        "name": "description",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "default_price_id",
+                        "name": "default_price_id",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    }
+                ],
+                "row_count": 4
+            },
+            "should_sync": true,
+            "last_synced_at": "2025-05-21T00:45:39.180454Z",
+            "latest_error": null,
+            "incremental": false,
+            "status": "Completed",
+            "sync_type": "full_refresh",
+            "incremental_field": null,
+            "incremental_field_type": null,
+            "sync_frequency": "24hour",
+            "sync_time_of_day": null
+        },
+        {
+            "id": "018ef295-ff1a-0000-ddbf-adaf2fa755e9",
+            "name": "Subscription",
+            "table": {
+                "id": "018ef2a2-7c68-0000-f1c1-d286ba55871d",
+                "name": "prod_stripe_subscription",
+                "columns": [
+                    {
+                        "key": "id",
+                        "name": "id",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "plan",
+                        "name": "plan",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "items",
+                        "name": "items",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "object",
+                        "name": "object",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "status",
+                        "name": "status",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "created_at",
+                        "name": "created_at",
+                        "type": "datetime",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "currency",
+                        "name": "currency",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "customer_id",
+                        "name": "customer_id",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "ended_at",
+                        "name": "ended_at",
+                        "type": "datetime",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "livemode",
+                        "name": "livemode",
+                        "type": "boolean",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "metadata",
+                        "name": "metadata",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "quantity",
+                        "name": "quantity",
+                        "type": "integer",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "start_date",
+                        "name": "start_date",
+                        "type": "datetime",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "canceled_at",
+                        "name": "canceled_at",
+                        "type": "datetime",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "automatic_tax",
+                        "name": "automatic_tax",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "latest_invoice_id",
+                        "name": "latest_invoice_id",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "trial_settings",
+                        "name": "trial_settings",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "invoice_settings",
+                        "name": "invoice_settings",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "pause_collection",
+                        "name": "pause_collection",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "payment_settings",
+                        "name": "payment_settings",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "collection_method",
+                        "name": "collection_method",
+                        "type": "string",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "default_tax_rates",
+                        "name": "default_tax_rates",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "current_period_start",
+                        "name": "current_period_start",
+                        "type": "datetime",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "current_period_end",
+                        "name": "current_period_end",
+                        "type": "datetime",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "billing_cycle_anchor",
+                        "name": "billing_cycle_anchor",
+                        "type": "datetime",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "cancel_at_period_end",
+                        "name": "cancel_at_period_end",
+                        "type": "boolean",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "cancellation_details",
+                        "name": "cancellation_details",
+                        "type": "json",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "trial_end",
+                        "name": "trial_end",
+                        "type": "datetime",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    },
+                    {
+                        "key": "trial_start",
+                        "name": "trial_start",
+                        "type": "datetime",
+                        "schema_valid": true,
+                        "fields": null,
+                        "table": null,
+                        "chain": null
+                    }
+                ],
+                "row_count": 312
+            },
+            "should_sync": true,
+            "last_synced_at": "2025-05-21T00:31:42.154683Z",
+            "latest_error": null,
+            "incremental": false,
+            "status": "Completed",
+            "sync_type": "full_refresh",
+            "incremental_field": null,
+            "incremental_field_type": null,
+            "sync_frequency": "24hour",
+            "sync_time_of_day": null
+        }
+    ],
+    "job_inputs": {
+        "stripe_account_id": "acct_1HIMDDEuIatRXSdz"
+    }
+}

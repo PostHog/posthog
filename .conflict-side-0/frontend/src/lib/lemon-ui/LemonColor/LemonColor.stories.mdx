@@ -1,0 +1,143 @@
+import { Meta } from '@storybook/blocks'
+
+import { LemonTable } from '../LemonTable'
+import { LemonColorButton } from './LemonColorButton'
+import { LemonColorGlyph } from './LemonColorGlyph'
+import { LemonColorPicker } from './LemonColorPicker'
+
+<Meta title="Lemon UI/Lemon Color/Overview" />
+
+# Lemon Color Components
+
+## Data Color Tokens
+
+Data color tokens (e.g., `preset-1`, `preset-2`, etc.) correspond to individual colors in the data color theme. The default data color theme includes 15 distinct color tokens, but custom themes can contain more or less colors. When the options are exhausted, the colors repeat from the beginning.
+
+The purpose of these colors is to represent distinct data categories or series in visualizations such as charts, graphs, and diagrams. They ensure visual clarity and differentiation across multiple data points or groups.
+
+### Default Theme Colors
+
+<LemonTable
+    dataSource={[
+        'data-color-1',
+        'data-color-2',
+        'data-color-3',
+        'data-color-4',
+        'data-color-5',
+        'data-color-6',
+        'data-color-7',
+        'data-color-8',
+        'data-color-9',
+        'data-color-10',
+        'data-color-11',
+        'data-color-12',
+        'data-color-13',
+        'data-color-14',
+        'data-color-15',
+    ].map((color) => ({ token: color.replace('data-color-', 'preset-'), name: color, color }))}
+    columns={[
+        {
+            title: 'Data Color Token',
+            key: 'token',
+            dataIndex: 'token',
+            render: (token) => token,
+        },
+        {
+            title: 'Color Variable Name',
+            key: 'name',
+            dataIndex: 'name',
+            render: (name) => name,
+        },
+        {
+            title: 'Color',
+            key: 'color',
+            dataIndex: 'color',
+            render: function RenderColor(color) {
+                return (
+                    <div
+                        className="border rounded h-8 w-8"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ backgroundColor: `var(--${color})` }}
+                    />
+                )
+            },
+        },
+    ]}
+/>
+
+## Components
+
+### Usage Notes
+
+- For data visualization and theme-aware colors, use `colorToken` props
+- For custom colors, use the `color` prop with 6-digit hex values (e.g. '#FF0000')
+- The `themeId` prop is only needed when using tokens
+
+### LemonColorGlyph
+
+Shows a circular glyph of the specified color.
+
+```tsx
+// Using a hex color
+<LemonColorGlyph color="#FF0000" />
+
+// Using a data token
+<LemonColorGlyph colorToken="primary" themeId={1} />
+
+// Small variant
+<LemonColorGlyph color="#FF0000" size="small" />
+```
+
+### LemonColorButton
+
+A button that displays a color glyph.
+
+```tsx
+// Using a hex color
+<LemonColorButton color="#FF0000" />
+
+// Using a data color token
+<LemonColorButton colorToken="primary" themeId={1} />
+```
+
+### LemonColorPicker
+
+A color picker.
+
+```tsx
+// Using hex colors
+<LemonColorPicker
+    colors={['#FF0000', '#00FF00', '#0000FF']}
+    selectedColor="#FF0000"
+    onSelectColor={(color) => console.log(color)}
+/>
+
+// Using data color tokens
+<LemonColorPicker
+    colorTokens={['primary', 'secondary', 'danger']}
+    selectedColorToken="primary"
+    onSelectColorToken={(token) => console.log(token)}
+    themeId={1}
+/>
+```
+
+### LemonColorList
+
+A horizontal list of color options.
+
+```tsx
+// Using hex colors
+<LemonColorList
+    colors={['#FF0000', '#00FF00', '#0000FF']}
+    selectedColor="#FF0000"
+    onSelectColor={(color) => console.log(color)}
+/>
+
+// Using data color tokens
+<LemonColorList
+    colorTokens={['primary', 'secondary', 'danger']}
+    selectedColorToken="primary"
+    onSelectColorToken={(token) => console.log(token)}
+    themeId={1}
+/>
+```

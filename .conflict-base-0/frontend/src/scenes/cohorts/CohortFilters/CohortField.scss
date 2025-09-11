@@ -1,0 +1,18 @@
+.Popover__CohortField {
+    .Popover__box {
+        max-height: 30rem;
+    }
+}
+
+.CohortField__dropdown {
+    min-width: 14rem;
+    max-width: calc(100vw - 14rem);
+}
+
+.CohortField__CohortTextField {
+    font-weight: 500;
+}
+
+.CohortField__CohortNumberField {
+    max-width: 4rem;
+}

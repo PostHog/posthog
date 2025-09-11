@@ -1,0 +1,49 @@
+.Lettermark {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 2em;
+    height: 2em;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--lettermark-text, var(--lettermark-1-text));
+    user-select: none;
+    background: var(--lettermark-bg, var(--lettermark-1-bg));
+    border-radius: var(--radius-sm);
+
+    &.Lettermark--rounded {
+        border-radius: 1.5rem;
+    }
+
+    &.Lettermark--outlined {
+        color: var(--lettermark-bg);
+        background: none;
+        border: 1.5px dashed var(--lettermark-bg);
+    }
+
+    &.Lettermark--variant-gray {
+        color: var(--text-3000);
+        background: var(--color-border-primary);
+    }
+
+    &.Lettermark--small {
+        font-size: 0.625rem;
+    }
+
+    &.Lettermark--xsmall {
+        font-size: 0.5rem;
+    }
+
+    &.Lettermark--xlarge {
+        font-size: 2rem;
+        border-radius: var(--radius);
+    }
+
+    @each $variant in (1, 2, 3, 4, 5, 6, 7, 8) {
+        &.Lettermark--variant-#{$variant} {
+            --lettermark-text: var(--lettermark-#{$variant}-text);
+            --lettermark-bg: var(--lettermark-#{$variant}-bg);
+        }
+    }
+}

@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon.png?v=2023-07-07">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32x32.png?v=2023-07-07">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png?v=2023-07-07">
+    <link rel="mask-icon" href="/static/icons/safari-pinned-tab.svg?v=2023-07-07" color="#FF053C">
+    <link rel="manifest" href="/static/site.webmanifest?v=2023-07-07">
+    <meta name="apple-mobile-web-app-title" content="{{ name }} • PostHog Surveys">
+    <meta name="application-name" content="{{ name }} • PostHog Surveys">
+    <title>{{ name }} • PostHog Surveys</title>
+    <meta name="description" content="Take our survey: {{ name }} • PostHog Surveys">
+    <style>
+        /* CSS Variables */
+        :root {
+            --ph-survey-font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif;
+            --ph-survey-border-color: #e5e7eb;
+            --ph-survey-border-radius: 8px;
+            --ph-survey-card-border-radius: 16px;
+            --ph-survey-body-background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --ph-survey-header-background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --ph-survey-header-text-color: white;
+            --ph-survey-background-color: #ffffff;
+            --ph-survey-text-primary-color: #111827;
+            --ph-survey-text-subtle-color: #6b7280;
+            --ph-survey-input-background: #ffffff;
+            --ph-survey-submit-button-color: #2563eb;
+            --ph-survey-submit-button-text-color: white;
+            --ph-survey-rating-button-color: #f8fafc;
+            --ph-survey-rating-active-bg-color: #2563eb;
+            --ph-survey-rating-button-text-color: #374151;
+            --ph-survey-rating-button-active-text-color: white;
+            --ph-survey-disabled-button-opacity: 0.6;
+            --ph-survey-focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.1);
+            --ph-survey-box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        /* Base Layout */
+        body {
+            font-family: var(--ph-survey-font-family);
+            margin: 0;
+            padding: 0;
+            background: var(--ph-survey-body-background);
+            min-height: 100vh;
+            line-height: 1.6;
+            color: var(--ph-survey-text-primary-color);
+            font-size: 16px;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .main-container {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            box-sizing: border-box;
+        }
+
+        .survey-card {
+            background: white;
+            border-radius: var(--ph-survey-card-border-radius);
+            box-shadow: var(--ph-survey-box-shadow);
+            max-width: 720px;
+            width: 100%;
+            overflow: hidden;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            animation: slideUp 0.6s ease-out;
+        }
+
+        /* Survey Header */
+        .survey-header {
+            background: var(--ph-survey-header-background);
+            color: var(--ph-survey-header-text-color);
+            padding: 1.75rem 2rem 1.5rem;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .survey-title {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin: 0;
+        }
+
+        .survey-description {
+            font-size: 1rem;
+            margin: 0;
+            opacity: 0.9;
+            line-height: 1.4;
+        }
+
+        /* Survey Content */
+        .survey-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .survey-box {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            flex: 1;
+            min-height: 0;
+        }
+
+        .bottom-section {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .survey-form,
+        .thank-you-message {
+            width: 100%;
+            margin: 0;
+            border: none;
+            border-radius: 0;
+            box-shadow: none;
+            background: white;
+            padding: 1.5rem 2rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            min-height: 0;
+        }
+
+        /* Question Styling */
+        .survey-question {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--ph-survey-text-primary-color);
+            line-height: 1.4;
+            margin: 0;
+        }
+
+        .survey-question-description {
+            font-size: 1rem;
+            color: var(--ph-survey-text-subtle-color);
+            margin-top: 0.25rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .question-container,
+        .thank-you-message {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .response-choice {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        /* Standard transitions - optimized for survey UX */
+        label,
+        input[type='checkbox'],
+        input[type='radio'],
+        input[type='text'],
+        textarea,
+        .ratings-emoji,
+        .ratings-number,
+        .footer-branding,
+        .form-cancel,
+        .form-submit {
+            transition: all 0.2s ease-out;
+        }
+
+        /* Input Styling */
+        textarea,
+        input[type='text'] {
+            border: 2px solid var(--ph-survey-border-color);
+            border-radius: var(--ph-survey-border-radius);
+            padding: 1rem;
+            font-size: 1rem;
+            line-height: 1.5;
+            background: var(--ph-survey-input-background);
+            color: var(--ph-survey-text-primary-color);
+            width: 100%;
+            font-family: var(--ph-survey-font-family);
+        }
+
+        textarea:focus,
+        input[type='text']:focus {
+            outline: none;
+            border-color: var(--ph-survey-rating-active-bg-color);
+            box-shadow: var(--ph-survey-focus-ring);
+        }
+
+        textarea:hover:not(:focus),
+        input[type='text']:hover:not(:focus) {
+            border-color: var(--ph-survey-rating-active-bg-color);
+        }
+
+        /* Multiple Choice Options */
+        .multiple-choice-options {
+            display: flex;
+            flex-direction: column;
+            gap: 0.625rem;
+            flex: 1;
+            justify-content: flex-start;
+            overflow-y: auto;
+            max-height: 400px;
+            padding-right: 0.5rem;
+            margin: 0;
+            padding-left: 0;
+            border: none;
+        }
+
+        /* Fieldset styling */
+        fieldset {
+            border: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        .multiple-choice-options label {
+            border: 2px solid var(--ph-survey-border-color);
+            border-radius: var(--ph-survey-border-radius);
+            padding: 0.875rem 1.25rem;
+            cursor: pointer;
+            background: white;
+            font-size: 1rem;
+            min-height: 56px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-shrink: 0;
+            color: var(--ph-survey-text-primary-color);
+            font-family: var(--ph-survey-font-family);
+        }
+
+        .choice-option-open {
+            flex-wrap: wrap;
+        }
+
+        .multiple-choice-options label:hover:not(:has(input:checked)) {
+            border-color: #d1d5db;
+            background: #f9fafb;
+        }
+
+        .multiple-choice-options label:has(input:checked) {
+            border-color: var(--ph-survey-rating-active-bg-color);
+            background: #eff6ff;
+        }
+
+        .multiple-choice-options input[type='checkbox'],
+        .multiple-choice-options input[type='radio'] {
+            appearance: none;
+            width: 1rem;
+            height: 1rem;
+            background: var(--ph-survey-input-background);
+            border: 1.5px solid var(--ph-survey-border-color);
+            cursor: pointer;
+            border-radius: 3px;
+            flex-shrink: 0;
+            position: relative;
+            margin: 0;
+        }
+
+        .multiple-choice-options input[type='radio'] {
+            border-radius: 50%;
+        }
+
+        .multiple-choice-options input[type='checkbox']:hover,
+        .multiple-choice-options input[type='radio']:hover {
+            border-color: var(--ph-survey-rating-active-bg-color);
+            transform: scale(1.05);
+        }
+
+        .multiple-choice-options input[type='checkbox']:checked,
+        .multiple-choice-options input[type='radio']:checked {
+            background: var(--ph-survey-rating-active-bg-color);
+            border-color: var(--ph-survey-rating-active-bg-color);
+        }
+
+        .multiple-choice-options input[type='checkbox']:checked::after {
+            content: '';
+            position: absolute;
+            left: 4px;
+            width: 4px;
+            height: 8px;
+            border: solid white;
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
+        }
+
+        .multiple-choice-options input[type='radio']:checked::after {
+            content: '';
+            position: absolute;
+            left: 3.5px;
+            top: 3.5px;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: white;
+        }
+
+        /* Rating Styles */
+        .rating-text {
+            display: flex;
+            flex-direction: row;
+            font-size: 0.8rem;
+            justify-content: space-between;
+            opacity: 0.7;
+        }
+
+        .rating-options-number {
+            display: grid;
+            grid-auto-columns: 1fr;
+            grid-auto-flow: column;
+            border-radius: var(--ph-survey-border-radius);
+            overflow: hidden;
+            border: 2px solid var(--ph-survey-border-color);
+        }
+
+        .ratings-number {
+            padding: 0.875rem 0;
+            border: none;
+            background-color: var(--ph-survey-rating-button-color);
+            border-right: 1px solid var(--ph-survey-border-color);
+            text-align: center;
+            cursor: pointer;
+            color: var(--ph-survey-rating-button-text-color);
+            font-weight: 600;
+            font-family: var(--ph-survey-font-family);
+        }
+
+        .ratings-number:last-of-type {
+            border-right: 0;
+        }
+
+        .ratings-number:hover {
+            filter: brightness(0.95);
+        }
+
+        .ratings-number.rating-active {
+            background: var(--ph-survey-rating-active-bg-color);
+            color: var(--ph-survey-rating-button-active-text-color);
+        }
+
+        .rating-options-emoji {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .ratings-emoji {
+            font-size: 16px;
+            background-color: transparent;
+            border: none;
+            padding: 0;
+            opacity: 0.5;
+        }
+
+        .ratings-emoji:hover {
+            cursor: pointer;
+            transform: scale(1.15);
+            opacity: 1;
+        }
+
+        .ratings-emoji.rating-active {
+            opacity: 1;
+        }
+
+        .ratings-emoji svg {
+            fill: var(--ph-survey-text-primary-color);
+            /* Smooth color transitions */
+            transition: fill 0.2s ease-out;
+        }
+
+
+        /* Button Styling */
+        .form-submit {
+            background: var(--ph-survey-submit-button-color);
+            border: none;
+            border-radius: var(--ph-survey-border-radius);
+            padding: 0.875rem 2rem;
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--ph-survey-submit-button-text-color);
+            cursor: pointer;
+            width: 100%;
+            margin-top: 1rem;
+            font-family: var(--ph-survey-font-family);
+        }
+
+        .form-submit:hover:not([disabled]) {
+            filter: brightness(0.9);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+        }
+
+        .form-submit:active:not([disabled]) {
+            transform: translateY(0);
+        }
+
+        .form-submit[disabled] {
+            opacity: var(--ph-survey-disabled-button-opacity);
+            cursor: not-allowed;
+        }
+
+        /* Footer Branding */
+        .footer-branding {
+            font-size: 11px;
+            font-weight: 500;
+            display: flex;
+            justify-content: center;
+            gap: 4px;
+            align-items: center;
+            text-decoration: none;
+            opacity: 0.6;
+            color: var(--ph-survey-text-subtle-color);
+            font-family: var(--ph-survey-font-family);
+        }
+
+        .footer-branding:hover {
+            opacity: 1;
+        }
+
+        .footer-branding a {
+            text-decoration: none;
+            color: inherit;
+        }
+
+        /* Thank You Message */
+        .thank-you-message {
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .thank-you-message-header {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--ph-survey-text-primary-color);
+            margin: 0 0 1rem 0;
+        }
+
+        .thank-you-message-body {
+            font-size: 1rem;
+            color: var(--ph-survey-text-subtle-color);
+            opacity: 0.8;
+        }
+
+        /* Scrollbar Styling */
+        .multiple-choice-options::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .multiple-choice-options::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 3px;
+        }
+
+        .multiple-choice-options::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+
+        .multiple-choice-options::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Loading State */
+        .loading {
+            text-align: center;
+            padding: 3rem 2rem;
+            color: var(--ph-survey-text-subtle-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            flex: 1;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 32px;
+            height: 32px;
+            border: 3px solid #e5e7eb;
+            border-top: 3px solid var(--ph-survey-rating-active-bg-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 1rem;
+        }
+
+        .loading-text {
+            font-size: 1.125rem;
+            font-weight: 500;
+        }
+
+        /* Hide loading when survey is rendered */
+        #posthog-survey-container:has(.ph-survey) .loading {
+            display: none;
+        }
+
+        /* Animations */
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .main-container {
+                padding: 0.5rem;
+            }
+
+            .survey-header {
+                padding: 1.5rem 1.5rem 1.25rem;
+            }
+
+            .survey-title {
+                font-size: 1.5rem;
+            }
+
+            .survey-description {
+                font-size: 0.9rem;
+            }
+
+            .survey-form,
+            .thank-you-message {
+                padding: 1.25rem 1.5rem;
+            }
+
+            .multiple-choice-options {
+                max-height: 256px;
+            }
+        }
+
+        @media (max-height: 700px) {
+            .main-container {
+                padding: 0.75rem;
+            }
+
+            .survey-header {
+                padding: 1.25rem 2rem 1rem;
+            }
+
+            .survey-title {
+                font-size: 1.5rem;
+                margin-bottom: 0.25rem;
+            }
+
+            .survey-description {
+                font-size: 0.9rem;
+            }
+
+            .survey-form,
+            .thank-you-message {
+                padding: 1.25rem 2rem;
+            }
+        }
+
+        /* Utility classes */
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+
+        /* Motion preferences */
+        @media (prefers-reduced-motion: reduce) {
+            * {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="main-container">
+        <div class="survey-card">
+            <div class="survey-header">
+                <h1 class="survey-title">{{ name }}</h1>
+            </div>
+
+            <div class="survey-content">
+                <div id="posthog-survey-container">
+                    <div class="loading">
+                        <div class="loading-spinner"></div>
+                        <div class="loading-text">Loading survey...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PostHog JavaScript -->
+    <script>
+        // Project config from Django and helper functions
+        const survey = {{ survey_data | safe }};
+        const projectConfig = {{ project_config_json | safe }};
+
+        const BLACK_TEXT_COLOR = '#020617'
+
+        function hex2rgb(c) {
+            if (c[0] === '#') {
+                const hexColor = c.replace(/^#/, '')
+                const r = parseInt(hexColor.slice(0, 2), 16)
+                const g = parseInt(hexColor.slice(2, 4), 16)
+                const b = parseInt(hexColor.slice(4, 6), 16)
+                return 'rgb(' + r + ',' + g + ',' + b + ')'
+            }
+            return 'rgb(255, 255, 255)'
+        }
+
+
+        function nameToHex(name) {
+            return {
+                aliceblue: '#f0f8ff',
+                antiquewhite: '#faebd7',
+                aqua: '#00ffff',
+                aquamarine: '#7fffd4',
+                azure: '#f0ffff',
+                beige: '#f5f5dc',
+                bisque: '#ffe4c4',
+                black: '#000000',
+                blanchedalmond: '#ffebcd',
+                blue: '#0000ff',
+                blueviolet: '#8a2be2',
+                brown: '#a52a2a',
+                burlywood: '#deb887',
+                cadetblue: '#5f9ea0',
+                chartreuse: '#7fff00',
+                chocolate: '#d2691e',
+                coral: '#ff7f50',
+                cornflowerblue: '#6495ed',
+                cornsilk: '#fff8dc',
+                crimson: '#dc143c',
+                cyan: '#00ffff',
+                darkblue: '#00008b',
+                darkcyan: '#008b8b',
+                darkgoldenrod: '#b8860b',
+                darkgray: '#a9a9a9',
+                darkgreen: '#006400',
+                darkkhaki: '#bdb76b',
+                darkmagenta: '#8b008b',
+                darkolivegreen: '#556b2f',
+                darkorange: '#ff8c00',
+                darkorchid: '#9932cc',
+                darkred: '#8b0000',
+                darksalmon: '#e9967a',
+                darkseagreen: '#8fbc8f',
+                darkslateblue: '#483d8b',
+                darkslategray: '#2f4f4f',
+                darkturquoise: '#00ced1',
+                darkviolet: '#9400d3',
+                deeppink: '#ff1493',
+                deepskyblue: '#00bfff',
+                dimgray: '#696969',
+                dodgerblue: '#1e90ff',
+                firebrick: '#b22222',
+                floralwhite: '#fffaf0',
+                forestgreen: '#228b22',
+                fuchsia: '#ff00ff',
+                gainsboro: '#dcdcdc',
+                ghostwhite: '#f8f8ff',
+                gold: '#ffd700',
+                goldenrod: '#daa520',
+                gray: '#808080',
+                green: '#008000',
+                greenyellow: '#adff2f',
+                honeydew: '#f0fff0',
+                hotpink: '#ff69b4',
+                'indianred ': '#cd5c5c',
+                indigo: '#4b0082',
+                ivory: '#fffff0',
+                khaki: '#f0e68c',
+                lavender: '#e6e6fa',
+                lavenderblush: '#fff0f5',
+                lawngreen: '#7cfc00',
+                lemonchiffon: '#fffacd',
+                lightblue: '#add8e6',
+                lightcoral: '#f08080',
+                lightcyan: '#e0ffff',
+                lightgoldenrodyellow: '#fafad2',
+                lightgrey: '#d3d3d3',
+                lightgreen: '#90ee90',
+                lightpink: '#ffb6c1',
+                lightsalmon: '#ffa07a',
+                lightseagreen: '#20b2aa',
+                lightskyblue: '#87cefa',
+                lightslategray: '#778899',
+                lightsteelblue: '#b0c4de',
+                lightyellow: '#ffffe0',
+                lime: '#00ff00',
+                limegreen: '#32cd32',
+                linen: '#faf0e6',
+                magenta: '#ff00ff',
+                maroon: '#800000',
+                mediumaquamarine: '#66cdaa',
+                mediumblue: '#0000cd',
+                mediumorchid: '#ba55d3',
+                mediumpurple: '#9370d8',
+                mediumseagreen: '#3cb371',
+                mediumslateblue: '#7b68ee',
+                mediumspringgreen: '#00fa9a',
+                mediumturquoise: '#48d1cc',
+                mediumvioletred: '#c71585',
+                midnightblue: '#191970',
+                mintcream: '#f5fffa',
+                mistyrose: '#ffe4e1',
+                moccasin: '#ffe4b5',
+                navajowhite: '#ffdead',
+                navy: '#000080',
+                oldlace: '#fdf5e6',
+                olive: '#808000',
+                olivedrab: '#6b8e23',
+                orange: '#ffa500',
+                orangered: '#ff4500',
+                orchid: '#da70d6',
+                palegoldenrod: '#eee8aa',
+                palegreen: '#98fb98',
+                paleturquoise: '#afeeee',
+                palevioletred: '#d87093',
+                papayawhip: '#ffefd5',
+                peachpuff: '#ffdab9',
+                peru: '#cd853f',
+                pink: '#ffc0cb',
+                plum: '#dda0dd',
+                powderblue: '#b0e0e6',
+                purple: '#800080',
+                red: '#ff0000',
+                rosybrown: '#bc8f8f',
+                royalblue: '#4169e1',
+                saddlebrown: '#8b4513',
+                salmon: '#fa8072',
+                sandybrown: '#f4a460',
+                seagreen: '#2e8b57',
+                seashell: '#fff5ee',
+                sienna: '#a0522d',
+                silver: '#c0c0c0',
+                skyblue: '#87ceeb',
+                slateblue: '#6a5acd',
+                slategray: '#708090',
+                snow: '#fffafa',
+                springgreen: '#00ff7f',
+                steelblue: '#4682b4',
+                tan: '#d2b48c',
+                teal: '#008080',
+                thistle: '#d8bfd8',
+                tomato: '#ff6347',
+                turquoise: '#40e0d0',
+                violet: '#ee82ee',
+                wheat: '#f5deb3',
+                white: '#ffffff',
+                whitesmoke: '#f5f5f5',
+                yellow: '#ffff00',
+                yellowgreen: '#9acd32',
+            }[name.toLowerCase()]
+        }
+
+        function getContrastingTextColor(color) {
+            let rgb
+            if (color[0] === '#') {
+                rgb = hex2rgb(color)
+            }
+            if (color.startsWith('rgb')) {
+                rgb = color
+            }
+            // otherwise it's a color name
+            const nameColorToHex = nameToHex(color)
+            if (nameColorToHex) {
+                rgb = hex2rgb(nameColorToHex)
+            }
+            if (!rgb) {
+                return BLACK_TEXT_COLOR
+            }
+            const colorMatch = rgb.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*(\d+(?:\.\d+)?))?\)$/)
+            if (colorMatch) {
+                const r = parseInt(colorMatch[1])
+                const g = parseInt(colorMatch[2])
+                const b = parseInt(colorMatch[3])
+                const hsp = Math.sqrt(0.299 * (r * r) + 0.587 * (g * g) + 0.114 * (b * b))
+                return hsp > 127.5 ? BLACK_TEXT_COLOR : 'white'
+            }
+            return BLACK_TEXT_COLOR
+        }
+
+        function colorToRgbaWithOpacity(color, opacity = 0.25) {
+            let rgb
+
+            // Handle hex colors
+            if (color[0] === '#') {
+                rgb = hex2rgb(color)
+            }
+            // Handle rgb/rgba colors
+            else if (color.startsWith('rgb')) {
+                rgb = color
+            }
+            // Handle color names
+            else {
+                const nameColorToHex = nameToHex(color)
+                if (nameColorToHex) {
+                    rgb = hex2rgb(nameColorToHex)
+                }
+            }
+
+            if (!rgb) {
+                return `rgba(255, 255, 255, ${opacity})` // fallback to white with opacity
+            }
+
+            const colorMatch = rgb.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*(\d+(?:\.\d+)?))?\)$/)
+            if (colorMatch) {
+                const r = parseInt(colorMatch[1])
+                const g = parseInt(colorMatch[2])
+                const b = parseInt(colorMatch[3])
+                return `rgba(${r}, ${g}, ${b}, ${opacity})`
+            }
+
+            return `rgba(255, 255, 255, ${opacity})` // fallback
+        }
+
+
+        // Apply survey appearance settings as CSS variables
+        function applySurveyAppearance(appearance) {
+            if (!appearance) return;
+
+            const root = document.documentElement;
+
+            // Apply custom appearance settings
+            if (appearance.backgroundColor) {
+                // Apply to body and header instead of survey container
+                // Use 25% opacity for body background for a softer effect
+                root.style.setProperty('--ph-survey-body-background', colorToRgbaWithOpacity(appearance.backgroundColor, 0.25));
+                root.style.setProperty('--ph-survey-header-background', appearance.backgroundColor);
+                root.style.setProperty('--ph-survey-header-text-color', getContrastingTextColor(appearance.backgroundColor));
+            }
+
+            if (appearance.submitButtonColor) {
+                root.style.setProperty('--ph-survey-submit-button-color', appearance.submitButtonColor);
+                root.style.setProperty('--ph-survey-submit-button-text-color',
+                    appearance.submitButtonTextColor || getContrastingTextColor(appearance.submitButtonColor));
+            }
+
+            if (appearance.ratingButtonColor) {
+                root.style.setProperty('--ph-survey-rating-button-color', appearance.ratingButtonColor);
+                root.style.setProperty('--ph-survey-rating-button-text-color', getContrastingTextColor(appearance.ratingButtonColor));
+            }
+
+            if (appearance.ratingButtonActiveColor) {
+                root.style.setProperty('--ph-survey-rating-active-bg-color', appearance.ratingButtonActiveColor);
+                root.style.setProperty('--ph-survey-rating-button-active-text-color', getContrastingTextColor(appearance.ratingButtonActiveColor));
+            }
+
+            if (appearance.borderColor) {
+                root.style.setProperty('--ph-survey-border-color', appearance.borderColor);
+            }
+
+            if (appearance.borderRadius) {
+                root.style.setProperty('--ph-survey-border-radius', appearance.borderRadius);
+                root.style.setProperty('--ph-survey-card-border-radius', appearance.borderRadius);
+            }
+
+            if (appearance.inputBackground) {
+                root.style.setProperty('--ph-survey-input-background', appearance.inputBackground);
+            }
+
+            if (appearance.textSubtleColor) {
+                root.style.setProperty('--ph-survey-text-subtle-color', appearance.textSubtleColor);
+            }
+
+            if (appearance.disabledButtonOpacity) {
+                root.style.setProperty('--ph-survey-disabled-button-opacity', appearance.disabledButtonOpacity);
+            }
+
+            // Properties not suitable for external surveys (ignored):
+            // - zIndex: not relevant for full page
+            // - maxWidth: we manage our own layout
+            // - position: not relevant for full page
+            // - boxShadow: we have our own design
+            // - boxPadding: we have our own padding
+            // - fontFamily: we have our own font stack
+            // - whiteLabel: not relevant for this context
+            // - placeholder: handled by PostHog survey rendering
+            // - shuffleQuestions: behavioral setting, not appearance
+            // - thankYouMessageHeader/thankYouMessageDescription: handled by PostHog survey rendering
+            // - displayThankYouMessage: handled by PostHog survey rendering
+        }
+
+        // Apply survey appearance if available
+        if (survey.appearance) {
+            applySurveyAppearance(survey.appearance);
+        }
+    </script>
+    <script>
+        // Load PostHog from CDN
+        !function (t, e) { var o, n, p, r; e.__SV || (window.posthog = e, e._i = [], e.init = function (i, s, a) { function g(t, e) { var o = e.split("."); 2 == o.length && (t = t[o[0]], e = o[1]), t[e] = function () { t.push([e].concat(Array.prototype.slice.call(arguments, 0))) } } (p = t.createElement("script")).type = "text/javascript", p.crossOrigin = "anonymous", p.async = !0, p.src = s.api_host.replace(".i.posthog.com", "-assets.i.posthog.com") + "/static/array.full.js", (r = t.getElementsByTagName("script")[0]).parentNode.insertBefore(p, r); var u = e; for (void 0 !== a ? u = e[a] = [] : a = "posthog", u.people = u.people || [], u.toString = function (t) { var e = "posthog"; return "posthog" !== a && (e += "." + a), t || (e += " (stub)"), e }, u.people.toString = function () { return u.toString(1) + ".people (stub)" }, o = "init Ie Ts Ms Ee Es Rs capture Ge calculateEventProperties Os register register_once register_for_session unregister unregister_for_session js getFeatureFlag getFeatureFlagPayload isFeatureEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSurveysLoaded onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey canRenderSurveyAsync identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset get_distinct_id getGroups get_session_id get_session_replay_url alias set_config startSessionRecording stopSessionRecording sessionRecordingStarted captureException loadToolbar get_property getSessionProperty Ds Fs createPersonProfile Ls Ps opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing clear_opt_in_out_capturing Cs debug I As getPageViewId captureTraceFeedback captureTraceMetric".split(" "), n = 0; n < o.length; n++)g(u, o[n]); e._i.push([i, s, a]) }, e.__SV = 1) }(document, window.posthog || []);
+
+        const searchParams = new URLSearchParams(window.location.search);
+
+        // Initialize PostHog with project configuration
+        const config = {
+            api_host: projectConfig.api_host,
+            disable_surveys_automatic_display: true,
+            debug: searchParams.get('__posthog_debug__') === 'true',
+            // Disable all non-essential features
+            advanced_disable_toolbar_metrics: true,
+            capture_pageview: false,
+            capture_pageleave: false,
+            disable_session_recording: true,
+            autocapture: false,
+            rageclick: false,
+            disable_web_experiments: true,
+            enable_recording_console_log: false,
+            capture_performance: false,
+            capture_heatmaps: false,
+            capture_dead_clicks: false,
+            capture_exceptions: false,
+            advanced_disable_flags: true,
+            advanced_enable_surveys: true,
+            persistence: 'sessionStorage'
+        };
+
+        const distinctID = searchParams.get('distinct_id');
+
+        if (distinctID) {
+            config.bootstrap = {
+                distinctID: distinctID,
+            }
+        }
+
+        // Add ui_host if available (for reverse proxy setups)
+        if (projectConfig.ui_host) {
+            config.ui_host = projectConfig.ui_host;
+        }
+
+        posthog.init(projectConfig.token, {
+            ...config,
+            loaded: (instance) => {
+                instance.surveys["_surveyManager"].renderSurvey(survey, document.getElementById('posthog-survey-container'));
+            }
+        });
+
+    </script>
+</body>
+
+</html>

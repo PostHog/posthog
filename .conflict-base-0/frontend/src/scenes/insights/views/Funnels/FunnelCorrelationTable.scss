@@ -1,0 +1,12 @@
+.FunnelCorrelationTable {
+    .table-options {
+        .LemonCheckbox:not(:last-child) label {
+            border-right: none;
+            border-radius: var(--radius) 0 0 var(--radius);
+        }
+
+        .LemonCheckbox:last-child label {
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+    }
+}

@@ -1,0 +1,154 @@
+@import '../../../styles/mixins';
+@import '../../../styles/vars';
+
+.BridgePage {
+    position: relative;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    height: 100vh;
+    overflow: scroll;
+    background-color: var(--color-bg-bridge);
+    -ms-overflow-style: none;
+
+    &::-webkit-scrollbar {
+        width: 0 !important;
+    }
+
+    .BridgePage__main {
+        display: flex;
+        flex: 1;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+    }
+
+    .BridgePage__content-wrapper {
+        width: 100%;
+        max-width: 390px;
+
+        @include screen($md) {
+            width: auto;
+            max-width: 100%;
+        }
+    }
+
+    .BridgePage__left-wrapper {
+        display: none;
+        margin-right: 60px;
+
+        @include screen($md) {
+            display: block;
+            visibility: visible;
+        }
+    }
+
+    .BridgePage__content {
+        position: relative;
+        width: 100%;
+        padding: 2rem;
+        background-color: white;
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-elevation-3000);
+
+        h2 {
+            font-weight: bold;
+            text-align: center;
+        }
+    }
+
+    .BridgePage__footer {
+        display: flex;
+        gap: 10%;
+        justify-content: center;
+        width: 100%;
+        margin: 1rem 0;
+        font-weight: 500;
+        color: var(--color-text-secondary);
+    }
+
+    .BridgePage__left {
+        position: relative;
+        display: none;
+        visibility: none;
+
+        img {
+            height: 300px;
+        }
+
+        .BridgePage__left__art {
+            margin-top: 50px;
+        }
+
+        .BridgePage__left__message {
+            position: absolute;
+            bottom: 220px;
+            left: 265px;
+            max-width: 150px;
+            padding: 0.5rem 0.75rem;
+            font-size: 0.8em;
+            font-weight: 600;
+            color: #fff;
+            background-color: var(--text-3000);
+            border-radius: 0.75rem;
+            opacity: 0;
+            transition-timing-function: cubic-bezier(0.455, 0.03, 0.31, 1.585);
+
+            &::after {
+                position: absolute;
+                top: 100%;
+                left: 20px;
+                margin-top: -10px;
+                content: ' ';
+                border: 10px solid transparent;
+                border-left-color: var(--text-3000);
+            }
+
+            &.BridgePage__left__message--enter {
+                opacity: 0;
+                transform: translateY(50px) rotate(0deg) scale(0.5);
+            }
+
+            &.BridgePage__left__message--enter-active,
+            &.BridgePage__left__message--enter-done {
+                opacity: 1;
+                transition:
+                    200ms opacity,
+                    200ms transform;
+                transform: translateY(0) rotate(5deg) scale(1);
+            }
+
+            @media (prefers-reduced-motion) {
+                transition: none;
+            }
+        }
+
+        @include screen($md) {
+            display: block;
+            visibility: visible;
+        }
+    }
+
+    .BridgePage__cta {
+        max-width: 400px;
+    }
+
+    .BridgePage__header-logo {
+        &.mobile {
+            display: block;
+
+            @include screen($md) {
+                display: none;
+            }
+        }
+    }
+
+    &.BridgePage--fixed-width {
+        @include screen($md) {
+            .BridgePage__content {
+                width: 400px;
+                max-width: 400px;
+            }
+        }
+    }
+}

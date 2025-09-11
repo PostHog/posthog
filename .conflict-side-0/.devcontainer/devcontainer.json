@@ -1,0 +1,73 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the README at:
+// https://github.com/microsoft/vscode-dev-containers/tree/v0.183.0/containers/docker-existing-docker-compose
+// If you want to run as a non-root user in the container, see .devcontainer/docker-compose.yml.
+{
+    "name": "PostHog codespaces development environment",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "context": "../",
+        "cacheFrom": "ghcr.io/posthog/posthog/codespaces:master"
+    },
+    "remoteUser": "vscode",
+    "remoteEnv": {
+        "DEBUG": "1",
+        "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
+        "KAFKA_ENABLED": "true",
+        "KAFKA_HOSTS": "kafka:9092",
+        "CLICKHOUST_HOST": "localhost",
+        "CLICKHOUSE_DATABASE": "posthog_test",
+        "CLICKHOUSE_VERIFY": "False",
+        "REDIS_URL": "redis://localhost:6379",
+        "SECRET_KEY": "<randomly generated secret key>"
+    },
+    "overrideCommand": false,
+    "mounts": ["source=codespaces-linux-var-lib-docker,target=/var/lib/docker,type=volume"],
+    "runArgs": [
+        "--cap-add=SYS_PTRACE",
+        "--security-opt",
+        "seccomp=unconfined",
+        "--privileged",
+        "--init",
+        "--add-host",
+        "kafka:127.0.0.1"
+    ],
+    "workspaceFolder": "/workspaces/posthog",
+    // Set *default* container specific settings.json values on container create.
+    "settings": {
+        /*
+          Python settings
+        */
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        // Configure linting
+        "python.linting.enabled": true,
+        "python.linting.pylintEnabled": false, // We use flake8, disable pylint
+        "python.linting.flake8Enabled": true,
+        "python.linting.flake8Path": "/usr/local/py-utils/bin/flake8",
+        "python.linting.mypyPath": "/usr/local/py-utils/bin/mypy",
+        // Configure formatting
+        "python.formatting.blackPath": "/usr/local/py-utils/bin/black",
+        "python.formatting.provider": "black",
+        // Configure testing
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestPath": "/usr/local/py-utils/bin/pytest"
+    },
+    // Add the IDs of extensions you want installed when the container is created.
+    "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "esbenp.prettier-vscode",
+        "charliermarsh.ruff",
+        "ms-azuretools.vscode-docker",
+        "stkb.rewrap",
+        "GitHub.copilot",
+        "GitHub.vscode-pull-request-github",
+        "eamodio.gitlens",
+        "wix.vscode-import-cost",
+        "Orta.vscode-jest",
+        "ckolkman.vscode-postgres",
+        "mtxr.sqltools",
+        "ultram4rine.sqltools-clickhouse-driver"
+    ],
+    // Use 'forwardPorts' to make a list of ports inside the container available locally.
+    "forwardPorts": [8000, 5432, 6379, 8123, 8234, 9000, 9092, 9440, 9009]
+}

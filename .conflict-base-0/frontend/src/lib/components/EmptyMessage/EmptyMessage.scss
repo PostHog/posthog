@@ -1,0 +1,15 @@
+.empty-message {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+
+    .title {
+        text-align: center;
+    }
+
+    .description {
+        text-align: center;
+    }
+}

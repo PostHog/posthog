@@ -1,0 +1,57 @@
+// TODO - taken from https://github.com/PostHog/posthog/pull/31293, update STL to support
+return true
+
+let propertiesToHash := []
+if (notEmpty(inputs.propertiesToHash)) {
+    propertiesToHash := splitByString(',', inputs.propertiesToHash)
+}
+let hashDistinctId := inputs.hashDistinctId
+let salt := inputs.salt
+if (empty(propertiesToHash) and not hashDistinctId) {
+    return event
+}
+let returnEvent := event
+fun getNestedValue(obj, path) {
+    let parts := splitByString('.', path)
+    let current := obj
+    for (let part in parts) {
+        if (current = null) {
+            return null
+        }
+        current := current[part]
+    }
+    return current
+}
+fun setNestedValue(obj, path, value) {
+    let parts := splitByString('.', path)
+    let current := obj
+    for (let i := 1; i < length(parts); i := i + 1) {
+        let part := parts[i]
+        if (current[part] = null) {
+            current[part] := {}
+        }
+        current := current[part]
+    }
+    let lastPart := parts[length(parts)]
+    current[lastPart] := value
+}
+if (hashDistinctId and notEmpty(event.distinct_id)) {
+    if(notEmpty(salt)) {
+        returnEvent.distinct_id := sha256Hex(concat(toString(event.distinct_id), salt))
+    } else {
+        returnEvent.distinct_id := sha256Hex(toString(event.distinct_id))
+    }
+}
+for (let _, path in propertiesToHash) {
+    let value := getNestedValue(event.properties, trim(path))  // Trim to handle spaces after commas
+    if (notEmpty(value)) {
+        if(notEmpty(salt)) {
+            let hashedValue := sha256Hex(concat(toString(value), salt))
+            setNestedValue(returnEvent.properties, trim(path), hashedValue)
+        } else {
+            let hashedValue := sha256Hex(toString(value))
+            setNestedValue(returnEvent.properties, trim(path), hashedValue)
+        }
+    }
+}
+return returnEvent

@@ -1,0 +1,1536 @@
+{
+    "id": 32,
+    "name": "Insight Card Legend",
+    "description": "",
+    "pinned": false,
+    "created_at": "2024-07-18T19:36:25.630503Z",
+    "created_by": {
+        "id": 1,
+        "uuid": "018f7216-2154-0000-d286-f7ac40c8c84f",
+        "distinct_id": "6yd4X1lQcm4uWP0qdoxl2IJrBU8uxwVd2di0LSIJfg2",
+        "first_name": "Employee 427",
+        "last_name": "",
+        "email": "test@posthog.com",
+        "is_email_verified": null,
+        "hedgehog_config": null
+    },
+    "is_shared": false,
+    "deleted": false,
+    "creation_mode": "default",
+    "filters": {},
+    "tiles": [
+        {
+            "id": 127,
+            "insight": {
+                "id": 215,
+                "short_id": "0DJUR3sn",
+                "name": "Line chart",
+                "derived_name": "Pageview count & Interacted with file count & Custom name count",
+                "filters": {
+                    "events": [
+                        {
+                            "id": "$pageview",
+                            "math": "total",
+                            "name": "$pageview",
+                            "type": "events",
+                            "order": 0
+                        },
+                        {
+                            "id": "$pageview",
+                            "math": "total",
+                            "name": "Pageview",
+                            "type": "events",
+                            "order": 2,
+                            "custom_name": "Custom name"
+                        }
+                    ],
+                    "actions": [
+                        {
+                            "id": "1",
+                            "math": "total",
+                            "name": "Interacted with file",
+                            "type": "actions",
+                            "order": 1
+                        }
+                    ],
+                    "display": "ActionsLineGraph",
+                    "insight": "TRENDS",
+                    "interval": "day",
+                    "entity_type": "events",
+                    "show_legend": true,
+                    "filter_test_accounts": true,
+                    "date_from": null,
+                    "date_to": null
+                },
+                "query": null,
+                "order": null,
+                "deleted": false,
+                "dashboards": [32],
+                "dashboard_tiles": [
+                    {
+                        "id": 127,
+                        "dashboard_id": 32,
+                        "deleted": null
+                    }
+                ],
+                "last_refresh": "2024-07-18T19:19:34.148020Z",
+                "cache_target_age": "2024-07-18T21:19:34.148020Z",
+                "next_allowed_client_refresh": "2024-07-18T19:34:34.148020Z",
+                "result": [
+                    {
+                        "data": [0, 14, 0, 0, 74, 38, 4, 113],
+                        "labels": [
+                            "11-Jul-2024",
+                            "12-Jul-2024",
+                            "13-Jul-2024",
+                            "14-Jul-2024",
+                            "15-Jul-2024",
+                            "16-Jul-2024",
+                            "17-Jul-2024",
+                            "18-Jul-2024"
+                        ],
+                        "days": [
+                            "2024-07-11",
+                            "2024-07-12",
+                            "2024-07-13",
+                            "2024-07-14",
+                            "2024-07-15",
+                            "2024-07-16",
+                            "2024-07-17",
+                            "2024-07-18"
+                        ],
+                        "count": 243.0,
+                        "label": "$pageview",
+                        "filter": {
+                            "insight": "TRENDS",
+                            "properties": [],
+                            "filter_test_accounts": true,
+                            "date_to": "2024-07-18T23:59:59.999999-04:00",
+                            "date_from": "2024-07-11T00:00:00-04:00",
+                            "entity_type": "events",
+                            "interval": "day",
+                            "aggregationAxisFormat": "numeric",
+                            "display": "ActionsLineGraph",
+                            "showLegend": false,
+                            "showPercentStackView": false,
+                            "showValuesOnSeries": false,
+                            "smoothingIntervals": 1
+                        },
+                        "action": {
+                            "days": [
+                                "2024-07-11T00:00:00-04:00",
+                                "2024-07-12T00:00:00-04:00",
+                                "2024-07-13T00:00:00-04:00",
+                                "2024-07-14T00:00:00-04:00",
+                                "2024-07-15T00:00:00-04:00",
+                                "2024-07-16T00:00:00-04:00",
+                                "2024-07-17T00:00:00-04:00",
+                                "2024-07-18T00:00:00-04:00"
+                            ],
+                            "id": "$pageview",
+                            "type": "events",
+                            "order": 0,
+                            "name": "$pageview",
+                            "custom_name": null,
+                            "math": "total",
+                            "math_property": null,
+                            "math_hogql": null,
+                            "math_group_type_index": null,
+                            "properties": {}
+                        }
+                    },
+                    {
+                        "data": [0, 0, 0, 0, 0, 0, 0, 0],
+                        "labels": [
+                            "11-Jul-2024",
+                            "12-Jul-2024",
+                            "13-Jul-2024",
+                            "14-Jul-2024",
+                            "15-Jul-2024",
+                            "16-Jul-2024",
+                            "17-Jul-2024",
+                            "18-Jul-2024"
+                        ],
+                        "days": [
+                            "2024-07-11",
+                            "2024-07-12",
+                            "2024-07-13",
+                            "2024-07-14",
+                            "2024-07-15",
+                            "2024-07-16",
+                            "2024-07-17",
+                            "2024-07-18"
+                        ],
+                        "count": 0.0,
+                        "label": "Interacted with file",
+                        "filter": {
+                            "insight": "TRENDS",
+                            "properties": [],
+                            "filter_test_accounts": true,
+                            "date_to": "2024-07-18T23:59:59.999999-04:00",
+                            "date_from": "2024-07-11T00:00:00-04:00",
+                            "entity_type": "events",
+                            "interval": "day",
+                            "aggregationAxisFormat": "numeric",
+                            "display": "ActionsLineGraph",
+                            "showLegend": false,
+                            "showPercentStackView": false,
+                            "showValuesOnSeries": false,
+                            "smoothingIntervals": 1
+                        },
+                        "action": {
+                            "days": [
+                                "2024-07-11T00:00:00-04:00",
+                                "2024-07-12T00:00:00-04:00",
+                                "2024-07-13T00:00:00-04:00",
+                                "2024-07-14T00:00:00-04:00",
+                                "2024-07-15T00:00:00-04:00",
+                                "2024-07-16T00:00:00-04:00",
+                                "2024-07-17T00:00:00-04:00",
+                                "2024-07-18T00:00:00-04:00"
+                            ],
+                            "id": "Interacted with file",
+                            "type": "events",
+                            "order": 1,
+                            "name": "Interacted with file",
+                            "custom_name": null,
+                            "math": "total",
+                            "math_property": null,
+                            "math_hogql": null,
+                            "math_group_type_index": null,
+                            "properties": {}
+                        }
+                    },
+                    {
+                        "data": [0, 14, 0, 0, 74, 38, 4, 113],
+                        "labels": [
+                            "11-Jul-2024",
+                            "12-Jul-2024",
+                            "13-Jul-2024",
+                            "14-Jul-2024",
+                            "15-Jul-2024",
+                            "16-Jul-2024",
+                            "17-Jul-2024",
+                            "18-Jul-2024"
+                        ],
+                        "days": [
+                            "2024-07-11",
+                            "2024-07-12",
+                            "2024-07-13",
+                            "2024-07-14",
+                            "2024-07-15",
+                            "2024-07-16",
+                            "2024-07-17",
+                            "2024-07-18"
+                        ],
+                        "count": 243.0,
+                        "label": "$pageview",
+                        "filter": {
+                            "insight": "TRENDS",
+                            "properties": [],
+                            "filter_test_accounts": true,
+                            "date_to": "2024-07-18T23:59:59.999999-04:00",
+                            "date_from": "2024-07-11T00:00:00-04:00",
+                            "entity_type": "events",
+                            "interval": "day",
+                            "aggregationAxisFormat": "numeric",
+                            "display": "ActionsLineGraph",
+                            "showLegend": false,
+                            "showPercentStackView": false,
+                            "showValuesOnSeries": false,
+                            "smoothingIntervals": 1
+                        },
+                        "action": {
+                            "days": [
+                                "2024-07-11T00:00:00-04:00",
+                                "2024-07-12T00:00:00-04:00",
+                                "2024-07-13T00:00:00-04:00",
+                                "2024-07-14T00:00:00-04:00",
+                                "2024-07-15T00:00:00-04:00",
+                                "2024-07-16T00:00:00-04:00",
+                                "2024-07-17T00:00:00-04:00",
+                                "2024-07-18T00:00:00-04:00"
+                            ],
+                            "id": "$pageview",
+                            "type": "events",
+                            "order": 2,
+                            "name": "$pageview",
+                            "custom_name": "Custom name",
+                            "math": "total",
+                            "math_property": null,
+                            "math_hogql": null,
+                            "math_group_type_index": null,
+                            "properties": {}
+                        }
+                    }
+                ],
+                "columns": null,
+                "created_at": "2024-07-18T19:21:54.020144Z",
+                "created_by": {
+                    "id": 1,
+                    "uuid": "018f7216-2154-0000-d286-f7ac40c8c84f",
+                    "distinct_id": "6yd4X1lQcm4uWP0qdoxl2IJrBU8uxwVd2di0LSIJfg2",
+                    "first_name": "Employee 427",
+                    "last_name": "",
+                    "email": "test@posthog.com",
+                    "is_email_verified": null,
+                    "hedgehog_config": null
+                },
+                "description": "",
+                "updated_at": "2024-07-18T19:37:46.634311Z",
+                "favorited": false,
+                "saved": true,
+                "last_modified_at": "2024-07-18T19:37:46.606900Z",
+                "last_modified_by": {
+                    "id": 1,
+                    "uuid": "018f7216-2154-0000-d286-f7ac40c8c84f",
+                    "distinct_id": "6yd4X1lQcm4uWP0qdoxl2IJrBU8uxwVd2di0LSIJfg2",
+                    "first_name": "Employee 427",
+                    "last_name": "",
+                    "email": "test@posthog.com",
+                    "is_email_verified": null,
+                    "hedgehog_config": null
+                },
+                "is_sample": false,
+                "effective_restriction_level": 21,
+                "effective_privilege_level": 37,
+                "timezone": "America/Aruba",
+                "is_cached": true,
+                "query_status": null,
+                "hogql": "SELECT\n    arrayMap(number -> plus(toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00'))), toStartOfDay(assumeNotNull(toDateTime('2024-07-18 23:59:59'))))), 1))) AS date,\n    arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date) AS total\nFROM\n    (SELECT\n        sum(total) AS count,\n        day_start\n    FROM\n        (SELECT\n            count() AS total,\n            toStartOfDay(timestamp) AS day_start\n        FROM\n            events AS e SAMPLE 1\n        WHERE\n            and(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00')))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-07-18 23:59:59'))), equals(event, '$pageview'), in(person_id, (SELECT\n                        person_id\n                    FROM\n                        raw_cohort_people\n                    WHERE\n                        and(equals(cohort_id, 2), equals(version, 251)))))\n        GROUP BY\n            day_start)\n    GROUP BY\n        day_start\n    ORDER BY\n        day_start ASC)\nORDER BY\n    arraySum(total) DESC\nLIMIT 50000\nUNION ALL\nSELECT\n    arrayMap(number -> plus(toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00'))), toStartOfDay(assumeNotNull(toDateTime('2024-07-18 23:59:59'))))), 1))) AS date,\n    arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date) AS total\nFROM\n    (SELECT\n        sum(total) AS count,\n        day_start\n    FROM\n        (SELECT\n            count() AS total,\n            toStartOfDay(timestamp) AS day_start\n        FROM\n            events AS e SAMPLE 1\n        WHERE\n            and(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00')))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-07-18 23:59:59'))), in(person_id, (SELECT\n                        person_id\n                    FROM\n                        raw_cohort_people\n                    WHERE\n                        and(equals(cohort_id, 2), equals(version, 251)))), or(equals(event, 'uploaded_file'), equals(event, 'downloaded_file'), equals(event, 'deleted_file'), equals(event, 'shared_file_link')))\n        GROUP BY\n            day_start)\n    GROUP BY\n        day_start\n    ORDER BY\n        day_start ASC)\nORDER BY\n    arraySum(total) DESC\nLIMIT 50000\nUNION ALL\nSELECT\n    arrayMap(number -> plus(toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00'))), toStartOfDay(assumeNotNull(toDateTime('2024-07-18 23:59:59'))))), 1))) AS date,\n    arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date) AS total\nFROM\n    (SELECT\n        sum(total) AS count,\n        day_start\n    FROM\n        (SELECT\n            count() AS total,\n            toStartOfDay(timestamp) AS day_start\n        FROM\n            events AS e SAMPLE 1\n        WHERE\n            and(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00')))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-07-18 23:59:59'))), equals(event, '$pageview'), in(person_id, (SELECT\n                        person_id\n                    FROM\n                        raw_cohort_people\n                    WHERE\n                        and(equals(cohort_id, 2), equals(version, 251)))))\n        GROUP BY\n            day_start)\n    GROUP BY\n        day_start\n    ORDER BY\n        day_start ASC)\nORDER BY\n    arraySum(total) DESC\nLIMIT 50000",
+                "tags": [],
+                "filters_hash": "cache_bae60b6f07f4c80944d20aac84a3496f"
+            },
+            "text": null,
+            "layouts": {},
+            "color": null,
+            "last_refresh": "2024-07-18T19:19:34.148020Z",
+            "is_cached": true
+        },
+        {
+            "id": 126,
+            "insight": {
+                "id": 216,
+                "short_id": "zPsy2pHi",
+                "name": "Bar chart",
+                "derived_name": "Pageview count & Interacted with file count & Custom name count",
+                "filters": {
+                    "events": [
+                        {
+                            "id": "$pageview",
+                            "math": "total",
+                            "name": "$pageview",
+                            "type": "events",
+                            "order": 0
+                        },
+                        {
+                            "id": "$pageview",
+                            "math": "total",
+                            "name": "Pageview",
+                            "type": "events",
+                            "order": 2,
+                            "custom_name": "Custom name"
+                        }
+                    ],
+                    "actions": [
+                        {
+                            "id": "1",
+                            "math": "total",
+                            "name": "Interacted with file",
+                            "type": "actions",
+                            "order": 1
+                        }
+                    ],
+                    "display": "ActionsBar",
+                    "insight": "TRENDS",
+                    "interval": "day",
+                    "entity_type": "events",
+                    "show_legend": true,
+                    "filter_test_accounts": true,
+                    "date_from": null,
+                    "date_to": null
+                },
+                "query": null,
+                "order": null,
+                "deleted": false,
+                "dashboards": [32],
+                "dashboard_tiles": [
+                    {
+                        "id": 126,
+                        "dashboard_id": 32,
+                        "deleted": null
+                    }
+                ],
+                "last_refresh": "2024-07-18T19:19:34.148020Z",
+                "cache_target_age": "2024-07-18T21:19:34.148020Z",
+                "next_allowed_client_refresh": "2024-07-18T19:34:34.148020Z",
+                "result": [
+                    {
+                        "data": [0, 14, 0, 0, 74, 38, 4, 113],
+                        "labels": [
+                            "11-Jul-2024",
+                            "12-Jul-2024",
+                            "13-Jul-2024",
+                            "14-Jul-2024",
+                            "15-Jul-2024",
+                            "16-Jul-2024",
+                            "17-Jul-2024",
+                            "18-Jul-2024"
+                        ],
+                        "days": [
+                            "2024-07-11",
+                            "2024-07-12",
+                            "2024-07-13",
+                            "2024-07-14",
+                            "2024-07-15",
+                            "2024-07-16",
+                            "2024-07-17",
+                            "2024-07-18"
+                        ],
+                        "count": 243.0,
+                        "label": "$pageview",
+                        "filter": {
+                            "insight": "TRENDS",
+                            "properties": [],
+                            "filter_test_accounts": true,
+                            "date_to": "2024-07-18T23:59:59.999999-04:00",
+                            "date_from": "2024-07-11T00:00:00-04:00",
+                            "entity_type": "events",
+                            "interval": "day",
+                            "aggregationAxisFormat": "numeric",
+                            "display": "ActionsLineGraph",
+                            "showLegend": false,
+                            "showPercentStackView": false,
+                            "showValuesOnSeries": false,
+                            "smoothingIntervals": 1
+                        },
+                        "action": {
+                            "days": [
+                                "2024-07-11T00:00:00-04:00",
+                                "2024-07-12T00:00:00-04:00",
+                                "2024-07-13T00:00:00-04:00",
+                                "2024-07-14T00:00:00-04:00",
+                                "2024-07-15T00:00:00-04:00",
+                                "2024-07-16T00:00:00-04:00",
+                                "2024-07-17T00:00:00-04:00",
+                                "2024-07-18T00:00:00-04:00"
+                            ],
+                            "id": "$pageview",
+                            "type": "events",
+                            "order": 0,
+                            "name": "$pageview",
+                            "custom_name": null,
+                            "math": "total",
+                            "math_property": null,
+                            "math_hogql": null,
+                            "math_group_type_index": null,
+                            "properties": {}
+                        }
+                    },
+                    {
+                        "data": [0, 0, 0, 0, 0, 0, 0, 0],
+                        "labels": [
+                            "11-Jul-2024",
+                            "12-Jul-2024",
+                            "13-Jul-2024",
+                            "14-Jul-2024",
+                            "15-Jul-2024",
+                            "16-Jul-2024",
+                            "17-Jul-2024",
+                            "18-Jul-2024"
+                        ],
+                        "days": [
+                            "2024-07-11",
+                            "2024-07-12",
+                            "2024-07-13",
+                            "2024-07-14",
+                            "2024-07-15",
+                            "2024-07-16",
+                            "2024-07-17",
+                            "2024-07-18"
+                        ],
+                        "count": 0.0,
+                        "label": "Interacted with file",
+                        "filter": {
+                            "insight": "TRENDS",
+                            "properties": [],
+                            "filter_test_accounts": true,
+                            "date_to": "2024-07-18T23:59:59.999999-04:00",
+                            "date_from": "2024-07-11T00:00:00-04:00",
+                            "entity_type": "events",
+                            "interval": "day",
+                            "aggregationAxisFormat": "numeric",
+                            "display": "ActionsLineGraph",
+                            "showLegend": false,
+                            "showPercentStackView": false,
+                            "showValuesOnSeries": false,
+                            "smoothingIntervals": 1
+                        },
+                        "action": {
+                            "days": [
+                                "2024-07-11T00:00:00-04:00",
+                                "2024-07-12T00:00:00-04:00",
+                                "2024-07-13T00:00:00-04:00",
+                                "2024-07-14T00:00:00-04:00",
+                                "2024-07-15T00:00:00-04:00",
+                                "2024-07-16T00:00:00-04:00",
+                                "2024-07-17T00:00:00-04:00",
+                                "2024-07-18T00:00:00-04:00"
+                            ],
+                            "id": "Interacted with file",
+                            "type": "events",
+                            "order": 1,
+                            "name": "Interacted with file",
+                            "custom_name": null,
+                            "math": "total",
+                            "math_property": null,
+                            "math_hogql": null,
+                            "math_group_type_index": null,
+                            "properties": {}
+                        }
+                    },
+                    {
+                        "data": [0, 14, 0, 0, 74, 38, 4, 113],
+                        "labels": [
+                            "11-Jul-2024",
+                            "12-Jul-2024",
+                            "13-Jul-2024",
+                            "14-Jul-2024",
+                            "15-Jul-2024",
+                            "16-Jul-2024",
+                            "17-Jul-2024",
+                            "18-Jul-2024"
+                        ],
+                        "days": [
+                            "2024-07-11",
+                            "2024-07-12",
+                            "2024-07-13",
+                            "2024-07-14",
+                            "2024-07-15",
+                            "2024-07-16",
+                            "2024-07-17",
+                            "2024-07-18"
+                        ],
+                        "count": 243.0,
+                        "label": "$pageview",
+                        "filter": {
+                            "insight": "TRENDS",
+                            "properties": [],
+                            "filter_test_accounts": true,
+                            "date_to": "2024-07-18T23:59:59.999999-04:00",
+                            "date_from": "2024-07-11T00:00:00-04:00",
+                            "entity_type": "events",
+                            "interval": "day",
+                            "aggregationAxisFormat": "numeric",
+                            "display": "ActionsLineGraph",
+                            "showLegend": false,
+                            "showPercentStackView": false,
+                            "showValuesOnSeries": false,
+                            "smoothingIntervals": 1
+                        },
+                        "action": {
+                            "days": [
+                                "2024-07-11T00:00:00-04:00",
+                                "2024-07-12T00:00:00-04:00",
+                                "2024-07-13T00:00:00-04:00",
+                                "2024-07-14T00:00:00-04:00",
+                                "2024-07-15T00:00:00-04:00",
+                                "2024-07-16T00:00:00-04:00",
+                                "2024-07-17T00:00:00-04:00",
+                                "2024-07-18T00:00:00-04:00"
+                            ],
+                            "id": "$pageview",
+                            "type": "events",
+                            "order": 2,
+                            "name": "$pageview",
+                            "custom_name": "Custom name",
+                            "math": "total",
+                            "math_property": null,
+                            "math_hogql": null,
+                            "math_group_type_index": null,
+                            "properties": {}
+                        }
+                    }
+                ],
+                "columns": null,
+                "created_at": "2024-07-18T19:34:03.039486Z",
+                "created_by": {
+                    "id": 1,
+                    "uuid": "018f7216-2154-0000-d286-f7ac40c8c84f",
+                    "distinct_id": "6yd4X1lQcm4uWP0qdoxl2IJrBU8uxwVd2di0LSIJfg2",
+                    "first_name": "Employee 427",
+                    "last_name": "",
+                    "email": "test@posthog.com",
+                    "is_email_verified": null,
+                    "hedgehog_config": null
+                },
+                "description": "",
+                "updated_at": "2024-07-18T19:37:39.771073Z",
+                "favorited": false,
+                "saved": true,
+                "last_modified_at": "2024-07-18T19:37:39.733284Z",
+                "last_modified_by": {
+                    "id": 1,
+                    "uuid": "018f7216-2154-0000-d286-f7ac40c8c84f",
+                    "distinct_id": "6yd4X1lQcm4uWP0qdoxl2IJrBU8uxwVd2di0LSIJfg2",
+                    "first_name": "Employee 427",
+                    "last_name": "",
+                    "email": "test@posthog.com",
+                    "is_email_verified": null,
+                    "hedgehog_config": null
+                },
+                "is_sample": false,
+                "effective_restriction_level": 21,
+                "effective_privilege_level": 37,
+                "timezone": "America/Aruba",
+                "is_cached": true,
+                "query_status": null,
+                "hogql": "SELECT\n    arrayMap(number -> plus(toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00'))), toStartOfDay(assumeNotNull(toDateTime('2024-07-18 23:59:59'))))), 1))) AS date,\n    arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date) AS total\nFROM\n    (SELECT\n        sum(total) AS count,\n        day_start\n    FROM\n        (SELECT\n            count() AS total,\n            toStartOfDay(timestamp) AS day_start\n        FROM\n            events AS e SAMPLE 1\n        WHERE\n            and(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00')))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-07-18 23:59:59'))), equals(event, '$pageview'), in(person_id, (SELECT\n                        person_id\n                    FROM\n                        raw_cohort_people\n                    WHERE\n                        and(equals(cohort_id, 2), equals(version, 251)))))\n        GROUP BY\n            day_start)\n    GROUP BY\n        day_start\n    ORDER BY\n        day_start ASC)\nORDER BY\n    arraySum(total) DESC\nLIMIT 50000\nUNION ALL\nSELECT\n    arrayMap(number -> plus(toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00'))), toStartOfDay(assumeNotNull(toDateTime('2024-07-18 23:59:59'))))), 1))) AS date,\n    arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date) AS total\nFROM\n    (SELECT\n        sum(total) AS count,\n        day_start\n    FROM\n        (SELECT\n            count() AS total,\n            toStartOfDay(timestamp) AS day_start\n        FROM\n            events AS e SAMPLE 1\n        WHERE\n            and(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00')))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-07-18 23:59:59'))), in(person_id, (SELECT\n                        person_id\n                    FROM\n                        raw_cohort_people\n                    WHERE\n                        and(equals(cohort_id, 2), equals(version, 251)))), or(equals(event, 'uploaded_file'), equals(event, 'downloaded_file'), equals(event, 'deleted_file'), equals(event, 'shared_file_link')))\n        GROUP BY\n            day_start)\n    GROUP BY\n        day_start\n    ORDER BY\n        day_start ASC)\nORDER BY\n    arraySum(total) DESC\nLIMIT 50000\nUNION ALL\nSELECT\n    arrayMap(number -> plus(toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00'))), toStartOfDay(assumeNotNull(toDateTime('2024-07-18 23:59:59'))))), 1))) AS date,\n    arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date) AS total\nFROM\n    (SELECT\n        sum(total) AS count,\n        day_start\n    FROM\n        (SELECT\n            count() AS total,\n            toStartOfDay(timestamp) AS day_start\n        FROM\n            events AS e SAMPLE 1\n        WHERE\n            and(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00')))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-07-18 23:59:59'))), equals(event, '$pageview'), in(person_id, (SELECT\n                        person_id\n                    FROM\n                        raw_cohort_people\n                    WHERE\n                        and(equals(cohort_id, 2), equals(version, 251)))))\n        GROUP BY\n            day_start)\n    GROUP BY\n        day_start\n    ORDER BY\n        day_start ASC)\nORDER BY\n    arraySum(total) DESC\nLIMIT 50000",
+                "tags": [],
+                "filters_hash": "cache_bae60b6f07f4c80944d20aac84a3496f"
+            },
+            "text": null,
+            "layouts": {},
+            "color": null,
+            "last_refresh": "2024-07-18T19:19:34.148020Z",
+            "is_cached": true
+        },
+        {
+            "id": 125,
+            "insight": {
+                "id": 217,
+                "short_id": "Hpxsmd9D",
+                "name": "Area chart",
+                "derived_name": "Pageview count & Interacted with file count & Custom name count",
+                "filters": {
+                    "events": [
+                        {
+                            "id": "$pageview",
+                            "math": "total",
+                            "name": "$pageview",
+                            "type": "events",
+                            "order": 0
+                        },
+                        {
+                            "id": "$pageview",
+                            "math": "total",
+                            "name": "Pageview",
+                            "type": "events",
+                            "order": 2,
+                            "custom_name": "Custom name"
+                        }
+                    ],
+                    "actions": [
+                        {
+                            "id": "1",
+                            "math": "total",
+                            "name": "Interacted with file",
+                            "type": "actions",
+                            "order": 1
+                        }
+                    ],
+                    "display": "ActionsAreaGraph",
+                    "insight": "TRENDS",
+                    "interval": "day",
+                    "entity_type": "events",
+                    "show_legend": true,
+                    "filter_test_accounts": true,
+                    "date_from": null,
+                    "date_to": null
+                },
+                "query": null,
+                "order": null,
+                "deleted": false,
+                "dashboards": [32],
+                "dashboard_tiles": [
+                    {
+                        "id": 125,
+                        "dashboard_id": 32,
+                        "deleted": null
+                    }
+                ],
+                "last_refresh": "2024-07-18T19:19:34.148020Z",
+                "cache_target_age": "2024-07-18T21:19:34.148020Z",
+                "next_allowed_client_refresh": "2024-07-18T19:34:34.148020Z",
+                "result": [
+                    {
+                        "data": [0, 14, 0, 0, 74, 38, 4, 113],
+                        "labels": [
+                            "11-Jul-2024",
+                            "12-Jul-2024",
+                            "13-Jul-2024",
+                            "14-Jul-2024",
+                            "15-Jul-2024",
+                            "16-Jul-2024",
+                            "17-Jul-2024",
+                            "18-Jul-2024"
+                        ],
+                        "days": [
+                            "2024-07-11",
+                            "2024-07-12",
+                            "2024-07-13",
+                            "2024-07-14",
+                            "2024-07-15",
+                            "2024-07-16",
+                            "2024-07-17",
+                            "2024-07-18"
+                        ],
+                        "count": 243.0,
+                        "label": "$pageview",
+                        "filter": {
+                            "insight": "TRENDS",
+                            "properties": [],
+                            "filter_test_accounts": true,
+                            "date_to": "2024-07-18T23:59:59.999999-04:00",
+                            "date_from": "2024-07-11T00:00:00-04:00",
+                            "entity_type": "events",
+                            "interval": "day",
+                            "aggregationAxisFormat": "numeric",
+                            "display": "ActionsLineGraph",
+                            "showLegend": false,
+                            "showPercentStackView": false,
+                            "showValuesOnSeries": false,
+                            "smoothingIntervals": 1
+                        },
+                        "action": {
+                            "days": [
+                                "2024-07-11T00:00:00-04:00",
+                                "2024-07-12T00:00:00-04:00",
+                                "2024-07-13T00:00:00-04:00",
+                                "2024-07-14T00:00:00-04:00",
+                                "2024-07-15T00:00:00-04:00",
+                                "2024-07-16T00:00:00-04:00",
+                                "2024-07-17T00:00:00-04:00",
+                                "2024-07-18T00:00:00-04:00"
+                            ],
+                            "id": "$pageview",
+                            "type": "events",
+                            "order": 0,
+                            "name": "$pageview",
+                            "custom_name": null,
+                            "math": "total",
+                            "math_property": null,
+                            "math_hogql": null,
+                            "math_group_type_index": null,
+                            "properties": {}
+                        }
+                    },
+                    {
+                        "data": [0, 0, 0, 0, 0, 0, 0, 0],
+                        "labels": [
+                            "11-Jul-2024",
+                            "12-Jul-2024",
+                            "13-Jul-2024",
+                            "14-Jul-2024",
+                            "15-Jul-2024",
+                            "16-Jul-2024",
+                            "17-Jul-2024",
+                            "18-Jul-2024"
+                        ],
+                        "days": [
+                            "2024-07-11",
+                            "2024-07-12",
+                            "2024-07-13",
+                            "2024-07-14",
+                            "2024-07-15",
+                            "2024-07-16",
+                            "2024-07-17",
+                            "2024-07-18"
+                        ],
+                        "count": 0.0,
+                        "label": "Interacted with file",
+                        "filter": {
+                            "insight": "TRENDS",
+                            "properties": [],
+                            "filter_test_accounts": true,
+                            "date_to": "2024-07-18T23:59:59.999999-04:00",
+                            "date_from": "2024-07-11T00:00:00-04:00",
+                            "entity_type": "events",
+                            "interval": "day",
+                            "aggregationAxisFormat": "numeric",
+                            "display": "ActionsLineGraph",
+                            "showLegend": false,
+                            "showPercentStackView": false,
+                            "showValuesOnSeries": false,
+                            "smoothingIntervals": 1
+                        },
+                        "action": {
+                            "days": [
+                                "2024-07-11T00:00:00-04:00",
+                                "2024-07-12T00:00:00-04:00",
+                                "2024-07-13T00:00:00-04:00",
+                                "2024-07-14T00:00:00-04:00",
+                                "2024-07-15T00:00:00-04:00",
+                                "2024-07-16T00:00:00-04:00",
+                                "2024-07-17T00:00:00-04:00",
+                                "2024-07-18T00:00:00-04:00"
+                            ],
+                            "id": "Interacted with file",
+                            "type": "events",
+                            "order": 1,
+                            "name": "Interacted with file",
+                            "custom_name": null,
+                            "math": "total",
+                            "math_property": null,
+                            "math_hogql": null,
+                            "math_group_type_index": null,
+                            "properties": {}
+                        }
+                    },
+                    {
+                        "data": [0, 14, 0, 0, 74, 38, 4, 113],
+                        "labels": [
+                            "11-Jul-2024",
+                            "12-Jul-2024",
+                            "13-Jul-2024",
+                            "14-Jul-2024",
+                            "15-Jul-2024",
+                            "16-Jul-2024",
+                            "17-Jul-2024",
+                            "18-Jul-2024"
+                        ],
+                        "days": [
+                            "2024-07-11",
+                            "2024-07-12",
+                            "2024-07-13",
+                            "2024-07-14",
+                            "2024-07-15",
+                            "2024-07-16",
+                            "2024-07-17",
+                            "2024-07-18"
+                        ],
+                        "count": 243.0,
+                        "label": "$pageview",
+                        "filter": {
+                            "insight": "TRENDS",
+                            "properties": [],
+                            "filter_test_accounts": true,
+                            "date_to": "2024-07-18T23:59:59.999999-04:00",
+                            "date_from": "2024-07-11T00:00:00-04:00",
+                            "entity_type": "events",
+                            "interval": "day",
+                            "aggregationAxisFormat": "numeric",
+                            "display": "ActionsLineGraph",
+                            "showLegend": false,
+                            "showPercentStackView": false,
+                            "showValuesOnSeries": false,
+                            "smoothingIntervals": 1
+                        },
+                        "action": {
+                            "days": [
+                                "2024-07-11T00:00:00-04:00",
+                                "2024-07-12T00:00:00-04:00",
+                                "2024-07-13T00:00:00-04:00",
+                                "2024-07-14T00:00:00-04:00",
+                                "2024-07-15T00:00:00-04:00",
+                                "2024-07-16T00:00:00-04:00",
+                                "2024-07-17T00:00:00-04:00",
+                                "2024-07-18T00:00:00-04:00"
+                            ],
+                            "id": "$pageview",
+                            "type": "events",
+                            "order": 2,
+                            "name": "$pageview",
+                            "custom_name": "Custom name",
+                            "math": "total",
+                            "math_property": null,
+                            "math_hogql": null,
+                            "math_group_type_index": null,
+                            "properties": {}
+                        }
+                    }
+                ],
+                "columns": null,
+                "created_at": "2024-07-18T19:34:23.909745Z",
+                "created_by": {
+                    "id": 1,
+                    "uuid": "018f7216-2154-0000-d286-f7ac40c8c84f",
+                    "distinct_id": "6yd4X1lQcm4uWP0qdoxl2IJrBU8uxwVd2di0LSIJfg2",
+                    "first_name": "Employee 427",
+                    "last_name": "",
+                    "email": "test@posthog.com",
+                    "is_email_verified": null,
+                    "hedgehog_config": null
+                },
+                "description": "",
+                "updated_at": "2024-07-18T19:37:33.262208Z",
+                "favorited": false,
+                "saved": true,
+                "last_modified_at": "2024-07-18T19:37:33.227409Z",
+                "last_modified_by": {
+                    "id": 1,
+                    "uuid": "018f7216-2154-0000-d286-f7ac40c8c84f",
+                    "distinct_id": "6yd4X1lQcm4uWP0qdoxl2IJrBU8uxwVd2di0LSIJfg2",
+                    "first_name": "Employee 427",
+                    "last_name": "",
+                    "email": "test@posthog.com",
+                    "is_email_verified": null,
+                    "hedgehog_config": null
+                },
+                "is_sample": false,
+                "effective_restriction_level": 21,
+                "effective_privilege_level": 37,
+                "timezone": "America/Aruba",
+                "is_cached": true,
+                "query_status": null,
+                "hogql": "SELECT\n    arrayMap(number -> plus(toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00'))), toStartOfDay(assumeNotNull(toDateTime('2024-07-18 23:59:59'))))), 1))) AS date,\n    arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date) AS total\nFROM\n    (SELECT\n        sum(total) AS count,\n        day_start\n    FROM\n        (SELECT\n            count() AS total,\n            toStartOfDay(timestamp) AS day_start\n        FROM\n            events AS e SAMPLE 1\n        WHERE\n            and(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00')))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-07-18 23:59:59'))), equals(event, '$pageview'), in(person_id, (SELECT\n                        person_id\n                    FROM\n                        raw_cohort_people\n                    WHERE\n                        and(equals(cohort_id, 2), equals(version, 251)))))\n        GROUP BY\n            day_start)\n    GROUP BY\n        day_start\n    ORDER BY\n        day_start ASC)\nORDER BY\n    arraySum(total) DESC\nLIMIT 50000\nUNION ALL\nSELECT\n    arrayMap(number -> plus(toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00'))), toStartOfDay(assumeNotNull(toDateTime('2024-07-18 23:59:59'))))), 1))) AS date,\n    arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date) AS total\nFROM\n    (SELECT\n        sum(total) AS count,\n        day_start\n    FROM\n        (SELECT\n            count() AS total,\n            toStartOfDay(timestamp) AS day_start\n        FROM\n            events AS e SAMPLE 1\n        WHERE\n            and(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00')))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-07-18 23:59:59'))), in(person_id, (SELECT\n                        person_id\n                    FROM\n                        raw_cohort_people\n                    WHERE\n                        and(equals(cohort_id, 2), equals(version, 251)))), or(equals(event, 'uploaded_file'), equals(event, 'downloaded_file'), equals(event, 'deleted_file'), equals(event, 'shared_file_link')))\n        GROUP BY\n            day_start)\n    GROUP BY\n        day_start\n    ORDER BY\n        day_start ASC)\nORDER BY\n    arraySum(total) DESC\nLIMIT 50000\nUNION ALL\nSELECT\n    arrayMap(number -> plus(toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00'))), toStartOfDay(assumeNotNull(toDateTime('2024-07-18 23:59:59'))))), 1))) AS date,\n    arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date) AS total\nFROM\n    (SELECT\n        sum(total) AS count,\n        day_start\n    FROM\n        (SELECT\n            count() AS total,\n            toStartOfDay(timestamp) AS day_start\n        FROM\n            events AS e SAMPLE 1\n        WHERE\n            and(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00')))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-07-18 23:59:59'))), equals(event, '$pageview'), in(person_id, (SELECT\n                        person_id\n                    FROM\n                        raw_cohort_people\n                    WHERE\n                        and(equals(cohort_id, 2), equals(version, 251)))))\n        GROUP BY\n            day_start)\n    GROUP BY\n        day_start\n    ORDER BY\n        day_start ASC)\nORDER BY\n    arraySum(total) DESC\nLIMIT 50000",
+                "tags": [],
+                "filters_hash": "cache_bae60b6f07f4c80944d20aac84a3496f"
+            },
+            "text": null,
+            "layouts": {},
+            "color": null,
+            "last_refresh": "2024-07-18T19:19:34.148020Z",
+            "is_cached": true
+        },
+        {
+            "id": 124,
+            "insight": {
+                "id": 218,
+                "short_id": "Wwlgu6T2",
+                "name": "Cumulative chart",
+                "derived_name": "Pageview count & Interacted with file count & Custom name count",
+                "filters": {
+                    "events": [
+                        {
+                            "id": "$pageview",
+                            "math": "total",
+                            "name": "$pageview",
+                            "type": "events",
+                            "order": 0
+                        },
+                        {
+                            "id": "$pageview",
+                            "math": "total",
+                            "name": "Pageview",
+                            "type": "events",
+                            "order": 2,
+                            "custom_name": "Custom name"
+                        }
+                    ],
+                    "actions": [
+                        {
+                            "id": "1",
+                            "math": "total",
+                            "name": "Interacted with file",
+                            "type": "actions",
+                            "order": 1
+                        }
+                    ],
+                    "display": "ActionsLineGraphCumulative",
+                    "insight": "TRENDS",
+                    "interval": "day",
+                    "entity_type": "events",
+                    "show_legend": true,
+                    "filter_test_accounts": true,
+                    "date_from": null,
+                    "date_to": null
+                },
+                "query": null,
+                "order": null,
+                "deleted": false,
+                "dashboards": [32],
+                "dashboard_tiles": [
+                    {
+                        "id": 124,
+                        "dashboard_id": 32,
+                        "deleted": null
+                    }
+                ],
+                "last_refresh": "2024-07-18T18:45:56.190392Z",
+                "cache_target_age": "2024-07-18T20:45:56.190392Z",
+                "next_allowed_client_refresh": "2024-07-18T19:00:56.190392Z",
+                "result": [
+                    {
+                        "data": [0, 14, 14, 14, 88, 126, 130, 194],
+                        "labels": [
+                            "11-Jul-2024",
+                            "12-Jul-2024",
+                            "13-Jul-2024",
+                            "14-Jul-2024",
+                            "15-Jul-2024",
+                            "16-Jul-2024",
+                            "17-Jul-2024",
+                            "18-Jul-2024"
+                        ],
+                        "days": [
+                            "2024-07-11",
+                            "2024-07-12",
+                            "2024-07-13",
+                            "2024-07-14",
+                            "2024-07-15",
+                            "2024-07-16",
+                            "2024-07-17",
+                            "2024-07-18"
+                        ],
+                        "count": 194,
+                        "label": "$pageview",
+                        "filter": {
+                            "insight": "TRENDS",
+                            "properties": [],
+                            "filter_test_accounts": true,
+                            "date_to": "2024-07-18T23:59:59.999999-04:00",
+                            "date_from": "2024-07-11T00:00:00-04:00",
+                            "entity_type": "events",
+                            "interval": "day",
+                            "aggregationAxisFormat": "numeric",
+                            "display": "ActionsLineGraphCumulative",
+                            "showLegend": true,
+                            "showPercentStackView": false,
+                            "showValuesOnSeries": false,
+                            "smoothingIntervals": 1
+                        },
+                        "action": {
+                            "days": [
+                                "2024-07-11T00:00:00-04:00",
+                                "2024-07-12T00:00:00-04:00",
+                                "2024-07-13T00:00:00-04:00",
+                                "2024-07-14T00:00:00-04:00",
+                                "2024-07-15T00:00:00-04:00",
+                                "2024-07-16T00:00:00-04:00",
+                                "2024-07-17T00:00:00-04:00",
+                                "2024-07-18T00:00:00-04:00"
+                            ],
+                            "id": "$pageview",
+                            "type": "events",
+                            "order": 0,
+                            "name": "$pageview",
+                            "custom_name": null,
+                            "math": "total",
+                            "math_property": null,
+                            "math_hogql": null,
+                            "math_group_type_index": null,
+                            "properties": {}
+                        }
+                    },
+                    {
+                        "data": [0, 0, 0, 0, 0, 0, 0, 0],
+                        "labels": [
+                            "11-Jul-2024",
+                            "12-Jul-2024",
+                            "13-Jul-2024",
+                            "14-Jul-2024",
+                            "15-Jul-2024",
+                            "16-Jul-2024",
+                            "17-Jul-2024",
+                            "18-Jul-2024"
+                        ],
+                        "days": [
+                            "2024-07-11",
+                            "2024-07-12",
+                            "2024-07-13",
+                            "2024-07-14",
+                            "2024-07-15",
+                            "2024-07-16",
+                            "2024-07-17",
+                            "2024-07-18"
+                        ],
+                        "count": 0,
+                        "label": "Interacted with file",
+                        "filter": {
+                            "insight": "TRENDS",
+                            "properties": [],
+                            "filter_test_accounts": true,
+                            "date_to": "2024-07-18T23:59:59.999999-04:00",
+                            "date_from": "2024-07-11T00:00:00-04:00",
+                            "entity_type": "events",
+                            "interval": "day",
+                            "aggregationAxisFormat": "numeric",
+                            "display": "ActionsLineGraphCumulative",
+                            "showLegend": true,
+                            "showPercentStackView": false,
+                            "showValuesOnSeries": false,
+                            "smoothingIntervals": 1
+                        },
+                        "action": {
+                            "days": [
+                                "2024-07-11T00:00:00-04:00",
+                                "2024-07-12T00:00:00-04:00",
+                                "2024-07-13T00:00:00-04:00",
+                                "2024-07-14T00:00:00-04:00",
+                                "2024-07-15T00:00:00-04:00",
+                                "2024-07-16T00:00:00-04:00",
+                                "2024-07-17T00:00:00-04:00",
+                                "2024-07-18T00:00:00-04:00"
+                            ],
+                            "id": "Interacted with file",
+                            "type": "events",
+                            "order": 1,
+                            "name": "Interacted with file",
+                            "custom_name": null,
+                            "math": "total",
+                            "math_property": null,
+                            "math_hogql": null,
+                            "math_group_type_index": null,
+                            "properties": {}
+                        }
+                    },
+                    {
+                        "data": [0, 14, 14, 14, 88, 126, 130, 194],
+                        "labels": [
+                            "11-Jul-2024",
+                            "12-Jul-2024",
+                            "13-Jul-2024",
+                            "14-Jul-2024",
+                            "15-Jul-2024",
+                            "16-Jul-2024",
+                            "17-Jul-2024",
+                            "18-Jul-2024"
+                        ],
+                        "days": [
+                            "2024-07-11",
+                            "2024-07-12",
+                            "2024-07-13",
+                            "2024-07-14",
+                            "2024-07-15",
+                            "2024-07-16",
+                            "2024-07-17",
+                            "2024-07-18"
+                        ],
+                        "count": 194,
+                        "label": "$pageview",
+                        "filter": {
+                            "insight": "TRENDS",
+                            "properties": [],
+                            "filter_test_accounts": true,
+                            "date_to": "2024-07-18T23:59:59.999999-04:00",
+                            "date_from": "2024-07-11T00:00:00-04:00",
+                            "entity_type": "events",
+                            "interval": "day",
+                            "aggregationAxisFormat": "numeric",
+                            "display": "ActionsLineGraphCumulative",
+                            "showLegend": true,
+                            "showPercentStackView": false,
+                            "showValuesOnSeries": false,
+                            "smoothingIntervals": 1
+                        },
+                        "action": {
+                            "days": [
+                                "2024-07-11T00:00:00-04:00",
+                                "2024-07-12T00:00:00-04:00",
+                                "2024-07-13T00:00:00-04:00",
+                                "2024-07-14T00:00:00-04:00",
+                                "2024-07-15T00:00:00-04:00",
+                                "2024-07-16T00:00:00-04:00",
+                                "2024-07-17T00:00:00-04:00",
+                                "2024-07-18T00:00:00-04:00"
+                            ],
+                            "id": "$pageview",
+                            "type": "events",
+                            "order": 2,
+                            "name": "$pageview",
+                            "custom_name": "Custom name",
+                            "math": "total",
+                            "math_property": null,
+                            "math_hogql": null,
+                            "math_group_type_index": null,
+                            "properties": {}
+                        }
+                    }
+                ],
+                "columns": null,
+                "created_at": "2024-07-18T19:34:45.135065Z",
+                "created_by": {
+                    "id": 1,
+                    "uuid": "018f7216-2154-0000-d286-f7ac40c8c84f",
+                    "distinct_id": "6yd4X1lQcm4uWP0qdoxl2IJrBU8uxwVd2di0LSIJfg2",
+                    "first_name": "Employee 427",
+                    "last_name": "",
+                    "email": "test@posthog.com",
+                    "is_email_verified": null,
+                    "hedgehog_config": null
+                },
+                "description": "",
+                "updated_at": "2024-07-18T19:37:26.401750Z",
+                "favorited": false,
+                "saved": true,
+                "last_modified_at": "2024-07-18T19:37:26.374965Z",
+                "last_modified_by": {
+                    "id": 1,
+                    "uuid": "018f7216-2154-0000-d286-f7ac40c8c84f",
+                    "distinct_id": "6yd4X1lQcm4uWP0qdoxl2IJrBU8uxwVd2di0LSIJfg2",
+                    "first_name": "Employee 427",
+                    "last_name": "",
+                    "email": "test@posthog.com",
+                    "is_email_verified": null,
+                    "hedgehog_config": null
+                },
+                "is_sample": false,
+                "effective_restriction_level": 21,
+                "effective_privilege_level": 37,
+                "timezone": "America/Aruba",
+                "is_cached": true,
+                "query_status": null,
+                "hogql": "SELECT\n    arrayMap(number -> plus(toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00'))), toStartOfDay(assumeNotNull(toDateTime('2024-07-18 23:59:59'))))), 1))) AS date,\n    arrayFill(x -> greater(x, 0), arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date)) AS total\nFROM\n    (SELECT\n        day_start,\n        sum(count) OVER (ORDER BY day_start ASC) AS count\n    FROM\n        (SELECT\n            sum(total) AS count,\n            day_start\n        FROM\n            (SELECT\n                count() AS total,\n                toStartOfDay(timestamp) AS day_start\n            FROM\n                events AS e SAMPLE 1\n            WHERE\n                and(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00')))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-07-18 23:59:59'))), equals(event, '$pageview'), in(person_id, (SELECT\n                            person_id\n                        FROM\n                            raw_cohort_people\n                        WHERE\n                            and(equals(cohort_id, 2), equals(version, 251)))))\n            GROUP BY\n                day_start)\n        GROUP BY\n            day_start\n        ORDER BY\n            day_start ASC)\n    ORDER BY\n        day_start ASC)\nORDER BY\n    arraySum(total) DESC\nLIMIT 50000\nUNION ALL\nSELECT\n    arrayMap(number -> plus(toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00'))), toStartOfDay(assumeNotNull(toDateTime('2024-07-18 23:59:59'))))), 1))) AS date,\n    arrayFill(x -> greater(x, 0), arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date)) AS total\nFROM\n    (SELECT\n        day_start,\n        sum(count) OVER (ORDER BY day_start ASC) AS count\n    FROM\n        (SELECT\n            sum(total) AS count,\n            day_start\n        FROM\n            (SELECT\n                count() AS total,\n                toStartOfDay(timestamp) AS day_start\n            FROM\n                events AS e SAMPLE 1\n            WHERE\n                and(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00')))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-07-18 23:59:59'))), in(person_id, (SELECT\n                            person_id\n                        FROM\n                            raw_cohort_people\n                        WHERE\n                            and(equals(cohort_id, 2), equals(version, 251)))), or(equals(event, 'uploaded_file'), equals(event, 'downloaded_file'), equals(event, 'deleted_file'), equals(event, 'shared_file_link')))\n            GROUP BY\n                day_start)\n        GROUP BY\n            day_start\n        ORDER BY\n            day_start ASC)\n    ORDER BY\n        day_start ASC)\nORDER BY\n    arraySum(total) DESC\nLIMIT 50000\nUNION ALL\nSELECT\n    arrayMap(number -> plus(toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00'))), toStartOfDay(assumeNotNull(toDateTime('2024-07-18 23:59:59'))))), 1))) AS date,\n    arrayFill(x -> greater(x, 0), arrayMap(_match_date -> arraySum(arraySlice(groupArray(count), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date)) AS total\nFROM\n    (SELECT\n        day_start,\n        sum(count) OVER (ORDER BY day_start ASC) AS count\n    FROM\n        (SELECT\n            sum(total) AS count,\n            day_start\n        FROM\n            (SELECT\n                count() AS total,\n                toStartOfDay(timestamp) AS day_start\n            FROM\n                events AS e SAMPLE 1\n            WHERE\n                and(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00')))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-07-18 23:59:59'))), equals(event, '$pageview'), in(person_id, (SELECT\n                            person_id\n                        FROM\n                            raw_cohort_people\n                        WHERE\n                            and(equals(cohort_id, 2), equals(version, 251)))))\n            GROUP BY\n                day_start)\n        GROUP BY\n            day_start\n        ORDER BY\n            day_start ASC)\n    ORDER BY\n        day_start ASC)\nORDER BY\n    arraySum(total) DESC\nLIMIT 50000",
+                "tags": [],
+                "filters_hash": "cache_dd6693d85d1a89368c92626a2aef808e"
+            },
+            "text": null,
+            "layouts": {},
+            "color": null,
+            "last_refresh": "2024-07-18T18:45:56.190392Z",
+            "is_cached": true
+        },
+        {
+            "id": 123,
+            "insight": {
+                "id": 219,
+                "short_id": "P3x5xvKY",
+                "name": "Pie chart",
+                "derived_name": "Pageview count & Interacted with file count & Custom name count",
+                "filters": {
+                    "events": [
+                        {
+                            "id": "$pageview",
+                            "math": "total",
+                            "name": "$pageview",
+                            "type": "events",
+                            "order": 0
+                        },
+                        {
+                            "id": "$pageview",
+                            "math": "total",
+                            "name": "Pageview",
+                            "type": "events",
+                            "order": 2,
+                            "custom_name": "Custom name"
+                        }
+                    ],
+                    "actions": [
+                        {
+                            "id": "1",
+                            "math": "total",
+                            "name": "Interacted with file",
+                            "type": "actions",
+                            "order": 1
+                        }
+                    ],
+                    "display": "ActionsPie",
+                    "insight": "TRENDS",
+                    "interval": "day",
+                    "entity_type": "events",
+                    "show_legend": true,
+                    "filter_test_accounts": true,
+                    "date_from": null,
+                    "date_to": null
+                },
+                "query": null,
+                "order": null,
+                "deleted": false,
+                "dashboards": [32],
+                "dashboard_tiles": [
+                    {
+                        "id": 123,
+                        "dashboard_id": 32,
+                        "deleted": null
+                    }
+                ],
+                "last_refresh": "2024-07-18T18:46:20.409975Z",
+                "cache_target_age": "2024-07-18T20:46:20.409975Z",
+                "next_allowed_client_refresh": "2024-07-18T19:01:20.409975Z",
+                "result": [
+                    {
+                        "data": [],
+                        "days": [],
+                        "count": 0,
+                        "aggregated_value": 198,
+                        "label": "$pageview",
+                        "filter": {
+                            "insight": "TRENDS",
+                            "properties": [],
+                            "filter_test_accounts": true,
+                            "date_to": "2024-07-18T23:59:59.999999-04:00",
+                            "date_from": "2024-07-11T00:00:00-04:00",
+                            "entity_type": "events",
+                            "interval": "day",
+                            "aggregationAxisFormat": "numeric",
+                            "display": "ActionsPie",
+                            "showLegend": true,
+                            "showPercentStackView": false,
+                            "showValuesOnSeries": false,
+                            "smoothingIntervals": 1
+                        },
+                        "action": {
+                            "days": [
+                                "2024-07-11T00:00:00-04:00",
+                                "2024-07-12T00:00:00-04:00",
+                                "2024-07-13T00:00:00-04:00",
+                                "2024-07-14T00:00:00-04:00",
+                                "2024-07-15T00:00:00-04:00",
+                                "2024-07-16T00:00:00-04:00",
+                                "2024-07-17T00:00:00-04:00",
+                                "2024-07-18T00:00:00-04:00"
+                            ],
+                            "id": "$pageview",
+                            "type": "events",
+                            "order": 0,
+                            "name": "$pageview",
+                            "custom_name": null,
+                            "math": "total",
+                            "math_property": null,
+                            "math_hogql": null,
+                            "math_group_type_index": null,
+                            "properties": {}
+                        }
+                    },
+                    {
+                        "data": [],
+                        "days": [],
+                        "count": 0,
+                        "aggregated_value": 0,
+                        "label": "Interacted with file",
+                        "filter": {
+                            "insight": "TRENDS",
+                            "properties": [],
+                            "filter_test_accounts": true,
+                            "date_to": "2024-07-18T23:59:59.999999-04:00",
+                            "date_from": "2024-07-11T00:00:00-04:00",
+                            "entity_type": "events",
+                            "interval": "day",
+                            "aggregationAxisFormat": "numeric",
+                            "display": "ActionsPie",
+                            "showLegend": true,
+                            "showPercentStackView": false,
+                            "showValuesOnSeries": false,
+                            "smoothingIntervals": 1
+                        },
+                        "action": {
+                            "days": [
+                                "2024-07-11T00:00:00-04:00",
+                                "2024-07-12T00:00:00-04:00",
+                                "2024-07-13T00:00:00-04:00",
+                                "2024-07-14T00:00:00-04:00",
+                                "2024-07-15T00:00:00-04:00",
+                                "2024-07-16T00:00:00-04:00",
+                                "2024-07-17T00:00:00-04:00",
+                                "2024-07-18T00:00:00-04:00"
+                            ],
+                            "id": "Interacted with file",
+                            "type": "events",
+                            "order": 1,
+                            "name": "Interacted with file",
+                            "custom_name": null,
+                            "math": "total",
+                            "math_property": null,
+                            "math_hogql": null,
+                            "math_group_type_index": null,
+                            "properties": {}
+                        }
+                    },
+                    {
+                        "data": [],
+                        "days": [],
+                        "count": 0,
+                        "aggregated_value": 198,
+                        "label": "$pageview",
+                        "filter": {
+                            "insight": "TRENDS",
+                            "properties": [],
+                            "filter_test_accounts": true,
+                            "date_to": "2024-07-18T23:59:59.999999-04:00",
+                            "date_from": "2024-07-11T00:00:00-04:00",
+                            "entity_type": "events",
+                            "interval": "day",
+                            "aggregationAxisFormat": "numeric",
+                            "display": "ActionsPie",
+                            "showLegend": true,
+                            "showPercentStackView": false,
+                            "showValuesOnSeries": false,
+                            "smoothingIntervals": 1
+                        },
+                        "action": {
+                            "days": [
+                                "2024-07-11T00:00:00-04:00",
+                                "2024-07-12T00:00:00-04:00",
+                                "2024-07-13T00:00:00-04:00",
+                                "2024-07-14T00:00:00-04:00",
+                                "2024-07-15T00:00:00-04:00",
+                                "2024-07-16T00:00:00-04:00",
+                                "2024-07-17T00:00:00-04:00",
+                                "2024-07-18T00:00:00-04:00"
+                            ],
+                            "id": "$pageview",
+                            "type": "events",
+                            "order": 2,
+                            "name": "$pageview",
+                            "custom_name": "Custom name",
+                            "math": "total",
+                            "math_property": null,
+                            "math_hogql": null,
+                            "math_group_type_index": null,
+                            "properties": {}
+                        }
+                    }
+                ],
+                "columns": null,
+                "created_at": "2024-07-18T19:35:08.932000Z",
+                "created_by": {
+                    "id": 1,
+                    "uuid": "018f7216-2154-0000-d286-f7ac40c8c84f",
+                    "distinct_id": "6yd4X1lQcm4uWP0qdoxl2IJrBU8uxwVd2di0LSIJfg2",
+                    "first_name": "Employee 427",
+                    "last_name": "",
+                    "email": "test@posthog.com",
+                    "is_email_verified": null,
+                    "hedgehog_config": null
+                },
+                "description": "",
+                "updated_at": "2024-07-18T19:38:38.729348Z",
+                "favorited": false,
+                "saved": true,
+                "last_modified_at": "2024-07-18T19:38:38.729019Z",
+                "last_modified_by": {
+                    "id": 1,
+                    "uuid": "018f7216-2154-0000-d286-f7ac40c8c84f",
+                    "distinct_id": "6yd4X1lQcm4uWP0qdoxl2IJrBU8uxwVd2di0LSIJfg2",
+                    "first_name": "Employee 427",
+                    "last_name": "",
+                    "email": "test@posthog.com",
+                    "is_email_verified": null,
+                    "hedgehog_config": null
+                },
+                "is_sample": false,
+                "effective_restriction_level": 21,
+                "effective_privilege_level": 37,
+                "timezone": "America/Aruba",
+                "is_cached": true,
+                "query_status": null,
+                "hogql": "SELECT\n    count() AS total\nFROM\n    events AS e SAMPLE 1\nWHERE\n    and(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00')))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-07-18 23:59:59'))), equals(event, '$pageview'), in(person_id, (SELECT\n                person_id\n            FROM\n                raw_cohort_people\n            WHERE\n                and(equals(cohort_id, 2), equals(version, 251)))))\nORDER BY\n    1 DESC\nLIMIT 50000\nUNION ALL\nSELECT\n    count() AS total\nFROM\n    events AS e SAMPLE 1\nWHERE\n    and(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00')))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-07-18 23:59:59'))), in(person_id, (SELECT\n                person_id\n            FROM\n                raw_cohort_people\n            WHERE\n                and(equals(cohort_id, 2), equals(version, 251)))), or(equals(event, 'uploaded_file'), equals(event, 'downloaded_file'), equals(event, 'deleted_file'), equals(event, 'shared_file_link')))\nORDER BY\n    1 DESC\nLIMIT 50000\nUNION ALL\nSELECT\n    count() AS total\nFROM\n    events AS e SAMPLE 1\nWHERE\n    and(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(toDateTime('2024-07-11 00:00:00')))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-07-18 23:59:59'))), equals(event, '$pageview'), in(person_id, (SELECT\n                person_id\n            FROM\n                raw_cohort_people\n            WHERE\n                and(equals(cohort_id, 2), equals(version, 251)))))\nORDER BY\n    1 DESC\nLIMIT 50000",
+                "tags": [],
+                "filters_hash": "cache_d39ee6b334cb054176bcbd9f38b5e5d5"
+            },
+            "text": null,
+            "layouts": {},
+            "color": null,
+            "last_refresh": "2024-07-18T18:46:20.409975Z",
+            "is_cached": true
+        },
+        {
+            "id": 122,
+            "insight": {
+                "id": 220,
+                "short_id": "G46gkRyE",
+                "name": "Stickiness chart",
+                "derived_name": "User stickiness based on Pageview & user stickiness based on Interacted with file & user stickiness based on Custom name",
+                "filters": {
+                    "events": [
+                        {
+                            "id": "$pageview",
+                            "math": "dau",
+                            "name": "$pageview",
+                            "type": "events",
+                            "order": 0
+                        },
+                        {
+                            "id": "$pageview",
+                            "math": "dau",
+                            "name": "Pageview",
+                            "type": "events",
+                            "order": 2,
+                            "custom_name": "Custom name"
+                        }
+                    ],
+                    "actions": [
+                        {
+                            "id": "1",
+                            "math": "dau",
+                            "name": "Interacted with file",
+                            "type": "actions",
+                            "order": 1
+                        }
+                    ],
+                    "display": "ActionsLineGraph",
+                    "insight": "STICKINESS",
+                    "interval": "day",
+                    "entity_type": "events",
+                    "show_legend": true,
+                    "filter_test_accounts": true,
+                    "date_from": null,
+                    "date_to": null
+                },
+                "query": null,
+                "order": null,
+                "deleted": false,
+                "dashboards": [32],
+                "dashboard_tiles": [
+                    {
+                        "id": 122,
+                        "dashboard_id": 32,
+                        "deleted": null
+                    }
+                ],
+                "last_refresh": "2024-07-18T18:47:48.359688Z",
+                "cache_target_age": "2024-07-18T20:47:48.359688Z",
+                "next_allowed_client_refresh": "2024-07-18T19:02:48.359688Z",
+                "result": [
+                    {
+                        "count": 1,
+                        "data": [0, 0, 0, 0, 1, 0, 0, 0],
+                        "days": [1, 2, 3, 4, 5, 6, 7, 8],
+                        "label": "$pageview",
+                        "labels": ["1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days", "8 days"]
+                    },
+                    {
+                        "count": 0,
+                        "data": [0, 0, 0, 0, 0, 0, 0, 0],
+                        "days": [1, 2, 3, 4, 5, 6, 7, 8],
+                        "label": "Interacted with file",
+                        "labels": ["1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days", "8 days"]
+                    },
+                    {
+                        "count": 1,
+                        "data": [0, 0, 0, 0, 1, 0, 0, 0],
+                        "days": [1, 2, 3, 4, 5, 6, 7, 8],
+                        "label": "$pageview",
+                        "labels": ["1 day", "2 days", "3 days", "4 days", "5 days", "6 days", "7 days", "8 days"]
+                    }
+                ],
+                "columns": null,
+                "created_at": "2024-07-18T19:35:39.029828Z",
+                "created_by": {
+                    "id": 1,
+                    "uuid": "018f7216-2154-0000-d286-f7ac40c8c84f",
+                    "distinct_id": "6yd4X1lQcm4uWP0qdoxl2IJrBU8uxwVd2di0LSIJfg2",
+                    "first_name": "Employee 427",
+                    "last_name": "",
+                    "email": "test@posthog.com",
+                    "is_email_verified": null,
+                    "hedgehog_config": null
+                },
+                "description": "",
+                "updated_at": "2024-07-18T19:36:25.882154Z",
+                "favorited": false,
+                "saved": true,
+                "last_modified_at": "2024-07-18T19:36:25.808332Z",
+                "last_modified_by": {
+                    "id": 1,
+                    "uuid": "018f7216-2154-0000-d286-f7ac40c8c84f",
+                    "distinct_id": "6yd4X1lQcm4uWP0qdoxl2IJrBU8uxwVd2di0LSIJfg2",
+                    "first_name": "Employee 427",
+                    "last_name": "",
+                    "email": "test@posthog.com",
+                    "is_email_verified": null,
+                    "hedgehog_config": null
+                },
+                "is_sample": false,
+                "effective_restriction_level": 21,
+                "effective_privilege_level": 37,
+                "timezone": "America/Aruba",
+                "is_cached": true,
+                "query_status": null,
+                "hogql": null,
+                "tags": [],
+                "filters_hash": "cache_b3bb0a085129f46b8ad135269a13d28e"
+            },
+            "text": null,
+            "layouts": {},
+            "color": null,
+            "last_refresh": "2024-07-18T18:47:48.359688Z",
+            "is_cached": true
+        }
+    ],
+    "restriction_level": 21,
+    "effective_restriction_level": 21,
+    "effective_privilege_level": 37,
+    "tags": []
+}

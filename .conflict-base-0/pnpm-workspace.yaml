@@ -1,0 +1,13 @@
+packages:
+    - '.'
+    - common/esbuilder
+    - common/hogvm/typescript
+    - common/plugin_transpiler
+    - common/storybook
+    - common/tailwind
+    - ee/frontend
+    - frontend
+    - playwright
+    - plugin-server
+    - products/*
+    - rust/cyclotron-node

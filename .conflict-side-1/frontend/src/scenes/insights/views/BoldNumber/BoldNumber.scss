@@ -1,0 +1,42 @@
+@import '../../../../styles/mixins';
+@import '../../../../styles/vars';
+
+.BoldNumber {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 2rem 3rem 3rem;
+
+    .InsightCard & {
+        padding: 1rem;
+    }
+
+    &.HogQL {
+        padding: 5rem;
+    }
+
+    .BoldNumber__value {
+        width: 100%;
+        font-weight: 700;
+        letter-spacing: -0.025em;
+    }
+
+    @include screen($md) {
+        padding: 3rem 5rem 5rem;
+
+        .InsightCard & {
+            padding: 2rem;
+        }
+    }
+}
+
+.BoldNumber__comparison {
+    margin-top: 0.5rem;
+    margin-bottom: -1.5rem;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    cursor: default;
+}

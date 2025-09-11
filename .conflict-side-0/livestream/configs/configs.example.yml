@@ -1,0 +1,15 @@
+debug: true
+kafka:
+    brokers: 'localhost:9092,localhost:9093'
+    topic: 'topic'
+    group_id: 'livestream-dev'
+mmdb:
+    path: 'mmdb.db'
+jwt:
+    token: '<randomly generated secret key>'
+postgres:
+    url: 'postgres://postgres:postgres@localhost:5432/postgres'
+cors_allow_origins:
+    - "https://example.com"
+    - "https://sub.example.com"
+parallelism: 7

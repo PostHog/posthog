@@ -1,0 +1,96 @@
+#!/bin/bash
+set -e
+
+help () {
+  echo "$0 - start PostHog's Celery worker"
+  echo
+  echo "$0 [options]"
+  echo
+  echo "Options:"
+  echo "  --help, -h            show this brief help"
+  echo "  --with-scheduler      start RedBeat, the Celery scheduler (deprecates --with-beat)"
+  echo "  --concurrency=<N>     start N workers (overrides env var WEB_CONCURRENCY)"
+  echo
+  echo "Advanced Celery options (disabled by default):"
+  echo "  --with-heartbeat      start Celery internal heartbeat (normally not useful)"
+  echo "  --with-mingle         start Celery mingle (normally not useful)"
+  exit 0
+}
+
+with_scheduler=false
+with_gossip=true
+with_heartbeat=false
+with_mingle=false
+
+while test $# -gt 0; do
+  case "$1" in
+    -h|--help)
+      help
+      ;;
+    --with-scheduler)
+      with_scheduler=true
+      shift
+      ;;
+    --with-beat) # Deprecated since the name is too similar to "heartbeat"
+      echo "⚠️ Using docker-worker-celery with --with-beat. This argument is deprecated. Use --with-scheduler instead!"
+      with_scheduler=true
+      shift
+      ;;
+    --with-heartbeat)
+      with_heartbeat=true
+      shift
+      ;;
+    --with-mingle)
+      with_mingle=true
+      shift
+      ;;
+    --concurrency*)
+      export WEB_CONCURRENCY=`echo $1 | sed -e 's/^[^=]*=//g'`
+      shift
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+# Stop any background jobs on exit
+trap 'kill $(jobs -p)' EXIT
+
+if [ "$with_scheduler" == "true" ]; then
+  ./bin/docker-worker-beat &
+fi
+
+FLAGS=()
+FLAGS+=("-Ofair")
+FLAGS+=("-n node@%h")
+[ "$with_gossip" == "false" ]    && FLAGS+=("--without-gossip")
+[ "$with_mingle" == "false" ]    && FLAGS+=("--without-mingle")
+[ "$with_heartbeat" == "false" ] && FLAGS+=("--without-heartbeat")
+
+# On Heroku $WEB_CONCURRENCY contains suggested number of forks per dyno type
+# https://github.com/heroku/heroku-buildpack-python/blob/main/vendor/WEB_CONCURRENCY.sh
+[[ -n "${WEB_CONCURRENCY}" ]]    && FLAGS+=" --concurrency $WEB_CONCURRENCY"
+# Restart worker process after it processes this many tasks (to mitigate memory leaks)
+[[ -n "${CELERY_MAX_TASKS_PER_CHILD}" ]]    && FLAGS+=" --max-tasks-per-child $CELERY_MAX_TASKS_PER_CHILD"
+# Restart worker process after it exceeds this much memory usage (to mitigate memory leaks)
+[[ -n "${CELERY_MAX_MEMORY_PER_CHILD}" ]]    && FLAGS+=" --max-memory-per-child $CELERY_MAX_MEMORY_PER_CHILD"
+
+[[ -n "${CELERY_WORKER_PREFETCH_MULTIPLIER}" ]] && FLAGS+=" --prefetch-multiplier $CELERY_WORKER_PREFETCH_MULTIPLIER"
+
+if [[ -z "${CELERY_WORKER_QUEUES}" ]]; then
+  source ./bin/celery-queues.env
+fi
+
+echo
+echo "SKIP_ASYNC_MIGRATIONS_SETUP=0 celery -A posthog worker ${FLAGS[*]}"
+echo
+
+./bin/migrate-check
+
+SKIP_ASYNC_MIGRATIONS_SETUP=0 CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES celery -A posthog worker ${FLAGS[*]} &
+
+# Exit if any processes exit, and exit with it's exit code
+wait -n
+exit $?
+

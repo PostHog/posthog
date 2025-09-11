@@ -1,0 +1,31 @@
+.masonry-container {
+    column-count: 4;
+    column-gap: 10px;
+}
+
+@media screen and (max-width: 1024px) {
+    .masonry-container {
+        column-count: 2;
+    }
+}
+
+.masonry-item {
+    box-sizing: border-box;
+    display: grid;
+    grid-template-rows: 1fr auto;
+    margin: 0;
+    margin-bottom: 10px;
+    break-inside: avoid;
+}
+
+.survey-view {
+    .survey-form {
+        z-index: 0 !important;
+    }
+}
+
+.survey-table-results {
+    .LemonTable__boundary {
+        text-align: left;
+    }
+}

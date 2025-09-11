@@ -1,0 +1,43 @@
+{
+    "$schema": "https://turbo.build/schema.json",
+    "extends": ["//"],
+    "tasks": {
+        "prepare": {
+            "dependsOn": ["^build"]
+        },
+        "build": {
+            "dependsOn": ["^build"],
+            "inputs": ["src", "Cargo.toml", "!**/*.pyc"],
+            "outputs": ["dist", "index.node", ".turbo"],
+            "env": ["RUST_VERSION", "SHARD_INDEX", "SHARD_COUNT"],
+            "passThroughEnv": ["RUSTUP_HOME", "CARGO_HOME", "DATABASE_URL", "REDIS_URL", "NODE_OPTIONS"]
+        },
+        "test": {
+            "dependsOn": ["^build"],
+            "inputs": ["src", "tests", "Cargo.toml", "!**/*.pyc"],
+            "env": ["RUST_VERSION", "SHARD_INDEX", "SHARD_COUNT"],
+            "passThroughEnv": ["RUSTUP_HOME", "CARGO_HOME", "DATABASE_URL", "REDIS_URL", "NODE_OPTIONS"]
+        },
+        "start": {
+            "dependsOn": ["^build"],
+            "persistent": true,
+            "cache": false,
+            "passThroughEnv": ["SKIP_TYPEGEN"]
+        },
+        "start-vite": {
+            "dependsOn": ["^build"],
+            "persistent": true,
+            "cache": false,
+            "passThroughEnv": ["SKIP_TYPEGEN"]
+        },
+        "dev": {
+            "dependsOn": ["^build"],
+            "persistent": true,
+            "cache": false
+        },
+        "clean": {
+            "dependsOn": ["^clean"],
+            "cache": false
+        }
+    }
+}

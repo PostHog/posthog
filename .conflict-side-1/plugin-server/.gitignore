@@ -1,0 +1,11 @@
+.idea
+.clinic
+node_modules/
+pnpm-error.log
+dist/
+yalc.lock
+.yalc/
+tmp
+*.0x
+coverage/
+.tmp/

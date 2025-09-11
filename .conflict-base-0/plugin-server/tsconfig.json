@@ -1,0 +1,30 @@
+{
+    "compilerOptions": {
+        "module": "CommonJS",
+        "target": "ESNext",
+        "declaration": true,
+        "removeComments": true,
+        "emitDecoratorMetadata": true,
+        "experimentalDecorators": true,
+        "moduleResolution": "node",
+        "esModuleInterop": true,
+        "allowJs": true,
+        "sourceMap": true,
+        "outDir": "dist/",
+        "types": ["node", "jest", "long"],
+        "resolveJsonModule": true,
+        "strict": true,
+        "noImplicitAny": true,
+        "useUnknownInCatchVariables": false,
+        "paths": {
+            "~/tests/*": ["./tests/*"],
+            "~/*": ["./src/*"]
+        },
+        "skipLibCheck": true
+    },
+    "include": ["src", "tests"],
+    "exclude": ["node_modules", "dist", "bin"],
+    "ts-node": {
+        "require": ["tsconfig-paths/register"]
+    }
+}

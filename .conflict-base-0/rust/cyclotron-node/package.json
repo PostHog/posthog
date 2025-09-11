@@ -1,0 +1,29 @@
+{
+    "name": "@posthog/cyclotron",
+    "version": "0.1.12",
+    "description": "Node bindings for cyclotron",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "test": "cargo test",
+        "build": "pnpm run build:cargo --release && pnpm run build:move-lib && pnpm run build:typescript",
+        "build:move-lib": "cp ../target/release/libcyclotron_node.dylib index.node 2>/dev/null || cp ../target/release/libcyclotron_node.so index.node || (echo \"No valid library file found.\" && exit 1)",
+        "build:cargo": "cargo build --message-format=json > cargo.log",
+        "build:cargo:debug": "pnpm run build:cargo",
+        "build:cross": "cross build --message-format=json > cross.log",
+        "build:typescript": "tsc",
+        "clean": "rm -rf index.node",
+        "package": "NODE_ENV=development pnpm --filter=@posthog/cyclotron run build"
+    },
+    "author": "",
+    "license": "MIT",
+    "devDependencies": {
+        "undici-types": "^7.3.0",
+        "@types/node": "^22.13.14",
+        "typescript": "5.2.2"
+    },
+    "files": [
+        "dist",
+        "index.node"
+    ]
+}

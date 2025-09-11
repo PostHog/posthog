@@ -1,0 +1,119 @@
+.NotebookNode {
+    --notebook-node-meta-height: 2.5rem;
+    --notebook-node-meta-padding: 0.25rem;
+    --border-color: var(--color-border-primary);
+
+    transform: translate3d(0, 0, 0);
+
+    .NotebookNode__box {
+        overflow: hidden;
+        background-color: var(--color-bg-surface-primary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius);
+        transition:
+            border 150ms linear,
+            margin-bottom 150ms linear;
+        transform: translate3d(0, 0, 0);
+
+        .NotebookNode__meta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: var(--notebook-node-meta-height);
+            padding: var(--notebook-node-meta-padding);
+            overflow: hidden;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--primary-alt);
+            border-bottom: 1px solid var(--color-border-primary);
+        }
+
+        .NotebookNode__settings {
+            border-bottom: 1px solid var(--color-border-primary);
+        }
+
+        .NotebookNode__content {
+            z-index: 1;
+            transition: box-shadow 150ms ease-out;
+        }
+    }
+
+    .NotebookNode__gap {
+        display: flex;
+        gap: 0.2rem;
+        align-items: center;
+        height: 1.375rem;
+        overflow: hidden;
+        opacity: 0;
+        transition: all 150ms linear 1000ms;
+    }
+
+    &--editable:hover,
+    &--selected {
+        .NotebookNode__gap {
+            height: 1.875rem;
+            opacity: 1;
+            transition: all 150ms linear;
+        }
+    }
+
+    &--selected {
+        --border-color: var(--border-bold);
+    }
+
+    &--auto-hide-metadata {
+        --border-color: transparent;
+
+        .NotebookNode__meta {
+            position: absolute;
+            top: 0;
+            right: 0;
+            left: 0;
+            z-index: var(--z-popover);
+            pointer-events: none;
+            visibility: hidden;
+            background-color: var(--color-bg-surface-primary);
+        }
+
+        .Notebook--editable & {
+            &:hover,
+            &.NotebookNode--selected {
+                border-color: var(--border-color);
+
+                .NotebookNode__meta {
+                    pointer-events: all;
+                    visibility: visible;
+                }
+            }
+        }
+
+        &:hover {
+            --border-color: var(--color-border-primary);
+        }
+    }
+}
+
+.NotebookNode.ph-image {
+    img {
+        flex: 1;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+    }
+}
+
+.NotebookNodeTitle {
+    padding: 0.25rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    &--editable {
+        border-radius: var(--radius);
+        transition: background-color 150ms linear;
+
+        &:hover {
+            background-color: var(--color-border-primary);
+        }
+    }
+}

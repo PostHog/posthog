@@ -1,0 +1,40 @@
+.ActionFilterRow {
+    .ActionFilterRow-content {
+        display: flex;
+        align-items: flex-start;
+
+        > * + * {
+            margin-left: 0.5rem;
+        }
+    }
+
+    .ActionFilterRow__start,
+    .ActionFilterRow__center,
+    .ActionFilterRow__end {
+        display: flex;
+        align-items: center;
+    }
+
+    .ActionFilterRow__start,
+    .ActionFilterRow__end {
+        display: flex;
+        flex: 0;
+        gap: 0.25rem;
+        align-items: center;
+        height: 40px;
+    }
+
+    .ActionFilterRow__center {
+        flex: 1;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        overflow: hidden;
+    }
+}
+
+.ActionFilterRowDragHandle {
+    font-size: 1.2em;
+    color: var(--text-3000);
+    cursor: move;
+    transform: rotate(90deg);
+}

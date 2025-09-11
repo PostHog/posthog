@@ -1,0 +1,219 @@
+{
+    "count": 4,
+    "next": null,
+    "previous": null,
+    "results": [
+        {
+            "id": 4,
+            "plugin_type": "custom",
+            "name": "Replicator",
+            "description": "Replicate PostHog event stream in another PostHog instance",
+            "url": "https://github.com/PostHog/posthog-plugin-replicator",
+            "icon": null,
+            "config_schema": [
+                {
+                    "key": "host",
+                    "hint": "E.g. posthog.yourcompany.com",
+                    "name": "Host",
+                    "type": "string",
+                    "required": true
+                },
+                {
+                    "key": "project_api_key",
+                    "hint": "Grab it from e.g. https://posthog.yourcompany.com/project/settings",
+                    "name": "Project API Key",
+                    "type": "string",
+                    "required": true
+                },
+                {
+                    "key": "replication",
+                    "hint": "How many times should each event be sent",
+                    "name": "Replication",
+                    "type": "string",
+                    "default": "1",
+                    "required": false
+                },
+                {
+                    "key": "events_to_ignore",
+                    "hint": "Comma-separated list of events to ignore, e.g. $pageleave, purchase",
+                    "name": "Events to ignore",
+                    "type": "string",
+                    "default": "",
+                    "required": false
+                },
+                {
+                    "key": "disable_geoip",
+                    "hint": "Add $disable_geoip so that the receiving PostHog instance doesn't try to resolve the IP address.",
+                    "name": "Disable Geo IP?",
+                    "type": "choice",
+                    "choices": ["Yes", "No"],
+                    "default": "No",
+                    "required": false
+                }
+            ],
+            "tag": "cec29cd0dea20465839dd301894e4798d6dd6356",
+            "latest_tag": "cec29cd0dea20465839dd301894e4798d6dd6356",
+            "is_global": false,
+            "organization_id": "018aaa96-00d3-0000-b845-8eb60884ff76",
+            "organization_name": "test 123",
+            "capabilities": {},
+            "metrics": {},
+            "public_jobs": {}
+        },
+        {
+            "id": 3,
+            "plugin_type": "custom",
+            "name": "GeoIP",
+            "description": "Enrich PostHog events and persons with IP location data",
+            "url": "https://github.com/PostHog/posthog-plugin-geoip",
+            "icon": null,
+            "config_schema": [],
+            "tag": "2dd67e1dec9c8b5febd7a6d9235c51072950cd37",
+            "latest_tag": "2dd67e1dec9c8b5febd7a6d9235c51072950cd37",
+            "is_global": false,
+            "organization_id": "018aaa96-00d3-0000-b845-8eb60884ff76",
+            "organization_name": "test 123",
+            "capabilities": {},
+            "metrics": {},
+            "public_jobs": {}
+        },
+        {
+            "id": 2,
+            "plugin_type": "custom",
+            "name": "Customer.io",
+            "description": "Send event data and emails into Customer.io.",
+            "url": "https://github.com/PostHog/customerio-plugin",
+            "icon": null,
+            "config_schema": [
+                {
+                    "key": "customerioSiteId",
+                    "hint": "Provided during Customer.io setup.",
+                    "name": "Customer.io Site ID",
+                    "type": "string",
+                    "secret": true,
+                    "default": "",
+                    "required": true
+                },
+                {
+                    "key": "customerioToken",
+                    "hint": "Provided during Customer.io setup.",
+                    "name": "Customer.io API Key",
+                    "type": "string",
+                    "secret": true,
+                    "default": "",
+                    "required": true
+                },
+                {
+                    "key": "host",
+                    "hint": "Use the EU variant if your Customer.io account is based in the EU region.",
+                    "name": "Tracking Endpoint",
+                    "type": "choice",
+                    "choices": ["track.customer.io", "track-eu.customer.io"],
+                    "default": "track.customer.io"
+                },
+                {
+                    "key": "identifyByEmail",
+                    "hint": "If enabled, the plugin will identify users by email instead of ID, whenever an email is available.",
+                    "name": "Identify by email",
+                    "type": "choice",
+                    "choices": ["Yes", "No"],
+                    "default": "No"
+                },
+                {
+                    "key": "sendEventsFromAnonymousUsers",
+                    "hint": "Customer.io pricing is based on the number of customers. This is an option to only send events from users that have been identified. Take into consideration that merging after identification won't work (as those previously anonymous events won't be there).",
+                    "name": "Filtering of Anonymous Users",
+                    "type": "choice",
+                    "choices": [
+                        "Send all events",
+                        "Only send events from users that have been identified",
+                        "Only send events from users with emails"
+                    ],
+                    "default": "Send all events"
+                },
+                {
+                    "key": "eventsToSend",
+                    "hint": "If this is set, only the specified events (comma-separated) will be sent to Customer.io.",
+                    "name": "PostHog Event Allowlist",
+                    "type": "string"
+                }
+            ],
+            "tag": "0b86074d53aa11617290f12501b56cfc27c7abde",
+            "latest_tag": "0b86074d53aa11617290f12501b56cfc27c7abde",
+            "is_global": false,
+            "organization_id": "018aaa96-00d3-0000-b845-8eb60884ff76",
+            "organization_name": "test 123",
+            "capabilities": {},
+            "metrics": {},
+            "public_jobs": {}
+        },
+        {
+            "id": 1,
+            "plugin_type": "custom",
+            "name": "BigQuery Export",
+            "description": "Sends events to a BigQuery database on ingestion.",
+            "url": "https://github.com/PostHog/bigquery-plugin",
+            "icon": null,
+            "config_schema": [
+                {
+                    "key": "googleCloudKeyJson",
+                    "name": "JSON file with your google cloud key",
+                    "type": "attachment",
+                    "secret": true,
+                    "required": true
+                },
+                {
+                    "key": "datasetId",
+                    "hint": "In case Google Cloud tells you \"my-project-123245:Something\", use \"Something\" as the ID.",
+                    "name": "Dataset ID",
+                    "type": "string",
+                    "required": true
+                },
+                {
+                    "key": "tableId",
+                    "hint": "A table will be created if it does not exist.",
+                    "name": "Table ID",
+                    "type": "string",
+                    "required": true
+                },
+                {
+                    "key": "exportEventsToIgnore",
+                    "hint": "Comma separated list of events to ignore",
+                    "name": "Events to ignore",
+                    "type": "string",
+                    "default": "$feature_flag_called,$autocapture"
+                },
+                {
+                    "key": "exportEventsBufferBytes",
+                    "hint": "Default 1MB. Upload events after buffering this many of them. The value must be between 1 MB and 10 MB.",
+                    "name": "Maximum upload size in bytes",
+                    "type": "string",
+                    "default": "1048576"
+                },
+                {
+                    "key": "exportEventsBufferSeconds",
+                    "hint": "Default 30 seconds. If there are events to upload and this many seconds has passed since the last upload, then upload the queued events. The value must be between 1 and 600 seconds.",
+                    "name": "Export events at least every X seconds",
+                    "type": "string",
+                    "default": "30"
+                },
+                {
+                    "key": "exportElementsOnAnyEvent",
+                    "hint": "Advanced",
+                    "name": "Export the property $elements on events that aren't called `$autocapture`?",
+                    "type": "choice",
+                    "choices": ["Yes", "No"],
+                    "default": "No"
+                }
+            ],
+            "tag": "5f5dcbc2f6a36ea7e9700ab36cc9397d92742ca3",
+            "latest_tag": "5f5dcbc2f6a36ea7e9700ab36cc9397d92742ca3",
+            "is_global": false,
+            "organization_id": "018aaa96-00d3-0000-b845-8eb60884ff76",
+            "organization_name": "test 123",
+            "capabilities": {},
+            "metrics": {},
+            "public_jobs": {}
+        }
+    ]
+}

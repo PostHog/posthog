@@ -1,0 +1,50 @@
+<!doctype html>
+<html>
+    <head>
+        <meta name="robots" content="noindex" />
+        {{ exported_data|json_script:"posthog-exported-data" }}
+        <script>
+            // need to parse twice to get JSON
+            // we JSON serialize on the server since there may be objects like Queries
+            // that need special handling in python in order to be serialized into the template
+            try {
+                window.POSTHOG_EXPORTED_DATA = JSON.parse(
+                    JSON.parse(document.getElementById('posthog-exported-data').textContent)
+                )
+            } catch (e) {
+                console.error('Failed to parse exported data:', e)
+                window.POSTHOG_EXPORTED_DATA = {}
+            }
+
+            if (window.POSTHOG_EXPORTED_DATA.rootClassName) {
+                document.documentElement.className += ' ' + window.POSTHOG_EXPORTED_DATA.rootClassName
+            }
+        </script>
+        {% include "head.html" %} {% if add_og_tags %}
+        <meta property="og:title" content="{{ asset_title }}" />
+        <meta property="og:type" content="website" />
+        <meta property="og:description" content="{{ asset_description }}" />
+        <meta property="og:url" content="{{ request.build_absolute_uri }}" />
+        <meta property="og:image" content="{{ asset_opengraph_image_url }}" />
+        <meta property="og:image:alt" content="A screenshot of the PostHog asset" />
+        <meta name="twitter:card" content="summary_large_image" />
+        {% endif %}
+    </head>
+    <body class="ExporterBody">
+        <script>
+            if (typeof Object.entries === 'undefined') {
+                var div = document.createElement('div')
+                div.style.color = '#fef6f6'
+                div.style.background = '#920c0c'
+                div.style.padding = '5px 10px'
+                div.innerHTML = 'You are using a really old browser. Please upgrade to fully enjoy PostHog!'
+                document.body.prepend(div)
+            }
+            if (!window.process) {
+                // see https://github.com/remarkjs/react-markdown/issues/339
+                window.process = { cwd: () => '' }
+            }
+        </script>
+        <div id="root"></div>
+    </body>
+</html>

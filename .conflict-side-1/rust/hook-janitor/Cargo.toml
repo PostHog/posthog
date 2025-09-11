@@ -1,0 +1,30 @@
+[package]
+name = "hook-janitor"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+axum = { workspace = true }
+envconfig = { workspace = true }
+eyre = { workspace = true }
+futures = { workspace = true }
+health = { path = "../common/health" }
+hook-common = { path = "../hook-common" }
+metrics = { workspace = true }
+rdkafka = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+common-metrics = { path = "../common/metrics" }
+common-kafka = { path = "../common/kafka" }
+common-alloc = { path = "../common/alloc" }

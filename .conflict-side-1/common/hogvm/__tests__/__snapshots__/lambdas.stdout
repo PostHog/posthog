@@ -1,0 +1,20 @@
+fn<lambda(1)>
+4
+16
+--------
+4
+4
+4
+--------
+2
+moo
+cow
+--------
+moo
+cow
+-------- lambdas do not survive json --------
+fn<lambda(1)>
+"fn<lambda(1)>"
+fn<lambda(1)>
+--------
+[{'a': 1}, {'a': 2}, {'a': 3}]

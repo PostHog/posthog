@@ -1,0 +1,63 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`WebhookFormatter slack webhook formatting options { messageFormat: '[action.name]' } 1`] = `"action1"`;
+
+exports[`WebhookFormatter slack webhook formatting options { messageFormat: '[action.name]' } 2`] = `"<http://localhost:8000/project/123/action/1|action1>"`;
+
+exports[`WebhookFormatter slack webhook formatting options { messageFormat: '[event]', event: [Object] } 1`] = `"text&gt;&lt;new link"`;
+
+exports[`WebhookFormatter slack webhook formatting options { messageFormat: '[event]', event: [Object] } 2`] = `"<http://localhost:8000/project/123/events/**%3E)/2021-10-31T00%253A44%253A00.000Z|text&gt;&lt;new link>"`;
+
+exports[`WebhookFormatter slack webhook formatting options { messageFormat: '[person]' } 1`] = `"test@posthog.com"`;
+
+exports[`WebhookFormatter slack webhook formatting options { messageFormat: '[person]' } 2`] = `"<http://localhost:8000/project/123/person/WALL-E|test@posthog.com>"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[action.name\\\\] got done by \\\\[user.name\\\\]' } 1`] = `"[action.name] got done by [user.name]"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[action.name] was done by [user.name]' } 1`] = `"[action1](http://localhost:8000/project/123/action/1) was done by [test@posthog.com](http://localhost:8000/project/123/person/WALL-E)"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[action.name]' } 1`] = `"[action1](http://localhost:8000/project/123/action/1)"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[event.distinct_id]' } 1`] = `"WALL-E"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[event.event]' } 1`] = `"$pageview"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[event.name]' } 1`] = `"$pageview"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[event.uuid]' } 1`] = `"123"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[event]' } 1`] = `"[$pageview](http://localhost:8000/project/123/events/123/2021-10-31T00%253A44%253A00.000Z)"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[event]', event: [Object] } 1`] = `"[text\\]\\(yes\\!\\), \\[new link](http://localhost:8000/project/123/events/\\*\\*\\)/2021-10-31T00%253A44%253A00.000Z)"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[groups.missing]' } 1`] = `"(event without 'missing')"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[groups.organization.properties.plan]' } 1`] = `"paid"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[groups.organization]' } 1`] = `"[PostHog](http://localhost:8000/project/123/groups/1/123)"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[groups.project]' } 1`] = `"[234](http://localhost:8000/project/123/groups/2/234)"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[groups]' } 1`] = `"NOT SUPPORTED"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[person.link]' } 1`] = `"http://localhost:8000/project/123/person/WALL-E"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[person]' } 1`] = `"[test@posthog.com](http://localhost:8000/project/123/person/WALL-E)"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[source.name] was done by [user.name]' } 1`] = `"[action1](http://localhost:8000/project/123/action/1) was done by [test@posthog.com](http://localhost:8000/project/123/person/WALL-E)"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[source.name]' } 1`] = `"[action1](http://localhost:8000/project/123/action/1)"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[user.browser]' } 1`] = `"Chrome"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[user.missing_property]' } 1`] = `"undefined"`;
+
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[user.name]' } 1`] = `"[test@posthog.com](http://localhost:8000/project/123/person/WALL-E)"`;
+
+exports[`WebhookFormatter webhook formatting options {\\n  messageFormat: '[person.properties.enjoys_broccoli_on_pizza]',\\n  personProperties: [Object]\\n} 1`] = `"false"`;
+
+exports[`WebhookFormatter webhook formatting options {\\n  messageFormat: '[person.properties.pizza_ingredient_ranking]',\\n  personProperties: [Object]\\n} 1`] = `"["pineapple","broccoli","aubergine"\\]"`;
+
+exports[`WebhookFormatter webhook formatting options {\\n  messageFormat: '[person]',\\n  personProperties: [Object],\\n  team: [Object]\\n} 1`] = `"[Brzęczyszczykiewicz](http://localhost:8000/project/123/person/WALL-E)"`;
+
+exports[`WebhookFormatter webhook formatting options {\\n  messageFormat: '[user.name] from [user.browser] on [event.properties.page_title] page with [event.properties.fruit], [event.properties.with space]',\\n  event: [Object]\\n} 1`] = `"[test@posthog.com](http://localhost:8000/project/123/person/2) from Chrome on Pricing page with undefined, yes sir"`;

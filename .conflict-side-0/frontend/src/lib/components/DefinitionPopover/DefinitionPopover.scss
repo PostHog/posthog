@@ -1,0 +1,156 @@
+.definition-popover {
+    min-width: 17rem;
+    max-width: 20rem;
+    padding: 0.5rem 0.75rem 0.75rem;
+
+    .definition-popover-header {
+        display: flex;
+        flex-direction: column;
+
+        .definition-popover-header-row {
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+            margin-bottom: 0.25rem;
+            line-height: 2rem;
+
+            .definition-popover-header-row-title {
+                font-size: 0.6875rem;
+                font-weight: 600;
+                color: var(--color-text-secondary);
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+            }
+
+            .definition-popover-header-row-buttons {
+                display: flex;
+                flex-direction: row;
+                font-size: 0.8125rem;
+
+                a {
+                    margin-left: 1rem;
+                    user-select: none;
+                }
+
+                .definition-popover-disabled-button {
+                    color: var(--color-text-secondary);
+                    cursor: not-allowed;
+                }
+            }
+        }
+
+        .definition-popover-title {
+            display: flex;
+            gap: 0.25rem;
+            align-items: center;
+            min-height: 1.5rem;
+            margin-bottom: 0.25rem;
+            font-size: 1.25rem;
+            font-weight: 600;
+            line-height: 1.2;
+            white-space: normal;
+
+            svg.taxonomy-icon {
+                flex-shrink: 0;
+                margin-right: 0.75rem;
+                font-size: 1.5rem;
+
+                &.taxonomy-icon-muted {
+                    color: var(--color-text-secondary);
+                }
+
+                &.taxonomy-icon-verified {
+                    color: var(--success);
+                }
+
+                &.taxonomy-icon-built-in {
+                    color: var(--color-accent);
+                }
+            }
+        }
+    }
+
+    .definition-popover-tags {
+        margin: 0 !important;
+    }
+
+    .definition-popover-description {
+        margin: 0.5rem 0;
+        font-weight: 400;
+        overflow-wrap: break-word;
+
+        &.empty {
+            font-style: italic;
+            color: var(--color-text-secondary);
+        }
+    }
+
+    .definition-popover-examples {
+        margin-bottom: 0.25rem;
+        font-style: italic;
+    }
+
+    .definition-popover-timemeta {
+        margin: 0.5rem 0;
+
+        .definition-popover-timemeta-user {
+            display: inline-flex;
+        }
+
+        .definition-popover-timemeta-spacer {
+            margin-right: 0.5rem;
+        }
+    }
+
+    .DefinitionPopover {
+        background-color: var(--color-bg-primary);
+
+        .DefinitionPopover__label {
+            align-items: flex-start;
+            margin-top: 1rem;
+            margin-bottom: 1rem;
+            font-size: 0.6875rem;
+            text-transform: uppercase;
+        }
+    }
+
+    .definition-popover-grid {
+        display: grid;
+        grid-gap: 0.5rem;
+
+        .definition-popover-grid-card {
+            display: flex;
+            flex-direction: column;
+
+            .definition-popover-grid-card-title {
+                font-size: 0.6875rem;
+                font-weight: 600;
+                color: var(--color-text-secondary);
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+            }
+
+            .definition-popover-grid-card-content {
+                margin-top: 0.25rem;
+            }
+        }
+    }
+
+    .definition-popover-edit-form {
+        display: flex;
+        flex-direction: column;
+
+        .label-text {
+            margin-right: 0.25rem;
+            font-weight: 600;
+        }
+
+        .definition-popover-edit-form-label {
+            margin-bottom: 0.5rem;
+        }
+
+        .definition-popover-edit-form-value {
+            margin-bottom: 1rem;
+        }
+    }
+}

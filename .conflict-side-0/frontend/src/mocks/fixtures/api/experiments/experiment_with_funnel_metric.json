@@ -1,0 +1,108 @@
+{
+    "id": 15,
+    "name": "experiment-funnel-metric",
+    "description": null,
+    "start_date": "2025-05-20T14:39:00Z",
+    "end_date": null,
+    "feature_flag_key": "experiment-funnel-metric",
+    "feature_flag": {
+        "id": 140,
+        "team_id": 1,
+        "name": "Feature Flag for Experiment experiment-funnel-metric",
+        "key": "experiment-funnel-metric",
+        "filters": {
+            "groups": [
+                {
+                    "properties": [],
+                    "rollout_percentage": 100
+                }
+            ],
+            "multivariate": {
+                "variants": [
+                    {
+                        "key": "control",
+                        "rollout_percentage": 34
+                    },
+                    {
+                        "key": "test-1",
+                        "rollout_percentage": 33
+                    },
+                    {
+                        "key": "test-2",
+                        "rollout_percentage": 33
+                    }
+                ]
+            },
+            "holdout_groups": null,
+            "aggregation_group_type_index": null
+        },
+        "deleted": false,
+        "active": true,
+        "ensure_experience_continuity": false,
+        "has_encrypted_payloads": false,
+        "version": 1
+    },
+    "holdout": null,
+    "holdout_id": null,
+    "exposure_cohort": null,
+    "parameters": {
+        "feature_flag_variants": [
+            {
+                "key": "control",
+                "rollout_percentage": 34
+            },
+            {
+                "key": "test-1",
+                "rollout_percentage": 33
+            },
+            {
+                "key": "test-2",
+                "rollout_percentage": 33
+            }
+        ],
+        "recommended_sample_size": 0,
+        "recommended_running_time": 0,
+        "minimum_detectable_effect": 30
+    },
+    "secondary_metrics": [],
+    "saved_metrics": [],
+    "saved_metrics_ids": null,
+    "filters": {},
+    "archived": false,
+    "deleted": false,
+    "created_by": {
+        "id": 1,
+        "uuid": "0196a5e4-1c5d-0000-8b8c-31ae10f6d7d7",
+        "distinct_id": "TM2Vy3T9MqY0HHAxgKBj95zZEaZ45MYSpuSxu6MaVNj",
+        "first_name": "Juraj",
+        "last_name": "",
+        "email": "juraj@posthog.com",
+        "is_email_verified": false,
+        "hedgehog_config": null,
+        "role_at_organization": "engineering"
+    },
+    "created_at": "2025-06-03T14:35:54.872677Z",
+    "updated_at": "2025-06-03T14:39:45.072683Z",
+    "type": "product",
+    "exposure_criteria": {
+        "filterTestAccounts": true
+    },
+    "metrics": [
+        {
+            "kind": "ExperimentMetric",
+            "series": [
+                {
+                    "kind": "EventsNode",
+                    "event": "signup completed"
+                }
+            ],
+            "metric_type": "funnel",
+            "uuid": "3340a599-f56c-4e91-a31f-3e3f01528031"
+        }
+    ],
+    "metrics_secondary": [],
+    "primary_metrics_ordered_uuids": ["3340a599-f56c-4e91-a31f-3e3f01528031"],
+    "secondary_metrics_ordered_uuids": [],
+    "conclusion": null,
+    "conclusion_comment": null
+}

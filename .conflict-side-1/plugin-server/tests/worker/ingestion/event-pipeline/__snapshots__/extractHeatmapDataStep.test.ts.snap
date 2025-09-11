@@ -1,0 +1,77 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`extractHeatmapDataStep() parses and ingests correct $heatmap_data 2`] = `
+[
+  [
+    {
+      "messages": [
+        {
+          "key": "018eebf3-cb48-750b-bfad-36409ea6f2b2",
+          "value": "{"type":"mousemove","x":64,"y":23,"pointer_target_fixed":false,"viewport_height":83,"viewport_width":67,"current_url":"http://localhost:3000/","session_id":"018eebf3-79cd-70da-895f-b6cf352bd688","scale_factor":16,"timestamp":"2024-04-17 12:06:46.861","team_id":1,"distinct_id":"018eebf3-79b1-7082-a7c6-eeb56a36002f"}",
+        },
+        {
+          "key": "018eebf3-cb48-750b-bfad-36409ea6f2b2",
+          "value": "{"type":"click","x":40,"y":29,"pointer_target_fixed":false,"viewport_height":83,"viewport_width":67,"current_url":"http://localhost:3000/","session_id":"018eebf3-79cd-70da-895f-b6cf352bd688","scale_factor":16,"timestamp":"2024-04-17 12:06:46.861","team_id":1,"distinct_id":"018eebf3-79b1-7082-a7c6-eeb56a36002f"}",
+        },
+        {
+          "key": "018eebf3-cb48-750b-bfad-36409ea6f2b2",
+          "value": "{"type":"click","x":40,"y":29,"pointer_target_fixed":false,"viewport_height":83,"viewport_width":67,"current_url":"http://localhost:3000/","session_id":"018eebf3-79cd-70da-895f-b6cf352bd688","scale_factor":16,"timestamp":"2024-04-17 12:06:46.861","team_id":1,"distinct_id":"018eebf3-79b1-7082-a7c6-eeb56a36002f"}",
+        },
+        {
+          "key": "018eebf3-cb48-750b-bfad-36409ea6f2b2",
+          "value": "{"type":"rageclick","x":40,"y":29,"pointer_target_fixed":false,"viewport_height":83,"viewport_width":67,"current_url":"http://localhost:3000/","session_id":"018eebf3-79cd-70da-895f-b6cf352bd688","scale_factor":16,"timestamp":"2024-04-17 12:06:46.861","team_id":1,"distinct_id":"018eebf3-79b1-7082-a7c6-eeb56a36002f"}",
+        },
+        {
+          "key": "018eebf3-cb48-750b-bfad-36409ea6f2b2",
+          "value": "{"type":"click","x":40,"y":29,"pointer_target_fixed":false,"viewport_height":83,"viewport_width":67,"current_url":"http://localhost:3000/","session_id":"018eebf3-79cd-70da-895f-b6cf352bd688","scale_factor":16,"timestamp":"2024-04-17 12:06:46.861","team_id":1,"distinct_id":"018eebf3-79b1-7082-a7c6-eeb56a36002f"}",
+        },
+        {
+          "key": "018eebf3-cb48-750b-bfad-36409ea6f2b2",
+          "value": "{"type":"click","x":40,"y":29,"pointer_target_fixed":false,"viewport_height":83,"viewport_width":67,"current_url":"http://localhost:3000/","session_id":"018eebf3-79cd-70da-895f-b6cf352bd688","scale_factor":16,"timestamp":"2024-04-17 12:06:46.861","team_id":1,"distinct_id":"018eebf3-79b1-7082-a7c6-eeb56a36002f"}",
+        },
+        {
+          "key": "018eebf3-cb48-750b-bfad-36409ea6f2b2",
+          "value": "{"type":"click","x":40,"y":29,"pointer_target_fixed":false,"viewport_height":83,"viewport_width":67,"current_url":"http://localhost:3000/","session_id":"018eebf3-79cd-70da-895f-b6cf352bd688","scale_factor":16,"timestamp":"2024-04-17 12:06:46.861","team_id":1,"distinct_id":"018eebf3-79b1-7082-a7c6-eeb56a36002f"}",
+        },
+        {
+          "key": "018eebf3-cb48-750b-bfad-36409ea6f2b2",
+          "value": "{"type":"click","x":40,"y":29,"pointer_target_fixed":false,"viewport_height":83,"viewport_width":67,"current_url":"http://localhost:3000/","session_id":"018eebf3-79cd-70da-895f-b6cf352bd688","scale_factor":16,"timestamp":"2024-04-17 12:06:46.861","team_id":1,"distinct_id":"018eebf3-79b1-7082-a7c6-eeb56a36002f"}",
+        },
+        {
+          "key": "018eebf3-cb48-750b-bfad-36409ea6f2b2",
+          "value": "{"type":"mousemove","x":40,"y":29,"pointer_target_fixed":false,"viewport_height":83,"viewport_width":67,"current_url":"http://localhost:3000/","session_id":"018eebf3-79cd-70da-895f-b6cf352bd688","scale_factor":16,"timestamp":"2024-04-17 12:06:46.861","team_id":1,"distinct_id":"018eebf3-79b1-7082-a7c6-eeb56a36002f"}",
+        },
+        {
+          "key": "018eebf3-cb48-750b-bfad-36409ea6f2b2",
+          "value": "{"type":"mousemove","x":66,"y":42,"pointer_target_fixed":false,"viewport_height":83,"viewport_width":67,"current_url":"http://localhost:3000/","session_id":"018eebf3-79cd-70da-895f-b6cf352bd688","scale_factor":16,"timestamp":"2024-04-17 12:06:46.861","team_id":1,"distinct_id":"018eebf3-79b1-7082-a7c6-eeb56a36002f"}",
+        },
+        {
+          "key": "018eebf3-cb48-750b-bfad-36409ea6f2b2",
+          "value": "{"type":"click","x":40,"y":27,"pointer_target_fixed":false,"viewport_height":83,"viewport_width":67,"current_url":"http://localhost:3000/","session_id":"018eebf3-79cd-70da-895f-b6cf352bd688","scale_factor":16,"timestamp":"2024-04-17 12:06:46.861","team_id":1,"distinct_id":"018eebf3-79b1-7082-a7c6-eeb56a36002f"}",
+        },
+        {
+          "key": "018eebf3-cb48-750b-bfad-36409ea6f2b2",
+          "value": "{"type":"click","x":40,"y":27,"pointer_target_fixed":false,"viewport_height":83,"viewport_width":67,"current_url":"http://localhost:3000/","session_id":"018eebf3-79cd-70da-895f-b6cf352bd688","scale_factor":16,"timestamp":"2024-04-17 12:06:46.861","team_id":1,"distinct_id":"018eebf3-79b1-7082-a7c6-eeb56a36002f"}",
+        },
+        {
+          "key": "018eebf3-cb48-750b-bfad-36409ea6f2b2",
+          "value": "{"type":"rageclick","x":40,"y":27,"pointer_target_fixed":false,"viewport_height":83,"viewport_width":67,"current_url":"http://localhost:3000/","session_id":"018eebf3-79cd-70da-895f-b6cf352bd688","scale_factor":16,"timestamp":"2024-04-17 12:06:46.861","team_id":1,"distinct_id":"018eebf3-79b1-7082-a7c6-eeb56a36002f"}",
+        },
+        {
+          "key": "018eebf3-cb48-750b-bfad-36409ea6f2b2",
+          "value": "{"type":"click","x":40,"y":27,"pointer_target_fixed":false,"viewport_height":83,"viewport_width":67,"current_url":"http://localhost:3000/","session_id":"018eebf3-79cd-70da-895f-b6cf352bd688","scale_factor":16,"timestamp":"2024-04-17 12:06:46.861","team_id":1,"distinct_id":"018eebf3-79b1-7082-a7c6-eeb56a36002f"}",
+        },
+        {
+          "key": "018eebf3-cb48-750b-bfad-36409ea6f2b2",
+          "value": "{"type":"click","x":45,"y":17,"pointer_target_fixed":false,"viewport_height":83,"viewport_width":67,"current_url":"http://localhost:3000/","session_id":"018eebf3-79cd-70da-895f-b6cf352bd688","scale_factor":16,"timestamp":"2024-04-17 12:06:46.861","team_id":1,"distinct_id":"018eebf3-79b1-7082-a7c6-eeb56a36002f"}",
+        },
+        {
+          "key": "018eebf3-cb48-750b-bfad-36409ea6f2b2",
+          "value": "{"type":"click","x":7,"y":9,"pointer_target_fixed":false,"viewport_height":83,"viewport_width":67,"current_url":"http://localhost:3000/","session_id":"018eebf3-79cd-70da-895f-b6cf352bd688","scale_factor":16,"timestamp":"2024-04-17 12:06:46.861","team_id":1,"distinct_id":"018eebf3-79b1-7082-a7c6-eeb56a36002f"}",
+        },
+      ],
+      "topic": undefined,
+    },
+  ],
+]
+`;

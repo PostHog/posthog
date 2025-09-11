@@ -1,0 +1,78 @@
+.LemonActionableTooltip {
+    max-width: var(--in-app-prompts-width);
+    padding: 0.5rem;
+
+    > * + * {
+        margin-top: 0.5rem;
+    }
+
+    .LemonActionableTooltip__header {
+        display: flex;
+        justify-content: space-between;
+
+        > * + * {
+            margin-left: 0.5rem;
+        }
+    }
+
+    .LemonActionableTooltip__title {
+        font-size: 1.125rem;
+        font-weight: 500;
+        line-height: 1.75rem;
+    }
+
+    .LemonActionableTooltip__icon {
+        display: flex;
+        align-items: center;
+        width: 1.5rem;
+        height: 1.5rem;
+        color: var(--color-accent);
+
+        > svg {
+            width: 100%;
+            height: 100%;
+        }
+    }
+
+    .LemonActionableTooltip__body {
+        > * + * {
+            margin-top: 0.5rem;
+        }
+    }
+
+    .LemonActionableTooltip__footer {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 1rem;
+    }
+
+    .LemonActionableTooltip__url-buttons {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+
+        > * + * {
+            margin-top: 0.25rem;
+        }
+    }
+
+    .LemonActionableTooltip__action-buttons {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+
+        > * + * {
+            margin-top: 0.25rem;
+        }
+    }
+
+    .LemonActionableTooltip__navigation {
+        display: flex;
+        align-items: center;
+        color: var(--color-text-secondary);
+
+        > * + * {
+            margin-left: 0.25rem;
+        }
+    }
+}

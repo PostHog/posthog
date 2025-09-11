@@ -1,0 +1,79 @@
+/* Inter; bold (700); latin */
+@font-face {
+    font-family: Inter;
+    font-style: normal;
+    font-weight: 700;
+    src:
+        url('../../public/Inter.woff2') format('woff2'),
+        url('../../public/Inter.woff') format('woff');
+    font-display: swap;
+    unicode-range:
+        U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122,
+        U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+    font-family: Inter;
+    font-style: normal;
+    font-weight: 500;
+    src:
+        url('../../public/Inter.woff2') format('woff2'),
+        url('../../public/Inter.woff') format('woff');
+    font-display: swap;
+    unicode-range:
+        U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122,
+        U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* Inter; normal (400); latin */
+@font-face {
+    font-family: Inter;
+    font-style: normal;
+    font-weight: 400;
+    src:
+        url('../../public/Inter.woff2') format('woff2'),
+        url('../../public/Inter.woff') format('woff');
+    font-display: swap;
+    unicode-range:
+        U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122,
+        U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* Matter; bold (800); latin */
+@font-face {
+    font-family: MatterSQ;
+    font-style: normal;
+    font-weight: 800;
+
+    // src: url('../../public/MatterSQ-Bold.woff2') format('woff2'), url('../../public/MatterSQ-Bold.woff') format('woff');
+    src:
+        url('https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-Bold.woff2') format('woff2'),
+        url('https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-Bold.woff') format('woff');
+    font-display: swap;
+}
+
+/* Matter; bold (700); latin */
+@font-face {
+    font-family: MatterSQ;
+    font-style: normal;
+    font-weight: 700;
+
+    // src: url('../../public/MatterSQ-SemiBold.woff2') format('woff2'), url('../../public/MatterSQ-SemiBold.woff') format('woff');
+    src:
+        url('https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-SemiBold.woff2') format('woff2'),
+        url('https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-SemiBold.woff') format('woff');
+    font-display: swap;
+}
+
+/* Matter; medium (500); latin */
+@font-face {
+    font-family: MatterSQ;
+    font-style: normal;
+    font-weight: 500;
+
+    // src: url('../../public/MatterSQ-Medium.woff2') format('woff2'), url('../../public/MatterSQ-Medium.woff') format('woff');
+    src:
+        url('https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-Medium.woff2') format('woff2'),
+        url('https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-Medium.woff') format('woff');
+    font-display: swap;
+}

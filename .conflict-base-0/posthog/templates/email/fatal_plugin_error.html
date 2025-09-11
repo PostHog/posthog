@@ -1,0 +1,38 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block heading %}A PostHog app has experienced a fatal error{% endblock %}
+{% block section %}
+<!-- prettier-ignore -->
+<p>
+    {% if is_system_error %}
+        Uh-oh. A system error prevented {{ plugin }}
+    {% else %}
+        Uh-oh. An unhandled error in the <code>setupPlugin</code> function of {{ plugin }} has prevented it
+    {% endif %} from loading in project {{ team }}. Here's what happened:
+</p>
+<pre><code>{{ error }}</code></pre>
+<p>Don't worry, we've disabled the app for now. If this it the first time you've seen the error, we recommend checking the logs and re-enabling it from the Apps page.</p>
+<div class="mb mt text-center">
+    <a class="button" href="{% absolute_uri '/project/apps' %}">Go to Apps</a>
+</div>
+<p>
+    If the issue persists, please contact the author of the app, or the PostHog team, for help.
+</p>
+<div class="mt">
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{% absolute_uri '/project/apps' %}">{% absolute_uri '/project/apps' %}</a>
+    </p>
+</div>
+{% endblock %}
+
+{% block footer %}
+Need help?
+<a href="https://posthog.com/questions?{{ utm_tags }}"
+    target="_blank"><b>Visit support</b></a>
+or
+<a href="https://posthog.com/docs?{{ utm_tags }}"
+    target="_blank"><b>read our documentation</b></a>.<br /><br />
+
+<a href="{% absolute_uri '/settings/user-notifications' %}">Manage these notifications in PostHog</a>
+
+{% endblock %}

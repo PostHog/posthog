@@ -1,0 +1,57 @@
+.NotebookPanel {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    overflow: hidden;
+    background-color: var(--color-bg-primary);
+
+    .NotebookPanelDropzone {
+        display: flex;
+        height: 4rem;
+        margin: 0.5rem;
+        border: 2px dashed var(--color-border-primary);
+        border-radius: var(--radius);
+        transition: all 150ms;
+
+        .NotebookPanelDropzone__message {
+            display: flex;
+            flex: 1;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--color-text-secondary);
+            text-align: center;
+            pointer-events: none;
+            background-color: var(--color-bg-surface-primary);
+            opacity: 0.75;
+            transition: all 150ms;
+        }
+
+        .NotebookPanelDropzone__dropped {
+            display: flex;
+            flex: 1;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        &--active {
+            height: 8rem;
+            border-color: var(--color-accent);
+
+            .NotebookPanelDropzone__message {
+                opacity: 1;
+            }
+        }
+
+        &--dropped {
+            align-items: initial;
+            justify-content: flex-start;
+            height: 100%;
+            margin: 1rem;
+            border: none;
+        }
+    }
+}

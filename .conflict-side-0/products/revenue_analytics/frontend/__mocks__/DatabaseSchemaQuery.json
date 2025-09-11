@@ -1,0 +1,3526 @@
+{
+    "tables": {
+        "events": {
+            "fields": {
+                "uuid": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "uuid",
+                    "id": null,
+                    "name": "uuid",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "event": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "event",
+                    "id": null,
+                    "name": "event",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "properties": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "properties",
+                    "id": null,
+                    "name": "properties",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "timestamp": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "timestamp",
+                    "id": null,
+                    "name": "timestamp",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "distinct_id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "distinct_id",
+                    "id": null,
+                    "name": "distinct_id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "elements_chain": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "elements_chain",
+                    "id": null,
+                    "name": "elements_chain",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "created_at": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "created_at",
+                    "id": null,
+                    "name": "created_at",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "$session_id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$session_id`",
+                    "id": null,
+                    "name": "$session_id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$window_id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$window_id`",
+                    "id": null,
+                    "name": "$window_id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "pdi": {
+                    "chain": null,
+                    "fields": ["team_id", "distinct_id", "person_id", "person"],
+                    "hogql_value": "pdi",
+                    "id": "pdi",
+                    "name": "pdi",
+                    "schema_valid": true,
+                    "table": "person_distinct_ids",
+                    "type": "lazy_table"
+                },
+                "poe": {
+                    "chain": null,
+                    "fields": ["id", "created_at", "properties"],
+                    "hogql_value": "poe",
+                    "id": null,
+                    "name": "poe",
+                    "schema_valid": true,
+                    "table": "events",
+                    "type": "virtual_table"
+                },
+                "goe_0": {
+                    "chain": null,
+                    "fields": ["key", "created_at", "properties"],
+                    "hogql_value": "goe_0",
+                    "id": null,
+                    "name": "goe_0",
+                    "schema_valid": true,
+                    "table": "events",
+                    "type": "virtual_table"
+                },
+                "goe_1": {
+                    "chain": null,
+                    "fields": ["key", "created_at", "properties"],
+                    "hogql_value": "goe_1",
+                    "id": null,
+                    "name": "goe_1",
+                    "schema_valid": true,
+                    "table": "events",
+                    "type": "virtual_table"
+                },
+                "goe_2": {
+                    "chain": null,
+                    "fields": ["key", "created_at", "properties"],
+                    "hogql_value": "goe_2",
+                    "id": null,
+                    "name": "goe_2",
+                    "schema_valid": true,
+                    "table": "events",
+                    "type": "virtual_table"
+                },
+                "goe_3": {
+                    "chain": null,
+                    "fields": ["key", "created_at", "properties"],
+                    "hogql_value": "goe_3",
+                    "id": null,
+                    "name": "goe_3",
+                    "schema_valid": true,
+                    "table": "events",
+                    "type": "virtual_table"
+                },
+                "goe_4": {
+                    "chain": null,
+                    "fields": ["key", "created_at", "properties"],
+                    "hogql_value": "goe_4",
+                    "id": null,
+                    "name": "goe_4",
+                    "schema_valid": true,
+                    "table": "events",
+                    "type": "virtual_table"
+                },
+                "person": {
+                    "chain": null,
+                    "fields": [
+                        "id",
+                        "created_at",
+                        "team_id",
+                        "properties",
+                        "is_identified",
+                        "pdi",
+                        "production_stripe_customer",
+                        "production_stripe_invoice"
+                    ],
+                    "hogql_value": "person",
+                    "id": "person",
+                    "name": "person",
+                    "schema_valid": true,
+                    "table": "persons",
+                    "type": "lazy_table"
+                },
+                "person_id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "person_id",
+                    "id": null,
+                    "name": "person_id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "expression"
+                },
+                "$group_0": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$group_0`",
+                    "id": null,
+                    "name": "$group_0",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "group_0": {
+                    "chain": null,
+                    "fields": ["index", "team_id", "key", "created_at", "updated_at", "properties"],
+                    "hogql_value": "group_0",
+                    "id": "group_0",
+                    "name": "group_0",
+                    "schema_valid": true,
+                    "table": "groups",
+                    "type": "lazy_table"
+                },
+                "$group_1": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$group_1`",
+                    "id": null,
+                    "name": "$group_1",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "group_1": {
+                    "chain": null,
+                    "fields": ["index", "team_id", "key", "created_at", "updated_at", "properties"],
+                    "hogql_value": "group_1",
+                    "id": "group_1",
+                    "name": "group_1",
+                    "schema_valid": true,
+                    "table": "groups",
+                    "type": "lazy_table"
+                },
+                "$group_2": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$group_2`",
+                    "id": null,
+                    "name": "$group_2",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "group_2": {
+                    "chain": null,
+                    "fields": ["index", "team_id", "key", "created_at", "updated_at", "properties"],
+                    "hogql_value": "group_2",
+                    "id": "group_2",
+                    "name": "group_2",
+                    "schema_valid": true,
+                    "table": "groups",
+                    "type": "lazy_table"
+                },
+                "$group_3": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$group_3`",
+                    "id": null,
+                    "name": "$group_3",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "group_3": {
+                    "chain": null,
+                    "fields": ["index", "team_id", "key", "created_at", "updated_at", "properties"],
+                    "hogql_value": "group_3",
+                    "id": "group_3",
+                    "name": "group_3",
+                    "schema_valid": true,
+                    "table": "groups",
+                    "type": "lazy_table"
+                },
+                "$group_4": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$group_4`",
+                    "id": null,
+                    "name": "$group_4",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "group_4": {
+                    "chain": null,
+                    "fields": ["index", "team_id", "key", "created_at", "updated_at", "properties"],
+                    "hogql_value": "group_4",
+                    "id": "group_4",
+                    "name": "group_4",
+                    "schema_valid": true,
+                    "table": "groups",
+                    "type": "lazy_table"
+                },
+                "session": {
+                    "chain": null,
+                    "fields": [
+                        "id",
+                        "session_id",
+                        "session_id_v7",
+                        "team_id",
+                        "distinct_id",
+                        "$start_timestamp",
+                        "$end_timestamp",
+                        "$urls",
+                        "$num_uniq_urls",
+                        "$entry_current_url",
+                        "$entry_pathname",
+                        "$entry_hostname",
+                        "$end_current_url",
+                        "$end_pathname",
+                        "$end_hostname",
+                        "$entry_referring_domain",
+                        "$entry_utm_source",
+                        "$entry_utm_campaign",
+                        "$entry_utm_medium",
+                        "$entry_utm_term",
+                        "$entry_utm_content",
+                        "$entry_gclid",
+                        "$entry_gad_source",
+                        "$entry_gclsrc",
+                        "$entry_dclid",
+                        "$entry_gbraid",
+                        "$entry_wbraid",
+                        "$entry_fbclid",
+                        "$entry_msclkid",
+                        "$entry_twclid",
+                        "$entry_li_fat_id",
+                        "$entry_mc_cid",
+                        "$entry_igshid",
+                        "$entry_ttclid",
+                        "$entry__kx",
+                        "$entry_irclid",
+                        "$pageview_count",
+                        "$autocapture_count",
+                        "$screen_count",
+                        "$channel_type",
+                        "$session_duration",
+                        "duration",
+                        "$is_bounce",
+                        "$last_external_click_url",
+                        "$page_screen_autocapture_count_up_to",
+                        "$exit_current_url",
+                        "$exit_pathname",
+                        "$vitals_lcp"
+                    ],
+                    "hogql_value": "session",
+                    "id": "session",
+                    "name": "session",
+                    "schema_valid": true,
+                    "table": "sessions",
+                    "type": "lazy_table"
+                },
+                "elements_chain_href": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "elements_chain_href",
+                    "id": null,
+                    "name": "elements_chain_href",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "elements_chain_texts": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "elements_chain_texts",
+                    "id": null,
+                    "name": "elements_chain_texts",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "array"
+                },
+                "elements_chain_ids": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "elements_chain_ids",
+                    "id": null,
+                    "name": "elements_chain_ids",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "array"
+                },
+                "elements_chain_elements": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "elements_chain_elements",
+                    "id": null,
+                    "name": "elements_chain_elements",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "array"
+                },
+                "event_person_id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "event_person_id",
+                    "id": null,
+                    "name": "event_person_id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "override": {
+                    "chain": null,
+                    "fields": ["team_id", "distinct_id", "person_id", "person"],
+                    "hogql_value": "override",
+                    "id": "override",
+                    "name": "override",
+                    "schema_valid": true,
+                    "table": "person_distinct_id_overrides",
+                    "type": "lazy_table"
+                },
+                "event_issue_id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "event_issue_id",
+                    "id": null,
+                    "name": "event_issue_id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "expression"
+                },
+                "exception_issue_override": {
+                    "chain": null,
+                    "fields": ["team_id", "fingerprint", "issue_id"],
+                    "hogql_value": "exception_issue_override",
+                    "id": "exception_issue_override",
+                    "name": "exception_issue_override",
+                    "schema_valid": true,
+                    "table": "error_tracking_issue_fingerprint_overrides",
+                    "type": "lazy_table"
+                },
+                "issue_id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "issue_id",
+                    "id": null,
+                    "name": "issue_id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "expression"
+                },
+                "account": {
+                    "chain": ["group_0"],
+                    "fields": null,
+                    "hogql_value": "account",
+                    "id": null,
+                    "name": "account",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "field_traverser"
+                },
+                "project": {
+                    "chain": ["group_1"],
+                    "fields": null,
+                    "hogql_value": "project",
+                    "id": null,
+                    "name": "project",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "field_traverser"
+                },
+                "organization": {
+                    "chain": ["group_2"],
+                    "fields": null,
+                    "hogql_value": "organization",
+                    "id": null,
+                    "name": "organization",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "field_traverser"
+                },
+                "instance": {
+                    "chain": ["group_3"],
+                    "fields": null,
+                    "hogql_value": "instance",
+                    "id": null,
+                    "name": "instance",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "field_traverser"
+                }
+            },
+            "id": "events",
+            "name": "events",
+            "type": "posthog"
+        },
+        "groups": {
+            "fields": {
+                "index": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "index",
+                    "id": null,
+                    "name": "index",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "key": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "key",
+                    "id": null,
+                    "name": "key",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "created_at": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "created_at",
+                    "id": null,
+                    "name": "created_at",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "updated_at": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "updated_at",
+                    "id": null,
+                    "name": "updated_at",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "properties": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "properties",
+                    "id": null,
+                    "name": "properties",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                }
+            },
+            "id": "groups",
+            "name": "groups",
+            "type": "posthog"
+        },
+        "persons": {
+            "fields": {
+                "id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "id",
+                    "id": null,
+                    "name": "id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "created_at": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "created_at",
+                    "id": null,
+                    "name": "created_at",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "properties": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "properties",
+                    "id": null,
+                    "name": "properties",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "is_identified": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "is_identified",
+                    "id": null,
+                    "name": "is_identified",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "boolean"
+                },
+                "pdi": {
+                    "chain": null,
+                    "fields": ["team_id", "distinct_id", "person_id"],
+                    "hogql_value": "pdi",
+                    "id": "pdi",
+                    "name": "pdi",
+                    "schema_valid": true,
+                    "table": "person_distinct_ids",
+                    "type": "lazy_table"
+                },
+                "$virt_initial_referring_domain_type": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$virt_initial_referring_domain_type`",
+                    "id": null,
+                    "name": "$virt_initial_referring_domain_type",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "expression"
+                },
+                "$virt_initial_channel_type": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$virt_initial_channel_type`",
+                    "id": null,
+                    "name": "$virt_initial_channel_type",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "expression"
+                },
+                "production_stripe_customer": {
+                    "chain": null,
+                    "fields": [
+                        "id",
+                        "name",
+                        "email",
+                        "phone",
+                        "object",
+                        "address",
+                        "balance",
+                        "__created",
+                        "created_at",
+                        "currency",
+                        "discount",
+                        "livemode",
+                        "metadata",
+                        "shipping",
+                        "delinquent",
+                        "tax_exempt",
+                        "description",
+                        "default_source",
+                        "invoice_prefix",
+                        "invoice_settings",
+                        "preferred_locales",
+                        "next_invoice_sequence",
+                        "__dlt_id",
+                        "__dlt_load_id",
+                        "__ph_debug",
+                        "__ph_partition_key",
+                        "properties"
+                    ],
+                    "hogql_value": "production_stripe_customer",
+                    "id": "production_stripe_customer",
+                    "name": "production_stripe_customer",
+                    "schema_valid": true,
+                    "table": "`stripe.production.customer`",
+                    "type": "lazy_table"
+                },
+                "production_stripe_invoice": {
+                    "chain": null,
+                    "fields": [
+                        "id",
+                        "tax",
+                        "paid",
+                        "lines",
+                        "total",
+                        "charge",
+                        "issuer",
+                        "number",
+                        "object",
+                        "status",
+                        "__created",
+                        "created_at",
+                        "currency",
+                        "customer_id",
+                        "discount",
+                        "due_date",
+                        "livemode",
+                        "metadata",
+                        "subtotal",
+                        "attempted",
+                        "discounts",
+                        "rendering",
+                        "amount_due",
+                        "__period_start",
+                        "period_start_at",
+                        "__period_end",
+                        "period_end_at",
+                        "amount_paid",
+                        "description",
+                        "invoice_pdf",
+                        "account_name",
+                        "auto_advance",
+                        "__effective_at",
+                        "effective_at",
+                        "subscription_id",
+                        "attempt_count",
+                        "automatic_tax",
+                        "customer_name",
+                        "billing_reason",
+                        "customer_email",
+                        "ending_balance",
+                        "payment_intent",
+                        "account_country",
+                        "amount_shipping",
+                        "amount_remaining",
+                        "customer_address",
+                        "customer_tax_ids",
+                        "paid_out_of_band",
+                        "payment_settings",
+                        "starting_balance",
+                        "collection_method",
+                        "default_tax_rates",
+                        "total_tax_amounts",
+                        "hosted_invoice_url",
+                        "status_transitions",
+                        "customer_tax_exempt",
+                        "total_excluding_tax",
+                        "subscription_details",
+                        "__webhooks_delivered_at",
+                        "webhooks_delivered_at",
+                        "subtotal_excluding_tax",
+                        "total_discount_amounts",
+                        "pre_payment_credit_notes_amount",
+                        "post_payment_credit_notes_amount",
+                        "__dlt_id",
+                        "__dlt_load_id",
+                        "__ph_debug",
+                        "__ph_partition_key",
+                        "properties"
+                    ],
+                    "hogql_value": "production_stripe_invoice",
+                    "id": "production_stripe_invoice",
+                    "name": "production_stripe_invoice",
+                    "schema_valid": true,
+                    "table": "`stripe.production.invoice`",
+                    "type": "lazy_table"
+                }
+            },
+            "id": "persons",
+            "name": "persons",
+            "type": "posthog"
+        },
+        "sessions": {
+            "fields": {
+                "id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "id",
+                    "id": null,
+                    "name": "id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "session_id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "session_id",
+                    "id": null,
+                    "name": "session_id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "session_id_v7": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "session_id_v7",
+                    "id": null,
+                    "name": "session_id_v7",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "distinct_id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "distinct_id",
+                    "id": null,
+                    "name": "distinct_id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$start_timestamp": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$start_timestamp`",
+                    "id": null,
+                    "name": "$start_timestamp",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "$end_timestamp": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$end_timestamp`",
+                    "id": null,
+                    "name": "$end_timestamp",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "$urls": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$urls`",
+                    "id": null,
+                    "name": "$urls",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "array"
+                },
+                "$num_uniq_urls": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$num_uniq_urls`",
+                    "id": null,
+                    "name": "$num_uniq_urls",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "$entry_current_url": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$entry_current_url`",
+                    "id": null,
+                    "name": "$entry_current_url",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$entry_pathname": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$entry_pathname`",
+                    "id": null,
+                    "name": "$entry_pathname",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$entry_hostname": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$entry_hostname`",
+                    "id": null,
+                    "name": "$entry_hostname",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$end_current_url": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$end_current_url`",
+                    "id": null,
+                    "name": "$end_current_url",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$end_pathname": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$end_pathname`",
+                    "id": null,
+                    "name": "$end_pathname",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$end_hostname": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$end_hostname`",
+                    "id": null,
+                    "name": "$end_hostname",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$entry_referring_domain": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$entry_referring_domain`",
+                    "id": null,
+                    "name": "$entry_referring_domain",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$entry_utm_source": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$entry_utm_source`",
+                    "id": null,
+                    "name": "$entry_utm_source",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$entry_utm_campaign": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$entry_utm_campaign`",
+                    "id": null,
+                    "name": "$entry_utm_campaign",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$entry_utm_medium": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$entry_utm_medium`",
+                    "id": null,
+                    "name": "$entry_utm_medium",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$entry_utm_term": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$entry_utm_term`",
+                    "id": null,
+                    "name": "$entry_utm_term",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$entry_utm_content": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$entry_utm_content`",
+                    "id": null,
+                    "name": "$entry_utm_content",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$entry_gclid": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$entry_gclid`",
+                    "id": null,
+                    "name": "$entry_gclid",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$entry_gad_source": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$entry_gad_source`",
+                    "id": null,
+                    "name": "$entry_gad_source",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$entry_gclsrc": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$entry_gclsrc`",
+                    "id": null,
+                    "name": "$entry_gclsrc",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$entry_dclid": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$entry_dclid`",
+                    "id": null,
+                    "name": "$entry_dclid",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$entry_gbraid": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$entry_gbraid`",
+                    "id": null,
+                    "name": "$entry_gbraid",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$entry_wbraid": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$entry_wbraid`",
+                    "id": null,
+                    "name": "$entry_wbraid",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$entry_fbclid": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$entry_fbclid`",
+                    "id": null,
+                    "name": "$entry_fbclid",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$entry_msclkid": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$entry_msclkid`",
+                    "id": null,
+                    "name": "$entry_msclkid",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$entry_twclid": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$entry_twclid`",
+                    "id": null,
+                    "name": "$entry_twclid",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$entry_li_fat_id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$entry_li_fat_id`",
+                    "id": null,
+                    "name": "$entry_li_fat_id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$entry_mc_cid": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$entry_mc_cid`",
+                    "id": null,
+                    "name": "$entry_mc_cid",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$entry_igshid": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$entry_igshid`",
+                    "id": null,
+                    "name": "$entry_igshid",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$entry_ttclid": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$entry_ttclid`",
+                    "id": null,
+                    "name": "$entry_ttclid",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$entry__kx": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$entry__kx`",
+                    "id": null,
+                    "name": "$entry__kx",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$entry_irclid": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$entry_irclid`",
+                    "id": null,
+                    "name": "$entry_irclid",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$pageview_count": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$pageview_count`",
+                    "id": null,
+                    "name": "$pageview_count",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "$autocapture_count": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$autocapture_count`",
+                    "id": null,
+                    "name": "$autocapture_count",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "$screen_count": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$screen_count`",
+                    "id": null,
+                    "name": "$screen_count",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "$channel_type": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$channel_type`",
+                    "id": null,
+                    "name": "$channel_type",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$session_duration": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$session_duration`",
+                    "id": null,
+                    "name": "$session_duration",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "duration": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "duration",
+                    "id": null,
+                    "name": "duration",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "$is_bounce": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$is_bounce`",
+                    "id": null,
+                    "name": "$is_bounce",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "boolean"
+                },
+                "$last_external_click_url": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$last_external_click_url`",
+                    "id": null,
+                    "name": "$last_external_click_url",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$exit_current_url": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$exit_current_url`",
+                    "id": null,
+                    "name": "$exit_current_url",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$exit_pathname": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$exit_pathname`",
+                    "id": null,
+                    "name": "$exit_pathname",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "$vitals_lcp": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "`$vitals_lcp`",
+                    "id": null,
+                    "name": "$vitals_lcp",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "float"
+                }
+            },
+            "id": "sessions",
+            "name": "sessions",
+            "type": "posthog"
+        },
+        "query_log": {
+            "fields": {
+                "query_id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "query_id",
+                    "id": null,
+                    "name": "query_id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "endpoint": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "endpoint",
+                    "id": null,
+                    "name": "endpoint",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "query": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "query",
+                    "id": null,
+                    "name": "query",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "query_start_time": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "query_start_time",
+                    "id": null,
+                    "name": "query_start_time",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "query_duration_ms": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "query_duration_ms",
+                    "id": null,
+                    "name": "query_duration_ms",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "float"
+                },
+                "hogql_name": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "hogql_name",
+                    "id": null,
+                    "name": "hogql_name",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "created_by": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "created_by",
+                    "id": null,
+                    "name": "created_by",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "read_rows": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "read_rows",
+                    "id": null,
+                    "name": "read_rows",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "read_bytes": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "read_bytes",
+                    "id": null,
+                    "name": "read_bytes",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "result_rows": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "result_rows",
+                    "id": null,
+                    "name": "result_rows",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "result_bytes": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "result_bytes",
+                    "id": null,
+                    "name": "result_bytes",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "memory_usage": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "memory_usage",
+                    "id": null,
+                    "name": "memory_usage",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "status": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "status",
+                    "id": null,
+                    "name": "status",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "is_personal_api_key_request": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "is_personal_api_key_request",
+                    "id": null,
+                    "name": "is_personal_api_key_request",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "boolean"
+                }
+            },
+            "id": "query_log",
+            "name": "query_log",
+            "type": "posthog"
+        },
+        "stripe.production.balancetransaction": {
+            "fields": {
+                "id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "id",
+                    "id": null,
+                    "name": "id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "fee": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "fee",
+                    "id": null,
+                    "name": "fee",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "net": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "net",
+                    "id": null,
+                    "name": "net",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "type": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "type",
+                    "id": null,
+                    "name": "type",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "amount": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "amount",
+                    "id": null,
+                    "name": "amount",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "object": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "object",
+                    "id": null,
+                    "name": "object",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "source_id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "source_id",
+                    "id": null,
+                    "name": "source_id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "status": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "status",
+                    "id": null,
+                    "name": "status",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "created_at": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "created_at",
+                    "id": null,
+                    "name": "created_at",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "currency": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "currency",
+                    "id": null,
+                    "name": "currency",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "description": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "description",
+                    "id": null,
+                    "name": "description",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "fee_details": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "fee_details",
+                    "id": null,
+                    "name": "fee_details",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "available_on": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "available_on",
+                    "id": null,
+                    "name": "available_on",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "reporting_category": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "reporting_category",
+                    "id": null,
+                    "name": "reporting_category",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                }
+            },
+            "format": "DeltaS3Wrapper",
+            "id": "01961df3-16c2-0000-9981-9e4a40362d53",
+            "name": "stripe.production.balancetransaction",
+            "schema": {
+                "id": "01961cd0-5d11-0000-8bc9-3ed7f2d6e68f",
+                "incremental": true,
+                "last_synced_at": "2025-04-10 04:16:38.840144+00:00",
+                "name": "BalanceTransaction",
+                "should_sync": false,
+                "status": "Completed"
+            },
+            "source": {
+                "id": "8815666c-648a-4843-94a7-09cf91cdc0ff",
+                "last_synced_at": "2025-04-10 12:11:55.898780+00:00",
+                "prefix": "production_",
+                "source_type": "Stripe",
+                "status": "Running"
+            },
+            "type": "data_warehouse",
+            "url_pattern": "https://posthog-s3-datawarehouse-us-east-1-dev.s3.amazonaws.com/dlt/team_1_stripe_01961cd0_5d11_0000_8bc9_3ed7f2d6e68f/balance_transaction/"
+        },
+        "stripe.production.charge": {
+            "fields": {
+                "id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "id",
+                    "id": null,
+                    "name": "id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "paid": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "paid",
+                    "id": null,
+                    "name": "paid",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "boolean"
+                },
+                "amount": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "amount",
+                    "id": null,
+                    "name": "amount",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "object": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "object",
+                    "id": null,
+                    "name": "object",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "source": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "source",
+                    "id": null,
+                    "name": "source",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "status": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "status",
+                    "id": null,
+                    "name": "status",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "created_at": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "created_at",
+                    "id": null,
+                    "name": "created_at",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "invoice_id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "invoice_id",
+                    "id": null,
+                    "name": "invoice_id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "outcome": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "outcome",
+                    "id": null,
+                    "name": "outcome",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "captured": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "captured",
+                    "id": null,
+                    "name": "captured",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "boolean"
+                },
+                "currency": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "currency",
+                    "id": null,
+                    "name": "currency",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "customer_id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "customer_id",
+                    "id": null,
+                    "name": "customer_id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "disputed": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "disputed",
+                    "id": null,
+                    "name": "disputed",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "boolean"
+                },
+                "livemode": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "livemode",
+                    "id": null,
+                    "name": "livemode",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "boolean"
+                },
+                "metadata": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "metadata",
+                    "id": null,
+                    "name": "metadata",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "refunded": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "refunded",
+                    "id": null,
+                    "name": "refunded",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "boolean"
+                },
+                "description": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "description",
+                    "id": null,
+                    "name": "description",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "receipt_url": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "receipt_url",
+                    "id": null,
+                    "name": "receipt_url",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "failure_code": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "failure_code",
+                    "id": null,
+                    "name": "failure_code",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "fraud_details": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "fraud_details",
+                    "id": null,
+                    "name": "fraud_details",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "radar_options": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "radar_options",
+                    "id": null,
+                    "name": "radar_options",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "receipt_email": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "receipt_email",
+                    "id": null,
+                    "name": "receipt_email",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "payment_intent_id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "payment_intent_id",
+                    "id": null,
+                    "name": "payment_intent_id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "payment_method_id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "payment_method_id",
+                    "id": null,
+                    "name": "payment_method_id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "amount_captured": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "amount_captured",
+                    "id": null,
+                    "name": "amount_captured",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "amount_refunded": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "amount_refunded",
+                    "id": null,
+                    "name": "amount_refunded",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "billing_details": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "billing_details",
+                    "id": null,
+                    "name": "billing_details",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "failure_message": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "failure_message",
+                    "id": null,
+                    "name": "failure_message",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "balance_transaction_id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "balance_transaction_id",
+                    "id": null,
+                    "name": "balance_transaction_id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "statement_descriptor": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "statement_descriptor",
+                    "id": null,
+                    "name": "statement_descriptor",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "payment_method_details": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "payment_method_details",
+                    "id": null,
+                    "name": "payment_method_details",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "calculated_statement_descriptor": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "calculated_statement_descriptor",
+                    "id": null,
+                    "name": "calculated_statement_descriptor",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                }
+            },
+            "format": "DeltaS3Wrapper",
+            "id": "01961e1d-6116-0000-78ef-636488ee75f6",
+            "name": "stripe.production.charge",
+            "schema": null,
+            "source": {
+                "id": "8815666c-648a-4843-94a7-09cf91cdc0ff",
+                "last_synced_at": "2025-04-10 12:11:55.898780+00:00",
+                "prefix": "production_",
+                "source_type": "Stripe",
+                "status": "Running"
+            },
+            "type": "data_warehouse",
+            "url_pattern": "https://posthog-s3-datawarehouse-us-east-1-dev.s3.amazonaws.com/dlt/team_1_stripe_01961cd0_5d24_0000_2512_5b294f72066f/charge/"
+        },
+        "stripe.production.customer": {
+            "fields": {
+                "id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "id",
+                    "id": null,
+                    "name": "id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "name": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "name",
+                    "id": null,
+                    "name": "name",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "email": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "email",
+                    "id": null,
+                    "name": "email",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "phone": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "phone",
+                    "id": null,
+                    "name": "phone",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "object": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "object",
+                    "id": null,
+                    "name": "object",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "address": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "address",
+                    "id": null,
+                    "name": "address",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "balance": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "balance",
+                    "id": null,
+                    "name": "balance",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "created_at": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "created_at",
+                    "id": null,
+                    "name": "created_at",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "currency": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "currency",
+                    "id": null,
+                    "name": "currency",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "discount": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "discount",
+                    "id": null,
+                    "name": "discount",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "livemode": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "livemode",
+                    "id": null,
+                    "name": "livemode",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "boolean"
+                },
+                "metadata": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "metadata",
+                    "id": null,
+                    "name": "metadata",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "shipping": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "shipping",
+                    "id": null,
+                    "name": "shipping",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "delinquent": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "delinquent",
+                    "id": null,
+                    "name": "delinquent",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "boolean"
+                },
+                "tax_exempt": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "tax_exempt",
+                    "id": null,
+                    "name": "tax_exempt",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "description": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "description",
+                    "id": null,
+                    "name": "description",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "default_source": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "default_source",
+                    "id": null,
+                    "name": "default_source",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "invoice_prefix": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "invoice_prefix",
+                    "id": null,
+                    "name": "invoice_prefix",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "invoice_settings": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "invoice_settings",
+                    "id": null,
+                    "name": "invoice_settings",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "preferred_locales": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "preferred_locales",
+                    "id": null,
+                    "name": "preferred_locales",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "next_invoice_sequence": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "next_invoice_sequence",
+                    "id": null,
+                    "name": "next_invoice_sequence",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                }
+            },
+            "format": "DeltaS3Wrapper",
+            "id": "01961df3-8d5e-0000-aee0-f7481aa12f67",
+            "name": "stripe.production.customer",
+            "schema": {
+                "id": "01961cd0-5d19-0000-dd7b-3a5e31f9921c",
+                "incremental": true,
+                "last_synced_at": "2025-04-10 04:16:38.787015+00:00",
+                "name": "Customer",
+                "should_sync": false,
+                "status": "Completed"
+            },
+            "source": {
+                "id": "8815666c-648a-4843-94a7-09cf91cdc0ff",
+                "last_synced_at": "2025-04-10 12:11:55.898780+00:00",
+                "prefix": "production_",
+                "source_type": "Stripe",
+                "status": "Running"
+            },
+            "type": "data_warehouse",
+            "url_pattern": "https://posthog-s3-datawarehouse-us-east-1-dev.s3.amazonaws.com/dlt/team_1_stripe_01961cd0_5d19_0000_dd7b_3a5e31f9921c/customer/"
+        },
+        "stripe.production.invoice": {
+            "fields": {
+                "id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "id",
+                    "id": null,
+                    "name": "id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "tax": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "tax",
+                    "id": null,
+                    "name": "tax",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "paid": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "paid",
+                    "id": null,
+                    "name": "paid",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "boolean"
+                },
+                "lines": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "lines",
+                    "id": null,
+                    "name": "lines",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "total": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "total",
+                    "id": null,
+                    "name": "total",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "charge": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "charge",
+                    "id": null,
+                    "name": "charge",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "issuer": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "issuer",
+                    "id": null,
+                    "name": "issuer",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "number": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "number",
+                    "id": null,
+                    "name": "number",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "object": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "object",
+                    "id": null,
+                    "name": "object",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "status": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "status",
+                    "id": null,
+                    "name": "status",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "created_at": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "created_at",
+                    "id": null,
+                    "name": "created_at",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "currency": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "currency",
+                    "id": null,
+                    "name": "currency",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "customer_id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "customer_id",
+                    "id": null,
+                    "name": "customer_id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "discount": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "discount",
+                    "id": null,
+                    "name": "discount",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "due_date": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "due_date",
+                    "id": null,
+                    "name": "due_date",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "livemode": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "livemode",
+                    "id": null,
+                    "name": "livemode",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "boolean"
+                },
+                "metadata": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "metadata",
+                    "id": null,
+                    "name": "metadata",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "subtotal": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "subtotal",
+                    "id": null,
+                    "name": "subtotal",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "attempted": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "attempted",
+                    "id": null,
+                    "name": "attempted",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "boolean"
+                },
+                "discounts": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "discounts",
+                    "id": null,
+                    "name": "discounts",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "rendering": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "rendering",
+                    "id": null,
+                    "name": "rendering",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "amount_due": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "amount_due",
+                    "id": null,
+                    "name": "amount_due",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "period_start_at": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "period_start_at",
+                    "id": null,
+                    "name": "period_start_at",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "period_end_at": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "period_end_at",
+                    "id": null,
+                    "name": "period_end_at",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "amount_paid": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "amount_paid",
+                    "id": null,
+                    "name": "amount_paid",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "description": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "description",
+                    "id": null,
+                    "name": "description",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "invoice_pdf": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "invoice_pdf",
+                    "id": null,
+                    "name": "invoice_pdf",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "account_name": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "account_name",
+                    "id": null,
+                    "name": "account_name",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "auto_advance": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "auto_advance",
+                    "id": null,
+                    "name": "auto_advance",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "boolean"
+                },
+                "effective_at": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "effective_at",
+                    "id": null,
+                    "name": "effective_at",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "subscription_id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "subscription_id",
+                    "id": null,
+                    "name": "subscription_id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "attempt_count": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "attempt_count",
+                    "id": null,
+                    "name": "attempt_count",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "automatic_tax": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "automatic_tax",
+                    "id": null,
+                    "name": "automatic_tax",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "customer_name": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "customer_name",
+                    "id": null,
+                    "name": "customer_name",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "billing_reason": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "billing_reason",
+                    "id": null,
+                    "name": "billing_reason",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "customer_email": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "customer_email",
+                    "id": null,
+                    "name": "customer_email",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "ending_balance": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "ending_balance",
+                    "id": null,
+                    "name": "ending_balance",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "payment_intent": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "payment_intent",
+                    "id": null,
+                    "name": "payment_intent",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "account_country": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "account_country",
+                    "id": null,
+                    "name": "account_country",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "amount_shipping": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "amount_shipping",
+                    "id": null,
+                    "name": "amount_shipping",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "amount_remaining": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "amount_remaining",
+                    "id": null,
+                    "name": "amount_remaining",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "customer_address": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "customer_address",
+                    "id": null,
+                    "name": "customer_address",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "customer_tax_ids": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "customer_tax_ids",
+                    "id": null,
+                    "name": "customer_tax_ids",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "paid_out_of_band": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "paid_out_of_band",
+                    "id": null,
+                    "name": "paid_out_of_band",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "boolean"
+                },
+                "payment_settings": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "payment_settings",
+                    "id": null,
+                    "name": "payment_settings",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "starting_balance": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "starting_balance",
+                    "id": null,
+                    "name": "starting_balance",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "collection_method": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "collection_method",
+                    "id": null,
+                    "name": "collection_method",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "default_tax_rates": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "default_tax_rates",
+                    "id": null,
+                    "name": "default_tax_rates",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "total_tax_amounts": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "total_tax_amounts",
+                    "id": null,
+                    "name": "total_tax_amounts",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "hosted_invoice_url": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "hosted_invoice_url",
+                    "id": null,
+                    "name": "hosted_invoice_url",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "status_transitions": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "status_transitions",
+                    "id": null,
+                    "name": "status_transitions",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "customer_tax_exempt": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "customer_tax_exempt",
+                    "id": null,
+                    "name": "customer_tax_exempt",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "total_excluding_tax": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "total_excluding_tax",
+                    "id": null,
+                    "name": "total_excluding_tax",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "subscription_details": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "subscription_details",
+                    "id": null,
+                    "name": "subscription_details",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "webhooks_delivered_at": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "webhooks_delivered_at",
+                    "id": null,
+                    "name": "webhooks_delivered_at",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "subtotal_excluding_tax": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "subtotal_excluding_tax",
+                    "id": null,
+                    "name": "subtotal_excluding_tax",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "total_discount_amounts": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "total_discount_amounts",
+                    "id": null,
+                    "name": "total_discount_amounts",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "pre_payment_credit_notes_amount": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "pre_payment_credit_notes_amount",
+                    "id": null,
+                    "name": "pre_payment_credit_notes_amount",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "post_payment_credit_notes_amount": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "post_payment_credit_notes_amount",
+                    "id": null,
+                    "name": "post_payment_credit_notes_amount",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                }
+            },
+            "format": "DeltaS3Wrapper",
+            "id": "01961f95-7f33-0000-018f-9b8a6729b840",
+            "name": "stripe.production.invoice",
+            "schema": {
+                "id": "01961cd0-5d22-0000-3d30-376aac220143",
+                "incremental": true,
+                "last_synced_at": "2025-04-10 12:11:55.898780+00:00",
+                "name": "Invoice",
+                "should_sync": true,
+                "status": "Completed"
+            },
+            "source": {
+                "id": "8815666c-648a-4843-94a7-09cf91cdc0ff",
+                "last_synced_at": "2025-04-10 12:11:55.898780+00:00",
+                "prefix": "production_",
+                "source_type": "Stripe",
+                "status": "Running"
+            },
+            "type": "data_warehouse",
+            "url_pattern": "https://posthog-s3-datawarehouse-us-east-1-dev.s3.amazonaws.com/dlt/team_1_stripe_01961cd0_5d22_0000_3d30_376aac220143/invoice/"
+        },
+        "stripe.production.price": {
+            "fields": {
+                "id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "id",
+                    "id": null,
+                    "name": "id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "type": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "type",
+                    "id": null,
+                    "name": "type",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "active": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "active",
+                    "id": null,
+                    "name": "active",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "boolean"
+                },
+                "object": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "object",
+                    "id": null,
+                    "name": "object",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "created_at": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "created_at",
+                    "id": null,
+                    "name": "created_at",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "product_id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "product_id",
+                    "id": null,
+                    "name": "product_id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "currency": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "currency",
+                    "id": null,
+                    "name": "currency",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "livemode": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "livemode",
+                    "id": null,
+                    "name": "livemode",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "boolean"
+                },
+                "metadata": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "metadata",
+                    "id": null,
+                    "name": "metadata",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "nickname": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "nickname",
+                    "id": null,
+                    "name": "nickname",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "recurring": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "recurring",
+                    "id": null,
+                    "name": "recurring",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "tiers_mode": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "tiers_mode",
+                    "id": null,
+                    "name": "tiers_mode",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "tiers": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "tiers",
+                    "id": null,
+                    "name": "tiers",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "array"
+                },
+                "unit_amount": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "unit_amount",
+                    "id": null,
+                    "name": "unit_amount",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "tax_behavior": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "tax_behavior",
+                    "id": null,
+                    "name": "tax_behavior",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "billing_scheme": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "billing_scheme",
+                    "id": null,
+                    "name": "billing_scheme",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "unit_amount_decimal": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "unit_amount_decimal",
+                    "id": null,
+                    "name": "unit_amount_decimal",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                }
+            },
+            "format": "DeltaS3Wrapper",
+            "id": "01961deb-01d2-0000-e963-9a9d03a1d509",
+            "name": "stripe.production.price",
+            "schema": {
+                "id": "01961cd0-5d1f-0000-88b2-43179d46f0e0",
+                "incremental": true,
+                "last_synced_at": "2025-04-10 04:16:38.813407+00:00",
+                "name": "Price",
+                "should_sync": false,
+                "status": "Completed"
+            },
+            "source": {
+                "id": "8815666c-648a-4843-94a7-09cf91cdc0ff",
+                "last_synced_at": "2025-04-10 12:11:55.898780+00:00",
+                "prefix": "production_",
+                "source_type": "Stripe",
+                "status": "Running"
+            },
+            "type": "data_warehouse",
+            "url_pattern": "https://posthog-s3-datawarehouse-us-east-1-dev.s3.amazonaws.com/dlt/team_1_stripe_01961cd0_5d1f_0000_88b2_43179d46f0e0/price/"
+        },
+        "stripe.production.product": {
+            "fields": {
+                "id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "id",
+                    "id": null,
+                    "name": "id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "name": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "name",
+                    "id": null,
+                    "name": "name",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "type": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "type",
+                    "id": null,
+                    "name": "type",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "active": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "active",
+                    "id": null,
+                    "name": "active",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "boolean"
+                },
+                "images": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "images",
+                    "id": null,
+                    "name": "images",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "object": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "object",
+                    "id": null,
+                    "name": "object",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "created_at": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "created_at",
+                    "id": null,
+                    "name": "created_at",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "updated_at": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "updated_at",
+                    "id": null,
+                    "name": "updated_at",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "features": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "features",
+                    "id": null,
+                    "name": "features",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "livemode": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "livemode",
+                    "id": null,
+                    "name": "livemode",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "boolean"
+                },
+                "metadata": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "metadata",
+                    "id": null,
+                    "name": "metadata",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "tax_code": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "tax_code",
+                    "id": null,
+                    "name": "tax_code",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "attributes": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "attributes",
+                    "id": null,
+                    "name": "attributes",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "description": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "description",
+                    "id": null,
+                    "name": "description",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "default_price_id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "default_price_id",
+                    "id": null,
+                    "name": "default_price_id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                }
+            },
+            "format": "DeltaS3Wrapper",
+            "id": "01961dea-e540-0000-10c8-8984158e514f",
+            "name": "stripe.production.product",
+            "schema": {
+                "id": "01961cd0-5d1b-0000-fa74-f93bfb3dc44b",
+                "incremental": true,
+                "last_synced_at": "2025-04-10 04:16:38.845065+00:00",
+                "name": "Product",
+                "should_sync": false,
+                "status": "Completed"
+            },
+            "source": {
+                "id": "8815666c-648a-4843-94a7-09cf91cdc0ff",
+                "last_synced_at": "2025-04-10 12:11:55.898780+00:00",
+                "prefix": "production_",
+                "source_type": "Stripe",
+                "status": "Running"
+            },
+            "type": "data_warehouse",
+            "url_pattern": "https://posthog-s3-datawarehouse-us-east-1-dev.s3.amazonaws.com/dlt/team_1_stripe_01961cd0_5d1b_0000_fa74_f93bfb3dc44b/product/"
+        },
+        "stripe.production.subscription": {
+            "fields": {
+                "id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "id",
+                    "id": null,
+                    "name": "id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "plan": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "plan",
+                    "id": null,
+                    "name": "plan",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "items": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "items",
+                    "id": null,
+                    "name": "items",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "object": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "object",
+                    "id": null,
+                    "name": "object",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "status": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "status",
+                    "id": null,
+                    "name": "status",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "created_at": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "created_at",
+                    "id": null,
+                    "name": "created_at",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "currency": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "currency",
+                    "id": null,
+                    "name": "currency",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "customer_id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "customer_id",
+                    "id": null,
+                    "name": "customer_id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "ended_at": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "ended_at",
+                    "id": null,
+                    "name": "ended_at",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "livemode": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "livemode",
+                    "id": null,
+                    "name": "livemode",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "boolean"
+                },
+                "metadata": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "metadata",
+                    "id": null,
+                    "name": "metadata",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "quantity": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "quantity",
+                    "id": null,
+                    "name": "quantity",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "integer"
+                },
+                "start_date": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "start_date",
+                    "id": null,
+                    "name": "start_date",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "canceled_at": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "canceled_at",
+                    "id": null,
+                    "name": "canceled_at",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "automatic_tax": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "automatic_tax",
+                    "id": null,
+                    "name": "automatic_tax",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "latest_invoice_id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "latest_invoice_id",
+                    "id": null,
+                    "name": "latest_invoice_id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "trial_settings": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "trial_settings",
+                    "id": null,
+                    "name": "trial_settings",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "invoice_settings": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "invoice_settings",
+                    "id": null,
+                    "name": "invoice_settings",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "payment_settings": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "payment_settings",
+                    "id": null,
+                    "name": "payment_settings",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "collection_method": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "collection_method",
+                    "id": null,
+                    "name": "collection_method",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "default_tax_rates": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "default_tax_rates",
+                    "id": null,
+                    "name": "default_tax_rates",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "current_period_start": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "current_period_start",
+                    "id": null,
+                    "name": "current_period_start",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "current_period_end": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "current_period_end",
+                    "id": null,
+                    "name": "current_period_end",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "billing_cycle_anchor": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "billing_cycle_anchor",
+                    "id": null,
+                    "name": "billing_cycle_anchor",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "cancel_at_period_end": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "cancel_at_period_end",
+                    "id": null,
+                    "name": "cancel_at_period_end",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "boolean"
+                },
+                "cancellation_details": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "cancellation_details",
+                    "id": null,
+                    "name": "cancellation_details",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "json"
+                },
+                "trial_end": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "trial_end",
+                    "id": null,
+                    "name": "trial_end",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "trial_start": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "trial_start",
+                    "id": null,
+                    "name": "trial_start",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                }
+            },
+            "format": "DeltaS3Wrapper",
+            "id": "01961e08-6df7-0000-9959-4c398773fe04",
+            "name": "stripe.production.subscription",
+            "schema": null,
+            "source": {
+                "id": "8815666c-648a-4843-94a7-09cf91cdc0ff",
+                "last_synced_at": "2025-04-10 12:11:55.898780+00:00",
+                "prefix": "production_",
+                "source_type": "Stripe",
+                "status": "Running"
+            },
+            "type": "data_warehouse",
+            "url_pattern": "https://posthog-s3-datawarehouse-us-east-1-dev.s3.amazonaws.com/dlt/team_1_stripe_01961cd0_5d16_0000_9001_db7a3d6475ec/subscription/"
+        },
+        "stripe.production.charge_revenue_view": {
+            "fields": {
+                "id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "id",
+                    "id": null,
+                    "name": "id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "timestamp": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "timestamp",
+                    "id": null,
+                    "name": "timestamp",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "customer_id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "customer_id",
+                    "id": null,
+                    "name": "customer_id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "original_currency": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "original_currency",
+                    "id": null,
+                    "name": "original_currency",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "enable_currency_aware_divider": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "enable_currency_aware_divider",
+                    "id": null,
+                    "name": "enable_currency_aware_divider",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "boolean"
+                },
+                "currency": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "currency",
+                    "id": null,
+                    "name": "currency",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                }
+            },
+            "id": "stripe.production.charge_revenue_view",
+            "name": "stripe.production.charge_revenue_view",
+            "query": {
+                "explain": null,
+                "filters": null,
+                "kind": "HogQLQuery",
+                "modifiers": null,
+                "name": null,
+                "query": "SELECT id AS id, created_at AS timestamp, customer_id AS customer_id, toDecimal(amount_captured, 10) AS original_amount, upper(currency) AS original_currency, in(original_currency, ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS enable_currency_aware_divider, if(enable_currency_aware_divider, toDecimal(1, 10), toDecimal(100, 10)) AS currency_aware_divider, divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount, 'USD' AS currency, convertCurrency(original_currency, currency, currency_aware_amount, _toDate(ifNull(timestamp, toDateTime(0)))) AS amount FROM production_stripe_charge WHERE equals(status, 'succeeded')",
+                "response": null,
+                "values": null,
+                "variables": null
+            },
+            "type": "managed_view"
+        },
+        "stripe.production.customer_revenue_view": {
+            "fields": {
+                "id": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "id",
+                    "id": null,
+                    "name": "id",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "timestamp": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "timestamp",
+                    "id": null,
+                    "name": "timestamp",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "datetime"
+                },
+                "name": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "name",
+                    "id": null,
+                    "name": "name",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "email": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "email",
+                    "id": null,
+                    "name": "email",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                },
+                "phone": {
+                    "chain": null,
+                    "fields": null,
+                    "hogql_value": "phone",
+                    "id": null,
+                    "name": "phone",
+                    "schema_valid": true,
+                    "table": null,
+                    "type": "string"
+                }
+            },
+            "id": "stripe.production.customer_revenue_view",
+            "name": "stripe.production.customer_revenue_view",
+            "query": {
+                "explain": null,
+                "filters": null,
+                "kind": "HogQLQuery",
+                "modifiers": null,
+                "name": null,
+                "query": "SELECT id AS id, created_at AS timestamp, name AS name, email AS email, phone AS phone FROM production_stripe_customer",
+                "response": null,
+                "values": null,
+                "variables": null
+            },
+            "type": "managed_view"
+        }
+    },
+    "joins": [
+        {
+            "id": "018ef295-ff0f-0000-41f0-e447488369f6",
+            "source_table_name": "stripe.prod.customer_revenue_view",
+            "source_table_key": "id",
+            "joining_table_name": "persons",
+            "joining_table_key": "pdi.distinct_id",
+            "field_name": "persons",
+            "configuration": null
+        }
+    ]
+}

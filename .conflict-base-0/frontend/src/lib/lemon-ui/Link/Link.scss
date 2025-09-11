@@ -1,0 +1,52 @@
+.Link {
+    padding: 0;
+    line-height: inherit;
+    color: var(--color-accent);
+    text-align: left;
+    cursor: pointer;
+    background: none;
+    border: none;
+    transition: none;
+
+    &:not(:disabled) {
+        &:hover {
+            color: var(--color-accent-hover);
+        }
+
+        &:active {
+            color: var(--color-accent-active);
+        }
+    }
+
+    &:disabled {
+        cursor: not-allowed;
+        opacity: var(--opacity-disabled);
+    }
+
+    > .LemonIcon:last-child {
+        margin-left: 0.15em;
+    }
+
+    &--subtle {
+        color: var(--text-3000);
+
+        &:not(:disabled):hover {
+            color: var(--color-accent-hover);
+        }
+    }
+
+    // Tooltips are inverted, so links are too
+    .Tooltip & {
+        color: var(--color-accent-inverted);
+
+        &:not(:disabled) {
+            &:hover {
+                color: var(--color-accent-hover-inverted);
+            }
+
+            &:active {
+                color: var(--color-accent-active-inverted);
+            }
+        }
+    }
+}

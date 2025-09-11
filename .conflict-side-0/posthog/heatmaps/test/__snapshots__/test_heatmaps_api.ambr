@@ -1,0 +1,961 @@
+# serializer version: 1
+# name: TestSessionRecordings.test_can_filter_by_exact_url
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), equals(heatmaps.current_url, 'http://example.com'), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_filter_by_exact_url.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), equals(heatmaps.current_url, 'http://example.com/about'), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_filter_by_test_accounts
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1))), in(heatmaps.session_id,
+                                                                                                                                                                                                                                                              (SELECT DISTINCT events.`$session_id` AS `$session_id`
+                                                                                                                                                                                                                                                               FROM events
+                                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), and(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-03-08 00:00:00.000000', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '%127.0.0.1%'), 1)))))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_filter_by_test_accounts.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com*
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com$'), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com*.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com.+$'), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products*
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com$'), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products*.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com/products.+$'), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/*/parts/*
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com$'), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/*/parts/*.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com/products/.+/parts/.+$'), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/*/reviews/*
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com$'), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/*/reviews/*.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com/products/.+/reviews/.+$'), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/1*
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com$'), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/1*.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com/products/1.+$'), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/1*/parts/*
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com$'), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/1*/parts/*.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com/products/1.+/parts/.+$'), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_filter_by_url_pattern_where_end_is_anchored
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), match(heatmaps.current_url, '^http://example.com$'), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_filter_by_viewport_0_min_150
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), ifNull(greaterOrEquals(heatmaps.viewport_width, round(divide(150, 16))), 0), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_filter_by_viewport_1_min_161
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), ifNull(greaterOrEquals(heatmaps.viewport_width, round(divide(161, 16))), 0), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_filter_by_viewport_2_min_177
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), ifNull(greaterOrEquals(heatmaps.viewport_width, round(divide(177, 16))), 0), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_filter_by_viewport_3_min_201
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), ifNull(greaterOrEquals(heatmaps.viewport_width, round(divide(201, 16))), 0), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_filter_by_viewport_4_min_161_and_max_192
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), ifNull(greaterOrEquals(heatmaps.viewport_width, round(divide(161, 16))), 0), ifNull(lessOrEquals(heatmaps.viewport_width, round(divide(192, 16))), 0), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_get_all_data_response
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_get_count_by_aggregation
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_get_count_by_aggregation.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(DISTINCT distinct_id) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_get_empty_response
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2024-05-03')), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_get_filter_by_click
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_get_filter_by_click.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'rageclick'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_get_filter_by_date_from
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_get_filter_by_relative_date
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-08')), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus(toDate('2023-03-14'), toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_get_filter_by_relative_date.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT pointer_target_fixed AS pointer_target_fixed,
+         pointer_relative_x AS pointer_relative_x,
+         client_y AS client_y,
+         count(*) AS cnt
+  FROM
+    (SELECT heatmaps.distinct_id AS distinct_id,
+            heatmaps.pointer_target_fixed AS pointer_target_fixed,
+            round(divide(heatmaps.x, heatmaps.viewport_width), 2) AS pointer_relative_x,
+            multiply(heatmaps.y, heatmaps.scale_factor) AS client_y
+     FROM heatmaps
+     WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'click'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-15')), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus(toDate('2023-03-15'), toIntervalDay(1)))))
+  GROUP BY pointer_target_fixed,
+           pointer_relative_x,
+           client_y
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_get_scrolldepth_counts
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT bucket AS bucket,
+         cnt AS bucket_count,
+         sum(cnt) OVER (
+                        ORDER BY bucket DESC) AS cumulative_count
+  FROM
+    (SELECT multiply(intDiv(scroll_y, 100), 100) AS bucket,
+            count(*) AS cnt
+     FROM
+       (SELECT heatmaps.distinct_id AS distinct_id,
+               multiply(plus(heatmaps.y, heatmaps.viewport_height), heatmaps.scale_factor) AS scroll_y
+        FROM heatmaps
+        WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'scrolldepth'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-06')), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+     GROUP BY bucket)
+  ORDER BY bucket ASC
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionRecordings.test_can_get_scrolldepth_counts_by_visitor
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT bucket AS bucket,
+         cnt AS bucket_count,
+         sum(cnt) OVER (
+                        ORDER BY bucket DESC) AS cumulative_count
+  FROM
+    (SELECT multiply(intDiv(scroll_y, 100), 100) AS bucket,
+            count(DISTINCT distinct_id) AS cnt
+     FROM
+       (SELECT heatmaps.distinct_id AS distinct_id,
+               multiply(plus(heatmaps.y, heatmaps.viewport_height), heatmaps.scale_factor) AS scroll_y
+        FROM heatmaps
+        WHERE and(equals(heatmaps.team_id, 99999), equals(heatmaps.type, 'scrolldepth'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-06')), lessOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), plus('2025-03-31', toIntervalDay(1)))))
+     GROUP BY bucket)
+  ORDER BY bucket ASC
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295,
+                         allow_experimental_join_condition=1
+  '''
+# ---

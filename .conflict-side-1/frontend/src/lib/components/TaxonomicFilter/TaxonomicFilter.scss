@@ -1,0 +1,35 @@
+.taxonomic-filter {
+    display: flex;
+    flex-direction: column;
+    width: 650px;
+    max-width: calc(100vw - 40px);
+
+    &.force-minimum-width {
+        min-width: 350px;
+    }
+
+    &.one-taxonomic-tab {
+        .taxonomic-infinite-list {
+            margin-top: 10px;
+        }
+    }
+
+    .taxonomic-group-title {
+        display: flex;
+        align-items: stretch;
+        width: 100%;
+        padding-top: 10px;
+        padding-left: 10px;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 12px;
+        color: var(--color-text-secondary);
+        text-transform: uppercase;
+    }
+
+    .taxonomic-pills {
+        padding-left: 10px;
+        margin-top: 8px;
+        margin-bottom: 8px;
+    }
+}

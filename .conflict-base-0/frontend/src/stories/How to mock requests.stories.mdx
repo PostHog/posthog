@@ -1,0 +1,80 @@
+import { Meta } from '@storybook/addon-docs'
+
+<Meta title=" How to mock requests?" />
+
+# How to mock requests?
+
+## MockServiceWorker
+
+- We use an abstraction over [MockServiceWorker](https://mswjs.io/) to provide API mocks.
+- This abstraction along with the
+  [default mocks](https://github.com/PostHog/posthog/blob/master/frontend/src/mocks/handlers.ts#L7) are shared between storybook and jest tests.
+
+## Specifying mocks
+
+### Where to call
+
+To specify mocked API calls in a story, use one of these two options:
+
+```tsx
+// SomeScene.stories.tsx
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+
+export default {
+    title: 'Scenes-App/Some Scene',
+    decorators: [
+        // applies for all stories in file
+        mswDecorator(MOCK_ARGUMENTS),
+    ],
+}
+
+export function Dashboard(): JSX.Element {
+    // applies to just this story
+    useStorybookMocks(MOCK_ARGUMENTS)
+    return <div />
+}
+```
+
+### Arguments
+
+The `MOCK_ARGUMENTS` take one of these formats:
+
+```tsx
+// you can the four HTTP methods
+useStorybookMocks({
+    get: {},
+    post: {},
+    patch: {},
+    delete: {},
+})
+
+// and any of these styles
+useStorybookMocks({
+    get: {
+        // return a 200 success with the object passed here
+        '/api/endpoint': { results: [], success: true }
+
+        // return a 200 success after a 100ms delay, using msw-s ctx
+        '/api/other_endpoint': (_, __, ctx) => [
+            ctx.delay(100),
+            ctx.status(200),
+            ctx.json({ results: [], success: true })
+        ]
+
+        // shorthand for status + json
+        '/api/status_shorthand': () => [500, { error: 'Error text' }]
+
+        // complicated param handling
+        '/api/environments/:team_id/insights': (req, _, ctx) => {
+            const team = req.params['team']
+            const shortId = req.url.searchParams.get('short_id')
+            if (shortId === 'my_insight') {
+                return [200, { result: [{ ...insightJson, team_id: team }] }]
+            }
+            return [500, null]
+        }
+
+    },
+})
+
+```

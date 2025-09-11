@@ -1,0 +1,112 @@
+-- empty, notEmpty, length, lower, upper, reverse --
+3
+TEST
+null
+rennips
+
+-- encodeURLComponent, decodeURLComponent --
+http%3A%2F%2Fwww.google.com
+tom%20%26%20jerry
+http://www.google.com
+tom & jerry
+
+-- base64Encode, base64Decode --
+aHR0cDovL3d3dy5nb29nbGUuY29t
+dG9tICYgamVycnk=
+http://www.google.com
+tom & jerry
+
+-- empty --
+true
+false
+false
+false
+false
+false
+true
+false
+false
+true
+true
+true
+false
+false
+false
+false
+
+-- notEmpty --
+false
+true
+true
+true
+true
+true
+false
+true
+true
+false
+false
+false
+true
+true
+true
+true
+
+-- replaceAll, replaceOne --
+heLLo worLd
+heLlo world
+
+-- generateUUIDv4 --
+36
+
+-- isNull, isNotNull --
+true false
+false true
+false true
+false true
+false true
+false true
+
+-- comparisons --
+true false false
+true false
+true true
+true true true
+true false true true false true true true
+false false false false false true true true true true
+
+-- logic --
+yes no
+one
+
+-- math --
+3
+15 5
+3 4
+[0, 1, 2, 3, 4]
+[3, 4, 5]
+
+-- string/array --
+true false
+true false
+true bcd
+bcdef
+firstNonNull notNull
+
+-- date --
+2024 12
+datetime
+DateTime(1734480000.0, 'UTC') DateTime(1734307200.0, 'UTC')
+202412
+Date(2024, 12, 19) 5
+DateTime(1734480000.0, 'UTC')
+Date(2024, 12, 21)
+{'__hogInterval__': true, 'value': 5, 'unit': 'day'} {'__hogInterval__': true, 'value': 2, 'unit': 'month'}
+date
+
+-- json --
+123 null
+123.1 null
+"123.1" "hello"
+null null
+[] ["hello"]

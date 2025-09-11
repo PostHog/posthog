@@ -1,0 +1,53 @@
+.VariantFormList {
+    padding: 16px;
+    margin-top: 16px;
+    font-size: 13px;
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius);
+
+    .label-row {
+        font-weight: bold;
+    }
+
+    .VariantFormList__row {
+        grid-template-columns: repeat(24, minmax(0, 1fr));
+    }
+}
+
+.feature-flag-property-display {
+    display: flex;
+    flex-flow: row wrap;
+    gap: 0.5rem;
+    align-items: center;
+    margin-top: 0.5rem;
+
+    .arrow-right {
+        margin-top: 0.25rem;
+        margin-right: -8px;
+    }
+
+    .display-value {
+        word-break: break-all;
+    }
+}
+
+.condition-set-separator {
+    margin-bottom: 0.5rem;
+    margin-left: 0.5rem;
+    font-size: 12px;
+    font-weight: var(--font-semibold);
+    color: var(--primary-alt);
+}
+
+.feature-flag-form-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    width: 100%;
+
+    .centered {
+        display: flex;
+        align-items: center;
+        white-space: pre-wrap;
+    }
+}

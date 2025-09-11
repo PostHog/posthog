@@ -1,0 +1,109 @@
+#!/bin/bash
+set -e
+
+SKIP_MIGRATE=false
+SKIP_RECREATE_DATABASE=false
+SKIP_SETUP_DEV=false
+
+HELP_TEXT=$(cat << EOF
+  use --skip-recreate-db to skip dropping and creating databases
+  use --skip-migrate-db to skip running DB migrations
+  use --skip-setup-dev to skip running django setup_dev command
+EOF
+)
+
+for var in "$@"
+do
+    if [ "$var" == "--help" ]; then
+      echo "$HELP_TEXT"
+      exit 0
+    fi
+    if [ "$var" == "-h" ]; then
+      echo "$HELP_TEXT"
+      exit 0
+    fi
+
+    if [ "$var" == "--skip-all-setup" ]; then
+      SKIP_RECREATE_DATABASE=true
+      SKIP_MIGRATE=true
+      SKIP_SETUP_DEV=true
+      echo "skipping all setup"
+    fi
+    if [ "$var" == "--skip-recreate-db" ]; then
+      SKIP_RECREATE_DATABASE=true
+      echo "skipping dropping and recreating databases"
+    fi
+
+    if [ "$var" == "--skip-migrate-db" ]; then
+      SKIP_MIGRATE=true
+      echo "skipping migrating databases"
+    fi
+
+    if [ "$var" == "--skip-setup-dev" ]; then
+      SKIP_SETUP_DEV=true
+      echo "skipping django setup dev command"
+    fi
+done
+
+export SECURE_COOKIES=0
+export SKIP_SERVICE_VERSION_REQUIREMENTS=1
+export KAFKA_HOSTS=kafka:9092
+export CLICKHOUSE_DATABASE=posthog_test
+export CLICKHOUSE_SECURE=0
+export JS_URL=http://localhost:8234
+export E2E_TESTING=1
+export SECRET_KEY=e2e_test
+export EMAIL_HOST=email.test.posthog.net
+export SITE_URL=http://localhost:8080
+export REDIS_URL=redis://localhost/
+DATABASE="posthog_e2e_test"
+export PGHOST="${PGHOST:=localhost}"
+export PGUSER="${PGUSER:=posthog}"
+export PGPASSWORD="${PGPASSWORD:=posthog}"
+export PGPORT="${PGPORT:=5432}"
+export DATABASE_URL="postgres://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${DATABASE}"
+export CLOUD_DEPLOYMENT=E2E
+
+echo "~~~~~~~~~~~~~ starting e2e test runner ~~~~~~~~~~~~~"
+
+source ./bin/celery-queues.env
+
+trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
+
+recreateDatabases() {
+  echo "~~~~~~~~~~~~~ dropping and creating databases ~~~~~~~~~~~~~"
+
+  dropdb --if-exists $DATABASE
+  createdb $DATABASE
+
+  # Delete and recreate clickhouse database
+  echo 'DROP DATABASE if exists posthog_test' | curl 'http://localhost:8123/' --data-binary @-
+  echo 'create database posthog_test' | curl 'http://localhost:8123/' --data-binary @-
+}
+
+migrateDatabases() {
+  echo "~~~~~~~~~~~~~ migrating databases ~~~~~~~~~~~~~"
+  python manage.py migrate
+  python manage.py migrate_clickhouse
+}
+
+setupDev() {
+  echo "~~~~~~~~~~~~~ setting up django ~~~~~~~~~~~~~"
+  python manage.py setup_dev &
+}
+
+bin/check_kafka_clickhouse_up
+
+$SKIP_RECREATE_DATABASE || recreateDatabases
+$SKIP_MIGRATE || migrateDatabases
+$SKIP_SETUP_DEV || setupDev
+
+# parallel block
+# Only start webpack if not already running
+nc -vz 127.0.0.1 8234 2> /dev/null || ./bin/start-frontend &
+python manage.py run_autoreload_celery --type=worker &
+python manage.py runserver 8080 &
+
+pnpm --filter=@posthog/frontend build:products
+
+pnpm --filter=@posthog/playwright exec playwright test --ui

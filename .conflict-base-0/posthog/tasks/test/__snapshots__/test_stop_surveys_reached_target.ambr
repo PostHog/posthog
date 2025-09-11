@@ -1,0 +1,27 @@
+# serializer version: 1
+# name: TestStopSurveysReachedTarget.test_stop_surveys_with_enough_responses
+  '''
+  
+  SELECT JSONExtractString(properties, '$survey_id') as survey_id,
+         count()
+  FROM events
+  WHERE event = 'survey sent'
+    AND team_id = 99999
+    AND timestamp >= '2021-12-29 20:00:00'
+    AND survey_id in ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */]
+  GROUP BY survey_id
+  '''
+# ---
+# name: TestStopSurveysReachedTarget.test_stop_surveys_with_enough_responses.1
+  '''
+  
+  SELECT JSONExtractString(properties, '$survey_id') as survey_id,
+         count()
+  FROM events
+  WHERE event = 'survey sent'
+    AND team_id = 99999
+    AND timestamp >= '2022-01-01 00:00:00'
+    AND survey_id in ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */]
+  GROUP BY survey_id
+  '''
+# ---

@@ -1,0 +1,58 @@
+{
+    "name": "@posthog/hogvm",
+    "version": "1.0.67",
+    "description": "PostHog Hog Virtual Machine",
+    "types": "dist/index.d.ts",
+    "source": "src/index.ts",
+    "main": "dist/index.js",
+    "module": "dist/module.js",
+    "scripts": {
+        "test": "jest --runInBand --forceExit",
+        "clean": "rm -rf dist .parcel-cache",
+        "build": "pnpm clean && pnpm build:parcel && pnpm build:cli",
+        "build:parcel": "parcel build --no-cache",
+        "build:compile": "tsc -p tsconfig.build.json",
+        "build:cli": "mkdir -p ./dist && cp ./src/cli.js ./dist/cli.js",
+        "compile:stl": "cd ../../.. && python3 -m common.hogvm.stl.compile",
+        "check": "tsc -p tsconfig.build.json --noEmit",
+        "prettier": "prettier --write src",
+        "prettier:check": "prettier --check src",
+        "prepublishOnly": "pnpm build"
+    },
+    "author": "PostHog <hey@posthog.com>",
+    "repository": "https://github.com/PostHog/posthog-plugin-server",
+    "license": "MIT",
+    "devDependencies": {
+        "@parcel/packager-ts": "2.13.3",
+        "@parcel/transformer-typescript-types": "2.13.3",
+        "@parcel/config-default": "2.13.3",
+        "@parcel/transformer-js": "2.13.3",
+        "@parcel/transformer-react-refresh-wrap": "2.13.3",
+        "@swc-node/register": "^1.9.1",
+        "@swc/core": "^1.11.4",
+        "@swc/jest": "^0.2.37",
+        "@types/luxon": "^3.4.2",
+        "@types/jest": "^29.5.14",
+        "@types/node": "^22.13.14",
+        "crypto-browserify": "^3.12.0",
+        "jest": "^29.7.0",
+        "parcel": "^2.13.3",
+        "prettier": "^3.6.2",
+        "re2": "^1.21.3",
+        "typescript": "^5.4.5"
+    },
+    "files": [
+        "dist",
+        "src",
+        "jest.config.js",
+        "tsconfig.build.json",
+        "tsconfig.json",
+        ".prettierrc"
+    ],
+    "peerDependencies": {
+        "luxon": "^3.4.4"
+    },
+    "dependencies": {
+        "luxon": "^3.4.4"
+    }
+}

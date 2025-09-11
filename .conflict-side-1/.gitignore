@@ -1,0 +1,120 @@
+__emails__
+__pycache__/
+# Local files generated for the ANTLR VS Code extension (https://github.com/mike-lischke/vscode-antlr4)
+.antlr
+.coverage
+.dlt
+.dmypy.json
+.DS_Store
+.env*
+.eslintcache
+.idea
+.mypy_cache
+.parcel-cache
+# pyenv local config
+.python-version
+.temporal-worker-settings
+.turbo
+.venv
+.vscode/*
+!.vscode/launch.json
+!.vscode/settings.example.json
+.wokeignore
+.yalc
+*-esbuild-bundle-visualization.html
+*-esbuild-meta.json
+*.code-workspace
+*.db
+*.isorted
+*.log
+*.pyc
+*.swo
+*.swp
+**/*.tsbuildinfo
+*Type.ts
+CLAUDE.local.md
+/env
+/playwright-report/
+/test-results/
+a11y/
+build-storybook.log
+celerybeat-schedule
+celerybeat.pid
+common/hogvm/typescript/.parcel-cache
+common/hogvm/typescript/dist
+common/plugin_transpiler/dist
+common/tailwind/dist
+coverage-*.xml
+debug.log
+docker-compose.prod.yml
+ee/benchmarks/results
+ee/support_sidebar_max/.env
+ee/support_sidebar_max/.vscode
+ee/support_sidebar_max/.vscode/settings.json
+ee/support_sidebar_max/max-venv/
+frontend/__snapshots__/__diff_output__/
+frontend/__snapshots__/__failures__/
+frontend/.cache/
+frontend/@posthog/apps-common/dist/
+frontend/dist/
+frontend/pnpm-error.log
+frontend/public/Matter*.woff* # Paid font
+frontend/tmp
+frontend/types/
+frontend/src/products.tsx
+# Vite-specific assets (we copy public assets to src/assets) just for development
+frontend/src/assets
+.typegen
+# ANTLR-generated temp files when "npm run grammar:build" crashes
+gen/
+max-test-venv/
+node_modules/
+object_storage/
+playwright/e2e-vrt/**/*-darwin.png
+pnpm-error.log
+# pyright config (keep this until we have a standardized one)
+pyrightconfig.json
+settings.yml
+share/GeoLite2-City.*
+staticfiles
+storybook-static
+frontend/storybook-static
+common/storybook/dist
+temp_test_run_data.json
+# ignore all dagster tmp directories that may be created
+tmp*/
+upgrade/
+venv
+yalc.lock
+# Flox.dev lockfile (will differ slightly per local dev env, even with consistent pinning in TOML file)
+.flox/env/manifest.lock
+
+playwright/.auth/
+playwright-report/
+test-results/
+playwright/playwright-report/
+playwright/test-results/
+
+.dagster_home/*
+!.dagster_home/.gitkeep
+!.dagster_home/workspace.yaml
+!.dagster_home/dagster.yaml
+.tmp_dagster_home*/*
+
+# Dist release target dir
+target/*
+
+# Ignore user's Cursor rules
+.cursor/**/user*.mdc
+
+# Ignore file for clearing demo data on local
+posthog/management/commands/clear_demo_data.py
+
+# Ignore Claude Code settings
+.claude/settings.local.json
+
+# Ignore local mprocs configs
+bin/mprocs*.local.yaml
+
+# Debug output of our session summaries product
+.session-summaries

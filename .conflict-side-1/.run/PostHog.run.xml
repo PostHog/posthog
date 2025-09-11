@@ -1,0 +1,50 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="PostHog" type="Python.DjangoServer" factoryName="Django server">
+    <module name="posthog" />
+    <option name="ENV_FILES" value="" />
+    <option name="INTERPRETER_OPTIONS" value="" />
+    <option name="PARENT_ENVS" value="true" />
+    <envs>
+      <env name="BILLING_SERVICE_URL" value="https://billing.dev.posthog.dev" />
+      <env name="CAPTURE_TIME_TO_SEE_DATA" value="0" />
+      <env name="CLICKHOUSE_SECURE" value="False" />
+      <env name="DATABASE_URL" value="postgres://posthog:posthog@localhost:5432/posthog" />
+      <env name="DEBUG" value="1" />
+      <env name="DJANGO_SETTINGS_MODULE" value="posthog.settings" />
+      <env name="KAFKA_HOSTS" value="localhost" />
+      <env name="KEA_VERBOSE_LOGGING" value="false" />
+      <env name="PRINT_SQL" value="1" />
+      <env name="PYDEVD_USE_CYTHON" value="NO" />
+      <env name="PYTHONUNBUFFERED" value="1" />
+      <env name="SESSION_RECORDING_KAFKA_COMPRESSION" value="gzip-in-capture" />
+      <env name="SESSION_RECORDING_KAFKA_HOSTS" value="localhost" />
+      <env name="SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES" value="20971520" />
+      <env name="SKIP_SERVICE_VERSION_REQUIREMENTS" value="1" />
+    </envs>
+    <option name="SDK_HOME" value="$PROJECT_DIR$/env/bin/python" />
+    <option name="WORKING_DIRECTORY" value="" />
+    <option name="IS_MODULE_SDK" value="true" />
+    <option name="ADD_CONTENT_ROOTS" value="true" />
+    <option name="ADD_SOURCE_ROOTS" value="true" />
+    <EXTENSION ID="net.ashald.envfile">
+      <option name="IS_ENABLED" value="false" />
+      <option name="IS_SUBST" value="false" />
+      <option name="IS_PATH_MACRO_SUPPORTED" value="false" />
+      <option name="IS_IGNORE_MISSING_FILES" value="false" />
+      <option name="IS_ENABLE_EXPERIMENTAL_INTEGRATIONS" value="false" />
+      <ENTRIES>
+        <ENTRY IS_ENABLED="true" PARSER="runconfig" IS_EXECUTABLE="false" />
+      </ENTRIES>
+    </EXTENSION>
+    <option name="launchJavascriptDebuger" value="false" />
+    <option name="port" value="8000" />
+    <option name="host" value="" />
+    <option name="additionalOptions" value="" />
+    <option name="browserUrl" value="" />
+    <option name="runTestServer" value="false" />
+    <option name="runNoReload" value="false" />
+    <option name="useCustomRunCommand" value="false" />
+    <option name="customRunCommand" value="" />
+    <method v="2" />
+  </configuration>
+</component>

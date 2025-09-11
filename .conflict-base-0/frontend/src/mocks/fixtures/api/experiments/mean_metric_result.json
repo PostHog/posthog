@@ -1,0 +1,64 @@
+{
+    "baseline": {
+        "denominator_sum": null,
+        "denominator_sum_squares": null,
+        "key": "control",
+        "number_of_samples": 989,
+        "numerator_denominator_sum_product": null,
+        "sum": 1636.0,
+        "sum_squares": 3760.0,
+        "validation_failures": []
+    },
+    "cache_key": "cache_17925ec0dddf2fa25f9dd34a591743c2",
+    "cache_target_age": "2025-09-05T16:14:05.259133Z",
+    "calculation_trigger": null,
+    "credible_intervals": null,
+    "insight": null,
+    "is_cached": true,
+    "kind": "ExperimentQuery",
+    "last_refresh": "2025-09-04T16:14:05.259133Z",
+    "metric": null,
+    "next_allowed_client_refresh": "2025-09-04T16:15:05.259133Z",
+    "p_value": null,
+    "probability": null,
+    "query_metadata": {
+        "events": [],
+        "updated_at": "2025-09-04T16:14:11.010108Z"
+    },
+    "query_status": null,
+    "significance_code": null,
+    "significant": null,
+    "stats_version": null,
+    "timezone": "UTC",
+    "variant_results": [
+        {
+            "chance_to_win": 2.7262704800611193e-8,
+            "credible_interval": [-0.19740467628759228, -0.09277676754203046],
+            "denominator_sum": null,
+            "denominator_sum_squares": null,
+            "key": "test-1",
+            "method": "bayesian",
+            "number_of_samples": 874,
+            "numerator_denominator_sum_product": null,
+            "significant": true,
+            "sum": 1236.0,
+            "sum_squares": 2634.0,
+            "validation_failures": []
+        },
+        {
+            "chance_to_win": 0.9999998975983043,
+            "credible_interval": [0.09706777250053614, 0.21468859747750865],
+            "denominator_sum": null,
+            "denominator_sum_squares": null,
+            "key": "test-2",
+            "method": "bayesian",
+            "number_of_samples": 1137,
+            "numerator_denominator_sum_product": null,
+            "significant": true,
+            "sum": 2174.0,
+            "sum_squares": 5478.0,
+            "validation_failures": []
+        }
+    ],
+    "variants": null
+}

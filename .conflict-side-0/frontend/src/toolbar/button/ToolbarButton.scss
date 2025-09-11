@@ -1,0 +1,116 @@
+#button-toolbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 2147483020;
+    opacity: 1;
+    transition: opacity ease 0.5s;
+
+    .circle-button {
+        box-shadow:
+            0 0.3px 0.7px rgb(0 0 0 / 25%),
+            0 0.8px 1.7px rgb(0 0 0 / 18%),
+            0 1.5px 3.1px rgb(0 0 0 / 14.9%),
+            0 2.7px 5.4px rgb(0 0 0 / 12.5%),
+            0 5px 10px rgb(0 0 0 / 10.1%),
+            0 12px 24px rgb(0 0 0 / 7%);
+        transition: box-shadow 0.2s ease;
+
+        &:hover {
+            box-shadow:
+                0 1.3px 2.7px rgb(0 0 0 / 25%),
+                0 3.2px 6.4px rgb(0 0 0 / 18%),
+                0 6px 12px rgb(0 0 0 / 14.9%),
+                0 10.7px 21.4px rgb(0 0 0 / 12.5%),
+                0 20.1px 40.1px rgb(0 0 0 / 10.1%),
+                0 48px 96px rgb(0 0 0 / 7%);
+        }
+    }
+
+    .circle-label {
+        font-weight: bold;
+        text-shadow:
+            black 0 0 1px,
+            black 0 0 2px,
+            rgb(0 0 0 / 25%) 0 0.3px 0.7px,
+            rgb(0 0 0 / 18%) 0 0.8px 1.6px,
+            rgb(0 0 0 / 15%) 0 1.5px 3px,
+            rgb(0 0 0 / 12.5%) 0 2.7px 5.4px,
+            rgb(0 0 0 / 10%) 0 5px 10px,
+            rgb(0 0 0 / 7%) 0 12px 24px;
+    }
+
+    & + .HedgehogBuddy {
+        z-index: 2147483020;
+    }
+}
+
+.toolbar-info-windows {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 2147483020;
+    width: 300px;
+    background-color: rgb(255 255 255);
+    border: 1px solid var(--color-border-primary);
+    border-radius: 4px;
+    box-shadow:
+        0 0.3px 0.7px rgb(0 0 0 / 25%),
+        0 0.8px 1.7px rgb(0 0 0 / 18%),
+        0 1.5px 3.1px rgb(0 0 0 / 14.9%),
+        0 2.7px 5.4px rgb(0 0 0 / 12.5%),
+        0 5px 10px rgb(0 0 0 / 10.1%),
+        0 12px 24px rgb(0 0 0 / 7%);
+    opacity: 1;
+    transition: opacity ease 0.5s;
+
+    .toolbar-block {
+        max-height: 80vh;
+        overflow: auto;
+    }
+
+    .toolbar-info-window-title {
+        display: flex;
+        align-items: center;
+        margin: 0 8px;
+        line-height: 26px;
+        border-bottom: 1px solid var(--color-border-primary);
+
+        .toolbar-info-window-draggable {
+            display: flex;
+            flex: 1;
+            align-items: center;
+            width: 100%;
+            padding: 15px 0;
+            cursor: move;
+
+            .window-label {
+                padding-left: 8px;
+                margin-bottom: 0;
+                font-size: 14px;
+                font-weight: bold;
+            }
+        }
+
+        .close-button {
+            padding: 8px;
+            color: rgb(0 0 0 / 60%);
+            cursor: pointer;
+            transition: color 0.1s ease-in-out;
+
+            &:hover {
+                color: rgb(0 0 0);
+            }
+        }
+    }
+}
+
+.overridden-tag {
+    padding: 0 4px;
+    margin-left: 5px;
+    font-size: 11px;
+    font-weight: bold;
+    line-height: 20px;
+    background: var(--mark);
+    border-radius: 4px;
+}

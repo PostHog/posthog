@@ -1,0 +1,41 @@
+.LemonSkeleton {
+    // Background is such that at 25% (one full width) the darker fade starts and finishes slightly less than 75% (3 full widths)
+    // With the background size at 400% this gives the impression of movement,
+
+    background: linear-gradient(
+        90deg,
+        var(--color-skeleton-light) 25%,
+        var(--color-skeleton-dark) 45%,
+        var(--color-skeleton-light) 65%
+    );
+    background-size: 400% 100%;
+    animation: LemonSkeleton__shimmer 2s ease infinite;
+
+    &.LemonSkeleton--static {
+        animation: none;
+    }
+
+    // The following CSS visually hides the "Loading…" span, but still leaves it available for a screen reader
+    // See https://adrianroselli.com/2020/11/more-accessible-skeletons.html
+    > span {
+        display: block;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        white-space: nowrap;
+    }
+
+    @media (prefers-reduced-motion) {
+        animation: none;
+    }
+}
+
+@keyframes LemonSkeleton__shimmer {
+    0% {
+        background-position: 100% 50%;
+    }
+
+    100% {
+        background-position: 0% 50%;
+    }
+}

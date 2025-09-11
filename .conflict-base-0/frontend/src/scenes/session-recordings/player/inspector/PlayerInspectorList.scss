@@ -1,0 +1,14 @@
+#PlayerInspectorListMarker {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 1;
+    width: 1rem;
+    height: 0.5rem;
+    margin-top: 0.25rem;
+    pointer-events: none;
+    background-color: var(--color-accent);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    transition: transform 200ms linear;
+    will-change: transform;
+}

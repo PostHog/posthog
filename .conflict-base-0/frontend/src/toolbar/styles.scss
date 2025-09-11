@@ -1,0 +1,58 @@
+@import '../styles/base';
+
+*,
+*::before,
+*::after {
+    --z-toolbar: 2147483020;
+
+    box-sizing: border-box;
+}
+
+:host {
+    // reset fonts
+    all: initial;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+
+    // @include root-variables;
+}
+
+.LemonModal__overlay--force-modal-above-popovers {
+    z-index: calc(var(--z-toolbar) + var(--z-force-modal-above-popovers)) !important;
+}
+
+.section-title {
+    margin-bottom: 10px;
+    font-size: 12px;
+    font-weight: bold;
+    color: hsl(220deg 15% 49% / 100%);
+    text-transform: uppercase;
+}
+
+.fade-component-container {
+    position: fixed;
+    z-index: var(--z-toolbar);
+}
+
+.Toastify__toast-container {
+    z-index: calc(var(--z-toolbar) + 20);
+}
+
+.toolbar-global-fade-container {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+
+    > * {
+        pointer-events: auto;
+    }
+}
+
+.Popover {
+    z-index: calc(var(--z-toolbar) + var(--z-popover)) !important;
+}
+
+.Tooltip {
+    z-index: calc(var(--z-toolbar) + var(--z-tooltip)) !important;
+}

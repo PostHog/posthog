@@ -1,0 +1,112 @@
+.TimelineSeekbar {
+    --timeline-seekbar-thickness: 0.125rem;
+    --timeline-seekbar-arrow-width: 0.5rem;
+    --timeline-seekbar-arrow-height: 0.75rem;
+
+    margin: 0.75rem 0.5rem;
+}
+
+.TimelineSeekbar__meta {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: space-between;
+}
+
+.TimelineSeekbar__note {
+    display: flex;
+    align-items: center;
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
+}
+
+.TimelineSeekbar__current {
+    width: fit-content;
+    padding: 0 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.25rem;
+    color: var(--color-bg-surface-primary);
+    background: var(--color-accent);
+    border-radius: var(--radius);
+
+    &::selection {
+        background: var(--primary-3000-hover); // Default selection background is invisible on primary
+    }
+
+    .Spinner {
+        margin-right: 0.25rem;
+    }
+}
+
+.TimelineSeekbar__seekbar {
+    position: relative;
+    height: 1.25rem;
+    margin-top: 0.5rem;
+}
+
+.TimelineSeekbar__points {
+    position: relative;
+    top: 0;
+    left: calc(var(--timeline-seekbar-thickness) * 2);
+    display: flex;
+    width: calc(100% - var(--timeline-seekbar-arrow-width) - var(--timeline-seekbar-thickness) * 3 - 1.25rem);
+    height: 100%;
+
+    .LemonBadge:not(.LemonBadge--active) {
+        background-clip: padding-box;
+
+        // Connect each badge to the line rightward to signal the direction in which the badge is applicable
+        border-right-color: transparent;
+    }
+}
+
+.TimelineSeekbar__section {
+    position: absolute;
+    left: calc(var(--timeline-seekbar-section-progress-current) - var(--timeline-seekbar-thickness));
+    width: var(--timeline-seekbar-section-progress-next);
+    cursor: pointer;
+    border-left: var(--timeline-seekbar-thickness) solid var(--color-bg-surface-primary);
+
+    &:last-child {
+        width: calc(var(--timeline-seekbar-section-progress-next) + 1.25rem);
+    }
+}
+
+.TimelineSeekbar__line {
+    position: absolute;
+    top: calc(50% - var(--timeline-seekbar-thickness) / 2);
+    left: 0;
+    width: calc(100% - var(--timeline-seekbar-arrow-width));
+    height: var(--timeline-seekbar-thickness);
+    background: var(--color-accent);
+}
+
+.TimelineSeekbar__line-start,
+.TimelineSeekbar__line-end {
+    position: absolute;
+    top: calc(var(--timeline-seekbar-thickness) / 2 - 0.625rem);
+    height: 1.25rem;
+
+    &::before {
+        display: block;
+        height: var(--timeline-seekbar-arrow-height);
+        margin: calc(var(--timeline-seekbar-thickness) + 0.125rem) 0;
+        content: '';
+        background: var(--color-accent);
+    }
+}
+
+.TimelineSeekbar__line-start {
+    left: 0;
+    width: var(--timeline-seekbar-thickness);
+}
+
+.TimelineSeekbar__line-end {
+    left: 100%;
+    width: var(--timeline-seekbar-arrow-width);
+    cursor: pointer;
+
+    &::before {
+        clip-path: polygon(0 0, 100% 50%, 0 100%);
+    }
+}

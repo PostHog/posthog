@@ -1,0 +1,48 @@
+.LemonTableLoader {
+    position: absolute;
+    left: 0;
+    z-index: 10;
+    width: 100%;
+    height: 0;
+    padding: 0.05rem !important;
+    overflow: hidden;
+    background: var(--color-accent-highlight-secondary);
+    border: none !important;
+    transition:
+        height 200ms ease,
+        top 200ms ease;
+
+    &::after {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 50%;
+        height: 100%;
+        content: '';
+        background: var(--color-accent);
+        animation: LemonTableLoader__swooping 1.5s linear infinite;
+    }
+
+    &.LemonTableLoader--enter-active,
+    &.LemonTableLoader--enter-done {
+        height: 0.125rem;
+    }
+}
+
+@keyframes LemonTableLoader__swooping {
+    0% {
+        left: 0;
+        width: 33.333%;
+        transform: translateX(-100%);
+    }
+
+    50% {
+        width: 50%;
+    }
+
+    100% {
+        left: 100%;
+        width: 33.333%;
+        transform: translateX(100%);
+    }
+}

@@ -1,0 +1,45 @@
+{
+    "kind": "ExperimentTrendsQuery",
+    "count_query": {
+        "kind": "TrendsQuery",
+        "series": [
+            {
+                "kind": "EventsNode",
+                "math": "total",
+                "name": "[jan-16-running] event one",
+                "event": "[jan-16-running] event one"
+            }
+        ],
+        "interval": "day",
+        "dateRange": {
+            "date_to": "2025-01-16T23:59",
+            "date_from": "2025-01-02T13:54",
+            "explicitDate": true
+        },
+        "trendsFilter": {
+            "display": "ActionsLineGraph"
+        },
+        "filterTestAccounts": true
+    },
+    "exposure_query": {
+        "kind": "TrendsQuery",
+        "series": [
+            {
+                "kind": "EventsNode",
+                "math": "dau",
+                "name": "[jan-16-running] event zero",
+                "event": "[jan-16-running] event zero"
+            }
+        ],
+        "interval": "day",
+        "dateRange": {
+            "date_to": "2025-01-23T23:59",
+            "date_from": "2025-01-09T15:10",
+            "explicitDate": true
+        },
+        "trendsFilter": {
+            "display": "ActionsLineGraph"
+        },
+        "filterTestAccounts": true
+    }
+}

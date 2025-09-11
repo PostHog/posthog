@@ -1,0 +1,21 @@
+.funnel-correlation {
+    margin-bottom: 3rem;
+
+    .skew-warning {
+        margin-top: 1rem;
+        line-height: 2em;
+        background-color: var(--color-bg-surface-primary);
+        border: 1px solid var(--warning);
+        border-radius: var(--radius);
+
+        h4 {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.5rem;
+            font-size: 1.1em;
+            border-bottom: 1px solid var(--color-border-primary);
+        }
+    }
+}

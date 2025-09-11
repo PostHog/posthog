@@ -1,0 +1,263 @@
+#
+# docker-compose file used ONLY for local development.
+# This file is the same as `docker-compose.dev.yml` except it boots the services in containers instead of you running them locally
+# For more info, see:
+# https://posthog.com/handbook/engineering/developing-locally
+#
+# PostHog has sunset support for self-hosted K8s deployments.
+# See: https://posthog.com/blog/sunsetting-helm-support-posthog
+#
+
+services:
+    proxy:
+        extends:
+            file: docker-compose.base.yml
+            service: proxy
+        ports:
+            - 8010:8000
+        depends_on:
+            - replay-capture
+            - capture
+            - feature-flags
+            - web
+    db:
+        extends:
+            file: docker-compose.base.yml
+            service: db
+        ports:
+            - '5432:5432'
+
+    redis:
+        extends:
+            file: docker-compose.base.yml
+            service: redis
+        ports:
+            - '6379:6379'
+
+    clickhouse:
+        extends:
+            file: docker-compose.base.yml
+            service: clickhouse
+        ports:
+            - '8123:8123'
+            - '9000:9000'
+            - '9440:9440'
+            - '9009:9009'
+        volumes:
+            - ./posthog/idl:/idl
+            - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ./docker/clickhouse/config.d/default.xml:/etc/clickhouse-server/config.d/default.xml
+            - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
+            - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
+            - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
+        depends_on:
+            - kafka
+            - zookeeper
+
+    zookeeper:
+        extends:
+            file: docker-compose.base.yml
+            service: zookeeper
+
+    kafka:
+        extends:
+            file: docker-compose.base.yml
+            service: kafka
+        ports:
+            - '9092:9092'
+        depends_on:
+            - zookeeper
+
+    objectstorage:
+        extends:
+            file: docker-compose.base.yml
+            service: objectstorage
+        ports:
+            - '19000:19000'
+            - '19001:19001'
+
+    maildev:
+        extends:
+            file: docker-compose.base.yml
+            service: maildev
+        ports:
+            - '1080:1080'
+            - '1025:1025'
+
+    webhook-tester:
+        image: tarampampam/webhook-tester:1.1.0
+        restart: on-failure
+        ports:
+            - '2080:2080'
+        environment:
+            - PORT=2080
+            - OTEL_SDK_DISABLED=true
+
+    worker:
+        extends:
+            file: docker-compose.base.yml
+            service: worker
+        build: .
+        volumes:
+            - .:/app/posthog
+        environment:
+            - DEBUG=1
+            - PLUGIN_SERVER_IDLE=1
+
+    web:
+        extends:
+            file: docker-compose.base.yml
+            service: web
+        ports:
+            - 8000:8000
+        build: .
+        command: ./bin/docker-server-unit
+        volumes:
+            - .:/app/posthog
+        environment:
+            - DEBUG=1
+            - OBJECT_STORAGE_ENDPOINT=http://objectstorage:19000
+            - POSTHOG_SKIP_MIGRATION_CHECKS=true
+            - JS_URL=http://localhost:8000
+        depends_on:
+            - db
+            - redis
+            - clickhouse
+            - kafka
+        links:
+            - objectstorage:objectstorage
+
+    capture:
+        extends:
+            file: docker-compose.base.yml
+            service: capture
+        environment:
+            - DEBUG=1
+        depends_on:
+            - redis
+            - kafka
+
+    replay-capture:
+        extends:
+            file: docker-compose.base.yml
+            service: replay-capture
+        depends_on:
+            - redis
+            - kafka
+
+    property-defs-rs:
+        extends:
+            file: docker-compose.base.yml
+            service: property-defs-rs
+        depends_on:
+            - kafka
+
+    feature-flags:
+        extends:
+            file: docker-compose.base.yml
+            service: feature-flags
+        depends_on:
+            - redis
+            - db
+
+    plugins:
+        extends:
+            file: docker-compose.base.yml
+            service: plugins
+        build: .
+        volumes:
+            - .:/app/posthog
+        environment:
+            - DOCKER=1
+        depends_on:
+            - db
+            - redis
+            - clickhouse
+            - kafka
+            - objectstorage
+
+    migrate:
+        extends:
+            file: docker-compose.base.yml
+            service: migrate
+        build: .
+        volumes:
+            - .:/app/posthog
+        environment:
+            - DEBUG=1
+
+    # Temporal containers
+    elasticsearch:
+        extends:
+            file: docker-compose.base.yml
+            service: elasticsearch
+        expose:
+            - 9200
+    temporal:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal
+        ports:
+            - 7233:7233
+    temporal-admin-tools:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal-admin-tools
+        depends_on:
+            - temporal
+    temporal-ui:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal-ui
+        ports:
+            - 8081:8080
+        depends_on:
+            temporal:
+                condition: service_started
+            db:
+                condition: service_healthy
+    temporal-django-worker:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal-django-worker
+        build: .
+        volumes:
+            - .:/app/posthog
+        depends_on:
+            - db
+            - redis
+            - clickhouse
+            - kafka
+            - objectstorage
+            - temporal
+
+    cyclotron-janitor:
+        extends:
+            file: docker-compose.base.yml
+            service: cyclotron-janitor
+        environment:
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
+            KAFKA_HOSTS: 'kafka:9092'
+            DEBUG: 1 # Add debug mode like other services
+        depends_on:
+            db:
+                condition: service_healthy
+            kafka:
+                condition: service_started
+
+    otel-collector:
+        extends:
+            file: docker-compose.base.yml
+            service: otel-collector
+        depends_on:
+            - jaeger
+
+    jaeger:
+        extends:
+            file: docker-compose.base.yml
+            service: jaeger
+
+networks:
+    otel_network:
+        driver: bridge

@@ -1,0 +1,1 @@
+export { UploadedLogo } from './UploadedLogo'

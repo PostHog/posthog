@@ -1,0 +1,12 @@
+#!/bin/bash
+
+set -e
+
+DAGSTER_UI_HOST=${DAGSTER_UI_HOST:-localhost}
+DAGSTER_UI_PORT=${DAGSTER_UI_PORT:-3030}
+DAGSTER_URL="http://${DAGSTER_UI_HOST}:${DAGSTER_UI_PORT}/"
+
+# Check if Dagster UI is up
+while true; do
+curl -s -o /dev/null -I "${DAGSTER_URL}" && break || echo 'Checking Dagster UI status...' && sleep 1
+done

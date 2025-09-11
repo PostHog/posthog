@@ -1,0 +1,19 @@
+{
+    "name": "First Time Event Tracker",
+    "url": "https://github.com/PostHog/first-time-event-tracker",
+    "description": "Deprecated.",
+    "main": "index.js",
+    "config": [
+        {
+            "markdown": "\n\n# Important!\nThis plugin will only work on events ingested **after** the plugin was enabled. This means it **will** register events as being the first if there were events that occured **before** it was enabled. To mitigate this, you could consider renaming the relevant events and creating an [action](https://posthog.com/docs/features/actions) that matches both the old event name and the new one.\n"
+        },
+        {
+            "key": "events",
+            "name": "List of events to track first time occurrences on:",
+            "type": "string",
+            "default": "",
+            "hint": "Separate events with commas, without using spaces, like so: `event1,event2,event3`",
+            "required": true
+        }
+    ]
+}

@@ -1,0 +1,239 @@
+@import '../../../styles/mixins';
+@import '../../../styles/vars';
+
+.FunnelBarVertical {
+    position: relative;
+    flex: 1;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+
+    table {
+        --bar-width: 0.5rem; // This should be overriden from React
+        --bar-row-height: 18rem;
+        --bar-padding-top: 1rem;
+        --bar-padding-bottom: 1.5rem;
+
+        width: 100%;
+        height: 100%;
+
+        > tbody {
+            > tr {
+                &:first-child {
+                    border-bottom: 1px solid var(--color-border-primary);
+
+                    > td {
+                        padding-top: var(--bar-padding-top);
+                        padding-bottom: var(--bar-padding-bottom);
+                    }
+                }
+
+                > td {
+                    height: 100%;
+                    padding: 0.75rem 0;
+                    vertical-align: top;
+                }
+            }
+        }
+    }
+}
+
+.StepBars {
+    position: relative;
+    display: flex;
+    gap: 0.125rem;
+    align-items: flex-end;
+    height: calc(var(--bar-row-height) - var(--bar-padding-top) - var(--bar-padding-bottom));
+    padding: 0 1rem;
+    border-bottom: 1px solid var(--color-border-primary);
+
+    &:not(.StepBars--first) {
+        border-left: 1px dashed var(--color-border-primary);
+    }
+}
+
+.StepBars__grid {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    height: 100%;
+}
+
+.StepBars__gridline {
+    flex-grow: 1;
+
+    &.StepBars__gridline--horizontal {
+        border-top: 1px dashed var(--color-border-primary);
+    }
+}
+
+.StepBar {
+    --series-color: #000; // This should be overriden from React
+    --conversion-rate: 100%; // This should be overriden from React
+
+    position: relative;
+    flex-shrink: 0;
+    width: calc(var(--bar-width) / 2); // We need to conserve space in narrow viewports
+    height: 100%;
+    border-radius: var(--radius);
+
+    .InsightCard & {
+        width: calc(var(--bar-width) / 2) !important; // Also need to conserve space in cards
+    }
+
+    @include screen($lg) {
+        width: var(--bar-width);
+    }
+}
+
+.StepBar__backdrop,
+.StepBar__fill {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    cursor: pointer;
+    border-radius: var(--radius);
+
+    .InsightCard & {
+        cursor: default;
+    }
+}
+
+.StepBar__unclickable {
+    .StepBar__backdrop,
+    .StepBar__fill {
+        cursor: default;
+    }
+}
+
+.StepBar__backdrop {
+    height: 100%;
+    background:
+        repeating-linear-gradient(
+            -22.5deg,
+            transparent,
+            transparent 0.5rem,
+            rgb(255 255 255 / 50%) 0.5rem,
+            rgb(255 255 255 / 50%) 1rem
+        ),
+        var(--series-color);
+    opacity: 0.125;
+    transition: opacity 200ms ease;
+
+    &:hover {
+        opacity: 0.2;
+    }
+
+    &:active {
+        opacity: 0.25;
+    }
+}
+
+.StepBar__fill {
+    height: var(--conversion-rate);
+    background: var(--series-color);
+    transition: filter 200ms ease;
+
+    &:hover {
+        filter: brightness(0.9);
+    }
+
+    &:active {
+        filter: brightness(0.85);
+    }
+}
+
+.StepBarLabels {
+    display: flex;
+    flex-direction: column-reverse;
+    align-items: flex-end;
+    height: calc(var(--bar-row-height) - var(--bar-padding-top) - var(--bar-padding-bottom));
+}
+
+.StepBarLabels__segment {
+    flex-grow: 1;
+    padding: 0 0.5rem;
+
+    &:first-child {
+        flex-grow: 0;
+        height: 0;
+    }
+}
+
+.StepBarLabels__label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    transform: translateY(-50%);
+}
+
+.StepLegend {
+    height: 100%;
+    white-space: nowrap;
+    border-left: 1px solid var(--color-border-primary);
+
+    > .LemonRow {
+        min-height: 1.5rem;
+        padding: 0 0.5rem;
+        margin-top: 0.25rem;
+        font-weight: 500;
+
+        &:first-child {
+            width: fit-content;
+            margin-top: 0;
+            font-weight: 600;
+            white-space: normal;
+
+            .EntityFilterInfo {
+                display: -webkit-box;
+                -webkit-line-clamp: 5;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
+                overflow-wrap: break-word;
+            }
+        }
+
+        .LemonRow__main-area {
+            align-items: flex-start;
+        }
+    }
+
+    .funnel-inspect-button {
+        font-weight: inherit;
+        line-height: 1.5rem;
+    }
+}
+
+.FunnelTooltip {
+    width: 20rem;
+
+    table {
+        width: 100%;
+        border-spacing: 0;
+        border-collapse: collapse;
+    }
+
+    tr {
+        height: 1.75rem;
+    }
+
+    td:first-child {
+        padding: 0 0.5rem;
+        font-weight: 500;
+    }
+
+    td:last-child {
+        padding-right: 0.5rem;
+        font-weight: 600;
+        text-align: right;
+    }
+
+    .table-subtext {
+        padding-bottom: 0.25rem;
+    }
+}

@@ -1,0 +1,30 @@
+{
+    "kind": "ExperimentFunnelsQuery",
+    "funnels_query": {
+        "kind": "FunnelsQuery",
+        "series": [
+            {
+                "kind": "EventsNode",
+                "name": "[jan-16-running] seen",
+                "event": "[jan-16-running] seen"
+            },
+            {
+                "kind": "EventsNode",
+                "name": "[jan-16-running] payment",
+                "event": "[jan-16-running] payment"
+            }
+        ],
+        "dateRange": {
+            "date_to": "2025-01-16T23:59",
+            "date_from": "2025-01-02T13:54",
+            "explicitDate": true
+        },
+        "funnelsFilter": {
+            "layout": "horizontal",
+            "funnelVizType": "steps",
+            "funnelWindowInterval": 14,
+            "funnelWindowIntervalUnit": "day"
+        },
+        "filterTestAccounts": true
+    }
+}

@@ -1,0 +1,1027 @@
+# serializer version: 1
+# name: TestBreakdowns.test_breakdown_by_event_property_of_unique_sessions_with_bucketing
+  '''
+  
+  SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value)))
+  FROM
+    (SELECT toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) AS value,
+            count(DISTINCT e."$session_id") as count
+     FROM events e
+     WHERE team_id = 99999
+       AND event = 'watched movie'
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+     GROUP BY value)
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_by_event_property_of_unique_sessions_with_bucketing.1
+  '''
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+              FROM numbers(11)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['[25.0,66.25]',
+                         '[66.25,98.37]',
+                         '[98.37,1000.01]'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(DISTINCT e."$session_id") as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            multiIf(toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 25.0
+                                    AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 66.25, '[25.0,66.25]', toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 66.25
+                                    AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 98.37, '[66.25,98.37]', toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 98.37
+                                    AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 1000.01, '[98.37,1000.01]', '["",""]') as breakdown_value
+           FROM events e
+           WHERE e.team_id = 99999
+             AND event = 'watched movie'
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) is not null
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_by_event_property_with_bucketing
+  '''
+  
+  SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value)))
+  FROM
+    (SELECT toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) AS value,
+            count(*) as count
+     FROM events e
+     WHERE team_id = 99999
+       AND event = 'watched movie'
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+     GROUP BY value)
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_by_event_property_with_bucketing.1
+  '''
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+              FROM numbers(11)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['[25.0,66.25]',
+                         '[66.25,98.37]',
+                         '[98.37,1000.01]'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            multiIf(toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 25.0
+                                    AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 66.25, '[25.0,66.25]', toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 66.25
+                                    AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 98.37, '[66.25,98.37]', toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 98.37
+                                    AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 1000.01, '[98.37,1000.01]', '["",""]') as breakdown_value
+           FROM events e
+           WHERE e.team_id = 99999
+             AND event = 'watched movie'
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) is not null
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_by_event_property_with_entity_session_filter
+  '''
+  
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  INNER JOIN
+    (SELECT "$session_id",
+            dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+     FROM events
+     WHERE "$session_id" != ''
+       AND team_id = 99999
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
+     GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
+  WHERE team_id = 99999
+    AND event = 'watched movie'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+    AND (sessions.session_duration > 30.0)
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_by_event_property_with_entity_session_filter.1
+  '''
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+              FROM numbers(11)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['$$_posthog_breakdown_null_$$', 'https://example.com/', 'https://example.com'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com/', 'https://example.com']), (['$$_posthog_breakdown_null_$$', 'https://example.com/', 'https://example.com']), '$$_posthog_breakdown_other_$$') as breakdown_value
+           FROM events e
+           INNER JOIN
+             (SELECT "$session_id",
+                     dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+              FROM events
+              WHERE "$session_id" != ''
+                AND team_id = 99999
+                AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
+                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
+              GROUP BY "$session_id") sessions ON sessions."$session_id" = e."$session_id"
+           WHERE e.team_id = 99999
+             AND event = 'watched movie'
+             AND (sessions.session_duration > 30.0)
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_by_session_duration_of_events
+  '''
+  
+  SELECT sessions.session_duration AS value,
+         count(*) as count
+  FROM events e
+  INNER JOIN
+    (SELECT "$session_id",
+            dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+     FROM events
+     WHERE "$session_id" != ''
+       AND team_id = 99999
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
+     GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
+  WHERE team_id = 99999
+    AND event = 'watched movie'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+    AND (NOT has(['https://test.com'], replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^"|"$', '')))
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_by_session_duration_of_events.1
+  '''
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+              FROM numbers(11)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT [120, 180, 60, 91, 0] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            sessions.session_duration as breakdown_value
+           FROM events e
+           INNER JOIN
+             (SELECT "$session_id",
+                     dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+              FROM events
+              WHERE "$session_id" != ''
+                AND team_id = 99999
+                AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
+                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
+              GROUP BY "$session_id") sessions ON sessions."$session_id" = e."$session_id"
+           WHERE e.team_id = 99999
+             AND event = 'watched movie'
+             AND (NOT has(['https://test.com'], replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^"|"$', '')))
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_by_session_duration_of_events_single_aggregate
+  '''
+  
+  SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value)))
+  FROM
+    (SELECT toFloat64OrNull(toString(sessions.session_duration)) AS value,
+            count(*) as count
+     FROM events e
+     INNER JOIN
+       (SELECT "$session_id",
+               dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+        FROM events
+        WHERE "$session_id" != ''
+          AND team_id = 99999
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
+        GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
+     WHERE team_id = 99999
+       AND event = 'watched movie'
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+     GROUP BY value)
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_by_session_duration_of_events_single_aggregate.1
+  '''
+  
+  SELECT count(*) AS total,
+         multiIf(toFloat64OrNull(toString(sessions.session_duration)) >= 0.0
+                 AND toFloat64OrNull(toString(sessions.session_duration)) < 69.92, '[0.0,69.92]', toFloat64OrNull(toString(sessions.session_duration)) >= 69.92
+                 AND toFloat64OrNull(toString(sessions.session_duration)) < 110.72, '[69.92,110.72]', toFloat64OrNull(toString(sessions.session_duration)) >= 110.72
+                 AND toFloat64OrNull(toString(sessions.session_duration)) < 180.01, '[110.72,180.01]', '["",""]') AS breakdown_value
+  FROM events e
+  INNER JOIN
+    (SELECT "$session_id",
+            dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+     FROM events
+     WHERE "$session_id" != ''
+       AND team_id = 99999
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
+     GROUP BY "$session_id") sessions ON sessions."$session_id" = e."$session_id"
+  WHERE e.team_id = 99999
+    AND event = 'watched movie'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+    AND toFloat64OrNull(toString(sessions.session_duration)) is not null
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_by_session_duration_of_events_with_bucketing
+  '''
+  
+  SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value)))
+  FROM
+    (SELECT toFloat64OrNull(toString(sessions.session_duration)) AS value,
+            count(*) as count
+     FROM events e
+     INNER JOIN
+       (SELECT "$session_id",
+               dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+        FROM events
+        WHERE "$session_id" != ''
+          AND team_id = 99999
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
+        GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
+     WHERE team_id = 99999
+       AND event = 'watched movie'
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND (NOT has(['https://test.com'], replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^"|"$', '')))
+     GROUP BY value)
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_by_session_duration_of_events_with_bucketing.1
+  '''
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+              FROM numbers(11)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['[0.0,69.92]',
+                         '[69.92,110.72]',
+                         '[110.72,180.01]'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            multiIf(toFloat64OrNull(toString(sessions.session_duration)) >= 0.0
+                                    AND toFloat64OrNull(toString(sessions.session_duration)) < 69.92, '[0.0,69.92]', toFloat64OrNull(toString(sessions.session_duration)) >= 69.92
+                                    AND toFloat64OrNull(toString(sessions.session_duration)) < 110.72, '[69.92,110.72]', toFloat64OrNull(toString(sessions.session_duration)) >= 110.72
+                                    AND toFloat64OrNull(toString(sessions.session_duration)) < 180.01, '[110.72,180.01]', '["",""]') as breakdown_value
+           FROM events e
+           INNER JOIN
+             (SELECT "$session_id",
+                     dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+              FROM events
+              WHERE "$session_id" != ''
+                AND team_id = 99999
+                AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
+                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
+              GROUP BY "$session_id") sessions ON sessions."$session_id" = e."$session_id"
+           WHERE e.team_id = 99999
+             AND event = 'watched movie'
+             AND (NOT has(['https://test.com'], replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^"|"$', '')))
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND toFloat64OrNull(toString(sessions.session_duration)) is not null
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_by_session_duration_of_unique_sessions
+  '''
+  
+  SELECT sessions.session_duration AS value,
+         count(DISTINCT e."$session_id") as count
+  FROM events e
+  INNER JOIN
+    (SELECT "$session_id",
+            dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+     FROM events
+     WHERE "$session_id" != ''
+       AND team_id = 99999
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
+     GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
+  WHERE team_id = 99999
+    AND event = 'watched movie'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_by_session_duration_of_unique_sessions.1
+  '''
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+              FROM numbers(11)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT [180, 120, 91, 60, 0] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(DISTINCT e."$session_id") as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            sessions.session_duration as breakdown_value
+           FROM events e
+           INNER JOIN
+             (SELECT "$session_id",
+                     dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+              FROM events
+              WHERE "$session_id" != ''
+                AND team_id = 99999
+                AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
+                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
+              GROUP BY "$session_id") sessions ON sessions."$session_id" = e."$session_id"
+           WHERE e.team_id = 99999
+             AND event = 'watched movie'
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_by_session_duration_of_unique_sessions_with_bucketing
+  '''
+  
+  SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value)))
+  FROM
+    (SELECT toFloat64OrNull(toString(sessions.session_duration)) AS value,
+            count(DISTINCT e."$session_id") as count
+     FROM events e
+     INNER JOIN
+       (SELECT "$session_id",
+               dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+        FROM events
+        WHERE "$session_id" != ''
+          AND team_id = 99999
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
+        GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
+     WHERE team_id = 99999
+       AND event = 'watched movie'
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+     GROUP BY value)
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_by_session_duration_of_unique_sessions_with_bucketing.1
+  '''
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+              FROM numbers(11)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['[0.0,69.92]',
+                         '[69.92,110.72]',
+                         '[110.72,180.01]'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(DISTINCT e."$session_id") as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            multiIf(toFloat64OrNull(toString(sessions.session_duration)) >= 0.0
+                                    AND toFloat64OrNull(toString(sessions.session_duration)) < 69.92, '[0.0,69.92]', toFloat64OrNull(toString(sessions.session_duration)) >= 69.92
+                                    AND toFloat64OrNull(toString(sessions.session_duration)) < 110.72, '[69.92,110.72]', toFloat64OrNull(toString(sessions.session_duration)) >= 110.72
+                                    AND toFloat64OrNull(toString(sessions.session_duration)) < 180.01, '[110.72,180.01]', '["",""]') as breakdown_value
+           FROM events e
+           INNER JOIN
+             (SELECT "$session_id",
+                     dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+              FROM events
+              WHERE "$session_id" != ''
+                AND team_id = 99999
+                AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC') - INTERVAL 24 HOUR
+                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') + INTERVAL 24 HOUR
+              GROUP BY "$session_id") sessions ON sessions."$session_id" = e."$session_id"
+           WHERE e.team_id = 99999
+             AND event = 'watched movie'
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND toFloat64OrNull(toString(sessions.session_duration)) is not null
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_histogram_by_missing_property_regression
+  '''
+  
+  SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 1.00)(value)))
+  FROM
+    (SELECT toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'this_property_does_not_exist'), '^"|"$', ''))) AS value,
+            count(*) as count
+     FROM events e
+     WHERE team_id = 99999
+       AND event = 'watched movie'
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+     GROUP BY value)
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_histogram_by_missing_property_regression.1
+  '''
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+              FROM numbers(11)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['[nan,nan]'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            multiIf(toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'this_property_does_not_exist'), '^"|"$', ''))) >= nan
+                                    AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'this_property_does_not_exist'), '^"|"$', ''))) < nan, '[nan,nan]', '["",""]') as breakdown_value
+           FROM events e
+           WHERE e.team_id = 99999
+             AND event = 'watched movie'
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'this_property_does_not_exist'), '^"|"$', ''))) is not null
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_numeric_hogql
+  '''
+  
+  SELECT length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')) AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 99999
+    AND event = 'watched movie'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 3
+  OFFSET 0
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_numeric_hogql.1
+  '''
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+              FROM numbers(11)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT [9007199254740990, 19, 9007199254740991] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19, 9007199254740991]), ([9007199254740990, 19, 9007199254740991]), 9007199254740991) as breakdown_value
+           FROM events e
+           WHERE e.team_id = 99999
+             AND event = 'watched movie'
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_numeric_hogql_hide_other
+  '''
+  
+  SELECT length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')) AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 99999
+    AND event = 'watched movie'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 3
+  OFFSET 0
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_numeric_hogql_hide_other.1
+  '''
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+              FROM numbers(11)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT [1, 2] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19]), ([9007199254740990, 19]), 9007199254740991) as breakdown_value
+           FROM events e
+           WHERE e.team_id = 99999
+             AND event = 'watched movie'
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19]), ([9007199254740990, 19]), 9007199254740991) in ([9007199254740990, 19])
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_numeric_hogql_hide_other.2
+  '''
+  
+  SELECT length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')) AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 99999
+    AND event = 'watched movie'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 4
+  OFFSET 0
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_numeric_hogql_hide_other.3
+  '''
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+              FROM numbers(11)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT [9007199254740990, 19, 20] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19, 20]), ([9007199254740990, 19, 20]), 9007199254740991) as breakdown_value
+           FROM events e
+           WHERE e.team_id = 99999
+             AND event = 'watched movie'
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19, 20]), ([9007199254740990, 19, 20]), 9007199254740991) in ([9007199254740990, 19, 20])
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_string_hogql
+  '''
+  
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 99999
+    AND event = 'watched movie'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 3
+  OFFSET 0
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_string_hogql.1
+  '''
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+              FROM numbers(11)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['$$_posthog_breakdown_null_$$', 'https://example.com', '$$_posthog_breakdown_other_$$'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com', '$$_posthog_breakdown_other_$$']), (['$$_posthog_breakdown_null_$$', 'https://example.com', '$$_posthog_breakdown_other_$$']), '$$_posthog_breakdown_other_$$') as breakdown_value
+           FROM events e
+           WHERE e.team_id = 99999
+             AND event = 'watched movie'
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_string_hogql_hide_other
+  '''
+  
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 99999
+    AND event = 'watched movie'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 3
+  OFFSET 0
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_string_hogql_hide_other.1
+  '''
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+              FROM numbers(11)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['$$_posthog_breakdown_null_$$', 'https://example.com'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com']), (['$$_posthog_breakdown_null_$$', 'https://example.com']), '$$_posthog_breakdown_other_$$') as breakdown_value
+           FROM events e
+           WHERE e.team_id = 99999
+             AND event = 'watched movie'
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com']), (['$$_posthog_breakdown_null_$$', 'https://example.com']), '$$_posthog_breakdown_other_$$') in (['$$_posthog_breakdown_null_$$', 'https://example.com'])
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_string_hogql_hide_other.2
+  '''
+  
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 99999
+    AND event = 'watched movie'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 4
+  OFFSET 0
+  '''
+# ---
+# name: TestBreakdowns.test_breakdown_string_hogql_hide_other.3
+  '''
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) AS total,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+              FROM numbers(11)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['$$_posthog_breakdown_null_$$', 'https://example.com', 'https://example.com/'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com', 'https://example.com/']), (['$$_posthog_breakdown_null_$$', 'https://example.com', 'https://example.com/']), '$$_posthog_breakdown_other_$$') as breakdown_value
+           FROM events e
+           WHERE e.team_id = 99999
+             AND event = 'watched movie'
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com', 'https://example.com/']), (['$$_posthog_breakdown_null_$$', 'https://example.com', 'https://example.com/']), '$$_posthog_breakdown_other_$$') in (['$$_posthog_breakdown_null_$$', 'https://example.com', 'https://example.com/'])
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '''
+# ---

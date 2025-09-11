@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        {% include "head.html" %}
+    </head>
+    <body>
+        {% include "overlays.html" %}
+        <script>
+            const tags = [
+                '{% if debug %}DEBUG mode{% elif region %}Region: {{ region }}{% else %}Hobby deployment{% endif %}',
+                '{% if debug %}Branch: {{ git_branch|default:"unknown" }}{% else %}Commit: {{ git_rev|default:"unknown" }}{% endif %}',
+                'Join us! https://posthog.com/careers',
+            ]
+            console.info(
+                `%c %cPostHog %c— %cIn data we trust\n%c${tags.join('%c %c')}`,
+                `padding-left: 2.5em; line-height: 4em; background-size: 2.5em; background-repeat: no-repeat; background-position: left center; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink' fill='none' height='25' viewBox='0 0 45 25' width='45'%3E%3CclipPath id='a'%3E%3Cpath d='m0 0h45v24.9257h-45z'/%3E%3C/clipPath%3E%3Cg clip-path='url(%23a)'%3E%3Cpath d='m0 19.6897c0-.8355 1.01012-1.254 1.6009-.6631l4.29821 4.2982c.59077.5908.17236 1.6009-.66311 1.6009h-4.298219c-.517922 0-.937781-.4199-.937781-.9378zm0-4.5275c0 .2487.0988018.4873.27467.6631l8.82567 8.8257c.17586.1758.41439.2747.66309.2747h4.84757c.8355 0 1.2539-1.0101.6631-1.6009l-13.6732-13.67325c-.59078-.5908-1.6009-.17237-1.6009.66315zm0-9.37498c0 .24871.0988018.48725.27467.66311l18.20063 18.20067c.1759.1758.4144.2747.6631.2747h4.8476c.8355 0 1.2539-1.0101.6631-1.6009l-23.0482-23.048244c-.59077-.590765-1.6009-.172365-1.6009.663105zm9.375 0c0 .24871.09884.48725.27468.66311l16.87442 16.87447c.5908.5908 1.6009.1723 1.6009-.6631v-4.8476c0-.2487-.0988-.4873-.2747-.6631l-16.8744-16.874454c-.5908-.590765-1.6009-.172355-1.6009.663115zm10.9759-5.510664c-.5908-.590775-1.6009-.172365-1.6009.663105v4.847559c0 .24871.0988.48725.2747.66311l7.4994 7.49947c.5908.5908 1.6009.1723 1.6009-.6631v-4.84761c0-.2487-.0988-.48727-.2747-.6631z' fill='%23f9bd2b'/%3E%3Cpath d='m39.879 19.8046-8.8271-8.827c-.5908-.5908-1.6009-.1724-1.6009.6631v12.3472c0 .5179.4199.9377.9378.9377h13.6734c.518 0 .9378-.4198.9378-.9377v-1.1244c0-.518-.4216-.9316-.9352-.9985-1.5762-.2052-3.0505-.925-4.1858-2.0604zm-5.928 2.1211c-.828 0-1.5-.672-1.5-1.5001 0-.828.672-1.5 1.5-1.5s1.5.672 1.5 1.5c0 .8281-.672 1.5001-1.5 1.5001z' fill='%23000'/%3E%3Cpath d='m0 23.9879c0 .5179.419859.9378.937782.9378h4.298218c.83547 0 1.25388-1.0101.66312-1.6009l-4.29822-4.2983c-.59078-.5908-1.6009-.1723-1.6009.6632zm9.375-15.93724-7.7741-7.774107c-.59078-.590775-1.6009-.172365-1.6009.663105v4.847562c0 .24871.0988019.48724.27467.6631l9.10033 9.10038zm-7.7741 1.60088c-.59078-.5908-1.6009-.17236-1.6009.66306v4.8476c0 .2487.0988019.4873.27467.6631l9.10033 9.1004v-7.5z' fill='%231d4aff'/%3E%3Cpath d='m18.75 8.43909c0-.2487-.0987-.48728-.2747-.66311l-7.4994-7.499427c-.5907-.590775-1.60089-.172365-1.60089.663105v4.847562c0 .24871.09883.48724.27467.6631l9.10032 9.10038zm-9.37499 16.48661h5.23599c.8355 0 1.2539-1.0101.6631-1.6009l-5.89909-5.8991zm0-16.87504v7.11154c0 .2487.09883.4873.27467.6631l9.10032 9.1004v-7.1116c0-.2487-.0987-.4873-.2747-.6631z' fill='%23f54e00'/%3E%3C/g%3E%3C/svg%3E");`,
+                'font-weight: bold;',
+                '',
+                'font-style: italic;',
+                'padding: 0.2em 0.4em; border-radius: 0.5em; background: #1d4aff; color: white;',
+                'padding-bottom: 0.4em;',
+                'padding: 0.2em 0.4em; border-radius: 0.5em; background: #f54e00; color: white;',
+                '',
+                'padding: 0.2em 0.4em; border-radius: 0.5em; background: #f9bd2b; color: black;'
+            )
+            if (!('entries' in Object) || !('fromEntries' in Object) || !('flatMap' in Array.prototype)) {
+                var div = document.createElement('div')
+                div.style.color = '#fef6f6'
+                div.style.background = '#920c0c'
+                div.style.padding = '5px 10px'
+                div.innerHTML = 'You are using a really old browser. Please upgrade to fully enjoy PostHog!'
+                document.body.prepend(div)
+            }
+        </script>
+        <div id="root"></div>
+        {% include "live_server_inject.html" %}
+    </body>
+</html>

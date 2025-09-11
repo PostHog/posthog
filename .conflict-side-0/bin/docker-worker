@@ -1,0 +1,14 @@
+#!/bin/bash
+set -e
+
+./bin/migrate-check
+
+# Stop any background jobs on exit
+trap 'kill $(jobs -p)' EXIT
+
+./bin/plugin-server &
+./bin/docker-worker-celery --with-scheduler &
+
+# Exit if any processes exit, and exit with it's exit code
+wait -n
+exit $?

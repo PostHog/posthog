@@ -1,0 +1,58 @@
+diff --git a/esm/plugin/timezone/index.js b/esm/plugin/timezone/index.js
+index 490aff2e5cc5eb1186d03cfc9809242554928f99..5ffab621423cbea2d04242e674ce82e73f67c751 100644
+--- a/esm/plugin/timezone/index.js
++++ b/esm/plugin/timezone/index.js
+@@ -12,10 +12,6 @@ var typeToPos = {
+ var dtfCache = {};
+ 
+ var getDateTimeFormat = function getDateTimeFormat(timezone, options) {
+-  if (options === void 0) {
+-    options = {};
+-  }
+-
+   var timeZoneName = options.timeZoneName || 'short';
+   var key = timezone + "|" + timeZoneName;
+   var dtf = dtfCache[key];
+@@ -120,9 +116,13 @@ export default (function (o, c, d) {
+       timeZone: timezone
+     });
+     var diff = Math.round((date - new Date(target)) / 1000 / 60);
+-    var ins = d(target, {
+-      locale: this.$L
+-    }).$set(MS, this.$ms).utcOffset(-Math.round(date.getTimezoneOffset() / 15) * 15 - diff, true);
++    var offset = -date.getTimezoneOffset() - diff;
++
++    if (offset === 0) {
++      return this.utc(keepLocalTime);
++    }
++
++    var ins = d(target).$set(MS, this.$ms).utcOffset(offset, true);
+ 
+     if (keepLocalTime) {
+       var newOffset = ins.utcOffset();
+@@ -161,11 +161,13 @@ export default (function (o, c, d) {
+   d.tz = function (input, arg1, arg2) {
+     var parseFormat = arg2 && arg1;
+     var timezone = arg2 || arg1 || defaultTimezone;
+-    var previousOffset = tzOffset(+d(), timezone);
++    var previousOffset = tzOffset(+d(input, parseFormat), timezone); // To differentiate date only string (e.g. yy-mm-dd) from date string with negative
++    // 2-digit offset (hour offset zz, e.g. yy-mm-zz) we require at least 8 characters
++    // before offset (i.e. yy-mm-dd-zz)
+ 
+-    if (typeof input !== 'string') {
+-      // timestamp number || js Date || Day.js
+-      return d(input).tz(timezone);
++    if (typeof input !== 'string' || /.{8,}[+-]\d\d:?(\d\d)?$|Z$/i.test(input)) {
++      // timestamp number || js Date || Day.js || input string with offset (e.g. -03:00)
++      return d(input, parseFormat).tz(timezone);
+     }
+ 
+     var localTs = d.utc(input, parseFormat).valueOf();
+diff --git a/plugin/timezone.js b/plugin/timezone.js
+index b778bef4dd0e3b7690a96356343837a12ac8b58c..c465ba92379e2203bacdceb720abd542e882cf7a 100644
+--- a/plugin/timezone.js
++++ b/plugin/timezone.js
+@@ -1 +1 @@
+-!function(t,e){"object"==typeof exports&&"undefined"!=typeof module?module.exports=e():"function"==typeof define&&define.amd?define(e):(t="undefined"!=typeof globalThis?globalThis:t||self).dayjs_plugin_timezone=e()}(this,(function(){"use strict";var t={year:0,month:1,day:2,hour:3,minute:4,second:5},e={};return function(n,i,o){var r,a=function(t,n,i){void 0===i&&(i={});var o=new Date(t),r=function(t,n){void 0===n&&(n={});var i=n.timeZoneName||"short",o=t+"|"+i,r=e[o];return r||(r=new Intl.DateTimeFormat("en-US",{hour12:!1,timeZone:t,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",timeZoneName:i}),e[o]=r),r}(n,i);return r.formatToParts(o)},u=function(e,n){for(var i=a(e,n),r=[],u=0;u<i.length;u+=1){var f=i[u],s=f.type,m=f.value,c=t[s];c>=0&&(r[c]=parseInt(m,10))}var d=r[3],l=24===d?0:d,h=r[0]+"-"+r[1]+"-"+r[2]+" "+l+":"+r[4]+":"+r[5]+":000",v=+e;return(o.utc(h).valueOf()-(v-=v%1e3))/6e4},f=i.prototype;f.tz=function(t,e){void 0===t&&(t=r);var n=this.utcOffset(),i=this.toDate(),a=i.toLocaleString("en-US",{timeZone:t}),u=Math.round((i-new Date(a))/1e3/60),f=o(a,{locale:this.$L}).$set("millisecond",this.$ms).utcOffset(15*-Math.round(i.getTimezoneOffset()/15)-u,!0);if(e){var s=f.utcOffset();f=f.add(n-s,"minute")}return f.$x.$timezone=t,f},f.offsetName=function(t){var e=this.$x.$timezone||o.tz.guess(),n=a(this.valueOf(),e,{timeZoneName:t}).find((function(t){return"timezonename"===t.type.toLowerCase()}));return n&&n.value};var s=f.startOf;f.startOf=function(t,e){if(!this.$x||!this.$x.$timezone)return s.call(this,t,e);var n=o(this.format("YYYY-MM-DD HH:mm:ss:SSS"),{locale:this.$L});return s.call(n,t,e).tz(this.$x.$timezone,!0)},o.tz=function(t,e,n){var i=n&&e,a=n||e||r,f=u(+o(),a);if("string"!=typeof t)return o(t).tz(a);var s=function(t,e,n){var i=t-60*e*1e3,o=u(i,n);if(e===o)return[i,e];var r=u(i-=60*(o-e)*1e3,n);return o===r?[i,o]:[t-60*Math.min(o,r)*1e3,Math.max(o,r)]}(o.utc(t,i).valueOf(),f,a),m=s[0],c=s[1],d=o(m).utcOffset(c);return d.$x.$timezone=a,d},o.tz.guess=function(){return Intl.DateTimeFormat().resolvedOptions().timeZone},o.tz.setDefault=function(t){r=t}}}));
+\ No newline at end of file
++!function(t,e){"object"==typeof exports&&"undefined"!=typeof module?module.exports=e():"function"==typeof define&&define.amd?define(e):(t="undefined"!=typeof globalThis?globalThis:t||self).dayjs_plugin_timezone=e()}(this,(function(){"use strict";var t={year:0,month:1,day:2,hour:3,minute:4,second:5},e={};return function(n,i,r){var o,a=function(t,n,i){void 0===i&&(i={});var r=new Date(t),o=function(t,n){var i=n.timeZoneName||"short",r=t+"|"+i,o=e[r];return o||(o=new Intl.DateTimeFormat("en-US",{hour12:!1,timeZone:t,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",timeZoneName:i}),e[r]=o),o}(n,i);return o.formatToParts(r)},u=function(e,n){for(var i=a(e,n),o=[],u=0;u<i.length;u+=1){var f=i[u],s=f.type,m=f.value,c=t[s];c>=0&&(o[c]=parseInt(m,10))}var d=o[3],l=24===d?0:d,h=o[0]+"-"+o[1]+"-"+o[2]+" "+l+":"+o[4]+":"+o[5]+":000",v=+e;return(r.utc(h).valueOf()-(v-=v%1e3))/6e4},f=i.prototype;f.tz=function(t,e){void 0===t&&(t=o);var n=this.utcOffset(),i=this.toDate(),a=i.toLocaleString("en-US",{timeZone:t}),u=Math.round((i-new Date(a))/1e3/60),f=-i.getTimezoneOffset()-u;if(0===f)return this.utc(e);var s=r(a).$set("millisecond",this.$ms).utcOffset(f,!0);if(e){var m=s.utcOffset();s=s.add(n-m,"minute")}return s.$x.$timezone=t,s},f.offsetName=function(t){var e=this.$x.$timezone||r.tz.guess(),n=a(this.valueOf(),e,{timeZoneName:t}).find((function(t){return"timezonename"===t.type.toLowerCase()}));return n&&n.value};var s=f.startOf;f.startOf=function(t,e){if(!this.$x||!this.$x.$timezone)return s.call(this,t,e);var n=r(this.format("YYYY-MM-DD HH:mm:ss:SSS"),{locale:this.$L});return s.call(n,t,e).tz(this.$x.$timezone,!0)},r.tz=function(t,e,n){var i=n&&e,a=n||e||o,f=u(+r(t,i),a);if("string"!=typeof t||/.{8,}[+-]\d\d:?(\d\d)?$|Z$/i.test(t))return r(t,i).tz(a);var s=function(t,e,n){var i=t-60*e*1e3,r=u(i,n);if(e===r)return[i,e];var o=u(i-=60*(r-e)*1e3,n);return r===o?[i,r]:[t-60*Math.min(r,o)*1e3,Math.max(r,o)]}(r.utc(t,i).valueOf(),f,a),m=s[0],c=s[1],d=r(m).utcOffset(c);return d.$x.$timezone=a,d},r.tz.guess=function(){return Intl.DateTimeFormat().resolvedOptions().timeZone},r.tz.setDefault=function(t){o=t}}}));

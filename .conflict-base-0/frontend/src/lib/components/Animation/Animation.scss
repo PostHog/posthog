@@ -1,0 +1,39 @@
+.Animation {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    max-width: 300px;
+
+    // A correct aspect-ratio is be passed via a style prop. This is as a fallback.
+    aspect-ratio: 1 / 1;
+    overflow: hidden;
+    opacity: 1;
+    transition: 400ms ease opacity;
+
+    &.Animation--hidden {
+        opacity: 0;
+    }
+
+    .Animation__player {
+        display: block;
+        width: 100%;
+        height: 100%;
+
+        svg {
+            display: block;
+        }
+    }
+
+    &.Animation--large {
+        width: 100%;
+    }
+
+    &.Animation--small {
+        overflow: visible;
+
+        svg {
+            width: 45px !important;
+            height: 45px !important;
+        }
+    }
+}

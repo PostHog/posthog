@@ -1,0 +1,86 @@
+{
+    "cache_key": "cache_2d74908f63413d881a5c3d91a20397b2_[{'alias': '/person/<id>', 'regex': '\\\\/person\\\\/[^\\\\/]+'}, {'alias': 'Any Session Recording Route', 'regex': '.*sessionRecordingId=[a-zA-Z]+'}, {'alias': '/insights/<insight_id>', 'regex': '.*\\\\/insights\\\\/[0-9a-zA-Z]+'}, {'alias': '/project/<team_id>', 'regex': '\\\\/project\\\\/\\\\d+'}, {'alias': '/dashboard/<dashboard_id>', 'regex': '\\\\/dashboard\\\\/[0-9]+'}, {'alias': '/feature_flags/<feature_flag_id>', 'regex': '\\\\/feature_flags\\\\/[0-9]+'}, {'alias': '/replay/<replay_id>', 'regex': '\\\\/replay\\\\/[0-9a-f\\\\-]+'}, {'alias': '/cohorts/<cohort_id>', 'regex': '\\\\/cohorts\\\\/[0-9]+'}, {'alias': '/experiments/<experiment_id>', 'regex': '\\\\/experiments\\\\/[0-9]+'}, {'alias': '/surveys/<survey_id>', 'regex': '\\\\/surveys\\\\/[0-9a-f\\\\-]+'}, {'alias': '/events/<event_id>', 'regex': '\\\\/events\\\\/[0-9a-f\\\\-]+'}, {'alias': '/verify_email/<id>', 'regex': '\\\\/verify_email\\\\/[0-9a-f\\\\-]+'}, {'alias': '/community/profiles/<id>', 'regex': '\\\\/community\\\\/profiles\\\\/[0-9]+'}, {'alias': '/notebooks/<notebook_id>', 'regex': '\\\\/notebooks\\\\/[a-zA-Z0-9]+'}, {'alias': '/groups/<id>', 'regex': '\\\\/groups\\\\/[0-9]+\\\\/[a-zA-Z0-9]+'}, {'alias': '/signup/<id>', 'regex': '\\\\/signup\\\\/[0-9a-f\\\\-]+'}, {'alias': '/playlists/<playlist_id>', 'regex': '\\\\/playlists\\\\/[a-zA-Z0-9]+'}, {'alias': '/destinations/<destination_id>', 'regex': '\\\\/destinations?\\\\/[0-9a-zA-Z\\\\-]+'}, {'alias': '/properties/<property_id>', 'regex': '\\\\/properties\\\\/[0-9a-f\\\\-]+'}, {'alias': '/sources/<source_id>', 'regex': '\\\\/sources\\\\/[0-9a-zA-Z\\\\-]+'}, {'alias': '/reset', 'regex': '\\\\/reset\\\\/[0-9a-zA-Z\\\\-]+'}, {'alias': '/actions/<action_id>', 'regex': '\\\\/actions\\\\/[0-9]+'}, {'alias': '/shared-metrics/<metric_id>', 'regex': '\\\\/shared-metrics\\\\/[0-9]+'}]",
+    "cache_target_age": "2025-01-20T23:41:25.930048Z",
+    "calculation_trigger": null,
+    "dateFrom": "2025-01-06 00:00:00",
+    "dateTo": "2025-01-20 23:59:59",
+    "error": null,
+    "hogql": null,
+    "is_cached": true,
+    "last_refresh": "2025-01-20T21:41:25.930048Z",
+    "modifiers": {
+        "bounceRateDurationSeconds": null,
+        "bounceRatePageViewMode": "uniq_page_screen_autocaptures",
+        "customChannelTypeRules": [],
+        "dataWarehouseEventsModifiers": null,
+        "debug": null,
+        "inCohortVia": "auto",
+        "materializationMode": "legacy_null_as_null",
+        "optimizeJoinedFilters": false,
+        "personsArgMaxVersion": "auto",
+        "personsJoinMode": null,
+        "personsOnEventsMode": "person_id_override_properties_on_events",
+        "propertyGroupsMode": "optimized",
+        "s3TableUseInvalidColumns": null,
+        "sessionTableVersion": "auto",
+        "useMaterializedViews": true
+    },
+    "next_allowed_client_refresh": "2025-01-20T21:56:25.930048Z",
+    "query_status": null,
+    "results": [
+        {
+            "changeFromPreviousPct": 12.4,
+            "isIncreaseBad": null,
+            "key": "visitors",
+            "kind": "unit",
+            "previous": 160000,
+            "value": 171861
+        },
+        {
+            "changeFromPreviousPct": 15.6,
+            "isIncreaseBad": null,
+            "key": "views",
+            "kind": "unit",
+            "previous": 4700000,
+            "value": 4863551
+        },
+        {
+            "changeFromPreviousPct": -1.4,
+            "isIncreaseBad": null,
+            "key": "sessions",
+            "kind": "unit",
+            "previous": 552000,
+            "value": 547323
+        },
+        {
+            "changeFromPreviousPct": 0,
+            "isIncreaseBad": null,
+            "key": "session duration",
+            "kind": "duration_s",
+            "previous": 724,
+            "value": 724.9206857358319
+        },
+        {
+            "changeFromPreviousPct": -0.5,
+            "isIncreaseBad": true,
+            "key": "bounce rate",
+            "kind": "percentage",
+            "previous": 10,
+            "value": 9.921511959952788
+        },
+        {
+            "changeFromPreviousPct": 23.4,
+            "isIncreaseBad": true,
+            "key": "revenue",
+            "kind": "currency",
+            "previous": 10000,
+            "value": 12345.67
+        }
+    ],
+    "samplingRate": {
+        "denominator": null,
+        "numerator": 1
+    },
+    "timezone": "US/Pacific",
+    "timings": null
+}

@@ -1,0 +1,183 @@
+{
+    "query_status": {
+        "complete": true,
+        "end_time": "2024-07-10T10:06:20.116Z",
+        "error": false,
+        "error_message": null,
+        "expiration_time": "2024-07-10T10:16:20.116Z",
+        "id": "817cdeac-13ef-490c-b64c-9ace3990f598",
+        "labels": null,
+        "query_async": true,
+        "query_progress": null,
+        "results": {
+            "cache_key": "cache_ffcae1d8084f585670caee559af58a79",
+            "cache_target_age": null,
+            "columns": [
+                "context.columns.count",
+                "context.columns.channel_type",
+                "context.columns.referring_domain",
+                "context.columns.utm_source",
+                "context.columns.utm_medium",
+                "context.columns.utm_campaign",
+                "context.columns.ad_ids",
+                "context.columns.example_entry_urls"
+            ],
+            "error": null,
+            "hasMore": false,
+            "hogql": "SELECT\n    count() AS `context.columns.count`,\n    $channel_type AS `context.columns.channel_type`,\n    $entry_referring_domain AS `context.columns.referring_domain`,\n    $entry_utm_source AS `context.columns.utm_source`,\n    $entry_utm_medium AS `context.columns.utm_medium`,\n    topK(10)($entry_utm_campaign) AS `context.columns.utm_campaign`,\n    topK(10)(nullIf(arrayStringConcat([if(isNotNull($entry_gclid), 'glcid', NULL), if(isNotNull($entry_gad_source), 'gad_source', NULL)], ','), '')) AS `context.columns.ad_ids`,\n    topK(10)($entry_current_url) AS `context.columns.example_entry_urls`\nFROM\n    sessions\nWHERE\n    and(1, 1, less($start_timestamp, toDateTime('2024-07-10 10:06:19.898500')), greaterOrEquals($start_timestamp, toDateTime('2024-07-03 10:06:19.898633')))\nGROUP BY\n    `context.columns.channel_type`,\n    `context.columns.referring_domain`,\n    `context.columns.utm_source`,\n    `context.columns.utm_medium`\nORDER BY\n    `context.columns.count` DESC\nLIMIT 101\nOFFSET 0",
+            "is_cached": false,
+            "last_refresh": "2024-07-10T10:06:20.115209Z",
+            "limit": 100,
+            "modifiers": {
+                "bounceRatePageViewMode": "count_pageviews",
+                "dataWarehouseEventsModifiers": null,
+                "debug": null,
+                "inCohortVia": "auto",
+                "materializationMode": "legacy_null_as_null",
+                "optimizeJoinedFilters": false,
+                "personsArgMaxVersion": "auto",
+                "personsJoinMode": null,
+                "personsOnEventsMode": "disabled",
+                "s3TableUseInvalidColumns": null,
+                "sessionTableVersion": "v2"
+            },
+            "next_allowed_client_refresh": "2024-07-10T10:07:20.115214Z",
+            "offset": 0,
+            "query_status": null,
+            "results": [
+                [
+                    17,
+                    "Unknown",
+                    "localhost:8000",
+                    null,
+                    null,
+                    [],
+                    [],
+                    [
+                        "http://localhost:8000/project/1/web/session-attribution-debugger",
+                        "http://localhost:8000/project/1/web/session-attribution-explorer",
+                        "http://localhost:8000/project/1/insights/new",
+                        "http://localhost:8000/project/1/web/session-attribution-explorer?filters=%5B%7B%22key%22%3A%22%24entry_pathname%22%2C%22value%22%3A%5B%22%2Ffiles%2F%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22session%22%7D%5D",
+                        "http://localhost:8000/login?next=/project/1/web",
+                        "http://localhost:8000/project/1/web/session-attribution-explorer?properties=%5B%7B%22key%22%3A%22%24channel_type%22%2C%22value%22%3A%5B%22Referral%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22session%22%7D%5D&dateRange=%7B%22date_from%22%3A%22dStart%22%7D",
+                        "http://localhost:8000/project/1/data-management/events"
+                    ]
+                ],
+                [
+                    6,
+                    "Direct",
+                    "$direct",
+                    null,
+                    null,
+                    [],
+                    [],
+                    [
+                        "http://localhost:8000/",
+                        "http://localhost:8000/login?next=/",
+                        "http://localhost:8000/project/1/web/session-attribution-explorer?dateRange=%7B%22date_from%22%3A%22-180d%22%7D"
+                    ]
+                ]
+            ],
+            "timezone": "UTC",
+            "timings": [
+                {
+                    "k": "./session_attribution_query_runner",
+                    "t": 0.00018341699615120888
+                },
+                {
+                    "k": "./parse_select_cpp",
+                    "t": 0.013566417008405551
+                },
+                {
+                    "k": "./query",
+                    "t": 6.879199645482004e-5
+                },
+                {
+                    "k": "./replace_placeholders",
+                    "t": 0.0007592500041937456
+                },
+                {
+                    "k": "./max_limit",
+                    "t": 1.8708000425249338e-5
+                },
+                {
+                    "k": "./hogql/prepare_ast/clone",
+                    "t": 0.00010145900887437165
+                },
+                {
+                    "k": "./hogql/prepare_ast/create_hogql_database",
+                    "t": 0.033654708007816225
+                },
+                {
+                    "k": "./hogql/prepare_ast/resolve_types",
+                    "t": 0.0007856669981265441
+                },
+                {
+                    "k": "./hogql/prepare_ast",
+                    "t": 0.034647958003915846
+                },
+                {
+                    "k": "./hogql/print_ast/printer",
+                    "t": 0.0004404580104164779
+                },
+                {
+                    "k": "./hogql/print_ast",
+                    "t": 0.0004706659965449944
+                },
+                {
+                    "k": "./hogql",
+                    "t": 0.035132000004523434
+                },
+                {
+                    "k": "./print_ast/create_hogql_database",
+                    "t": 0.03552412499266211
+                },
+                {
+                    "k": "./print_ast/resolve_types",
+                    "t": 0.0016556659975321963
+                },
+                {
+                    "k": "./print_ast/resolve_property_types",
+                    "t": 0.0003872499946737662
+                },
+                {
+                    "k": "./print_ast/resolve_lazy_tables",
+                    "t": 0.031225833008647896
+                },
+                {
+                    "k": "./print_ast/swap_properties",
+                    "t": 0.0007154159975470975
+                },
+                {
+                    "k": "./print_ast/printer",
+                    "t": 0.0016986249975161627
+                },
+                {
+                    "k": "./print_ast",
+                    "t": 0.07132712499878835
+                },
+                {
+                    "k": "./clickhouse_execute",
+                    "t": 0.10960962499666493
+                },
+                {
+                    "k": ".",
+                    "t": 0.2371137909940444
+                }
+            ],
+            "types": [
+                ["context.columns.count", "UInt64"],
+                ["context.columns.channel_type", "String"],
+                ["context.columns.referring_domain", "Nullable(String)"],
+                ["context.columns.utm_source", "Nullable(String)"],
+                ["context.columns.utm_medium", "Nullable(String)"],
+                ["context.columns.utm_campaign", "Array(String)"],
+                ["context.columns.ad_ids", "Array(String)"],
+                ["context.columns.example_entry_urls", "Array(String)"]
+            ]
+        },
+        "start_time": "2024-07-10T10:06:19.839Z",
+        "task_id": null,
+        "team_id": 1
+    }
+}

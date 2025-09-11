@@ -1,0 +1,24 @@
+{
+    "kind": "ExperimentTrendsQuery",
+    "count_query": {
+        "kind": "TrendsQuery",
+        "series": [
+            {
+                "kind": "ActionsNode",
+                "id": 8,
+                "name": "jan-16-running payment action",
+                "math": "total"
+            }
+        ],
+        "interval": "day",
+        "dateRange": {
+            "date_to": "2025-01-16T23:59",
+            "date_from": "2025-01-02T13:54",
+            "explicitDate": true
+        },
+        "trendsFilter": {
+            "display": "ActionsLineGraph"
+        },
+        "filterTestAccounts": true
+    }
+}

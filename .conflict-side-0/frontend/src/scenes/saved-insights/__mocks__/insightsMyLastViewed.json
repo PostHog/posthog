@@ -1,0 +1,212 @@
+[
+    {
+        "id": 21,
+        "short_id": "jFlCOvY8",
+        "name": "",
+        "derived_name": "Pageview count by event's Browser",
+        "filters": {
+            "events": [
+                {
+                    "id": "$pageview",
+                    "name": "$pageview",
+                    "type": "events",
+                    "order": 0
+                }
+            ],
+            "actions": [],
+            "display": "ActionsPie",
+            "insight": "TRENDS",
+            "breakdown": "$browser",
+            "properties": [],
+            "breakdown_type": "event",
+            "filter_test_accounts": false,
+            "date_from": "-7d"
+        },
+        "query": null,
+        "dashboards": [],
+        "dashboard_tiles": [],
+        "description": "",
+        "last_refresh": null,
+        "refreshing": false,
+        "saved": true,
+        "updated_at": "2023-02-14T15:03:14.477267Z",
+        "created_by": {
+            "id": 1,
+            "uuid": "01863799-062b-0000-8a61-b2842d5f8642",
+            "distinct_id": "Sopz9Z4NMIfXGlJe6W1XF98GOqhHNui5J5eRe0tBGTE",
+            "first_name": "Employee 427",
+            "email": "test2@posthog.com",
+            "is_email_verified": null
+        },
+        "created_at": "2023-02-14T15:03:14.477239Z",
+        "last_modified_at": "2023-02-14T15:03:14.477013Z",
+        "favorited": false,
+        "tags": []
+    },
+    {
+        "id": 14,
+        "short_id": "Tley8HtA",
+        "name": "",
+        "derived_name": "Pageview user conversion rate",
+        "filters": {
+            "events": [
+                {
+                    "id": "$pageview",
+                    "name": "$pageview",
+                    "type": "events"
+                }
+            ],
+            "insight": "FUNNELS",
+            "properties": {
+                "type": "AND",
+                "values": []
+            },
+            "entity_type": "events",
+            "funnel_viz_type": "steps",
+            "date_from": "-7d"
+        },
+        "query": null,
+        "dashboards": [],
+        "dashboard_tiles": [],
+        "description": "",
+        "last_refresh": null,
+        "refreshing": false,
+        "saved": true,
+        "updated_at": "2023-02-09T19:27:23.741057Z",
+        "created_by": {
+            "id": 1,
+            "uuid": "01863799-062b-0000-8a61-b2842d5f8642",
+            "distinct_id": "Sopz9Z4NMIfXGlJe6W1XF98GOqhHNui5J5eRe0tBGTE",
+            "first_name": "Employee 427",
+            "email": "test2@posthog.com",
+            "is_email_verified": null
+        },
+        "created_at": "2023-02-09T19:27:23.741022Z",
+        "last_modified_at": "2023-02-09T19:27:23.740017Z",
+        "favorited": false,
+        "tags": []
+    },
+    {
+        "id": 17,
+        "short_id": "0aTobOcQ",
+        "name": "",
+        "derived_name": "Pageview count",
+        "filters": {
+            "events": [
+                {
+                    "id": "$pageview",
+                    "math": "total",
+                    "name": "$pageview",
+                    "type": "events"
+                }
+            ],
+            "insight": "TRENDS",
+            "properties": {
+                "type": "AND",
+                "values": []
+            },
+            "entity_type": "events",
+            "date_from": "-7d"
+        },
+        "query": null,
+        "dashboards": [],
+        "dashboard_tiles": [],
+        "description": "",
+        "last_refresh": null,
+        "refreshing": false,
+        "saved": true,
+        "updated_at": "2023-02-09T19:28:19.718827Z",
+        "created_by": {
+            "id": 1,
+            "uuid": "01863799-062b-0000-8a61-b2842d5f8642",
+            "distinct_id": "Sopz9Z4NMIfXGlJe6W1XF98GOqhHNui5J5eRe0tBGTE",
+            "first_name": "Employee 427",
+            "email": "test2@posthog.com",
+            "is_email_verified": null
+        },
+        "created_at": "2023-02-09T19:28:19.718798Z",
+        "last_modified_at": "2023-02-09T19:28:19.718602Z",
+        "favorited": false,
+        "tags": []
+    },
+    {
+        "id": 18,
+        "short_id": "6BKLdeh3",
+        "name": "",
+        "derived_name": "User paths based on page views",
+        "filters": {
+            "insight": "PATHS",
+            "properties": [],
+            "step_limit": 5,
+            "funnel_filter": {},
+            "exclude_events": [],
+            "path_groupings": [],
+            "include_event_types": ["$pageview"],
+            "local_path_cleaning_filters": [],
+            "date_from": "-7d"
+        },
+        "query": null,
+        "dashboards": [],
+        "dashboard_tiles": [],
+        "description": "",
+        "last_refresh": null,
+        "refreshing": false,
+        "saved": true,
+        "updated_at": "2023-02-09T20:40:15.806504Z",
+        "created_by": {
+            "id": 1,
+            "uuid": "01863799-062b-0000-8a61-b2842d5f8642",
+            "distinct_id": "Sopz9Z4NMIfXGlJe6W1XF98GOqhHNui5J5eRe0tBGTE",
+            "first_name": "Employee 427",
+            "email": "test2@posthog.com",
+            "is_email_verified": null
+        },
+        "created_at": "2023-02-09T20:40:15.806476Z",
+        "last_modified_at": "2023-02-09T20:40:15.806257Z",
+        "favorited": false,
+        "tags": []
+    },
+    {
+        "id": 19,
+        "short_id": "RKl1joo4",
+        "name": "",
+        "derived_name": "Pageview count",
+        "filters": {
+            "events": [
+                {
+                    "id": "$pageview",
+                    "name": "$pageview",
+                    "type": "events",
+                    "order": 0
+                }
+            ],
+            "actions": [],
+            "display": "ActionsLineGraph",
+            "insight": "TRENDS",
+            "interval": "day",
+            "properties": [],
+            "filter_test_accounts": false,
+            "date_from": "-7d"
+        },
+        "query": null,
+        "dashboards": [],
+        "dashboard_tiles": [],
+        "description": "",
+        "last_refresh": null,
+        "refreshing": false,
+        "saved": true,
+        "updated_at": "2023-02-13T14:57:29.759301Z",
+        "created_by": {
+            "id": 1,
+            "uuid": "01863799-062b-0000-8a61-b2842d5f8642",
+            "distinct_id": "Sopz9Z4NMIfXGlJe6W1XF98GOqhHNui5J5eRe0tBGTE",
+            "first_name": "Employee 427",
+            "email": "test2@posthog.com",
+            "is_email_verified": null
+        },
+        "created_at": "2023-02-13T14:57:29.759275Z",
+        "last_modified_at": "2023-02-13T14:57:29.758996Z",
+        "favorited": false,
+        "tags": []
+    }
+]

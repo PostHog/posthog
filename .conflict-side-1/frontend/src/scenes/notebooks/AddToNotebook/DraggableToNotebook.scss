@@ -1,0 +1,16 @@
+.DraggableToNotebook {
+    position: relative;
+
+    &--dragging {
+        background-color: var(--color-bg-surface-primary);
+        outline: 1px solid var(--color-accent);
+
+        // Weird hack - this fixes chrome from not correctly identifying the bounds of the component for the drag preview
+        // https://github.com/react-dnd/react-dnd/issues/832#issuecomment-442071628
+        transform: translate3d(0, 0, 0);
+    }
+
+    &[draggable='true'] {
+        cursor: grab;
+    }
+}

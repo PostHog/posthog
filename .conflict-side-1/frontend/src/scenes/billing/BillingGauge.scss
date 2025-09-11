@@ -1,0 +1,73 @@
+.BillingGaugeItem {
+    animation: BillingGaugeItem__expand 800ms cubic-bezier(0.15, 0.15, 0.2, 1) forwards;
+
+    .BillingGaugeItem__info {
+        position: absolute;
+        bottom: 100%;
+        left: 100%;
+        padding: 0 0.25rem 0.5rem;
+        margin-left: -1px;
+        font-size: 0.8rem;
+        line-height: 1rem;
+        white-space: nowrap;
+        background-color: var(--color-bg-light);
+        border-left: 1px solid var(--border-light);
+
+        &--bottom {
+            top: 100%;
+            bottom: auto;
+            padding: 0.5rem 0.25rem 0;
+        }
+
+        &:hover {
+            z-index: 100;
+        }
+    }
+
+    &.BillingGaugeItem--free_tier {
+        background-color: var(--color-border-primary-opaque);
+    }
+
+    &.BillingGaugeItem--billing_limit {
+        background-color: var(--color-border-primary-opaque);
+    }
+
+    &.BillingGaugeItem--current_usage {
+        background: var(--danger);
+
+        &.BillingGaugeItem--within-usage-limit {
+            background: var(--brand-blue);
+        }
+    }
+
+    &.BillingGaugeItem--projected_usage {
+        background: repeating-linear-gradient(
+            -45deg,
+            var(--danger-3000-button-border-dark),
+            var(--danger-3000-button-border-dark) 0.5rem,
+            var(--danger-3000-button-border-hover-dark) 0.5rem,
+            var(--danger-3000-button-border-hover-dark) 1rem
+        );
+        opacity: 0.5;
+
+        &.BillingGaugeItem--within-usage-limit {
+            background: repeating-linear-gradient(
+                -45deg,
+                var(--data-color-1),
+                var(--data-color-1) 0.5rem,
+                var(--data-color-1-hover) 0.5rem,
+                var(--data-color-1-hover) 1rem
+            );
+        }
+    }
+}
+
+@keyframes BillingGaugeItem__expand {
+    0% {
+        width: 0%;
+    }
+
+    100% {
+        width: var(--billing-gauge-item-width);
+    }
+}

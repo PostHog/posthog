@@ -1,0 +1,348 @@
+.LemonTable {
+    --row-base-height: auto;
+    --row-horizontal-padding: 0.5rem;
+    --lemon-table-background-color: var(--color-bg-surface-primary);
+
+    position: relative;
+    flex: 1;
+    width: 100%;
+    overflow: hidden;
+    font-size: 13px;
+    background: var(--lemon-table-background-color) !important;
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius);
+
+    .WebAnalyticsDashboard &,
+    .Insight &,
+    .InsightCard__viz & {
+        // Special override for scenes where the table is primarily next to insights
+        --lemon-table-background-color: var(--color-bg-surface-primary);
+    }
+
+    .WebAnalyticsDashboard &,
+    .WebAnalyticsModal & {
+        // Special override for scenes where the surroundings provide a border
+        border: none;
+    }
+
+    &.LemonTable--with-ribbon {
+        --row-ribbon-width: 0.25rem;
+
+        .LemonTable__content > table > tbody > tr > :first-child {
+            position: relative;
+
+            &::after {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: var(--row-ribbon-width);
+                height: 100%;
+                content: '';
+                background: var(--row-ribbon-color);
+            }
+        }
+    }
+
+    &--xs {
+        .LemonTable__content > table > tbody > tr > td {
+            padding-top: 0.25rem;
+            padding-bottom: 0.25rem;
+        }
+    }
+
+    &--embedded {
+        background: none !important;
+        border: none;
+        border-radius: 0;
+    }
+
+    &--stealth {
+        background: none !important;
+
+        .LemonTable__content > table {
+            > thead {
+                background: none;
+                border-bottom: none;
+            }
+
+            > thead,
+            > tbody {
+                > tr {
+                    &:not(:first-child) {
+                        border-top: none;
+                    }
+                }
+            }
+        }
+    }
+
+    &--lowercase-header {
+        .LemonTable__content > table {
+            > thead {
+                text-transform: none;
+                letter-spacing: normal;
+            }
+        }
+    }
+
+    &.LemonTable--inset {
+        --row-horizontal-padding: 0.5rem;
+    }
+
+    .PaginationControl {
+        height: var(--row-base-height);
+        padding: 0.5rem;
+        border-top: 1px solid var(--color-border-primary);
+    }
+
+    a.Link {
+        color: var(--text-3000);
+
+        &:not(:disabled):hover {
+            color: var(--primary-3000-hover);
+        }
+    }
+}
+
+.LemonTable__content > table {
+    width: 100%;
+    border-spacing: 0;
+    border-collapse: collapse;
+
+    > thead {
+        position: relative;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03125rem;
+        background: var(--lemon-table-background-color);
+
+        > tr {
+            > th {
+                padding-top: 0.5rem;
+                padding-bottom: 0.5rem;
+                font-weight: 700;
+                text-align: left;
+
+                // box shadow as a border supports sticky headers
+                // Also it needs to be on the th - any higher and safari will not render the shadow
+                box-shadow: inset 0 -1px var(--color-border-primary);
+
+                .LemonButton {
+                    margin: -0.5rem 0;
+                }
+            }
+
+            &.LemonTable__row--grouping {
+                --row-base-height: 2.5rem; // Make group headers smaller for better hierarchy
+            }
+        }
+    }
+
+    > tbody {
+        > tr {
+            &:not(:first-child) {
+                border-top: 1px solid var(--color-border-primary);
+            }
+
+            &.LemonTable__expansion {
+                position: relative;
+                background: var(--color-bg-primary);
+
+                > td {
+                    // Disable padding inside the expansion for better tailored placement of contents
+                    padding: 0 !important;
+                }
+            }
+
+            &.LemonTable__row--status-highlighted {
+                font-weight: 600;
+                color: var(--text-3000);
+
+                > td:not(.LemonTable__cell--sticky) {
+                    background: var(--color-accent-highlight-secondary);
+                }
+            }
+
+            &:not(.LemonTable__expansion) {
+                > td {
+                    // Make spacing of buttons tighter in tables by adding negative vertical margin
+                    .LemonButton {
+                        margin-top: -0.25rem;
+                        margin-bottom: -0.25rem;
+                    }
+                }
+            }
+
+            > td {
+                padding-top: 0.3125rem;
+                padding-bottom: 0.3125rem;
+                color: var(--color-text-secondary);
+
+                // Cancel the vertical margin for CodeSnippet actions
+                // This is annoyingly specific, but really needed for CodeSnippet to look good in expanded table rows
+                .CodeSnippet__actions > .LemonButton,
+                .LemonButtonWithSideAction__side-button > .LemonButton {
+                    margin-top: 0;
+                    margin-bottom: 0;
+                }
+            }
+        }
+    }
+
+    > thead,
+    > tbody {
+        > tr {
+            height: var(--row-base-height);
+
+            > th,
+            > td {
+                padding-right: var(--row-horizontal-padding);
+                padding-left: var(--row-horizontal-padding);
+                overflow: hidden;
+                text-overflow: ellipsis;
+
+                &:first-child {
+                    padding-left: calc(var(--row-horizontal-padding) * 2 + var(--row-ribbon-width, 0px));
+                }
+
+                &:last-child {
+                    padding-right: calc(var(--row-horizontal-padding) * 2 + var(--row-ribbon-width, 0px));
+                }
+
+                &.LemonTable__boundary:not(:first-of-type) {
+                    border-left: 1px solid var(--color-border-primary);
+                }
+
+                &.LemonTable__toggle {
+                    padding-right: var(--row-horizontal-padding);
+                }
+
+                &.LemonTable__toggle + * {
+                    border-left: none !important;
+                }
+
+                &[colspan='0'] {
+                    padding-right: 0 !important;
+
+                    // Hidden cells should not affect the width of the table
+                    padding-left: 0 !important;
+                }
+            }
+        }
+    }
+}
+
+.LemonTable__empty-state {
+    color: var(--color-text-secondary);
+}
+
+.LemonTable__overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 2;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    background: var(--lemon-table-background-color);
+    opacity: 0;
+    transition: opacity 200ms ease;
+
+    .LemonTable--loading & {
+        pointer-events: auto;
+        opacity: 0.5;
+    }
+}
+
+.LemonTable__header {
+    cursor: default;
+
+    .LemonTable__header-content {
+        color: var(--color-text-secondary);
+    }
+
+    &.LemonTable__header--actionable {
+        cursor: pointer;
+
+        &:hover {
+            &:not(:has(.LemonTable__header--no-hover:hover)) {
+                .LemonTable__header-content {
+                    color: var(--color-text-primary);
+                }
+            }
+        }
+
+        &:active {
+            .LemonTable__header-content {
+                color: var(--color-text-primary);
+            }
+        }
+    }
+}
+
+.LemonTable__header-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    line-height: 1.5;
+
+    div {
+        white-space: nowrap;
+    }
+}
+
+.LemonTable__footer {
+    cursor: default;
+    border-top: 1px solid var(--color-border-primary);
+}
+
+// NOTE: this is outside of the storybook check for 3000 selective styling
+.LemonTable__cell--sticky {
+    background: var(--lemon-table-background-color);
+
+    .LemonTable__row--status-highlighted &::before {
+        background: var(--color-accent-highlight-secondary);
+    }
+}
+
+.LemonTable__header--sticky {
+    background: var(--lemon-table-background-color);
+}
+
+.LemonTable__cell--pinned,
+.LemonTable__header--pinned {
+    background: var(--lemon-table-background-color);
+}
+
+// Stickiness is disabled in snapshots due to flakiness
+body:not(.storybook-test-runner) {
+    .LemonTable__header--sticky,
+    .LemonTable__cell--sticky,
+    .LemonTable__header--pinned,
+    .LemonTable__cell--pinned {
+        position: sticky !important; // Important to override .LemonTable--with-ribbon's rule, which has more specificity
+        left: 0;
+        z-index: 1;
+        overflow: visible !important;
+
+        // Replicate .scrollable style for sticky cells
+        &::before {
+            position: absolute;
+            inset: 0;
+            z-index: -1; // Place below cell content
+            clip-path: inset(0 -16px 0 0);
+            content: '';
+            box-shadow: -16px 0 16px 16px transparent;
+            transition: box-shadow 200ms ease;
+        }
+    }
+
+    .ScrollableShadows--left {
+        .LemonTable__cell--sticky::before,
+        .LemonTable__header--sticky::before,
+        .LemonTable__cell--pinned::before,
+        .LemonTable__header--pinned::before {
+            box-shadow: -16px 0 16px 16px rgb(0 0 0 / 25%);
+        }
+    }
+}

@@ -1,0 +1,64 @@
+{
+    "id": "01891c30-e217-0000-f8af-fd0995850693",
+    "short_id": "12345",
+    "title": "testing my notebook",
+    "content": {
+        "type": "doc",
+        "content": [
+            {
+                "type": "heading",
+                "attrs": {
+                    "level": 1
+                },
+                "content": [
+                    {
+                        "text": "testing my notebook",
+                        "type": "text"
+                    }
+                ]
+            },
+            {
+                "type": "paragraph",
+                "content": [
+                    {
+                        "text": "here is where my amazing content is",
+                        "type": "text"
+                    }
+                ]
+            },
+            {
+                "type": "paragraph"
+            },
+            {
+                "type": "paragraph",
+                "content": [
+                    {
+                        "text": "With even more text",
+                        "type": "text"
+                    }
+                ]
+            }
+        ]
+    },
+    "version": 13,
+    "deleted": false,
+    "created_at": "2023-07-03T14:38:32.984546Z",
+    "created_by": {
+        "id": 1,
+        "uuid": "0188ea22-05ae-0000-6d0b-d47602552d2c",
+        "distinct_id": "wnATPtp3kGKinrPUTgGGuR80MmuzrJLRwzGgtoJCt4V",
+        "first_name": "Paul",
+        "email": "paul@posthog.com",
+        "is_email_verified": false
+    },
+    "last_modified_at": "2023-07-03T17:03:51.166530Z",
+    "last_modified_by": {
+        "id": 1,
+        "uuid": "0188ea22-05ae-0000-6d0b-d47602552d2c",
+        "distinct_id": "wnATPtp3kGKinrPUTgGGuR80MmuzrJLRwzGgtoJCt4V",
+        "first_name": "Paul",
+        "email": "paul@posthog.com",
+        "is_email_verified": false
+    },
+    "user_access_level": "editor"
+}

@@ -1,0 +1,11 @@
+# serializer version: 1
+# name: TestFeatureFlagAnalytics.test_efficient_querying_of_team_decide_usage_data
+  '''
+  SELECT "posthog_team"."id",
+         "posthog_team"."uuid"
+  FROM "posthog_team"
+  INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
+  WHERE NOT (("posthog_organization"."for_internal_metrics"
+              OR "posthog_team"."is_demo"))
+  '''
+# ---

@@ -1,0 +1,58 @@
+{
+    "compilerOptions": {
+        "baseUrl": "frontend/",
+        "paths": {
+            "lib/*": ["src/lib/*"],
+            "scenes/*": ["src/scenes/*"],
+            "@posthog/lemon-ui": ["@posthog/lemon-ui/src/index"],
+            "@posthog/lemon-ui/*": ["@posthog/lemon-ui/src/*"],
+            "@posthog/icons": ["node_modules/@posthog/icons"],
+            "storybook/*": ["../.storybook/*"],
+            "@posthog/ee/exports": ["../ee/exports", "@posthog/ee/exports"],
+            "~/*": ["src/*"],
+            "public/*": ["public/*"],
+            "products/*": ["../products/*"]
+        },
+        // https://www.sitepoint.com/react-with-typescript-best-practices/
+        "allowJs": true, // Allow JavaScript files to be compiled
+        "skipLibCheck": true, // Skip type checking of all declaration files
+        "esModuleInterop": true, // Disables namespace imports (import * as fs from "fs") and enables CJS/AMD/UMD style imports (import fs from "fs")
+        "allowSyntheticDefaultImports": true, // Allow default imports from modules with no default export
+        "strict": true, // Enable all strict type checking options
+        "forceConsistentCasingInFileNames": true, // Disallow inconsistently-cased references to the same file.
+        "module": "esnext", // Specify module code generation
+        "moduleResolution": "node", // Resolve modules using Node.js style
+        "isolatedModules": true,
+        "incremental": true,
+        "resolveJsonModule": true, // Include modules imported with .json extension
+        "noEmit": true, // Do not emit output (meaning do not compile code, only perform type checking)
+        "jsx": "react-jsx", // Support JSX in .tsx files
+        "target": "es2021",
+        "sourceMap": true, // Generate corrresponding .map file
+        "declaration": true, // Generate corresponding .d.ts file
+        "noUnusedLocals": true, // Report errors on unused locals
+        "noUnusedParameters": true, // Report errors on unused parameters
+        "experimentalDecorators": true, // Enables experimental support for ES decorators
+        "noFallthroughCasesInSwitch": true, // Report errors for fallthrough cases in switch statement
+        // FIXME: suppressImplicitAnyIndexErrors is deprecated and will be removed in TS 5.5, but we have MANY of these
+        "suppressImplicitAnyIndexErrors": true, // Index objects by number
+        "ignoreDeprecations": "5.0",
+        "lib": ["dom", "es2023"]
+    },
+    "include": [
+        "frontend/**/*",
+        ".storybook/**/*",
+        "playwright/**/*",
+        "ee/frontend/**/*",
+        "products/**/frontend/**/*",
+        "products/**/manifest.tsx",
+        "common/esbuilder/*",
+        "common/storybook/*"
+    ],
+    "exclude": ["frontend/dist/**/*", "**/*.mdx"],
+    "ts-node": {
+        "compilerOptions": {
+            "module": "commonjs"
+        }
+    }
+}

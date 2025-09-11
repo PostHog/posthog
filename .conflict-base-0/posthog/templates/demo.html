@@ -1,0 +1,219 @@
+<html lang="en">
+
+<head>
+    <title>Hogflix</title>
+    <script src="/static/array.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/rrweb@latest/dist/rrweb.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/rrweb@latest/dist/rrweb.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/mvp.css">
+
+    <style>
+        :root {
+            --color: #e9130c !important;
+            --color-accent: #118bee15 !important;
+            --color-bg: rgb(37, 37, 37) !important;
+            --color-bg-secondary: #e9e9e9 !important;
+            --color-secondary: #fa0303 !important;
+            --color-secondary-accent: #eb1c1c0b !important;
+            --color-shadow: #a8a8a8 !important;
+            --color-text: rgb(231, 231, 231) !important;
+            --color-text-secondary: rgb(212, 212, 212) !important;
+        }
+
+        video {
+            max-width: 600px !important;
+            margin: auto;
+            display: block;
+        }
+
+        input {
+            background-color: rgb(59, 59, 59);
+            border-color: rgb(54, 54, 54);
+            color: #fff;
+        }
+    </style>
+</head>
+
+<body>
+    <script>
+        posthog.init('{{api_token}}', {
+            api_host: window.location.origin,
+            loaded: (posthog) => {
+                posthog.onFeatureFlags(() => {
+                    if (posthog.isFeatureEnabled('sign-up-cta') && document.getElementById('sign-up-cta')) {
+                        document.getElementById('sign-up-cta').innerText = 'Get started now'
+                    }
+                })
+            },
+        })
+    </script>
+    <main>
+        <header>
+            <article>
+                <aside>
+                    <p>Welcome to the PostHog demo environment!</p>
+                    <small>
+                        By going through this demo you can simulate a user going through a signup funnel.
+                    </small>
+                    <p> </p>
+                </aside>
+            </article>
+            <nav>
+                <a href="/demo" style='color: rgb(197, 197, 197)'>
+                    <h3>Hogflix</h3>
+                </a>
+                <ul>
+                    <li><a href="/demo/1">Sign Up</a></li>
+                    <li><a href="/demo/2">Payment</a></li>
+                    <li><a href="/demo/3">Movies</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        {% if request.path == '/demo' %}
+        <header>
+            <h1>Welcome to Hogflix</h1>
+            <p>The one-stop shop for all your hedgehog movies.</p>
+            <br>
+
+            <a href='/demo/1' id='sign-up'><button id='sign-up-cta' data-attr="sign-up-button">Sign up</button></a>
+        </header>
+        {% endif %}
+
+        {% if request.path == '/demo/1' %}
+        <section>
+            <form action='/demo/2'>
+                <h1>Sign Up</h1>
+
+                <label>Username</label>
+                <input class='form-control' type='text' name='username' />
+                <label>Password</label>
+                <input class='form-control' type='password' name='password' />
+                <button type='submit'>Sign up!</button>
+            </form>
+        </section>
+        {% endif %}
+
+        {% if request.path == '/demo/2' %}
+        <section>
+            <form action='/demo/3'>
+                <h1>Pay for Hogflix</h1>
+                <label>Credit card number</label>
+                <input class='form-control' type='text' name='creditcard' placeholder='4000 0000 0000 0000' />
+                <button type='submit'>Pay $10!</button>
+        </section>
+        {% endif %}
+
+        {% if request.path == '/demo/3' %}
+        <section style="margin-top: -100px">
+            <header>
+                <h1>Watch some Flix!</h1>
+            </header>
+            <aside>
+                <img src='https://m.media-amazon.com/images/M/MV5BNDc1ZTlmOWUtNDY2YS00OGU5LTg2MTYtYTk2MmQzMGE2NzUwXkEyXkFqcGdeQXVyODkzNTgxMDg@._V1_SY1000_CR0,0,675,1000_AL_.jpg'
+                    class='card-img-top' />
+                <div class='card-body'>
+                    <h5 class='card-title'>Sonic The Hedgehog (2020)</h5>
+                    <p class='card-text'>Based on the global blockbuster videogame franchise from Sega, SONIC THE
+                        HEDGEHOG tells the story of the world's speediest hedgehog as he embraces his new home on Earth.
+                    </p>
+                    <a href='https://netflix.com' target="_blank"><button>Watch now!</button></a>
+                </div>
+            </aside>
+            <aside>
+                <img src='https://m.media-amazon.com/images/M/MV5BMTc0Mzg3OTQyN15BMl5BanBnXkFtZTcwODA2OTc4NQ@@._V1_SY1000_CR0,0,677,1000_AL_.jpg'
+                    class='card-img-top' />
+                <div class='card-body'>
+                    <h5 class='card-title'>The Hedgehog (2009)</h5>
+                    <p class='card-text'>While planning her suicide, a precocious 11-year-old (Garance Le Guillermic)
+                        befriends a new neighbor (Togo Igawa) and a prickly recluse (Josiane Balasko).</p>
+                    <a href='https://netflix.com' target="_blank"><button>Watch now!</button></a>
+                </div>
+            </aside>
+            <aside>
+                <img src='https://posthog-static-files.s3.us-east-2.amazonaws.com/Product-Assets/Big_buck_bunny_poster_big.jpg'
+                    class='card-img-top' />
+                <div class='card-body'><br />
+                    <h5 class='card-title'>Big Buck Bunny (2008)</h5>
+                    <p class='card-text'>A large and lovable rabbit deals with three tiny bullies, led by a flying
+                        squirrel, who are determined to squelch his happiness.</p>
+                    <a href='/demo/4'><button>Watch now!</button></a>
+                </div>
+            </aside>
+        </section>
+        {% endif %}
+
+        {% if request.path == '/demo/4' %}
+        <section style="margin-top: -100px">
+            <header>
+                <h1>Now Playing: Big Buck Bunny</h1>
+            </header>
+
+            <figure>
+                <div>
+                    <video id="my-video" class="video-js" controls preload="auto" data-setup="{}">
+                        <source
+                            src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Product-Assets/BigBuckBunny.mp4"
+                            type="video/mp4" />
+                        <p class="vjs-no-js">To view this video please enable JavaScript, and consider upgrading to a
+                            web
+                            browser that supports HTML5 video</p>
+                    </video>
+                </div>
+            </figure>
+            <br>
+        </section>
+
+        <section>
+            <aside>
+                <div>
+                    <h2>Reviews</h2>
+                </div>
+                <div class="row" style="width:100%;">
+                    <p><em>This movie was so great.</em></p>
+                </div>
+                <div class="row" style="width:100%;">
+                    <p><em>The best thing I have ever seen.</em></p>
+                </div>
+                <div class="row" style="width:100%;">
+                    <p id="new-review"><em></em></p>
+                </div>
+            </aside>
+
+            <aside>
+                <h2>Leave a review</h2>
+                <textarea class='form-control' type='text' name='review' id="review-text"
+                    placeholder='What did you think?'></textarea><br />
+                <a id='submit-review' style="cursor: pointer;">Submit Review</a>
+            </aside>
+        </section>
+
+        <section>
+            <div class="row">&nbsp;</div>
+            <br />
+            <br />
+        </section>
+
+        <section class="copyright" style="margin-top:400px; font-size:12px;">Big Buck Bunny - (c) copyright Blender
+            Foundation | peach.blender.org - [1], CC BY 3.0, https://commons.wikimedia.org/w/index.php?curid=3748497
+        </section>
+        {% endif %}
+    </main>
+
+    <script>
+
+        if (document.getElementById('submit-review')) {
+            document.getElementById('submit-review').addEventListener('click', () => {
+                document.getElementById('new-review').innerText = document.getElementById('review-text').value
+            })
+        }
+
+        if (document.getElementById('my-video')) {
+            document.getElementById('my-video').addEventListener('play', () => {
+                posthog.capture('played_movie', { title: "Big Buck Bunny" })
+            })
+        }
+    </script>
+</body>
+
+</html>

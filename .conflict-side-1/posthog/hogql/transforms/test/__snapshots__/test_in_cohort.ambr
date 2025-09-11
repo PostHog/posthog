@@ -1,0 +1,173 @@
+# serializer version: 1
+# name: TestInCohort.test_in_cohort_conjoined_dynamic
+  '''
+  -- ClickHouse
+  
+  SELECT events.event AS event 
+  FROM events LEFT JOIN (
+  SELECT cohortpeople.person_id AS cohort_person_id, 1 AS matched, cohortpeople.cohort_id AS cohort_id 
+  FROM cohortpeople 
+  WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, XX), equals(cohortpeople.version, 0))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, events.person_id) 
+  WHERE and(equals(events.team_id, 99999), and(1, equals(events.event, %(hogql_val_0)s)), ifNull(equals(__in_cohort.matched, 1), 0)) 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1
+  
+  -- HogQL
+  
+  SELECT event 
+  FROM events LEFT JOIN (
+  SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id 
+  FROM raw_cohort_people 
+  WHERE and(equals(cohort_id, XX), equals(version, 0))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, person_id) 
+  WHERE and(and(1, equals(event, 'RANDOM_TEST_ID::UUID')), equals(__in_cohort.matched, 1)) 
+  LIMIT 100
+  '''
+# ---
+# name: TestInCohort.test_in_cohort_conjoined_int
+  '''
+  -- ClickHouse
+  
+  SELECT events.event AS event 
+  FROM events LEFT JOIN (
+  SELECT person_static_cohort.person_id AS cohort_person_id, 1 AS matched, person_static_cohort.cohort_id AS cohort_id 
+  FROM person_static_cohort 
+  WHERE and(equals(person_static_cohort.team_id, 99999), in(person_static_cohort.cohort_id, [1, 2, 3, 4, 5 /* ... */]))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, events.person_id) 
+  WHERE and(equals(events.team_id, 99999), 1, ifNull(equals(__in_cohort.matched, 1), 0)) 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1
+  
+  -- HogQL
+  
+  SELECT event 
+  FROM events LEFT JOIN (
+  SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id 
+  FROM static_cohort_people 
+  WHERE in(cohort_id, [1, 2, 3, 4, 5 /* ... */])) AS __in_cohort ON equals(__in_cohort.cohort_person_id, person_id) 
+  WHERE and(1, equals(__in_cohort.matched, 1)) 
+  LIMIT 100
+  '''
+# ---
+# name: TestInCohort.test_in_cohort_conjoined_string
+  '''
+  -- ClickHouse
+  
+  SELECT events.event AS event 
+  FROM events LEFT JOIN (
+  SELECT person_static_cohort.person_id AS cohort_person_id, 1 AS matched, person_static_cohort.cohort_id AS cohort_id 
+  FROM person_static_cohort 
+  WHERE and(equals(person_static_cohort.team_id, 99999), in(person_static_cohort.cohort_id, [1, 2, 3, 4, 5 /* ... */]))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, events.person_id) 
+  WHERE and(equals(events.team_id, 99999), 1, ifNull(equals(__in_cohort.matched, 1), 0)) 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1
+  
+  -- HogQL
+  
+  SELECT event 
+  FROM events LEFT JOIN (
+  SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id 
+  FROM static_cohort_people 
+  WHERE in(cohort_id, [1, 2, 3, 4, 5 /* ... */])) AS __in_cohort ON equals(__in_cohort.cohort_person_id, person_id) 
+  WHERE and(1, equals(__in_cohort.matched, 1)) 
+  LIMIT 100
+  '''
+# ---
+# name: TestInCohort.test_in_cohort_deleted
+  '''
+  -- ClickHouse
+  
+  SELECT events.event AS event 
+  FROM events LEFT JOIN (
+  SELECT person_static_cohort.person_id AS person_id, 1 AS matched 
+  FROM person_static_cohort 
+  WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, XX))) AS in_cohort__XX ON equals(in_cohort__XX.person_id, events.person_id) 
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(in_cohort__XX.matched, 1), 0)) 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1
+  
+  -- HogQL
+  
+  SELECT event 
+  FROM events LEFT JOIN (
+  SELECT person_id, 1 AS matched 
+  FROM static_cohort_people 
+  WHERE equals(cohort_id, XX)) AS in_cohort__XX ON equals(in_cohort__XX.person_id, person_id) 
+  WHERE equals(in_cohort__XX.matched, 1) 
+  LIMIT 100
+  '''
+# ---
+# name: TestInCohort.test_in_cohort_dynamic
+  '''
+  -- ClickHouse
+  
+  SELECT events.event AS event 
+  FROM events LEFT JOIN (
+  SELECT cohortpeople.person_id AS person_id, 1 AS matched 
+  FROM cohortpeople 
+  WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, XX)) 
+  GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version 
+  HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)) AS in_cohort__XX ON equals(in_cohort__XX.person_id, events.person_id) 
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(in_cohort__XX.matched, 1), 0), equals(events.event, %(hogql_val_0)s)) 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1
+  
+  -- HogQL
+  
+  SELECT event 
+  FROM events LEFT JOIN (
+  SELECT person_id, 1 AS matched 
+  FROM raw_cohort_people 
+  WHERE equals(cohort_id, XX) 
+  GROUP BY person_id, cohort_id, version 
+  HAVING greater(sum(sign), 0)) AS in_cohort__XX ON equals(in_cohort__XX.person_id, person_id) 
+  WHERE and(equals(in_cohort__XX.matched, 1), equals(event, 'RANDOM_TEST_ID::UUID')) 
+  LIMIT 100
+  '''
+# ---
+# name: TestInCohort.test_in_cohort_static
+  '''
+  -- ClickHouse
+  
+  SELECT events.event AS event 
+  FROM events LEFT JOIN (
+  SELECT person_static_cohort.person_id AS person_id, 1 AS matched 
+  FROM person_static_cohort 
+  WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, XX))) AS in_cohort__XX ON equals(in_cohort__XX.person_id, events.person_id) 
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(in_cohort__XX.matched, 1), 0)) 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1
+  
+  -- HogQL
+  
+  SELECT event 
+  FROM events LEFT JOIN (
+  SELECT person_id, 1 AS matched 
+  FROM static_cohort_people 
+  WHERE equals(cohort_id, XX)) AS in_cohort__XX ON equals(in_cohort__XX.person_id, person_id) 
+  WHERE equals(in_cohort__XX.matched, 1) 
+  LIMIT 100
+  '''
+# ---
+# name: TestInCohort.test_in_cohort_strings
+  '''
+  -- ClickHouse
+  
+  SELECT events.event AS event 
+  FROM events LEFT JOIN (
+  SELECT person_static_cohort.person_id AS person_id, 1 AS matched 
+  FROM person_static_cohort 
+  WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, XX))) AS in_cohort__XX ON equals(in_cohort__XX.person_id, events.person_id) 
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(in_cohort__XX.matched, 1), 0)) 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1
+  
+  -- HogQL
+  
+  SELECT event 
+  FROM events LEFT JOIN (
+  SELECT person_id, 1 AS matched 
+  FROM static_cohort_people 
+  WHERE equals(cohort_id, XX)) AS in_cohort__XX ON equals(in_cohort__XX.person_id, person_id) 
+  WHERE equals(in_cohort__XX.matched, 1) 
+  LIMIT 100
+  '''
+# ---

@@ -1,0 +1,88 @@
+.dashboard-items-wrapper {
+    width: 100%; // This provides the width for the dashboard items grid
+}
+
+.react-grid-layout {
+    position: relative;
+    margin-bottom: 2rem;
+    transition: height 100ms ease;
+
+    /* remove initial loading animation, animations are only needed in edit mode */
+    &.dashboard-view-mode .react-grid-item {
+        transition: border-color 100ms ease;
+    }
+}
+
+.react-grid-item.cssTransforms {
+    transition-property: transform;
+}
+
+.react-grid-item.resizing {
+    z-index: 1;
+    will-change: width, height;
+}
+
+.react-grid-item.react-draggable .CardMeta,
+.react-grid-item.react-draggable .TextCard__body {
+    // .CardMeta is the draggable handle of insight cards. Text cards are draggable as a whole
+    cursor: move;
+    user-select: none; // Prevent accidental text selection while dragging
+}
+
+.react-grid-item.react-draggable-dragging {
+    z-index: 105;
+    transition: none;
+    will-change: transform;
+}
+
+.react-grid-item.dropping {
+    visibility: hidden;
+}
+
+.react-grid-item.react-grid-placeholder {
+    position: relative;
+    z-index: 2;
+    max-width: 100%;
+    user-select: none;
+    border: 1px solid var(--color-accent);
+    border-radius: var(--radius);
+    outline: 1px solid var(--color-accent);
+    transition: 100ms ease;
+}
+
+.react-resizable-hide > .react-resizable-handle {
+    display: none;
+}
+
+.react-grid-item {
+    transition: all 100ms ease;
+    transition-property: left, top;
+
+    & > .react-resizable-handle {
+        position: absolute;
+        right: -0.5rem;
+        bottom: -0.5rem;
+        z-index: 10;
+        width: 2rem;
+        height: 2rem;
+        cursor: se-resize;
+    }
+
+    & > .react-resizable-handle.react-resizable-handle-se {
+        cursor: se-resize;
+    }
+
+    & > .react-resizable-handle.react-resizable-handle-e {
+        top: 0;
+        bottom: 2rem;
+        height: auto;
+        cursor: ew-resize;
+    }
+
+    & > .react-resizable-handle.react-resizable-handle-s {
+        right: 2rem;
+        left: 0;
+        width: auto;
+        cursor: ns-resize;
+    }
+}

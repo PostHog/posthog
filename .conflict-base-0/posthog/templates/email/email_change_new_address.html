@@ -1,0 +1,5 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block heading %}This is your new PostHog account email{% endblock %}
+{% block section %}
+<p>Hey, {{ user_name }}! Just letting you know that your PostHog account email has been successfully changed from {{ old_address }} to {{ new_address }}.</p>
+{% endblock %}

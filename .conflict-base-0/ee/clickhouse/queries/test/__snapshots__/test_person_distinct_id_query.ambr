@@ -1,0 +1,13 @@
+# serializer version: 1
+# name: test_person_distinct_id_query
+  '''
+  
+  SELECT distinct_id, argMax(person_id, version) as person_id
+  FROM person_distinct_id2
+  WHERE team_id = %(team_id)s
+  
+  GROUP BY distinct_id
+  HAVING argMax(is_deleted, version) = 0
+  
+  '''
+# ---

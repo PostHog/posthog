@@ -1,0 +1,98 @@
+.CalendarHeatMapContainer {
+    max-width: 100%;
+    padding: 0.5rem;
+    overflow-x: auto;
+    background: var(--color-bg-surface-primary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius);
+}
+
+.CalendarHeatMap {
+    width: 100%;
+    font-weight: 500;
+
+    th {
+        padding: 0 0.5rem;
+        font-weight: 500;
+        text-align: center;
+        white-space: nowrap;
+        border-top: 10px solid transparent;
+        border-bottom: 10px solid transparent;
+
+        &.aggregation-border {
+            border-left: 5px solid transparent;
+        }
+    }
+
+    tr {
+        border-left: 0.25rem solid transparent;
+
+        &.aggregation-border {
+            border-top: 5px solid transparent;
+        }
+
+        &:not(:nth-of-type(-n + 1)) {
+            &:hover {
+                border-left-color: var(--heatmap-table-color);
+            }
+        }
+    }
+
+    td.aggregation-border {
+        border-left: 5px solid transparent;
+    }
+
+    .CalendarHeatMap__TextTab {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 2rem;
+        padding: 0.2rem;
+        margin: 2px;
+        text-align: center;
+        white-space: nowrap;
+    }
+
+    .CalendarHeatMap__Cell {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 2rem;
+        padding: 0.2rem;
+        margin: 2px;
+        text-align: center;
+        background-color: var(--heatmap-table-color); // NOTE: This is usually overridden in JS
+        border-radius: var(--radius);
+
+        &.CalendarHeatMap__Cell--clickable {
+            transition: transform 200ms ease-out;
+
+            &:hover {
+                transform: scale(1.05);
+            }
+        }
+
+        &.CalendarHeatMap__Cell--period {
+            color: var(--color-text-secondary);
+            background-color: var(--color-bg-surface-primary);
+            border: 1px solid var(--color-border-primary);
+            border-style: dashed;
+        }
+    }
+
+    &.CalendarHeatMap--non-interactive {
+        tr {
+            &:hover {
+                border-left-color: transparent;
+            }
+        }
+
+        .CalendarHeatMap__Cell {
+            cursor: initial;
+
+            &:hover {
+                transform: none;
+            }
+        }
+    }
+}

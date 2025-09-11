@@ -1,0 +1,1 @@
+export { ClampedText } from './ClampedText'

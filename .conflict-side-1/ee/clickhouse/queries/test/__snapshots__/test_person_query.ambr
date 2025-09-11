@@ -1,0 +1,369 @@
+# serializer version: 1
+# name: test_person_query
+  '''
+  
+              SELECT id
+              FROM person
+              
+              WHERE team_id = %(team_id)s
+              
+              
+              
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+               
+               
+              
+              
+              
+              SETTINGS optimize_aggregation_in_order = 1
+              
+  '''
+# ---
+# name: test_person_query.1
+  '''
+  
+              SELECT id
+              FROM person
+              
+              WHERE team_id = %(team_id)s
+              AND id IN (
+              SELECT id FROM person
+              
+              WHERE team_id = %(team_id)s
+              AND (   "pmat_email" ILIKE %(vperson_filter_pre__0)s)
+              
+          )
+          
+              
+              
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+               
+              AND (  argMax(person."pmat_email", version) ILIKE %(vpersonquery_person_filter_fin__0)s) 
+              
+              
+              
+              SETTINGS optimize_aggregation_in_order = 1
+              
+  '''
+# ---
+# name: test_person_query_with_and_and_or_property_groups
+  '''
+  
+              SELECT id, argMax(properties, version) as person_props
+              FROM person
+              
+              WHERE team_id = %(team_id)s
+              AND id IN (
+              SELECT id FROM person
+              
+              WHERE team_id = %(team_id)s
+              AND ((   "pmat_email" ILIKE %(vperson_filter_pre__0_0)s   OR replaceRegexpAll(JSONExtractRaw(properties, %(kperson_filter_pre__0_1)s), '^"|"$', '') ILIKE %(vperson_filter_pre__0_1)s))
+              
+          )
+          
+              
+              
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+               
+              AND ((  argMax(person."pmat_email", version) ILIKE %(vpersonquery_person_filter_fin__0_0)s  OR replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), %(kpersonquery_person_filter_fin__0_1)s), '^"|"$', '') ILIKE %(vpersonquery_person_filter_fin__0_1)s)) 
+              
+              
+              
+              SETTINGS optimize_aggregation_in_order = 1
+              
+  '''
+# ---
+# name: test_person_query_with_anded_property_groups
+  '''
+  
+              SELECT id
+              FROM person
+              
+              WHERE team_id = %(team_id)s
+              AND id IN (
+              SELECT id FROM person
+              
+              WHERE team_id = %(team_id)s
+              AND (   "pmat_email" ILIKE %(vperson_filter_pre__0)s   AND has(%(vperson_filter_pre__1)s, replaceRegexpAll(JSONExtractRaw(properties, %(kperson_filter_pre__1)s), '^"|"$', ''))   AND has(%(vperson_filter_pre__2)s, replaceRegexpAll(JSONExtractRaw(properties, %(kperson_filter_pre__2)s), '^"|"$', '')))
+              
+          )
+          
+              
+              
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+               
+              AND (  argMax(person."pmat_email", version) ILIKE %(vpersonquery_person_filter_fin__0)s  AND has(%(vpersonquery_person_filter_fin__1)s, replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), %(kpersonquery_person_filter_fin__1)s), '^"|"$', ''))  AND has(%(vpersonquery_person_filter_fin__2)s, replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), %(kpersonquery_person_filter_fin__2)s), '^"|"$', ''))) 
+              
+              
+              
+              SETTINGS optimize_aggregation_in_order = 1
+              
+  '''
+# ---
+# name: test_person_query_with_entity_filters
+  '''
+  
+              SELECT id, argMax(pmat_email, version) as pmat_email
+              FROM person
+              
+              WHERE team_id = %(team_id)s
+              
+              
+              
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+               
+               
+              
+              
+              
+              SETTINGS optimize_aggregation_in_order = 1
+              
+  '''
+# ---
+# name: test_person_query_with_entity_filters.1
+  '''
+  
+              SELECT id
+              FROM person
+              
+              WHERE team_id = %(team_id)s
+              AND id IN (
+              SELECT id FROM person
+              
+              WHERE team_id = %(team_id)s
+              AND (   "pmat_email" ILIKE %(vperson_filter_pre__0)s)
+              
+          )
+          
+              
+              
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+               
+              AND (  argMax(person."pmat_email", version) ILIKE %(vpersonquery_person_filter_fin__0)s) 
+              
+              
+              
+              SETTINGS optimize_aggregation_in_order = 1
+              
+  '''
+# ---
+# name: test_person_query_with_entity_filters_and_property_group_filters
+  '''
+  
+              SELECT id, argMax(pmat_email, version) as pmat_email , argMax(properties, version) as person_props
+              FROM person
+              
+              WHERE team_id = %(team_id)s
+              AND id IN (
+              SELECT id FROM person
+              
+              WHERE team_id = %(team_id)s
+              AND ((   "pmat_email" ILIKE %(vperson_filter_pre__0_0)s   OR replaceRegexpAll(JSONExtractRaw(properties, %(kperson_filter_pre__0_1)s), '^"|"$', '') ILIKE %(vperson_filter_pre__0_1)s))
+              
+          )
+          
+              
+              
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+               
+              AND ((  argMax(person."pmat_email", version) ILIKE %(vpersonquery_person_filter_fin__0_0)s  OR replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), %(kpersonquery_person_filter_fin__0_1)s), '^"|"$', '') ILIKE %(vpersonquery_person_filter_fin__0_1)s)) 
+              
+              
+              
+              SETTINGS optimize_aggregation_in_order = 1
+              
+  '''
+# ---
+# name: test_person_query_with_entity_filters_and_property_group_filters.1
+  '''
+  
+              SELECT id, argMax(properties, version) as person_props
+              FROM person
+              
+              WHERE team_id = %(team_id)s
+              AND id IN (
+              SELECT id FROM person
+              
+              WHERE team_id = %(team_id)s
+              AND (((   "pmat_email" ILIKE %(vperson_filter_pre__0_0_0)s   OR replaceRegexpAll(JSONExtractRaw(properties, %(kperson_filter_pre__0_0_1)s), '^"|"$', '') ILIKE %(vperson_filter_pre__0_0_1)s))AND (   "pmat_email" ILIKE %(vperson_filter_pre__1_0)s   OR replaceRegexpAll(JSONExtractRaw(properties, %(kperson_filter_pre__1_1)s), '^"|"$', '') ILIKE %(vperson_filter_pre__1_1)s))
+              
+          )
+          
+              
+              
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+               
+              AND (((  argMax(person."pmat_email", version) ILIKE %(vpersonquery_person_filter_fin__0_0_0)s  OR replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), %(kpersonquery_person_filter_fin__0_0_1)s), '^"|"$', '') ILIKE %(vpersonquery_person_filter_fin__0_0_1)s))AND (  argMax(person."pmat_email", version) ILIKE %(vpersonquery_person_filter_fin__1_0)s  OR replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), %(kpersonquery_person_filter_fin__1_1)s), '^"|"$', '') ILIKE %(vpersonquery_person_filter_fin__1_1)s)) 
+              
+              
+              
+              SETTINGS optimize_aggregation_in_order = 1
+              
+  '''
+# ---
+# name: test_person_query_with_extra_fields
+  '''
+  
+              SELECT id, argMax(pmat_email, version) as pmat_email , argMax(properties, version) as person_props
+              FROM person
+              
+              WHERE team_id = %(team_id)s
+              AND id IN (
+              SELECT id FROM person
+              
+              WHERE team_id = %(team_id)s
+              AND (   "pmat_email" ILIKE %(vperson_filter_pre__0)s)
+              
+          )
+          
+              
+              
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+               
+              AND (  argMax(person."pmat_email", version) ILIKE %(vpersonquery_person_filter_fin__0)s) 
+              
+              
+              
+              SETTINGS optimize_aggregation_in_order = 1
+              
+  '''
+# ---
+# name: test_person_query_with_extra_requested_fields
+  '''
+  
+              SELECT id, argMax(properties, version) as person_props
+              FROM person
+              
+              WHERE team_id = %(team_id)s
+              AND id IN (
+              SELECT id FROM person
+              
+              WHERE team_id = %(team_id)s
+              AND (   "pmat_email" ILIKE %(vperson_filter_pre__0)s)
+              
+          )
+          
+              
+              
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+               
+              AND (  argMax(person."pmat_email", version) ILIKE %(vpersonquery_person_filter_fin__0)s) 
+              
+              
+              
+              SETTINGS optimize_aggregation_in_order = 1
+              
+  '''
+# ---
+# name: test_person_query_with_extra_requested_fields.1
+  '''
+  
+              SELECT id, argMax(pmat_email, version) as pmat_email
+              FROM person
+              
+              WHERE team_id = %(team_id)s
+              AND id IN (
+              SELECT id FROM person
+              
+              WHERE team_id = %(team_id)s
+              AND (   "pmat_email" ILIKE %(vperson_filter_pre__0)s)
+              
+          )
+          
+              
+              
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+               
+              AND (  argMax(person."pmat_email", version) ILIKE %(vpersonquery_person_filter_fin__0)s) 
+              
+              
+              
+              SETTINGS optimize_aggregation_in_order = 1
+              
+  '''
+# ---
+# name: test_person_query_with_multiple_cohorts
+  '''
+  
+              SELECT id
+              FROM person
+              
+              WHERE team_id = %(team_id)s
+              AND id IN (
+              SELECT id FROM person
+              
+              WHERE team_id = %(team_id)s
+              AND (   "pmat_email" ILIKE %(vperson_filter_pre__0)s)
+              
+          )
+          
+              AND id in (
+  SELECT DISTINCT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND cohort_id = %(_cohort_id_0)s AND version = %(_version_0)s
+  ) AND id in (
+  SELECT DISTINCT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND cohort_id = %(_cohort_id_1)s AND version = %(_version_1)s
+  )
+              
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+               
+              AND (  argMax(person."pmat_email", version) ILIKE %(vpersonquery_person_filter_fin__0)s) 
+              
+              
+              
+              SETTINGS optimize_aggregation_in_order = 1
+              
+  '''
+# ---
+# name: test_person_query_with_updated_after
+  '''
+  
+              SELECT id
+              FROM person
+              
+              WHERE team_id = %(team_id)s
+              
+              
+              
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+               and max(_timestamp) > parseDateTimeBestEffort(%(updated_after)s)
+               
+              
+              
+              
+              SETTINGS optimize_aggregation_in_order = 1
+              
+  '''
+# ---
+# name: test_person_query_with_updated_after.1
+  '''
+  
+              SELECT id
+              FROM person
+              
+              WHERE team_id = %(team_id)s
+              
+              
+              
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+               and max(_timestamp) > parseDateTimeBestEffort(%(updated_after)s)
+               
+              
+              
+              
+              SETTINGS optimize_aggregation_in_order = 1
+              
+  '''
+# ---

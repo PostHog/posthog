@@ -1,0 +1,8 @@
+.PlayerFrameOverlay {
+    .PlayerFrameOverlay__content {
+        &--only-hover {
+            // When paused only show on hover to allow people to take screenshots
+            opacity: 0;
+        }
+    }
+}

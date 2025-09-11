@@ -1,0 +1,69 @@
+name: PR - Preview Deploy Cleanup
+
+on:
+    pull_request:
+        types: [closed]
+
+# This workflow cleans up Preview deploys once a pull request is closed
+jobs:
+    deploy_preview_cleanup:
+        name: Deploy Preview Cleanup
+        runs-on: ubuntu-24.04
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'deploy') }}
+
+        permissions:
+            id-token: write
+            contents: read
+            deployments: write
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4
+              with:
+                  aws-region: us-east-1
+                  role-to-assume: arn:aws:iam::169684386827:role/github-terraform-infra-role
+                  role-duration-seconds: 3600
+
+            - name: Login to Amazon ECR
+              id: aws-ecr
+              uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2
+
+            - name: connect to tailscale
+              uses: tailscale/github-action@8b804aa882ac3429b804a2a22f9803a2101a0db9 # 8b804aa882ac3429b804a2a22f9803a2101a0db9
+              env:
+                  TS_EXPERIMENT_OAUTH_AUTHKEY: true
+              with:
+                  version: 1.42.0
+                  authkey: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
+                  args: --advertise-tags tag:github-runner
+
+            - name: Delete hobby deployment
+              id: cleanup
+              run: |
+                  aws eks update-kubeconfig --name "posthog-dev"
+                  kubectl config set-cluster arn:aws:eks:us-east-1:169684386827:cluster/posthog-dev --server=https://eks-posthog-dev --tls-server-name 8BD6E1D2FEBDE47C8177E29CAC9E6C61.gr7.us-east-1.eks.amazonaws.com
+
+                  export PR_NUM=${{ github.event.number }}
+                  export BRANCH_NAME=${{ github.head_ref }}
+                  export BRANCH_NAME_HASH=$(echo -n ${{ github.head_ref }} | md5sum | cut -c 1-8)
+                  export HOSTNAME=pr-$PR_NUM-${BRANCH_NAME_HASH}
+                  export HOSTNAME=${HOSTNAME:0:38}
+                  export HOSTNAME=${HOSTNAME%%-}
+                  export NAMESPACE="hobby"
+                  export REGISTRY_URL=${{ steps.aws-ecr.outputs.registry }}/pr-test
+                  export DOCKER_TAG=${{ github.event.pull_request.head.sha }}
+
+                  envsubst < .github/pr-deploy/hobby.yaml.tmpl > .github/pr-deploy/hobby.yaml
+
+                  #Clean and deploy
+                  kubectl -n $NAMESPACE delete -f .github/pr-deploy/hobby.yaml || true
+
+            - name: delete deployment
+              uses: bobheadxi/deployments@648679e8e4915b27893bd7dbc35cb504dc915bc8 # v1.5.0
+              id: deployment
+              with:
+                  step: deactivate-env
+                  env: pr-${{ github.head_ref }}
+                  ref: ${{ github.head_ref }}

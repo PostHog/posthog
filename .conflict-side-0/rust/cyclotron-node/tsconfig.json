@@ -1,0 +1,25 @@
+{
+    "compilerOptions": {
+        "module": "CommonJS",
+        "target": "ESNext",
+        "declaration": true,
+        "removeComments": true,
+        "emitDecoratorMetadata": true,
+        "experimentalDecorators": true,
+        "moduleResolution": "node",
+        "esModuleInterop": true,
+        "allowJs": true,
+        "sourceMap": true,
+        "baseUrl": "src/",
+        "rootDir": "src/",
+        "outDir": "dist/",
+        "types": ["node"],
+        "resolveJsonModule": true,
+        "strict": true,
+        "noImplicitAny": true,
+        "useUnknownInCatchVariables": false,
+        "skipLibCheck": true,
+    },
+    "include": ["src"],
+    "exclude": ["node_modules", "dist", "bin"]
+}

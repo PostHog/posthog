@@ -1,0 +1,7 @@
+#!/bin/bash
+set -e
+
+export WEBPACK_HOT_RELOAD_HOST="0.0.0.0"
+
+pnpm --filter=@posthog/frontend... install --frozen-lockfile
+pnpm --filter=@posthog/frontend start-docker

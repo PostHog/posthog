@@ -1,0 +1,21 @@
+#!/bin/bash
+set -e
+
+./bin/migrate-check
+
+# To ensure we are able to expose metrics from multiple processes, we need to
+# provide a directory for `prometheus_client` to store a shared registry.
+export PROMETHEUS_MULTIPROC_DIR=$(mktemp -d)
+chmod -R 777 $PROMETHEUS_MULTIPROC_DIR
+trap 'rm -rf "$PROMETHEUS_MULTIPROC_DIR"' EXIT
+
+export PROMETHEUS_METRICS_EXPORT_PORT=8001
+export STATSD_PORT=${STATSD_PORT:-8125}
+export NGINX_UNIT_PYTHON_PROTOCOL=${NGINX_UNIT_PYTHON_PROTOCOL:-wsgi}
+export NGINX_UNIT_APP_PROCESSES=${NGINX_UNIT_APP_PROCESSES:-4}
+envsubst < /docker-entrypoint.d/unit.json.tpl > /docker-entrypoint.d/unit.json
+
+
+# We need to run as --user root so that nginx unit can proxy the control socket for stats
+# However each application is run as "nobody"
+exec /usr/local/bin/docker-entrypoint.sh unitd --no-daemon --user root

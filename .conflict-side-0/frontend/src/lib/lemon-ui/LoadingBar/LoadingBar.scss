@@ -1,0 +1,26 @@
+.progress-outer {
+    display: flex;
+    align-items: center;
+}
+
+.progress {
+    position: relative;
+    width: 100%;
+    height: 10px;
+    min-height: 1px;
+    overflow: hidden;
+    background: #eee;
+    border-radius: var(--radius-sm);
+}
+
+.progress-bar {
+    position: absolute;
+    left: 0;
+    height: 100%;
+    background: var(--primary-3000-active);
+
+    .storybook-test-runner & {
+        // When taking UI snapshots, we hard-code progress width to 50%
+        width: 50% !important;
+    }
+}

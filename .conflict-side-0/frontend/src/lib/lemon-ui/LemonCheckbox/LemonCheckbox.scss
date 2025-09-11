@@ -1,0 +1,128 @@
+.LemonCheckbox {
+    --lemon-checkbox-height: calc(2.125rem + 3px); // Medium size button height + button shadow height;
+
+    display: flex;
+    align-items: center;
+    width: fit-content;
+    font-weight: 500;
+    line-height: 1.5rem;
+
+    &:has(:focus-visible) {
+        .LemonCheckbox__box {
+            outline: -webkit-focus-ring-color auto 1px;
+        }
+    }
+
+    .LemonCheckbox__input {
+        width: 0 !important;
+        height: 0 !important;
+        appearance: none !important;
+    }
+
+    label {
+        --tick-length: 12.73; // Approximation of tick length, which is (3 + 6) * sqrt(2)
+        --box-color: var(--color-accent);
+
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        min-height: 1.5rem;
+        cursor: pointer;
+
+        > .LemonCheckbox__box {
+            flex-shrink: 0;
+            width: 1rem;
+            height: 1rem;
+            background: var(--color-bg-surface-primary);
+            border: 1.5px solid var(--color-border-primary);
+            border-radius: 0.25rem; // Intentionally a bit smaller than --radius
+            transition:
+                border 200ms ease,
+                background 200ms ease;
+
+            path {
+                stroke: var(--color-bg-surface-primary);
+                stroke-dasharray: var(--tick-length);
+                stroke-dashoffset: var(--tick-length);
+                transition: stroke-dashoffset 200ms ease;
+            }
+        }
+    }
+
+    &.LemonCheckbox--disabled label {
+        color: var(--color-text-secondary);
+        cursor: not-allowed;
+    }
+
+    &.LemonCheckbox--full-width {
+        width: 100%;
+
+        label {
+            width: 100%;
+        }
+    }
+
+    &.LemonCheckbox--indeterminate label {
+        --tick-length: 9;
+    }
+
+    &.LemonCheckbox:not(.LemonCheckbox--disabled):hover,
+    &.LemonCheckbox:not(.LemonCheckbox--disabled):active {
+        label {
+            --box-color: var(--color-accent-hover);
+
+            .LemonCheckbox__box {
+                border-color: var(--box-color);
+            }
+        }
+    }
+
+    &.LemonCheckbox:not(.LemonCheckbox--disabled):active label {
+        --box-color: var(--color-accent-hover);
+    }
+
+    &.LemonCheckbox--checked {
+        label {
+            .LemonCheckbox__box {
+                background: var(--box-color);
+                border-color: transparent;
+
+                path {
+                    stroke-dashoffset: 0;
+                }
+            }
+        }
+    }
+
+    &.LemonCheckbox--bordered {
+        line-height: 1.4;
+
+        label {
+            min-height: var(--lemon-checkbox-height);
+            padding: 0 0.75rem;
+            background: var(--color-bg-surface-primary);
+            border: 1px solid var(--color-border-primary);
+            border-radius: var(--radius);
+        }
+
+        &.LemonCheckbox--small {
+            label {
+                min-height: 2rem;
+                padding: 0 0.5rem;
+            }
+        }
+
+        &.LemonCheckbox--xsmall {
+            label {
+                min-height: 1.625rem;
+                padding: 0 0.375rem;
+            }
+        }
+
+        .Field--error & {
+            label {
+                border: 1px solid var(--danger);
+            }
+        }
+    }
+}

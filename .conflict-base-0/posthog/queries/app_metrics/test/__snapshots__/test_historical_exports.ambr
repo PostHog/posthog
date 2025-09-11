@@ -1,0 +1,295 @@
+# serializer version: 1
+# name: TestHistoricalExports.test_historical_export_metrics
+  '''
+  
+  SELECT groupArray(date),
+         groupArray(successes),
+         groupArray(successes_on_retry),
+         groupArray(failures)
+  FROM
+    (SELECT date, sum(CASE
+                          WHEN category = 'composeWebhook' THEN 0
+                          ELSE successes
+                      END) AS successes,
+                  sum(successes_on_retry) AS successes_on_retry,
+                  sum(failures) AS failures
+     FROM
+       (SELECT category,
+               dateTrunc('hour', timestamp, 'UTC') AS date,
+               sum(successes) AS successes,
+               sum(successes_on_retry) AS successes_on_retry,
+               sum(failures) AS failures
+        FROM app_metrics
+        WHERE team_id = 99999
+          AND plugin_config_id = 3
+          AND category = 'exportEvents'
+          AND job_id = '1234'
+          AND timestamp >= '2021-08-25 00:00:00'
+          AND timestamp < '2021-08-25 06:00:00'
+        GROUP BY dateTrunc('hour', timestamp, 'UTC'),
+                 category)
+     GROUP BY date
+     ORDER BY date WITH FILL
+     FROM dateTrunc('hour', toDateTime64('2021-08-25 00:00:00', 0, 'UTC'), 'UTC') TO dateTrunc('hour', toDateTime64('2021-08-25 06:00:00', 0, 'UTC') + toIntervalHour(1), 'UTC') STEP toIntervalHour(1))
+  '''
+# ---
+# name: TestHistoricalExports.test_historical_export_metrics.1
+  '''
+  
+  SELECT error_type,
+         count() AS count,
+         max(timestamp) AS last_seen
+  FROM app_metrics
+  WHERE team_id = 99999
+    AND plugin_config_id = 3
+    AND category = 'exportEvents'
+    AND job_id = '1234'
+    AND timestamp >= '2021-08-25 00:00:00'
+    AND timestamp < '2021-08-25 06:00:00'
+    AND error_type <> ''
+  GROUP BY error_type
+  ORDER BY count DESC
+  '''
+# ---
+# name: TestHistoricalExports.test_historical_export_metrics.2
+  '''
+  SELECT "posthog_activitylog"."id",
+         "posthog_activitylog"."team_id",
+         "posthog_activitylog"."organization_id",
+         "posthog_activitylog"."user_id",
+         "posthog_activitylog"."was_impersonated",
+         "posthog_activitylog"."is_system",
+         "posthog_activitylog"."activity",
+         "posthog_activitylog"."item_id",
+         "posthog_activitylog"."scope",
+         "posthog_activitylog"."detail",
+         "posthog_activitylog"."created_at"
+  FROM "posthog_activitylog"
+  WHERE ("posthog_activitylog"."activity" IN ('job_triggered',
+                                              'export_success',
+                                              'export_fail')
+         AND ("posthog_activitylog"."detail" #> '{trigger,job_id}') = '"1234"'::jsonb
+         AND ("posthog_activitylog"."detail" #> '{trigger,job_type}') = '"Export historical events V2"'::jsonb
+         AND "posthog_activitylog"."item_id" = '3'
+         AND "posthog_activitylog"."scope" = 'PluginConfig'
+         AND "posthog_activitylog"."team_id" = 99999)
+  '''
+# ---
+# name: TestHistoricalExports.test_historical_export_metrics.3
+  '''
+  SELECT "posthog_user"."id",
+         "posthog_user"."password",
+         "posthog_user"."last_login",
+         "posthog_user"."first_name",
+         "posthog_user"."last_name",
+         "posthog_user"."is_staff",
+         "posthog_user"."date_joined",
+         "posthog_user"."uuid",
+         "posthog_user"."current_organization_id",
+         "posthog_user"."current_team_id",
+         "posthog_user"."email",
+         "posthog_user"."pending_email",
+         "posthog_user"."temporary_token",
+         "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."requested_password_reset_at",
+         "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."strapi_id",
+         "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
+         "posthog_user"."theme_mode",
+         "posthog_user"."partial_notification_settings",
+         "posthog_user"."anonymize_data",
+         "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
+  FROM "posthog_user"
+  WHERE "posthog_user"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestHistoricalExports.test_historical_exports_activity_for_failed_export
+  '''
+  SELECT "posthog_activitylog"."id",
+         "posthog_activitylog"."team_id",
+         "posthog_activitylog"."organization_id",
+         "posthog_activitylog"."user_id",
+         "posthog_activitylog"."was_impersonated",
+         "posthog_activitylog"."is_system",
+         "posthog_activitylog"."activity",
+         "posthog_activitylog"."item_id",
+         "posthog_activitylog"."scope",
+         "posthog_activitylog"."detail",
+         "posthog_activitylog"."created_at"
+  FROM "posthog_activitylog"
+  WHERE ("posthog_activitylog"."activity" IN ('job_triggered',
+                                              'export_success',
+                                              'export_fail')
+         AND ("posthog_activitylog"."detail" #> '{trigger,job_type}') = '"Export historical events V2"'::jsonb
+         AND "posthog_activitylog"."item_id" = '3'
+         AND "posthog_activitylog"."scope" = 'PluginConfig'
+         AND "posthog_activitylog"."team_id" = 99999)
+  '''
+# ---
+# name: TestHistoricalExports.test_historical_exports_activity_for_failed_export.1
+  '''
+  SELECT "posthog_user"."id",
+         "posthog_user"."password",
+         "posthog_user"."last_login",
+         "posthog_user"."first_name",
+         "posthog_user"."last_name",
+         "posthog_user"."is_staff",
+         "posthog_user"."date_joined",
+         "posthog_user"."uuid",
+         "posthog_user"."current_organization_id",
+         "posthog_user"."current_team_id",
+         "posthog_user"."email",
+         "posthog_user"."pending_email",
+         "posthog_user"."temporary_token",
+         "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."requested_password_reset_at",
+         "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."strapi_id",
+         "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
+         "posthog_user"."theme_mode",
+         "posthog_user"."partial_notification_settings",
+         "posthog_user"."anonymize_data",
+         "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
+  FROM "posthog_user"
+  WHERE "posthog_user"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestHistoricalExports.test_historical_exports_activity_for_finished_export
+  '''
+  SELECT "posthog_activitylog"."id",
+         "posthog_activitylog"."team_id",
+         "posthog_activitylog"."organization_id",
+         "posthog_activitylog"."user_id",
+         "posthog_activitylog"."was_impersonated",
+         "posthog_activitylog"."is_system",
+         "posthog_activitylog"."activity",
+         "posthog_activitylog"."item_id",
+         "posthog_activitylog"."scope",
+         "posthog_activitylog"."detail",
+         "posthog_activitylog"."created_at"
+  FROM "posthog_activitylog"
+  WHERE ("posthog_activitylog"."activity" IN ('job_triggered',
+                                              'export_success',
+                                              'export_fail')
+         AND ("posthog_activitylog"."detail" #> '{trigger,job_type}') = '"Export historical events V2"'::jsonb
+         AND "posthog_activitylog"."item_id" = '3'
+         AND "posthog_activitylog"."scope" = 'PluginConfig'
+         AND "posthog_activitylog"."team_id" = 99999)
+  '''
+# ---
+# name: TestHistoricalExports.test_historical_exports_activity_for_finished_export.1
+  '''
+  SELECT "posthog_user"."id",
+         "posthog_user"."password",
+         "posthog_user"."last_login",
+         "posthog_user"."first_name",
+         "posthog_user"."last_name",
+         "posthog_user"."is_staff",
+         "posthog_user"."date_joined",
+         "posthog_user"."uuid",
+         "posthog_user"."current_organization_id",
+         "posthog_user"."current_team_id",
+         "posthog_user"."email",
+         "posthog_user"."pending_email",
+         "posthog_user"."temporary_token",
+         "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."requested_password_reset_at",
+         "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."strapi_id",
+         "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
+         "posthog_user"."theme_mode",
+         "posthog_user"."partial_notification_settings",
+         "posthog_user"."anonymize_data",
+         "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
+  FROM "posthog_user"
+  WHERE "posthog_user"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestHistoricalExports.test_historical_exports_activity_for_not_finished_export
+  '''
+  SELECT "posthog_activitylog"."id",
+         "posthog_activitylog"."team_id",
+         "posthog_activitylog"."organization_id",
+         "posthog_activitylog"."user_id",
+         "posthog_activitylog"."was_impersonated",
+         "posthog_activitylog"."is_system",
+         "posthog_activitylog"."activity",
+         "posthog_activitylog"."item_id",
+         "posthog_activitylog"."scope",
+         "posthog_activitylog"."detail",
+         "posthog_activitylog"."created_at"
+  FROM "posthog_activitylog"
+  WHERE ("posthog_activitylog"."activity" IN ('job_triggered',
+                                              'export_success',
+                                              'export_fail')
+         AND ("posthog_activitylog"."detail" #> '{trigger,job_type}') = '"Export historical events V2"'::jsonb
+         AND "posthog_activitylog"."item_id" = '3'
+         AND "posthog_activitylog"."scope" = 'PluginConfig'
+         AND "posthog_activitylog"."team_id" = 99999)
+  '''
+# ---
+# name: TestHistoricalExports.test_historical_exports_activity_for_not_finished_export.1
+  '''
+  SELECT "posthog_user"."id",
+         "posthog_user"."password",
+         "posthog_user"."last_login",
+         "posthog_user"."first_name",
+         "posthog_user"."last_name",
+         "posthog_user"."is_staff",
+         "posthog_user"."date_joined",
+         "posthog_user"."uuid",
+         "posthog_user"."current_organization_id",
+         "posthog_user"."current_team_id",
+         "posthog_user"."email",
+         "posthog_user"."pending_email",
+         "posthog_user"."temporary_token",
+         "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."requested_password_reset_at",
+         "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."strapi_id",
+         "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
+         "posthog_user"."theme_mode",
+         "posthog_user"."partial_notification_settings",
+         "posthog_user"."anonymize_data",
+         "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
+  FROM "posthog_user"
+  WHERE "posthog_user"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestHistoricalExports.test_historical_exports_activity_for_not_finished_export.2
+  '''
+  SELECT "posthog_pluginstorage"."id",
+         "posthog_pluginstorage"."plugin_config_id",
+         "posthog_pluginstorage"."key",
+         "posthog_pluginstorage"."value"
+  FROM "posthog_pluginstorage"
+  WHERE ("posthog_pluginstorage"."key" = 'EXPORT_COORDINATION'
+         AND "posthog_pluginstorage"."plugin_config_id" = 99999)
+  ORDER BY "posthog_pluginstorage"."id" ASC
+  LIMIT 1
+  '''
+# ---

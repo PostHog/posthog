@@ -1,0 +1,155 @@
+@import '../../styles/base';
+
+#button-toolbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 2147483021;
+    color-scheme: light dark;
+    user-select: none; // Make the app feel less page-like and more app-like - apps scarcely allow text selection
+    opacity: 1;
+    transition: opacity ease 0.5s;
+
+    * > {
+        ::-webkit-scrollbar {
+            width: 0.5rem;
+            height: 0.5rem;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--color-bg-surface-primary);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--trace-3000);
+            border-radius: var(--radius);
+
+            &:hover {
+                background: var(--muted-3000);
+            }
+        }
+    }
+
+    & + .HedgehogBuddy {
+        z-index: 2147483020;
+    }
+
+    &[theme='light'] {
+        color-scheme: light;
+    }
+
+    &[theme='dark'] {
+        // override the mark value so that feature flag overrides are visible _and legible_ in dark mode
+        --mark: var(--secondary-3000-hover-dark);
+
+        color-scheme: dark;
+    }
+
+    & .ReactModalPortal {
+        color: var(--text-3000);
+    }
+}
+
+.ToolbarMenu {
+    position: fixed;
+    z-index: 2;
+    max-width: calc(100% - 2rem);
+    height: 0;
+
+    .ToolbarMenu__content {
+        position: absolute;
+        bottom: 0;
+        display: flex;
+        flex-direction: column;
+        width: 35rem;
+        max-height: 0;
+        margin-left: -15rem;
+        overflow: hidden;
+        overflow-y: auto;
+        color: var(--text-3000);
+        background-color: var(--color-bg-primary);
+        filter: drop-shadow(0 5px 10px var(--trace-3000));
+        border-radius: var(--radius);
+        transition:
+            opacity 150ms ease,
+            max-height 150ms ease;
+    }
+
+    &--visible {
+        .ToolbarMenu__content {
+            border: 1px solid var(--border-bold-3000);
+        }
+    }
+
+    &--blurred {
+        .ToolbarMenu__content {
+            opacity: 0;
+        }
+    }
+
+    &.ToolbarMenu--below {
+        .ToolbarMenu__content {
+            top: 0;
+            bottom: auto;
+        }
+    }
+
+    form {
+        .form-error {
+            color: var(--danger);
+        }
+    }
+}
+
+.Toolbar {
+    --toolbar-button-x: 0;
+    --toolbar-button-y: 0;
+    --toolbar-width-minimized: 40px;
+    --toolbar-width-expanded: 334px;
+    --toolbar-translate: translate(calc(var(--toolbar-button-x) - 50%), calc(var(--toolbar-button-y) - 50%));
+
+    position: fixed;
+    z-index: 1;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+
+    // fixed width so that animations work when changing width
+    width: var(--toolbar-width-expanded);
+    overflow: hidden;
+    color: var(--color-text-primary);
+    background-color: var(--color-bg-primary);
+    filter: drop-shadow(0 5px 10px var(--trace-3000));
+    border: 1px solid var(--border-bold-3000);
+    border-radius: var(--radius);
+    transition-timing-function: ease;
+    transition-duration: 150ms;
+    transition-property: filter, width, transform;
+    transform: var(--toolbar-translate);
+
+    > :first-child {
+        border-right: 1px solid var(--border-bold-3000);
+    }
+
+    > :last-child {
+        border-left: 1px solid var(--border-bold-3000);
+    }
+
+    &--dragging {
+        // Disable transform transition whilst dragging
+        transition-property: filter, width;
+        transform: var(--toolbar-translate) scale(1.1);
+    }
+
+    &--with-experiments {
+        --toolbar-width-expanded: 376px;
+    }
+
+    &--minimized {
+        width: var(--toolbar-width-minimized); // Account for border
+
+        &.Toolbar--hedgehog-mode {
+            transform: var(--toolbar-translate) scale(0);
+        }
+    }
+}

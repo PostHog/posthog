@@ -1,0 +1,10 @@
+.PasswordWrapper {
+    max-height: 1000px;
+    overflow: hidden;
+    transition: max-height 0.8s ease-in-out;
+
+    &.zero-height {
+        max-height: 0;
+        margin: 0 !important;
+    }
+}

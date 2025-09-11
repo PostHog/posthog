@@ -1,0 +1,21 @@
+{
+    "compilerOptions": {
+        "target": "ES2020", // Target a recent version of ECMAScript.
+        "module": "CommonJS", // Use CommonJS module system for Node.js.
+        "outDir": "./dist", // Output directory for the compiled JavaScript files.
+        "strict": true, // Enable all strict type-checking options.
+        "esModuleInterop": true, // Allows default imports from modules with no default export.
+        "skipLibCheck": true, // Skip type checking of declaration files.
+        "forceConsistentCasingInFileNames": true, // Disallow inconsistently-cased references to the same file.
+        "resolveJsonModule": true, // Allow importing .json files as modules.
+        "moduleResolution": "node", // Use Node.js-style module resolution.
+        "types": ["node"]
+    },
+    "include": [
+        "src/**/*.ts", // Include all TypeScript files in the 'src' directory and its subdirectories.
+        "src/**/*.tsx" // Include all TSX files, if you have any.
+    ],
+    "exclude": [
+        "node_modules" // Exclude node_modules from the compilation.
+    ]
+}

@@ -1,0 +1,18 @@
+{
+    "name": "Pace Integration",
+    "url": "https://www.paceapp.com/",
+    "description": "Pace is a tool that equips sellers with relevant insights at the right time so they can spend time growing revenue. It allows them to convert, retain, and grow customers by prioritizing time and effort on the users who need it most.",
+    "main": "index.ts",
+    "posthogVersion": ">= 1.25.0",
+    "config": [
+        {
+            "key": "api_key",
+            "name": "API Key",
+            "type": "string",
+            "hint": "API key provided by Pace.",
+            "default": "",
+            "required": true,
+            "secret": true
+        }
+    ]
+}

@@ -1,0 +1,62 @@
+[
+    {
+        "id": "1",
+        "template_name": "Simple Dashboard Template",
+        "dashboard_description": "A simple dashboard template",
+        "dashboard_filters": {},
+        "tiles": [],
+        "variables": [],
+        "tags": [],
+        "image_url": "https://posthog.com/static/5e5cf65347bfb25f1dfc9792b18e87cb/6b063/posthog-bye-kubernetes.png"
+    },
+    {
+        "id": "2",
+        "template_name": "Very long named dashboard template",
+        "dashboard_description": "Very long dashboard description, it keeps going and going and going and going and going and going and going and going and going and going and going and going and going",
+        "dashboard_filters": {},
+        "tiles": [],
+        "variables": [],
+        "tags": [],
+        "image_url": "https://posthog.com/static/2ba70f2c4650b4b77e4d8cd10324a093/b5380/posthog-ceo-diary-blog.png"
+    },
+    {
+        "id": "3",
+        "template_name": "Same again template",
+        "dashboard_description": "Very long dashboard description, it keeps going and going and going and going and going and going and going and going and going and going and going and going and going",
+        "dashboard_filters": {},
+        "tiles": [],
+        "variables": [],
+        "tags": [],
+        "image_url": "https://posthog.com/static/2ba70f2c4650b4b77e4d8cd10324a093/b5380/posthog-ceo-diary-blog.png"
+    },
+    {
+        "id": "4",
+        "template_name": "Same again template",
+        "dashboard_description": "Very long dashboard description, it keeps going and going and going and going and going and going and going and going and going and going and going and going and going",
+        "dashboard_filters": {},
+        "tiles": [],
+        "variables": [],
+        "tags": [],
+        "image_url": "https://posthog.com/static/2ba70f2c4650b4b77e4d8cd10324a093/b5380/posthog-ceo-diary-blog.png"
+    },
+    {
+        "id": "4",
+        "template_name": "Broken image",
+        "dashboard_description": "Very long dashboard description, it keeps going and going and going and going and going and going and going and going and going and going and going and going and going",
+        "dashboard_filters": {},
+        "tiles": [],
+        "variables": [],
+        "tags": [],
+        "image_url": "broken-image.png"
+    },
+    {
+        "id": "5",
+        "template_name": "Broken image 2",
+        "dashboard_description": "Very long dashboard description, it keeps going and going and going and going and going and going and going and going and going and going and going and going and going",
+        "dashboard_filters": {},
+        "tiles": [],
+        "variables": [],
+        "tags": [],
+        "image_url": "broken-image.png"
+    }
+]

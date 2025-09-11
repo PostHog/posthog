@@ -1,0 +1,24 @@
+.FeatureFlagInstructionsHeader {
+    flex-wrap: nowrap;
+
+    .FeatureFlagInstructionsHeader__header-title {
+        display: flex;
+        justify-items: center;
+
+        .FeatureFlagInstructionsHeader__header-title__icon {
+            margin-right: 12px;
+            font-size: 1.6em;
+            color: var(--color-text-secondary);
+        }
+    }
+}
+
+.FeatureFlagInstructionsHeader__option {
+    display: flex;
+    justify-items: center;
+
+    .FeatureFlagInstructionsHeader__option__icon {
+        margin-top: 2px;
+        margin-right: 8px;
+    }
+}

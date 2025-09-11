@@ -1,0 +1,10 @@
+.FloatingSuggestion {
+    position: absolute;
+    height: 1.375rem;
+}
+
+.NotebookFloatingButton {
+    position: absolute;
+    left: 0;
+    z-index: var(--z-popover);
+}
