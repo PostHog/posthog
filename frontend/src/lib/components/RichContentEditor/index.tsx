@@ -14,16 +14,20 @@ export const RichContentEditor = ({
     extensions,
     className,
     children,
+    initialContent = [],
     onCreate = () => {},
     onUpdate = () => {},
     onSelectionUpdate = () => {},
+    autoFocus = false,
 }: PropsWithChildren<{
     logicKey: string
+    initialContent?: JSONContent
     onCreate?: (editor: TTEditor) => void
     onUpdate?: (content: JSONContent) => void
     onSelectionUpdate?: () => void
     extensions: Extensions
     className?: string
+    autoFocus?: boolean
 }>): JSX.Element => {
     const editor = useEditor({
         // this is disabled by default since v3
@@ -31,13 +35,14 @@ export const RichContentEditor = ({
         // we should try switching it (performance gains) and see if it causes any issues
         shouldRerenderOnTransaction: true,
         extensions,
+        content: initialContent ?? [],
         onSelectionUpdate: onSelectionUpdate,
         onUpdate: ({ editor }) => onUpdate(editor.getJSON()),
         onCreate: ({ editor }) => onCreate(editor),
     })
 
     return (
-        <EditorContent editor={editor} className={cn('RichContentEditor', className)}>
+        <EditorContent editor={editor} className={cn('RichContentEditor', className)} autoFocus={autoFocus}>
             {editor && (
                 <BindLogic logic={richContentEditorLogic} props={{ logicKey, editor }}>
                     {children}
