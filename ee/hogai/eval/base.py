@@ -13,6 +13,35 @@ from posthog.models.utils import uuid7
 from ee.hogai.eval.schema import DatasetInput
 
 
+async def _filter_data(data: EvalData[Input, Output], case_filter: str | None = None):
+    # Resolve async data
+    if asyncio.iscoroutine(data):
+        if hasattr(data, "__aiter__"):
+            data = [case async for case in data]
+        elif hasattr(data, "__iter__"):
+            data = list(data)
+        else:
+            data = await data
+    cases = []
+    for case in data:  # type: ignore
+        if not isinstance(case, EvalCase):
+            cases.append(case)
+            continue
+
+        # Reset trace IDs for DatasetInput, so we use distinct IDs instead
+        if os.getenv("EVAL_MODE") == "offline" and isinstance(case.input, DatasetInput):
+            case.input.trace_id = str(uuid7())
+
+        # Filter by --case <eval_case_name_part> pytest flag
+        if case_filter:
+            if case_filter in str(case.input):
+                cases.append(case)
+        else:
+            cases.append(case)
+
+    return cases
+
+
 async def BaseMaxEval(
     experiment_name: str,
     data: EvalData[Input, Output],
@@ -31,29 +60,15 @@ async def BaseMaxEval(
     else:
         project_name = experiment_name
 
-    # Filter by --case <eval_case_name_part> pytest flag
     case_filter = pytestconfig.option.eval
-    if case_filter:
-        if asyncio.iscoroutine(data):
-            data = await data
-        filtered_data = (case for case in data if case_filter in str(case.input))  # type: ignore
 
     timeout = 60 * 8  # 8 minutes
     if os.getenv("EVAL_MODE") == "offline":
         timeout = 60 * 60  # 1 hour
 
-        # Reset trace IDs for DatasetInput, so we use distinct IDs instead
-        def data_generator():
-            for case in filtered_data:
-                if isinstance(case, EvalCase) and isinstance(case.input, DatasetInput):
-                    case.input.trace_id = str(uuid7())
-                yield case
-
-        filtered_data = data_generator()
-
     result = await EvalAsync(
         project_name,
-        data=filtered_data,  # type: ignore
+        data=await _filter_data(data, case_filter=case_filter),
         task=task,
         scores=scores,
         timeout=timeout,
