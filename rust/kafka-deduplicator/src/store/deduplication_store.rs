@@ -379,29 +379,41 @@ impl DeduplicationStore {
             last_key_bytes.as_ref(),
         )?;
 
-        let cleanup_timestamp = cleanup_timestamp;
-
-        // Clean up UUID records using the timestamp index
-
-        // Delete UUID keys individually as we iterate through the timestamp index
+        // Collect UUID keys to delete first (minimize iterator lifetime)
         let index_cf = self.store.get_cf_handle(Self::UUID_TIMESTAMP_INDEX_CF)?;
-        let mut index_iter = self
-            .store
-            .db
-            .iterator_cf(&index_cf, rocksdb::IteratorMode::Start);
-
-        let mut deleted_count = 0;
+        let mut uuid_keys_to_delete = Vec::new();
         let mut kept_count = 0;
-        while let Some(Ok((index_key, uuid_key_bytes))) = index_iter.next() {
-            // Check if this key is within our cleanup range
-            if let Some(timestamp) = UuidIndexKey::parse_timestamp(&index_key) {
-                if timestamp >= cleanup_timestamp {
-                    kept_count += 1;
-                    break; // We've reached keys that shouldn't be deleted
+
+        {
+            // Scope the iterator to release lock quickly
+            let mut index_iter = self
+                .store
+                .db
+                .iterator_cf(&index_cf, rocksdb::IteratorMode::Start);
+
+            while let Some(Ok((index_key, uuid_key_bytes))) = index_iter.next() {
+                // Check if this key is within our cleanup range
+                if let Some(timestamp) = UuidIndexKey::parse_timestamp(&index_key) {
+                    if timestamp >= cleanup_timestamp {
+                        kept_count += 1;
+                        break; // We've reached keys that shouldn't be deleted
+                    }
+                    // Collect UUID key for batch deletion
+                    uuid_keys_to_delete.push(uuid_key_bytes.to_vec());
                 }
-                // Delete the UUID record individually
-                self.store.delete(Self::UUID_CF, &uuid_key_bytes)?;
-                deleted_count += 1;
+            }
+        } // Iterator dropped here, releasing read lock
+
+        // Now delete UUID keys in batches
+        let deleted_count = uuid_keys_to_delete.len();
+        if !uuid_keys_to_delete.is_empty() {
+            const BATCH_SIZE: usize = 1000;
+            for chunk in uuid_keys_to_delete.chunks(BATCH_SIZE) {
+                let mut batch = rocksdb::WriteBatch::default();
+                for key in chunk {
+                    batch.delete_cf(&self.store.get_cf_handle(Self::UUID_CF)?, key);
+                }
+                self.store.db.write(batch)?;
             }
         }
 

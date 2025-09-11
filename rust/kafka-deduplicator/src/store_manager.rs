@@ -243,7 +243,7 @@ impl StoreManager {
             topic.replace('/', "_"),
             partition
         );
-        
+
         let partition_path = PathBuf::from(&partition_dir);
         if partition_path.exists() {
             match std::fs::remove_dir_all(&partition_path) {
@@ -619,7 +619,7 @@ impl StoreManager {
     /// Clean up orphaned directories that don't belong to any assigned partition
     pub fn cleanup_orphaned_directories(&self) -> Result<u64> {
         let mut total_freed = 0u64;
-        
+
         // Build a set of currently assigned partition directories
         let mut assigned_dirs = std::collections::HashSet::new();
         for entry in self.stores.iter() {
@@ -631,26 +631,26 @@ impl StoreManager {
             );
             assigned_dirs.insert(dir_name);
         }
-        
+
         info!(
             "Checking for orphaned directories. Currently assigned: {:?}",
             assigned_dirs
         );
-        
+
         // Scan the store directory for all partition directories
         if let Ok(entries) = std::fs::read_dir(&self.store_config.path) {
             for entry in entries.flatten() {
                 if let Ok(metadata) = entry.metadata() {
                     if metadata.is_dir() {
                         let dir_name = entry.file_name().to_string_lossy().to_string();
-                        
+
                         // Check if this directory matches the pattern topic_partition
                         // and is not in our assigned set
                         if dir_name.contains('_') && !assigned_dirs.contains(&dir_name) {
                             // This is an orphaned directory
                             let dir_path = entry.path();
                             let dir_size = Self::get_directory_size(&dir_path).unwrap_or(0);
-                            
+
                             match std::fs::remove_dir_all(&dir_path) {
                                 Ok(_) => {
                                     info!(
@@ -672,7 +672,7 @@ impl StoreManager {
                 }
             }
         }
-        
+
         if total_freed > 0 {
             info!(
                 "Cleaned up {:.2} MB of orphaned directories",
@@ -681,7 +681,7 @@ impl StoreManager {
         } else {
             debug!("No orphaned directories found");
         }
-        
+
         Ok(total_freed)
     }
 }
