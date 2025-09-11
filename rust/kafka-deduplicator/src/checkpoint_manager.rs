@@ -4,10 +4,7 @@ use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
-use tokio::sync::{
-    mpsc::{channel, Receiver},
-    Mutex,
-};
+use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
@@ -18,22 +15,32 @@ use crate::store::DeduplicationStore;
 use crate::store_manager::StoreManager;
 
 const CHECKPOINT_SIZE_HISTOGRAM: &str = "checkpoint_size_bytes";
+const CHECKPOINT_FILE_COUNT_HISTOGRAM: &str = "checkpoint_file_count";
 const CHECKPOINT_DURATION_HISTOGRAM: &str = "checkpoint_duration_seconds";
-const CHECKPOINT_ERRORS_COUNTER: &str = "checkpoint_errors_total";
+const CHECKPOINT_WORKER_STATUS_COUNTER: &str = "checkpoint_worker_status";
 
 pub const CHECKPOINT_NAME_PREFIX: &str = "chkpt_";
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
 pub enum CheckpointMode {
     Full,
     Incremental,
 }
 
-impl Display for CheckpointMode {
+impl std::fmt::Display for CheckpointMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CheckpointMode::Full => write!(f, "full"),
             CheckpointMode::Incremental => write!(f, "incremental"),
+        }
+    }
+}
+
+impl CheckpointMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CheckpointMode::Full => "full",
+            CheckpointMode::Incremental => "incremental",
         }
     }
 }
@@ -93,13 +100,30 @@ impl CheckpointWorker {
             self.worker_id,
             partition = partition_tag,
             local_path = local_path_tag,
+            checkpoint_mode = self.mode.as_str(),
             "Initiating checkpoint"
         );
 
         // Ensure local checkpoint directory exists
-        tokio::fs::create_dir_all(&self.config.local_checkpoint_dir)
+        if let Err(e) = tokio::fs::create_dir_all(&self.config.local_checkpoint_dir)
             .await
-            .context("Failed to create local checkpoint directory")?;
+            .context("Failed to create local checkpoint directory")
+        {
+            let tags = [
+                ("mode", self.mode.as_str()),
+                ("result", "error"),
+                ("cause", "create_local_dir"),
+            ];
+            metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
+            error!(
+                self.worker_id,
+                partition = partition_tag,
+                local_path = local_path_tag,
+                checkpoint_mode = self.mode.as_str(),
+                "Failed to create local checkpoint directory: {}",
+                e
+            );
+        }
 
         // this creates the local RocksDB checkpoint
         match self
@@ -111,15 +135,18 @@ impl CheckpointWorker {
                 metrics::histogram!(CHECKPOINT_DURATION_HISTOGRAM)
                     .record(checkpoint_duration.as_secs_f64());
 
-                // Get checkpoint size
-                let checkpoint_size = self.get_directory_size(&local_checkpoint_path).await?;
-                metrics::histogram!(CHECKPOINT_SIZE_HISTOGRAM).record(checkpoint_size as f64);
+                metrics::histogram!(CHECKPOINT_FILE_COUNT_HISTOGRAM).record(sst_files.len() as f64);
+                if let Ok(checkpoint_size) = Self::get_directory_size(&local_checkpoint_path).await
+                {
+                    metrics::histogram!(CHECKPOINT_SIZE_HISTOGRAM).record(checkpoint_size as f64);
+                }
 
                 info!(
                     self.worker_id,
                     partition = partition_tag,
                     local_path = local_path_tag,
                     sst_file_count = sst_files.len(),
+                    checkpoint_mode = self.mode.as_str(),
                     "Created local checkpoint",
                 );
             }
@@ -133,10 +160,17 @@ impl CheckpointWorker {
                     source = err.source();
                 }
 
+                let tags = [
+                    ("mode", self.mode.as_str()),
+                    ("result", "error"),
+                    ("cause", "local_checkpoint"),
+                ];
+                metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
                 error!(
                     self.worker_id,
                     partition = partition_tag,
                     local_path = local_path_tag,
+                    checkpoint_mode = self.mode.as_str(),
                     "Local checkpoint failed: {}",
                     error_chain.join(" -> ")
                 );
@@ -151,6 +185,7 @@ impl CheckpointWorker {
                 self.worker_id,
                 partition = partition_tag,
                 local_path = local_path_tag,
+                checkpoint_mode = self.mode.as_str(),
                 "Failed store metrics update after local chekcpoint: {}",
                 e
             );
@@ -160,26 +195,29 @@ impl CheckpointWorker {
             self.worker_id,
             partition = partition_tag,
             local_path = local_path_tag,
+            checkpoint_mode = self.mode.as_str(),
             "Exporting remote checkpoint",
         );
 
         match self.exporter.as_ref() {
             Some(exporter) => {
-                // TODO(eli): stat this stuff
                 match exporter
-                    .export_checkpoint(
-                        &local_checkpoint_path,
-                        &checkpoint_name,
-                        self.mode == CheckpointMode::Full,
-                    )
+                    .export_checkpoint(&local_checkpoint_path, &checkpoint_name, self.mode)
                     .await
                 {
                     Ok(remote_key_prefix) => {
+                        let tags = [
+                            ("mode", self.mode.as_str()),
+                            ("result", "success"),
+                            ("export", "success"),
+                        ];
+                        metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
                         info!(
                             self.worker_id,
                             partition = partition_tag,
                             local_path = local_path_tag,
                             remote_path = remote_key_prefix,
+                            checkpoint_mode = self.mode.as_str(),
                             "Checkpoint exported successfully"
                         );
 
@@ -187,10 +225,17 @@ impl CheckpointWorker {
                     }
 
                     Err(e) => {
+                        let tags = [
+                            ("mode", self.mode.as_str()),
+                            ("result", "error"),
+                            ("cause", "export"),
+                        ];
+                        metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
                         error!(
                             self.worker_id,
                             partition = partition_tag,
                             local_path = local_path_tag,
+                            checkpoint_mode = self.mode.as_str(),
                             "Checkpoint failed to export: {}",
                             e
                         );
@@ -201,10 +246,17 @@ impl CheckpointWorker {
             }
 
             &None => {
+                let tags = [
+                    ("mode", self.mode.as_str()),
+                    ("result", "success"),
+                    ("export", "skipped"),
+                ];
+                metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
                 warn!(
                     self.worker_id,
                     partition = partition_tag,
                     local_path = local_path_tag,
+                    checkpoint_mode = self.mode.as_str(),
                     "Checkpoint upload skipped: no exporter configured",
                 );
 
@@ -234,11 +286,7 @@ impl CheckpointWorker {
             .as_micros())
     }
 
-    //
-    // TODO(eli): MOVE CHECKPOINT LOCAL CLEANUP TO MANAGER IN ITS OWN THREAD LOOP!
-    //
-
-    async fn get_directory_size(&self, path: &Path) -> Result<u64> {
+    async fn get_directory_size(path: &Path) -> Result<u64> {
         let mut total_size = 0u64;
         let mut stack = vec![path.to_path_buf()];
 
@@ -259,59 +307,6 @@ impl CheckpointWorker {
         }
 
         Ok(total_size)
-    }
-
-    async fn cleanup_local_checkpoints(&self) -> Result<()> {
-        let checkpoint_dir = PathBuf::from(&self.config.local_checkpoint_dir);
-
-        if !checkpoint_dir.exists() {
-            return Ok(());
-        }
-
-        let mut entries = tokio::fs::read_dir(&checkpoint_dir)
-            .await
-            .context("Failed to read checkpoint directory")?;
-
-        let mut checkpoint_dirs = Vec::new();
-
-        while let Some(entry) = entries.next_entry().await? {
-            let path = entry.path();
-            if path.is_dir() {
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if name.starts_with(CHECKPOINT_NAME_PREFIX) {
-                        checkpoint_dirs.push(path);
-                    }
-                }
-            }
-        }
-
-        // Sort by name (which includes timestamp) to get chronological order
-        checkpoint_dirs.sort_by(|a, b| a.file_name().unwrap().cmp(b.file_name().unwrap()));
-
-        // Keep only the most recent checkpoints
-        if checkpoint_dirs.len() > self.config.max_local_checkpoints {
-            let checkpoints_to_remove = checkpoint_dirs.len() - self.config.max_local_checkpoints;
-            for checkpoint_dir in checkpoint_dirs.iter().take(checkpoints_to_remove) {
-                let checkpoint_path = checkpoint_dir.to_string_lossy().to_string();
-
-                if let Err(e) = tokio::fs::remove_dir_all(checkpoint_dir).await {
-                    warn!(
-                        self.worker_id,
-                        checkpoint_path = checkpoint_path,
-                        "Failed to remove old checkpoint: {}",
-                        e
-                    );
-                } else {
-                    debug!(
-                        self.worker_id,
-                        checkpoint_path = checkpoint_path,
-                        "Removed old checkpoint"
-                    );
-                }
-            }
-        }
-
-        Ok(())
     }
 }
 
@@ -466,8 +461,9 @@ impl CheckpointManager {
                                 exporter.clone(),
                             );
 
+                            // TODO: for now, we don't bother to track the handles of spawned workers
+                            // because each worker represents one best-effort checkpoint attempt
                             let _ = tokio::spawn(async move || {
-                                // TODO(eli): handle observability inside or eval result here?
                                 tokio::select! {
                                     _ = cancel_submit_loop.cancelled() => {
                                         info!(partition = partition_tag, "Checkpoint manager: inner submit loop shutting down");
@@ -475,7 +471,7 @@ impl CheckpointManager {
                                     }
 
                                     result = worker.checkpoint_partition() => {
-                                        info!(worker_task_id, partition = partition_tag, result, "Checkpoint manager: checkpoint attempt completed");
+                                        info!(worker_task_id, partition = partition_tag, successful = result.is_ok(), "Checkpoint manager: checkpoint attempt completed");
 
                                         // release the in-flight lock regardless of outcome
                                         {
@@ -495,7 +491,6 @@ impl CheckpointManager {
                                                 let mut counter_guard = checkpoint_counters.lock().await;
                                                 let counter_for_partition = *counter_guard.get(&partition).unwrap_or(&0_u32);
                                                 counter_guard.insert(partition.clone(), counter_for_partition + 1);
-
                                             }
                                         }
                                     }
@@ -560,6 +555,9 @@ impl CheckpointManager {
         Ok(())
     }
 
+    // use the local atomic counter for the given partition to determine
+    // if this checkpoint should be full or incremental. CheckpointConfig
+    // specifies the interval at which full checkpoints should be performed
     async fn get_checkpoint_mode(
         partition: &Partition,
         checkpoint_counters: &Arc<Mutex<HashMap<Partition, u32>>>,
@@ -590,6 +588,56 @@ impl CheckpointManager {
 
         is_checkpointing_guard.insert(partition.clone());
         false
+    }
+
+    async fn cleanup_local_checkpoints(config: &CheckpointConfig) -> Result<()> {
+        let checkpoint_dir = PathBuf::from(config.local_checkpoint_dir.clone());
+
+        if !checkpoint_dir.exists() {
+            return Ok(());
+        }
+
+        let mut entries = tokio::fs::read_dir(&checkpoint_dir)
+            .await
+            .context("Failed to read checkpoint directory")?;
+
+        let mut checkpoint_dirs = Vec::new();
+
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+            if path.is_dir() {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if name.starts_with(CHECKPOINT_NAME_PREFIX) {
+                        checkpoint_dirs.push(path);
+                    }
+                }
+            }
+        }
+
+        // Sort by name (which includes timestamp) to get chronological order
+        checkpoint_dirs.sort_by(|a, b| a.file_name().unwrap().cmp(b.file_name().unwrap()));
+
+        // Keep only the most recent checkpoints
+        if checkpoint_dirs.len() > config.max_local_checkpoints {
+            let checkpoints_to_remove = checkpoint_dirs.len() - config.max_local_checkpoints;
+            for checkpoint_dir in checkpoint_dirs.iter().take(checkpoints_to_remove) {
+                let checkpoint_path = checkpoint_dir.to_string_lossy().to_string();
+
+                if let Err(e) = tokio::fs::remove_dir_all(checkpoint_dir).await {
+                    warn!(
+                        checkpoint_path = checkpoint_path,
+                        "Checkpoint manager: failed to remove old checkpoint: {}", e
+                    );
+                } else {
+                    info!(
+                        checkpoint_path = checkpoint_path,
+                        "Checkpoint manager: removed old checkpoint"
+                    );
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 

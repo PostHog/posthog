@@ -3,11 +3,13 @@ use std::time::Instant;
 
 use super::{CheckpointConfig, CheckpointUploader};
 
+use crate::checkpoint_manager::CheckpointMode;
 use anyhow::Result;
 use metrics;
 use tracing::{error, info, warn};
 
 const CHECKPOINT_UPLOAD_DURATION_HISTOGRAM: &str = "checkpoint_upload_duration_seconds";
+const CHECKPOINT_UPLOADS_COUNTER: &str = "checkpoint_upload_errors";
 
 #[derive(Debug)]
 pub struct CheckpointExporter {
@@ -24,9 +26,9 @@ impl CheckpointExporter {
         &self,
         local_checkpoint_path: &Path,
         checkpoint_name: &str,
-        is_full_upload: bool,
+        mode: CheckpointMode,
     ) -> Result<String> {
-        let remote_key_prefix = if is_full_upload {
+        let remote_key_prefix = if mode == CheckpointMode::Full {
             format!("{}/full/{}", self.config.s3_key_prefix, checkpoint_name)
         } else {
             format!(
@@ -46,28 +48,29 @@ impl CheckpointExporter {
                 .await
             {
                 Ok(uploaded_files) => {
-                    let checkpoint_type = if is_full_upload {
-                        "full"
-                    } else {
-                        "incremental"
-                    };
                     let upload_duration = upload_start.elapsed();
-                    metrics::histogram!(CHECKPOINT_UPLOAD_DURATION_HISTOGRAM, "checkpoint_type" => checkpoint_type)
+
+                    let tags = [("mode", mode.as_str()), ("result", "success")];
+                    metrics::histogram!(CHECKPOINT_UPLOAD_DURATION_HISTOGRAM, &tags)
                         .record(upload_duration.as_secs_f64());
+                    metrics::counter!(CHECKPOINT_UPLOADS_COUNTER, &tags).increment(1);
                     info!(
                         local_path = local_path_tag,
                         remote_path = remote_key_prefix,
                         uploaded_file_count = uploaded_files.len(),
                         elapsed_seconds = upload_duration.as_secs_f64(),
-                        checkpoint_type,
+                        checkpoint_mode = mode.as_str(),
                         "Export successful: checkpoint uploaded",
                     );
                 }
 
                 Err(e) => {
+                    let tags = [("mode", mode.as_str()), ("result", "error")];
+                    metrics::counter!(CHECKPOINT_UPLOADS_COUNTER, &tags).increment(1);
                     error!(
                         local_path = local_path_tag,
                         remote_path = remote_key_prefix,
+                        checkpoint_mode = mode.as_str(),
                         "Export failed: uploading checkpoint: {}",
                         e
                     );
@@ -77,10 +80,12 @@ impl CheckpointExporter {
 
             Ok(remote_key_prefix)
         } else {
-            // TODO(eli): stat this
+            let tags = [("mode", mode.as_str()), ("result", "unavailable")];
+            metrics::counter!(CHECKPOINT_UPLOADS_COUNTER, &tags).increment(1);
             warn!(
                 local_path = local_path_tag,
                 remote_path = remote_key_prefix,
+                checkpoint_mode = mode.as_str(),
                 "Export failed: uploader not available"
             );
 
