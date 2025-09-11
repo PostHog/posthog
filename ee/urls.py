@@ -145,6 +145,7 @@ urlpatterns: list[Any] = [
     path("api/sentry_stats/", sentry_stats.sentry_stats),
     path("max/chat/", csrf_exempt(MaxChatViewSet.as_view({"post": "create"})), name="max_chat"),
     path("login/vercel/", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})),
+    path("login/vercel/continue", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_continue"})),
     opt_slash_path("mcp", csrf_exempt(mcp_view)),
     *admin_urlpatterns,
 ]
