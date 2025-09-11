@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { ADVANCED_ACTIVITY_PAGE_SIZE, FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateStringToDayJs } from 'lib/utils'
@@ -13,11 +14,11 @@ import { ActivityScope } from '~/types'
 import type { advancedActivityLogsLogicType } from './advancedActivityLogsLogicType'
 
 export interface AdvancedActivityLogFilters {
-    start_date: string | null
-    end_date: string | null
-    users: string[]
-    scopes: ActivityScope[]
-    activities: string[]
+    start_date?: string
+    end_date?: string
+    users?: string[]
+    scopes?: ActivityScope[]
+    activities?: string[]
 }
 
 export interface AvailableFilters {
@@ -28,9 +29,29 @@ export interface AvailableFilters {
     }
 }
 
+export interface ExportedAsset {
+    id: string
+    export_format: string
+    created_at: string
+    has_content: boolean
+    filename: string | null
+    expires_after: string
+    exception: string | null
+    export_context?: {
+        path?: string
+        method?: string
+        filters?: {
+            start_date?: string | null
+            end_date?: string | null
+            users?: string[]
+            scopes?: string[]
+            activities?: string[]
+        }
+    }
+}
+
 const DEFAULT_FILTERS: AdvancedActivityLogFilters = {
-    start_date: null,
-    end_date: null,
+    start_date: '-30d',
     users: [],
     scopes: [],
     activities: [],
@@ -46,8 +67,10 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         setFilters: (filters: Partial<AdvancedActivityLogFilters>) => ({ filters }),
         clearAllFilters: true,
         setPage: (page: number) => ({ page }),
-        exportLogs: (format: 'csv' | 'json') => ({ format }),
+        exportLogs: (format: 'csv' | 'xlsx' | 'json') => ({ format }),
         loadAvailableFilters: true,
+        loadExports: true,
+        setActiveTab: (tab: 'logs' | 'exports') => ({ tab }),
     }),
 
     reducers({
@@ -63,6 +86,12 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             {
                 setPage: (_, { page }) => page,
                 setFilters: () => 1,
+            },
+        ],
+        activeTab: [
+            'logs' as 'logs' | 'exports',
+            {
+                setActiveTab: (_, { tab }) => tab,
             },
         ],
     }),
@@ -87,9 +116,9 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                         }
                     }
 
-                    values.filters.users.forEach((user) => params.append('users', user))
-                    values.filters.scopes.forEach((scope) => params.append('scopes', scope))
-                    values.filters.activities.forEach((activity) => params.append('activities', activity))
+                    values.filters.users?.forEach((user) => params.append('users', user))
+                    values.filters.scopes?.forEach((scope) => params.append('scopes', scope))
+                    values.filters.activities?.forEach((activity) => params.append('activities', activity))
 
                     params.append('page', values.currentPage.toString())
                     params.append('page_size', ADVANCED_ACTIVITY_PAGE_SIZE.toString())
@@ -109,6 +138,19 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                 },
             },
         ],
+
+        exports: [
+            [] as ExportedAsset[],
+            {
+                loadExports: async () => {
+                    const params = new URLSearchParams()
+                    params.append('context_path', '/advanced_activity_logs/')
+
+                    const response = await api.get(`api/environments/@current/exports/?${params}`)
+                    return response.results || []
+                },
+            },
+        ],
     })),
 
     selectors(({ actions }) => ({
@@ -120,12 +162,12 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         hasActiveFilters: [
             (s) => [s.filters],
             (filters: AdvancedActivityLogFilters): boolean => {
-                return (
-                    filters.start_date !== null ||
-                    filters.end_date !== null ||
-                    filters.users.length > 0 ||
-                    filters.scopes.length > 0 ||
-                    filters.activities.length > 0
+                return Boolean(
+                    filters.start_date ||
+                        filters.end_date ||
+                        filters.users?.length ||
+                        filters.scopes?.length ||
+                        filters.activities?.length
                 )
             },
         ],
@@ -146,7 +188,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         ],
     })),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setPage: () => {
             actions.loadAdvancedActivityLogs()
         },
@@ -156,12 +198,54 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         clearAllFilters: () => {
             actions.loadAdvancedActivityLogs()
         },
+        exportLogs: async ({ format }) => {
+            try {
+                // Convert relative dates to ISO strings for the export API
+                const startDate = values.filters.start_date
+                    ? dateStringToDayJs(values.filters.start_date)?.toISOString()
+                    : undefined
+                const endDate = values.filters.end_date
+                    ? dateStringToDayJs(values.filters.end_date)?.toISOString()
+                    : undefined
+
+                const filtersToExport = {
+                    start_date: startDate,
+                    end_date: endDate,
+                    users: values.filters.users,
+                    scopes: values.filters.scopes,
+                    activities: values.filters.activities,
+                }
+
+                await api.create(`api/projects/@current/advanced_activity_logs/export/`, {
+                    format,
+                    filters: filtersToExport,
+                })
+
+                lemonToast.success(`Export started! Your ${format.toUpperCase()} export is being prepared.`)
+
+                actions.loadExports()
+                actions.setActiveTab('exports')
+            } catch (error) {
+                console.error('Export failed:', error)
+                lemonToast.error('Failed to start export. Please try again.')
+            }
+        },
     })),
 
-    events(({ actions }) => ({
+    events(({ actions, cache }) => ({
         afterMount: () => {
             actions.loadAvailableFilters()
             actions.loadAdvancedActivityLogs()
+            actions.loadExports()
+
+            cache.exportPollingInterval = setInterval(() => {
+                actions.loadExports()
+            }, 5000)
+        },
+        beforeUnmount: () => {
+            if (cache.exportPollingInterval) {
+                clearInterval(cache.exportPollingInterval)
+            }
         },
     })),
 ])
