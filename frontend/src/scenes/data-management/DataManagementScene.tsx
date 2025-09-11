@@ -185,14 +185,18 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
     }),
     selectors({
         breadcrumbs: [
-            (s) => [s.tab],
-            (tab): Breadcrumb[] => {
+            (s) => [s.tab, s.featureFlags],
+            (tab, featureFlags): Breadcrumb[] => {
                 return [
-                    {
-                        key: Scene.DataManagement,
-                        name: `Data management`,
-                        path: tabs.events.url,
-                    },
+                    ...(!featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+                        ? [
+                              {
+                                  key: Scene.DataManagement,
+                                  name: `Data management`,
+                                  path: urls.eventDefinitions(),
+                              },
+                          ]
+                        : []),
                     {
                         key: tab,
                         name: capitalizeFirstLetter(tab),

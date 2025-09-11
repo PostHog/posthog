@@ -130,12 +130,7 @@ function DashboardScene(): JSX.Element {
                 <div>
                     <DashboardOverridesBanner />
 
-                    <SceneStickyBar
-                        showBorderBottom={false}
-                        className={cn(
-                            newSceneLayout && 'top-[var(--scene-layout-header-height)] -mx-4 px-4 -mt-2 py-1'
-                        )}
-                    >
+                    <SceneStickyBar showBorderBottom={false}>
                         <div className="flex gap-2 justify-between">
                             {![
                                 DashboardPlacement.Public,
