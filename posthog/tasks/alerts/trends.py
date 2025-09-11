@@ -1,5 +1,8 @@
 from typing import NotRequired, Optional, TypedDict, cast
 
+import pandas as pd
+from prophet import Prophet
+
 from posthog.schema import (
     AlertCondition,
     AlertConditionType,
@@ -56,6 +59,10 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
         ValueError(f"Unsupported alert config type: {alert.config}")
 
     condition = AlertCondition.model_validate(alert.condition)
+
+    if condition.type == AlertConditionType.ANOMALY:
+        return check_trends_anomaly_alert(alert, insight, query)
+
     threshold = InsightThreshold.model_validate(alert.threshold.configuration) if alert.threshold else None
 
     if not threshold or not threshold.bounds:
@@ -340,6 +347,88 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
 
         case _:
             raise NotImplementedError(f"Unsupported alert condition type: {condition.type}")
+
+
+def check_trends_anomaly_alert(
+    alert: AlertConfiguration, insight: Insight, query: TrendsQuery
+) -> AlertEvaluationResult:
+    condition = AlertCondition.model_validate(alert.condition)
+    if not condition.anomaly_condition:
+        raise ValueError("Anomaly condition not configured for alert")
+
+    confidence_level = condition.anomaly_condition.confidence_level
+
+    is_non_time_series = _is_non_time_series_trend(query)
+    if is_non_time_series:
+        raise ValueError("Anomaly detection is not supported for non-time series trends")
+
+    # Determine historical data range based on the insight interval to ensure enough data for Prophet
+    interval = query.interval or "day"
+    if interval == "hour":
+        history_duration = "7d"
+    elif interval == "week":
+        history_duration = "26w"
+    elif interval == "month":
+        history_duration = "12m"  # Use 12 months to better capture yearly seasonality
+    else:  # Default to day
+        history_duration = "120d"
+    filters_override = {"date_from": f"-{history_duration}"}
+
+    calculation_result = calculate_for_query_based_insight(
+        insight,
+        team=alert.team,
+        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        user=None,
+        filters_override=filters_override,
+    )
+
+    if not calculation_result.result:
+        raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
+
+    # For now, let's just check the first series. We can extend to breakdowns later.
+    # TODO: Handle breakdowns
+    series_result = cast(list[TrendResult], calculation_result.result)[0]
+    series_label = series_result["label"]
+
+    dates = series_result["dates"]
+    values = series_result["data"]
+
+    if len(values) < 2:
+        return AlertEvaluationResult(value=None, breaches=[])
+
+    current_value = values[-1]
+    historical_dates = dates[:-1]
+    historical_values = values[:-1]
+
+    if len(historical_values) < 10:
+        # Not enough data to make a reliable forecast
+        return AlertEvaluationResult(value=current_value, breaches=[])
+
+    # Prepare data for Prophet
+    prophet_df = pd.DataFrame({"ds": historical_dates, "y": historical_values})
+
+    # Train model and predict
+    model = Prophet(interval_width=confidence_level)
+    model.fit(prophet_df)
+
+    # Predict one step into the future
+    future = model.make_future_dataframe(periods=1)
+    forecast = model.predict(future)
+
+    # Check for anomaly
+    last_forecast = forecast.iloc[-1]
+    yhat_lower = last_forecast["yhat_lower"]
+    yhat_upper = last_forecast["yhat_upper"]
+
+    breaches = []
+    if not (yhat_lower <= current_value <= yhat_upper):
+        breach_message = (
+            f"Anomaly detected for '{series_label}'. "
+            f"Value of {current_value:.2f} was outside the expected range of ({yhat_lower:.2f}, {yhat_upper:.2f})."
+        )
+        breaches.append(breach_message)
+
+    return AlertEvaluationResult(value=current_value, breaches=breaches)
 
 
 def _is_non_time_series_trend(query: TrendsQuery) -> bool:

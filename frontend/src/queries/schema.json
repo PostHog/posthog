@@ -351,6 +351,16 @@
         "AlertCondition": {
             "additionalProperties": false,
             "properties": {
+                "anomaly_condition": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "confidence_level": {
+                            "type": "number"
+                        }
+                    },
+                    "required": ["confidence_level"],
+                    "type": "object"
+                },
                 "type": {
                     "$ref": "#/definitions/AlertConditionType"
                 }
@@ -359,7 +369,7 @@
             "type": "object"
         },
         "AlertConditionType": {
-            "enum": ["absolute_value", "relative_increase", "relative_decrease"],
+            "enum": ["absolute_value", "relative_increase", "relative_decrease", "anomaly"],
             "type": "string"
         },
         "AlertState": {
