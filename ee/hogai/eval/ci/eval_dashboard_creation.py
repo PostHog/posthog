@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import MagicMock, patch
 
 from braintrust import EvalCase
 
@@ -6,11 +7,12 @@ from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph import AssistantGraph
-from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState
+from ee.hogai.graph.dashboards.nodes import DashboardCreatorNode
+from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState, PartialAssistantState
 from ee.models.assistant import Conversation
 
 from ..base import MaxPublicEval
-from ..scorers import ToolRelevance
+from ..scorers import DashboardCreationAccuracy, ToolRelevance
 
 
 @pytest.fixture
@@ -163,6 +165,209 @@ async def eval_tool_routing_dashboard_creation(call_root_for_dashboard_creation,
                         "query_description": "Show the daily trend of user signups over the last 30 days. Use the event that tracks new user registrations. Display the count of signups per day."
                     },
                 ),
+            ),
+        ],
+        pytestconfig=pytestconfig,
+    )
+
+
+@pytest.mark.django_db
+@patch("ee.hogai.graph.task_executor.base.get_stream_writer", return_value=MagicMock())
+async def eval_tool_call_dashboard_creation(patch_get_stream_writer, pytestconfig, demo_org_team_user):
+    conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
+    dashboard_creation_node = DashboardCreatorNode(demo_org_team_user[1], demo_org_team_user[2])
+
+    async def task_with_context(messages):
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="", id="1", tool_calls=[AssistantToolCall(id="1", name="create_dashboard", args=messages)]
+                )
+            ],
+            **messages,
+        )
+
+        config = {
+            "configurable": {
+                "thread_id": conversation.id,
+            }
+        }
+        result = await dashboard_creation_node.arun(state, config)
+        state = PartialAssistantState.model_validate(result)
+        message = state.messages[-1]
+
+        # Return the message content as a string, but wrap it properly for the scorer
+        return message.content if isinstance(message.content, str) else str(message.content)
+
+    await MaxPublicEval(
+        experiment_name="tool_call_dashboard_creation",
+        task=task_with_context,
+        scores=[DashboardCreationAccuracy()],
+        data=[
+            EvalCase(
+                input={
+                    "create_dashboard_query": "Create a dashboard with an insight showing how many users were created yesterday.",
+                    "search_insights_queries": [
+                        {
+                            "description": "Shows the total number of users who were created yesterday. Filters for user creation events with a date range set to yesterday.",
+                            "name": "Users created yesterday",
+                        }
+                    ],
+                },
+                expected={
+                    "create_dashboard_query": "Create a dashboard with an insight showing how many users were created yesterday.",
+                    "search_insights_queries": [
+                        {
+                            "description": "Shows the total number of users who were created yesterday. Filters for user creation events with a date range set to yesterday.",
+                            "name": "Users created yesterday",
+                        }
+                    ],
+                },
+            ),
+            # Challenging cases for dashboard creation execution
+            EvalCase(
+                input={
+                    "create_dashboard_query": "Create a comprehensive user analytics dashboard with multiple complex insights.",
+                    "search_insights_queries": [
+                        {
+                            "description": "User engagement metrics including daily active users, session duration, and feature usage patterns.",
+                            "name": "User Engagement",
+                        },
+                        {
+                            "description": "Revenue analytics showing conversion funnels, customer lifetime value, and payment trends.",
+                            "name": "Revenue Analytics",
+                        },
+                        {
+                            "description": "Geographic distribution of users with regional performance metrics and localization insights.",
+                            "name": "Geographic Analysis",
+                        },
+                    ],
+                },
+                expected={
+                    "create_dashboard_query": "Create a comprehensive user analytics dashboard with multiple complex insights.",
+                    "search_insights_queries": [
+                        {
+                            "description": "User engagement metrics including daily active users, session duration, and feature usage patterns.",
+                            "name": "User Engagement",
+                        },
+                        {
+                            "description": "Revenue analytics showing conversion funnels, customer lifetime value, and payment trends.",
+                            "name": "Revenue Analytics",
+                        },
+                        {
+                            "description": "Geographic distribution of users with regional performance metrics and localization insights.",
+                            "name": "Geographic Analysis",
+                        },
+                    ],
+                },
+            ),
+            EvalCase(
+                input={
+                    "create_dashboard_query": "Build an executive dashboard for quarterly business review with key performance indicators.",
+                    "search_insights_queries": [
+                        {
+                            "description": "Quarterly revenue growth, customer acquisition costs, and profitability metrics.",
+                            "name": "Financial KPIs",
+                        },
+                        {
+                            "description": "User growth trends, retention rates, and churn analysis for the quarter.",
+                            "name": "User Growth",
+                        },
+                        {
+                            "description": "Product performance metrics including feature adoption and user satisfaction scores.",
+                            "name": "Product Performance",
+                        },
+                    ],
+                },
+                expected={
+                    "create_dashboard_query": "Build an executive dashboard for quarterly business review with key performance indicators.",
+                    "search_insights_queries": [
+                        {
+                            "description": "Quarterly revenue growth, customer acquisition costs, and profitability metrics.",
+                            "name": "Financial KPIs",
+                        },
+                        {
+                            "description": "User growth trends, retention rates, and churn analysis for the quarter.",
+                            "name": "User Growth",
+                        },
+                        {
+                            "description": "Product performance metrics including feature adoption and user satisfaction scores.",
+                            "name": "Product Performance",
+                        },
+                    ],
+                },
+            ),
+            EvalCase(
+                input={
+                    "create_dashboard_query": "Create a real-time monitoring dashboard for system health and user activity.",
+                    "search_insights_queries": [
+                        {
+                            "description": "Real-time user activity including active sessions, page views, and event tracking.",
+                            "name": "Live User Activity",
+                        },
+                        {
+                            "description": "System performance metrics including response times, error rates, and server load.",
+                            "name": "System Health",
+                        },
+                        {
+                            "description": "API usage statistics and endpoint performance monitoring.",
+                            "name": "API Monitoring",
+                        },
+                    ],
+                },
+                expected={
+                    "create_dashboard_query": "Create a real-time monitoring dashboard for system health and user activity.",
+                    "search_insights_queries": [
+                        {
+                            "description": "Real-time user activity including active sessions, page views, and event tracking.",
+                            "name": "Live User Activity",
+                        },
+                        {
+                            "description": "System performance metrics including response times, error rates, and server load.",
+                            "name": "System Health",
+                        },
+                        {
+                            "description": "API usage statistics and endpoint performance monitoring.",
+                            "name": "API Monitoring",
+                        },
+                    ],
+                },
+            ),
+            EvalCase(
+                input={
+                    "create_dashboard_query": "Design a marketing attribution dashboard showing campaign performance and conversion paths.",
+                    "search_insights_queries": [
+                        {
+                            "description": "Marketing campaign performance including click-through rates, conversion rates, and ROI by channel.",
+                            "name": "Campaign Performance",
+                        },
+                        {
+                            "description": "Customer journey analysis showing touchpoints and conversion paths from first visit to purchase.",
+                            "name": "Customer Journey",
+                        },
+                        {
+                            "description": "Attribution modeling showing which marketing channels drive the most valuable customers.",
+                            "name": "Attribution Analysis",
+                        },
+                    ],
+                },
+                expected={
+                    "create_dashboard_query": "Design a marketing attribution dashboard showing campaign performance and conversion paths.",
+                    "search_insights_queries": [
+                        {
+                            "description": "Marketing campaign performance including click-through rates, conversion rates, and ROI by channel.",
+                            "name": "Campaign Performance",
+                        },
+                        {
+                            "description": "Customer journey analysis showing touchpoints and conversion paths from first visit to purchase.",
+                            "name": "Customer Journey",
+                        },
+                        {
+                            "description": "Attribution modeling showing which marketing channels drive the most valuable customers.",
+                            "name": "Attribution Analysis",
+                        },
+                    ],
+                },
             ),
         ],
         pytestconfig=pytestconfig,

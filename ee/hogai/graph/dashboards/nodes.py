@@ -151,7 +151,7 @@ class DashboardCreatorNode(AssistantNode):
     def _get_found_insight_count(self, queries_metadata: dict[str, QueryMetadata]) -> int:
         return sum(len(query.found_insight_ids) for query in queries_metadata.values())
 
-    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         if not state.create_dashboard_query:
             return self._create_error_response(
                 "Dashboard creation query is required", state.root_tool_call_id or "unknown"
@@ -178,7 +178,7 @@ class DashboardCreatorNode(AssistantNode):
                 writer=self._get_stream_writer(),
             )
 
-            result = await self._search_insights_in_parallel(result, state, config)
+            result = await self._search_insights(result, state, config)
 
             self._stream_reasoning(
                 progress_message=f"Found {self._get_found_insight_count(result)} insights",
@@ -194,7 +194,7 @@ class DashboardCreatorNode(AssistantNode):
                     progress_message=f"Will create {len(left_to_create)} insights", writer=self._get_stream_writer()
                 )
 
-                result = await self._create_insights_in_parallel(left_to_create, result, state, config)
+                result = await self._create_insights(left_to_create, result, state, config)
 
             all_insight_ids = set()
             messages = []
@@ -237,7 +237,7 @@ class DashboardCreatorNode(AssistantNode):
         """Build the URL for a dashboard."""
         return f"/project/{self._team.id}/dashboard/{id}"
 
-    async def _create_insights_in_parallel(
+    async def _create_insights(
         self,
         left_to_create: dict[str, InsightQuery],
         query_metadata: dict[str, QueryMetadata],
@@ -282,7 +282,7 @@ class DashboardCreatorNode(AssistantNode):
 
         return query_metadata
 
-    async def _search_insights_in_parallel(
+    async def _search_insights(
         self,
         queries_metadata: dict[str, QueryMetadata],
         state: AssistantState,
@@ -471,6 +471,8 @@ class DashboardCreatorNode(AssistantNode):
             create_dashboard_query=None,
             search_insights_queries=None,
             root_tool_call_id=None,
+            root_tool_insight_plan=None,
+            insight_ids=None,
         )
 
     def _create_no_insights_response(self, tool_call_id: str, subgraph_last_message: str) -> PartialAssistantState:
@@ -487,6 +489,7 @@ class DashboardCreatorNode(AssistantNode):
             root_tool_call_id=None,
             search_insights_queries=None,
             insight_ids=None,
+            root_tool_insight_plan=None,
         )
 
     def _create_error_response(self, content: str, tool_call_id: str) -> PartialAssistantState:
@@ -504,6 +507,7 @@ class DashboardCreatorNode(AssistantNode):
             root_tool_call_id=None,
             search_insights_queries=None,
             insight_ids=None,
+            root_tool_insight_plan=None,
         )
 
     def router(self, state: AssistantState) -> Literal["root"]:
