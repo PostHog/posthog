@@ -28,8 +28,7 @@ class DeepResearchTodo(BaseModel):
     priority: Literal["low", "medium", "high"]
 
 
-class DeepResearchSingleTaskResult(TaskExecutionResult[InsightCreationArtifact]):
-    pass
+DeepResearchSingleTaskResult = TaskExecutionResult[InsightCreationArtifact]
 
 
 class DeepResearchIntermediateResult(BaseModel):
@@ -41,7 +40,7 @@ class DeepResearchIntermediateResult(BaseModel):
     artifact_ids: list[str] = Field(default=[])
 
 
-class _SharedDeepResearchState(BaseTaskExecutionState):
+class _SharedDeepResearchState(BaseTaskExecutionState[InsightCreationArtifact]):
     todos: Annotated[Optional[list[DeepResearchTodo]], replace] = Field(default=None)
     """
     The current TO-DO list.

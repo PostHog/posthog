@@ -17,7 +17,7 @@ from ee.hogai.graph.deep_research.types import (
 )
 from ee.hogai.graph.task_executor.base import GenericTaskExecutorNode, TaskExecutorTool
 from ee.hogai.graph.task_executor.prompts import EXECUTE_TASKS_TOOL_RESULT
-from ee.hogai.graph.task_executor.tools import NodeTaskExecutorTool, SubgraphTaskExecutorTool
+from ee.hogai.graph.task_executor.tools import SubgraphTaskExecutorTool
 
 logger = structlog.get_logger(__name__)
 
@@ -37,9 +37,9 @@ class DeepResearchTaskExecutorNode(
     ) -> TaskExecutorTool[DeepResearchSingleTaskResult]:
         """Create the appropriate task executor tool based on executor type."""
         if isinstance(executor, CompiledStateGraph):
-            return SubgraphTaskExecutorTool(executor)  # type: ignore[return-value]
+            return SubgraphTaskExecutorTool(executor)
         else:
-            return NodeTaskExecutorTool(executor)  # type: ignore[return-value]
+            raise ValueError("NodeTaskExecutorTool only works with InsightSearchArtifact")
 
     def _get_node_name(self) -> DeepResearchNodeName:
         """Get the node name for this executor."""

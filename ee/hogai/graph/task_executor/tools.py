@@ -2,11 +2,8 @@ import uuid
 from typing import cast
 
 import structlog
-from langchain_core.messages import AIMessage as LangchainAIMessage
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.utils import AddableDict
-from langchain_openai import ChatOpenAI
 from langgraph.graph.state import CompiledStateGraph
 
 from posthog.schema import (
@@ -277,34 +274,3 @@ class NodeTaskExecutorTool(TaskExecutorTool[InsightSearchTaskExecutionResult]):
             artifacts=[],
             status=TaskExecutionStatus.FAILED,
         )
-
-
-# Shared utility methods
-async def _generate_final_result(task: TaskExecutionItem, content: str, config: RunnableConfig) -> str:
-    """Generate the final result using the model."""
-    from ee.hogai.graph.task_executor.prompts import AGENT_TASK_PROMPT_TEMPLATE
-
-    formatted_instructions = AGENT_TASK_PROMPT_TEMPLATE.format(
-        task_prompt=task.prompt, task_description=task.description
-    )
-
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", formatted_instructions),
-            ("user", "{content}"),
-        ]
-    )
-
-    model = _get_model()
-    chain = prompt | model
-    response = await chain.ainvoke({"content": content}, config)
-    response = cast(LangchainAIMessage, response)
-
-    return str(response)
-
-
-def _get_model() -> ChatOpenAI:
-    return ChatOpenAI(
-        model="gpt-4.1",
-        temperature=0.3,
-    )

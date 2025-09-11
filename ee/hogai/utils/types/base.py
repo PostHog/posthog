@@ -348,10 +348,9 @@ class InsightArtifact(BaseModel):
 
 class InsightCreationArtifact(InsightArtifact):
     """
-    An artifacts created by an insight creation task.
+    An artifact created by an insight creation task.
     """
 
-    id: str
     query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
 
 
@@ -379,15 +378,11 @@ class TaskExecutionResult(BaseModel, Generic[ArtifactType]):
     status: TaskExecutionStatus
 
 
-class InsightCreationTaskExecutionResult(TaskExecutionResult[InsightCreationArtifact]):
-    pass
+InsightCreationTaskExecutionResult = TaskExecutionResult[InsightCreationArtifact]
+InsightSearchTaskExecutionResult = TaskExecutionResult[InsightSearchArtifact]
 
 
-class InsightSearchTaskExecutionResult(TaskExecutionResult[InsightSearchArtifact]):
-    pass
-
-
-class BaseTaskExecutionState(BaseStateWithMessages):
+class BaseTaskExecutionState(BaseStateWithMessages, Generic[ArtifactType]):
     """
     Base state for task execution across different graph types.
     """
@@ -396,7 +391,7 @@ class BaseTaskExecutionState(BaseStateWithMessages):
     """
     The current tasks to execute.
     """
-    task_results: Annotated[list[TaskExecutionResult[InsightArtifact]], append] = Field(default=[])
+    task_results: Annotated[list[TaskExecutionResult[ArtifactType]], append] = Field(default=[])
     """
     Results of executed tasks.
     """
