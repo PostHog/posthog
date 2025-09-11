@@ -244,7 +244,6 @@ class DashboardCreatorNode(AssistantNode):
         state: AssistantState,
         config: RunnableConfig,
     ) -> dict[str, QueryMetadata]:
-        """Create insights in parallel."""
         from ee.hogai.graph.graph import InsightsAssistantGraph
 
         compiled_insights_subgraph = InsightsAssistantGraph(self._team, self._user).compile_full_graph()
@@ -288,8 +287,6 @@ class DashboardCreatorNode(AssistantNode):
         state: AssistantState,
         config: RunnableConfig,
     ) -> dict[str, QueryMetadata]:
-        """Search insights in parallel."""
-
         insight_search_node = InsightSearchNode(self._team, self._user)
         executor_node = DashboardTaskExecutorNode(self._team, self._user, insight_search_node)
 
