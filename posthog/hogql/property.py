@@ -51,6 +51,8 @@ from posthog.utils import get_from_dict_or_attr
 from posthog.warehouse.models import DataWarehouseJoin
 from posthog.warehouse.models.util import get_view_or_table_by_name
 
+GROUP_KEY_PATTERN = re.compile(r"^\$group_[0-4]$")
+
 
 def has_aggregation(expr: AST) -> bool:
     finder = AggregationFinder()
@@ -377,11 +379,7 @@ def property_to_expr(
 
     if property.type == "hogql":
         return parse_expr(property.key)
-    elif (
-        property.type == "event_metadata"
-        and scope == "group"
-        and re.match(r"^\$group_[0-4]$", property.key) is not None
-    ):
+    elif property.type == "event_metadata" and scope == "group" and GROUP_KEY_PATTERN.match(property.key) is not None:
         group_type_index = property.key.split("_")[1]
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
         value = property.value
