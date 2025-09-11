@@ -3,11 +3,13 @@
 import os
 import json
 import typing as t
+import datetime as dt
 import contextlib
 from collections.abc import Callable
 
 import pytest
 
+import numpy as np
 from databricks import sql
 from databricks.sdk.core import Config, oauth_service_principal
 
@@ -113,12 +115,26 @@ class DatabricksDestinationTest(BaseDestinationTest):
             {
                 columns[index]: json.loads(row[index])
                 if columns[index] in json_columns and row[index] is not None
+                # Databricks uses pytz timezones, so we need to convert them to the datetime.UTC timezone
+                else row[index].replace(tzinfo=dt.UTC)
+                if isinstance(row[index], dt.datetime)
+                # convert from numpy arrays to regular lists
+                else row[index].tolist()
+                if isinstance(row[index], np.ndarray)
                 else row[index]
                 for index in columns.keys()
             }
             for row in rows
         ]
         return inserted_records
+
+    def preprocess_records_before_comparison(self, records: list[dict[str, t.Any]]) -> list[dict[str, t.Any]]:
+        """Preprocess the records before comparison (if required).
+
+        For Databricks we use a `databricks_ingested_timestamp` field to track when the records were ingested into the destination.
+        For this timestamp, we use now64(), which is not suitable for comparison, so we exclude it.
+        """
+        return [{k: v for k, v in record.items() if k != "databricks_ingested_timestamp"} for record in records]
 
     async def assert_no_data_in_destination(self, **kwargs) -> None:
         """Assert that no data was written to Databricks.

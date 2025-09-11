@@ -172,6 +172,7 @@ class DatabricksClient:
                 credentials_provider=self.get_credential_provider,
                 # user agent can be used for usage tracking
                 user_agent_entry="PostHog batch exports",
+                _socket_timeout=5 * 60,  # 5 minutes
             )
         except OperationalError as err:
             # TODO: check what kinds of errors we get here
@@ -344,12 +345,36 @@ class DatabricksClient:
             query_kwargs={"input_stream": file},
         )
 
-    async def acopy_into_table_from_volume(self, table_name: str, volume_path: str):
-        """Asynchronously copy data from a Databricks volume into a Databricks table."""
+    # TODO - add tests for this
+    async def acopy_into_table_from_volume(self, table_name: str, volume_path: str, fields: list[DatabricksField]):
+        """Asynchronously copy data from a Databricks volume into a Databricks table.
+
+        Databricks is very strict about the schema of the destination table matching the schema of the Parquet file.
+        Therefore, we need to cast the data to the correct type, otherwise the request will fail.
+        - If the field type is VARIANT, we need to parse the string as JSON
+        - If the field type is BIGINT or INTEGER, we cast the data in the file to that type just in case it is an unsigned integer
+        """
         try:
-            results = await self.execute_async_query(
-                f"COPY INTO `{table_name}` FROM '{volume_path}' FILEFORMAT = PARQUET",
-            )
+            select_fields = []
+            for field in fields:
+                if field[1] == "VARIANT":
+                    select_fields.append(f"PARSE_JSON(`{field[0]}`) as `{field[0]}`")
+                elif field[1] == "BIGINT":
+                    select_fields.append(f"CAST(`{field[0]}` as BIGINT) as `{field[0]}`")
+                elif field[1] == "INTEGER":
+                    select_fields.append(f"CAST(`{field[0]}` as INTEGER) as `{field[0]}`")
+                else:
+                    select_fields.append(f"`{field[0]}`")
+            select_fields = ", ".join(select_fields)
+
+            query = f"""
+                COPY INTO `{table_name}`
+                FROM (
+                    SELECT {select_fields} FROM '{volume_path}'
+                )
+                FILEFORMAT = PARQUET
+                """
+            await self.execute_async_query(query, fetch_results=False)
         except ServerOperationError as err:
             if err.message and "INSUFFICIENT_PERMISSIONS" in err.message:
                 self.external_logger.error("Failed to copy data from volume into table: %s", err.message)
@@ -396,7 +421,7 @@ class DatabricksClient:
         self,
         target_table: str,
         source_table: str,
-        merge_key: collections.abc.Iterable[DatabricksField],
+        merge_key: collections.abc.Iterable[str],
         update_key: collections.abc.Iterable[str],
         fields: collections.abc.Iterable[DatabricksField],
         with_schema_evolution: bool = True,
@@ -416,11 +441,10 @@ class DatabricksClient:
 
         assert merge_key, "Merge key must be defined"
         assert update_key, "Update key must be defined"
-        assert fields, "Fields must be defined"
 
-        merge_condition = " AND ".join([f"target.`{field[0]}` = source.`{field[0]}`" for field in merge_key])
+        merge_condition = " AND ".join([f"target.`{field}` = source.`{field}`" for field in merge_key])
 
-        update_condition = " OR ".join([f"target.`{field[0]}` < source.`{field[0]}`" for field in update_key])
+        update_condition = " OR ".join([f"target.`{field}` < source.`{field}`" for field in update_key])
 
         if with_schema_evolution is True:
             merge_query = f"""
@@ -433,6 +457,7 @@ class DatabricksClient:
                 INSERT *
             """
         else:
+            assert fields, "Fields must be defined"
             # first we need to get the column names from the target table
             target_table_field_names = await self.aget_table_columns(target_table)
 
@@ -474,6 +499,40 @@ def databricks_default_fields() -> list[BatchExportField]:
     return batch_export_fields
 
 
+def _get_databricks_field_type(pa_type: pa.DataType, is_variant: bool) -> str | None:
+    """Get the Databricks type for a PyArrow field."""
+    if pa.types.is_string(pa_type) or isinstance(pa_type, JsonType):
+        if is_variant:
+            return "VARIANT"
+        else:
+            return "STRING"
+
+    elif pa.types.is_binary(pa_type):
+        return "BINARY"
+
+    elif pa.types.is_signed_integer(pa_type) or pa.types.is_unsigned_integer(pa_type):
+        if pa.types.is_uint64(pa_type) or pa.types.is_int64(pa_type):
+            return "BIGINT"
+        else:
+            return "INTEGER"
+
+    elif pa.types.is_floating(pa_type):
+        if pa.types.is_float64(pa_type):
+            return "DOUBLE"
+        else:
+            return "FLOAT"
+
+    elif pa.types.is_boolean(pa_type):
+        return "BOOLEAN"
+
+    elif pa.types.is_timestamp(pa_type):
+        return "TIMESTAMP"
+
+    elif pa.types.is_list(pa_type):
+        list_type = _get_databricks_field_type(pa_type.value_type, False)
+        return f"ARRAY<{list_type}>"
+
+
 def _get_databricks_fields_from_record_schema(
     record_schema: pa.Schema, known_variant_columns: list[str]
 ) -> list[DatabricksField]:
@@ -489,34 +548,10 @@ def _get_databricks_fields_from_record_schema(
 
     for name in record_schema.names:
         pa_field = record_schema.field(name)
-
-        if pa.types.is_string(pa_field.type) or isinstance(pa_field.type, JsonType):
-            if pa_field.name in known_variant_columns:
-                databricks_type = "VARIANT"
-            else:
-                databricks_type = "STRING"
-
-        elif pa.types.is_binary(pa_field.type):
-            databricks_type = "BINARY"
-
-        elif pa.types.is_signed_integer(pa_field.type) or pa.types.is_unsigned_integer(pa_field.type):
-            databricks_type = "INTEGER"
-
-        elif pa.types.is_floating(pa_field.type):
-            databricks_type = "FLOAT"
-
-        elif pa.types.is_boolean(pa_field.type):
-            databricks_type = "BOOLEAN"
-
-        elif pa.types.is_timestamp(pa_field.type):
-            databricks_type = "TIMESTAMP"
-
-        elif pa.types.is_list(pa_field.type):
-            databricks_type = "ARRAY"
-
-        else:
+        is_variant = pa_field.name in known_variant_columns
+        databricks_type = _get_databricks_field_type(pa_field.type, is_variant)
+        if databricks_type is None:
             raise TypeError(f"Unsupported type in field '{name}': '{databricks_type}'")
-
         databricks_schema.append((name, databricks_type))
 
     return databricks_schema
@@ -550,7 +585,7 @@ def _get_databricks_table_settings(
             ("event", "STRING"),
             ("properties", json_type),
             ("distinct_id", "STRING"),
-            ("team_id", "INTEGER"),
+            ("team_id", "BIGINT"),
             ("timestamp", "TIMESTAMP"),
             ("databricks_ingested_timestamp", "TIMESTAMP"),
         ]
@@ -565,18 +600,18 @@ def _get_databricks_table_settings(
 
 def _get_databricks_merge_config(
     model: BatchExportModel | BatchExportSchema | None,
-) -> tuple[bool, list[DatabricksField], list[str]]:
+) -> tuple[bool, list[str], list[str]]:
     requires_merge = False
     merge_key = []
     update_key = []
     if isinstance(model, BatchExportModel):
         if model.name == "persons":
             requires_merge = True
-            merge_key = [("team_id", "INTEGER"), ("distinct_id", "STRING")]
+            merge_key = ["team_id", "distinct_id"]
             update_key = ["person_version", "person_distinct_id_version"]
         elif model.name == "sessions":
             requires_merge = True
-            merge_key = [("team_id", "INTEGER"), ("session_id", "STRING")]
+            merge_key = ["team_id", "session_id"]
             update_key = ["end_timestamp"]
     return requires_merge, merge_key, update_key
 
@@ -764,6 +799,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                 await databricks_client.acopy_into_table_from_volume(
                     table_name=stage_table_name if stage_table_name else inputs.table_name,
                     volume_path=volume_path,
+                    fields=table_fields,
                 )
 
                 if requires_merge and stage_table_name is not None:

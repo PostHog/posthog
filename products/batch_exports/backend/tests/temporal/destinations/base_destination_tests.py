@@ -115,6 +115,15 @@ class BaseDestinationTest(ABC):
         pass
 
     @abstractmethod
+    def preprocess_records_before_comparison(self, records: list[dict[str, t.Any]]) -> list[dict[str, t.Any]]:
+        """Preprocess the records before comparison (if required).
+
+        For example, for some destinations we use a metadata field to track when the record was ingested into the
+        destination. For this timestamp, we use now64(), which is not suitable for comparison, so we exclude it.
+        """
+        pass
+
+    @abstractmethod
     async def get_inserted_records(
         self,
         team_id: int,
@@ -133,7 +142,7 @@ async def _run_workflow(
     batch_export_for_destination: BatchExport,
     inputs,
 ):
-    """Helper function to run SnowflakeBatchExportWorkflow and assert records in Snowflake"""
+    """Helper function to run the destination workflow"""
 
     workflow_id = str(uuid.uuid4())
     # settings_overrides = settings_overrides or {}
@@ -246,9 +255,6 @@ async def _get_records_from_clickhouse(
 
                 if k in json_columns and isinstance(v, str):
                     record[k] = json.loads(v)
-                elif isinstance(v, dt.datetime):
-                    # By default, Snowflake's `TIMESTAMP` doesn't include a timezone component.
-                    record[k] = v.replace(tzinfo=None)
                 elif k == "elements":
                     # Happens transparently when uploading elements as a variant field.
                     record[k] = json.dumps(v)
@@ -304,21 +310,25 @@ async def assert_clickhouse_records_in_destination(
     if expect_duplicates:
         records_from_destination = remove_duplicates_from_records(records_from_destination, primary_key)
 
-    assert records_from_destination, "No records were inserted into Snowflake"
+    assert records_from_destination, "No records were inserted into the destination"
+
+    records_from_destination = destination_test.preprocess_records_before_comparison(records_from_destination)
+    records_from_clickhouse = destination_test.preprocess_records_before_comparison(records_from_clickhouse)
+
     inserted_column_names = list(records_from_destination[0].keys())
     expected_column_names = list(records_from_clickhouse[0].keys())
     inserted_column_names.sort()
     expected_column_names.sort()
+    assert len(inserted_column_names) > 0
+    assert inserted_column_names == expected_column_names
 
     # Ordering is not guaranteed, so we sort before comparing.
     records_from_destination.sort(key=operator.itemgetter(sort_key))
     records_from_clickhouse.sort(key=operator.itemgetter(sort_key))
 
-    assert inserted_column_names == expected_column_names
     assert len(records_from_destination) == len(records_from_clickhouse)
     assert records_from_destination[0] == records_from_clickhouse[0]
     assert records_from_destination == records_from_clickhouse
-    assert len(inserted_column_names) > 0
 
 
 class CommonDestinationTests:
@@ -384,7 +394,7 @@ class CommonDestinationTests:
     async def batch_export_for_destination(self, ateam, destination_data, temporal_client, interval):
         """Manage BatchExport model (and associated Temporal Schedule) for tests"""
         batch_export_data = {
-            "name": "my-production-snowflake-export",
+            "name": "my-production-destination-export",
             "destination": destination_data,
             "interval": interval,
         }
