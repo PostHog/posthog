@@ -3,13 +3,20 @@ import { Layouts } from 'react-grid-layout'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
+import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { currentSessionId } from 'lib/internalMetrics'
 import { objectClean, shouldCancelQuery, toParams } from 'lib/utils'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { pollForResults } from '~/queries/query'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
-import { DashboardLayoutSize, InsightModel, QueryBasedInsightModel, TileLayout } from '~/types'
+import {
+    AccessControlResourceType,
+    DashboardLayoutSize,
+    InsightModel,
+    QueryBasedInsightModel,
+    TileLayout,
+} from '~/types'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
@@ -114,6 +121,14 @@ export async function getInsightWithRetry(
     maxAttempts: number = 5,
     initialDelay: number = 1200
 ): Promise<QueryBasedInsightModel | null> {
+    // Check if user has access to this insight before making API calls
+    const canViewInsight = accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, 'viewer')
+
+    if (!canViewInsight) {
+        // Return the insight as-is without making API calls - it should already have minimal data
+        return insight
+    }
+
     let attempt = 0
 
     while (attempt < maxAttempts) {
