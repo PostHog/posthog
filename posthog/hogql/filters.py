@@ -61,6 +61,7 @@ class ReplaceFilters(CloningVisitor):
             found_events = False
             found_sessions = False
             found_logs = False
+            found_groups = False
             while last_join is not None:
                 if isinstance(last_join.table, ast.Field):
                     if last_join.table.chain == ["events"]:
@@ -69,13 +70,15 @@ class ReplaceFilters(CloningVisitor):
                         found_sessions = True
                     if last_join.table.chain == ["logs"]:
                         found_logs = True
-                    if found_events and found_sessions:
+                    if last_join.table.chain == ["groups"]:
+                        found_groups = True
+                    if found_events and found_sessions or found_groups:
                         break
                 last_join = last_join.next_join
 
-            if not found_events and not found_sessions and not found_logs:
+            if not any([found_events, found_sessions, found_logs, found_groups]):
                 raise QueryError(
-                    "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions or logs table."
+                    "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions, logs or groups table."
                 )
 
             if no_filters:
@@ -96,14 +99,16 @@ class ReplaceFilters(CloningVisitor):
                         )
                     exprs.append(property_to_expr(session_properties, self.team, scope="session"))
                     exprs.append(property_to_expr(non_session_properties, self.team, scope="event"))
+                elif found_groups:
+                    exprs.append(property_to_expr(self.filters.properties, self.team, scope="group"))
                 else:
                     exprs.append(property_to_expr(self.filters.properties, self.team, scope="event"))
 
-            timestamp_field = (
-                ast.Field(chain=["timestamp"])
-                if (found_events or found_logs)
-                else ast.Field(chain=["$start_timestamp"])
-            )
+            timestamp_field = ast.Field(chain=["$start_timestamp"])
+            if found_events or found_logs:
+                timestamp_field = ast.Field(chain=["timestamp"])
+            if found_groups:
+                timestamp_field = ast.Field(chain=["created_at"])
 
             dateTo = self.filters.dateRange.date_to if self.filters.dateRange else None
             if dateTo is not None:
