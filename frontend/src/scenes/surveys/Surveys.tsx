@@ -55,17 +55,7 @@ export const scene: SceneExport = {
 function NewSurveyButton(): JSX.Element {
     const { loadSurveys, addProductIntent } = useActions(surveysLogic)
     const { user } = useValues(userLogic)
-
-    const button = (
-        <LemonButton to={urls.surveyTemplates()} type="primary" data-attr="new-survey">
-            <span className="pr-3">New survey</span>
-        </LemonButton>
-    )
-
-    // If the user is not loaded, just show the button without Max tool
-    if (!user?.uuid) {
-        return button
-    }
+    const { isOnNewSceneLayout } = useValues(surveysLogic)
 
     return (
         <MaxTool
@@ -78,7 +68,7 @@ function NewSurveyButton(): JSX.Element {
                 'Create a quick satisfaction survey for support interactions',
             ]}
             context={{
-                user_id: user.uuid,
+                user_id: user?.uuid,
             }}
             callback={(toolOutput: {
                 survey_id?: string
@@ -105,8 +95,12 @@ function NewSurveyButton(): JSX.Element {
                 router.actions.push(urls.survey(toolOutput.survey_id))
             }}
             position="bottom-right"
+            active={!!user?.uuid}
+            className={cn(isOnNewSceneLayout && 'mr-3')}
         >
-            {button}
+            <LemonButton to={urls.surveyTemplates()} type="primary" data-attr="new-survey">
+                <span className="pr-3">New survey</span>
+            </LemonButton>
         </MaxTool>
     )
 }

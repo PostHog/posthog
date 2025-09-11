@@ -200,7 +200,13 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
 export const scene: SceneExport<HogFunctionConfigurationLogicProps> = {
     component: HogFunctionScene,
     logic: hogFunctionSceneLogic,
-    paramsToProps: ({ params: { id, templateId } }) => ({ id, templateId }),
+    paramsToProps: ({ params: { id, templateId }, hashParams }) => {
+        return {
+            id,
+            templateId,
+            subTemplateId: hashParams.configuration?.sub_template_id,
+        }
+    },
 }
 
 export function HogFunctionScene(): JSX.Element {

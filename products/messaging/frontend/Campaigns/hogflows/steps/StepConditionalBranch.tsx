@@ -102,7 +102,9 @@ export function StepConditionalBranchConfiguration({
                     <HogFlowFilters
                         filters={condition.filters ?? {}}
                         setFilters={(filters) =>
-                            setConditions(conditions.map((condition, i) => (i === index ? { filters } : condition)))
+                            setConditions(
+                                conditions.map((condition, i) => (i === index ? { filters: filters ?? {} } : condition))
+                            )
                         }
                         typeKey={`campaign-trigger-${index}`}
                     />

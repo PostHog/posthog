@@ -15,7 +15,13 @@ import {
 import { hostname } from 'os'
 import { Gauge, Histogram } from 'prom-client'
 
-import { HealthCheckResult, HealthCheckResultDegraded, HealthCheckResultError, HealthCheckResultOk } from '~/types'
+import {
+    EventHeaders,
+    HealthCheckResult,
+    HealthCheckResultDegraded,
+    HealthCheckResultError,
+    HealthCheckResultOk,
+} from '~/types'
 import { isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
 
@@ -777,6 +783,28 @@ export const parseKafkaHeaders = (headers?: MessageHeader[]): Record<string, str
     headers?.forEach((header) => {
         Object.keys(header).forEach((key) => {
             result[key] = header[key].toString()
+        })
+    })
+
+    return result
+}
+
+export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
+    // Kafka headers come from librdkafka as an array of objects with keys value pairs per header.
+    // We extract the specific headers we care about into a structured format.
+
+    const result: EventHeaders = {}
+
+    headers?.forEach((header) => {
+        Object.keys(header).forEach((key) => {
+            const value = header[key].toString()
+            if (key === 'token') {
+                result.token = value
+            } else if (key === 'distinct_id') {
+                result.distinct_id = value
+            } else if (key === 'timestamp') {
+                result.timestamp = value
+            }
         })
     })
 

@@ -17,19 +17,17 @@ export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
         description: 'Send an email to the user.',
         config: {
             template_id: 'template-email',
-            inputs: {
-                email: {
-                    // Default email inputs to liquid templating
-                    templating: 'liquid',
-                },
-            },
+            inputs: {},
         },
     },
     {
         type: 'function_sms',
         name: 'SMS',
         description: 'Send an SMS to the user.',
-        config: { template_id: 'template-twilio', inputs: {} },
+        config: {
+            template_id: 'template-twilio',
+            inputs: {},
+        },
     },
     {
         type: 'function',
