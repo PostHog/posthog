@@ -919,9 +919,7 @@ class DatetimeDay(RootModel[datetime]):
 
 class DeepResearchType(StrEnum):
     PLANNING = "planning"
-    TASK_EXECUTION = "task_execution"
     REPORT = "report"
-    GENERAL = "general"
 
 
 class DefaultChannelTypes(StrEnum):
@@ -4116,7 +4114,7 @@ class NotebookUpdateMessage(BaseModel):
     )
     content: ProsemirrorJSONContent
     conversation_notebooks: Optional[list[DeepResearchNotebook]] = None
-    current_run_notebook_ids: Optional[list[str]] = None
+    current_run_notebooks: Optional[list[DeepResearchNotebook]] = None
     id: Optional[str] = None
     notebook_id: str
     notebook_type: Literal["deep_research"] = "deep_research"

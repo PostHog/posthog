@@ -30,27 +30,22 @@ class DeepResearchNotebookPlanningNode(DeepResearchNode):
         notebook = await self._astream_notebook(chain, config, DeepResearchNodeName.NOTEBOOK_PLANNING)
         notebook_update_message = self._generate_notebook_update_message(notebook)
 
-        notebook_title = self.notebook.title if self.notebook else "Planning Notebook"
+        notebook_title = self.notebook.title if self.notebook and self.notebook.title else "Planning Notebook"
         notebook_info = DeepResearchNotebook(
             notebook_type=DeepResearchType.PLANNING,
             notebook_id=notebook.short_id,
             title=notebook_title,
         )
 
-        # Determine if this is a new research run
-        # A new run is when current_run_notebooks is None or empty
-        is_new_run = not state.current_run_notebooks
-        current_run_notebooks = [notebook_info] if is_new_run else [*state.current_run_notebooks, notebook_info]
-
-        # Update the notebook message with type and all conversation notebooks
+        current_run_notebooks = [notebook_info]
         all_conversation_notebooks = [*state.conversation_notebooks, notebook_info]
         notebook_update_message.notebook_type = "deep_research"
         notebook_update_message.conversation_notebooks = all_conversation_notebooks
-        notebook_update_message.current_run_notebook_ids = [nb.notebook_id for nb in current_run_notebooks]
+        notebook_update_message.current_run_notebooks = current_run_notebooks
 
         return PartialDeepResearchState(
             messages=[notebook_update_message],
             previous_response_id=None,  # we reset the previous response id because we're starting a new conversation after the onboarding
-            conversation_notebooks=[notebook_info],  # Add to persistent list
-            current_run_notebooks=current_run_notebooks,  # Track current run notebooks
+            conversation_notebooks=[notebook_info],
+            current_run_notebooks=current_run_notebooks,
         )

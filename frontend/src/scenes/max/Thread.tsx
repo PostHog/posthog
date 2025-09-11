@@ -482,9 +482,9 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
                             // Show "New" tag only if there are previous notebooks and this notebook is from the current run
                             const hasMultipleRuns =
                                 (message.conversation_notebooks?.length || 0) >
-                                (message.current_run_notebook_ids?.length || 0)
-                            const isCurrentRunNotebook = message.current_run_notebook_ids?.includes(
-                                notebook.notebook_id
+                                (message.current_run_notebooks?.length || 0)
+                            const isCurrentRunNotebook = message.current_run_notebooks?.some(
+                                (nb) => nb.notebook_id === notebook.notebook_id
                             )
                             const shouldShowNewTag = hasMultipleRuns && isCurrentRunNotebook
 

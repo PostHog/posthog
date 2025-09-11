@@ -18,7 +18,8 @@ from posthog.schema import (
     AssistantToolCallMessage,
     AssistantTrendsEventsNode,
     AssistantTrendsQuery,
-    NotebookUpdateMessage,
+    DeepResearchNotebook,
+    DeepResearchType,
     ProsemirrorJSONContent,
     TaskExecutionStatus,
 )
@@ -309,17 +310,24 @@ class TestDeepResearchReportNode:
     @patch.object(DeepResearchReportNode, "_get_model")
     @patch.object(DeepResearchReportNode, "_astream_notebook")
     @patch("ee.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
-    async def test_arun_success(self, mock_executor_class, mock_astream_notebook, mock_get_model):
+    @patch("langgraph.config.get_config")
+    @patch("langgraph.config.get_stream_writer")
+    async def test_arun_success(
+        self, mock_get_stream_writer, mock_get_config, mock_executor_class, mock_astream_notebook, mock_get_model
+    ):
         """Test that arun successfully generates a report."""
+        mock_get_stream_writer.return_value = MagicMock()
+        mock_get_config.return_value = {"configurable": {"thread_id": "test_thread"}}
+
         mock_executor = MagicMock()
         mock_executor.run_and_format_query.return_value = ("Formatted results", False)
         mock_executor_class.return_value = mock_executor
 
-        mock_notebook_message = NotebookUpdateMessage(
-            notebook_id="test_notebook", content=ProsemirrorJSONContent(type="doc", content=[])
-        )
-        mock_notebook_message.id = "message_id"
-        mock_astream_notebook.return_value = mock_notebook_message
+        mock_notebook = MagicMock()
+        mock_notebook.short_id = "test_notebook"
+        mock_notebook.title = "Test Notebook"
+        mock_notebook.content = ProsemirrorJSONContent(type="doc", content=[])
+        mock_astream_notebook.return_value = mock_notebook
 
         mock_model = MagicMock()
         mock_get_model.return_value = mock_model
@@ -330,7 +338,6 @@ class TestDeepResearchReportNode:
 
         assert isinstance(result, PartialDeepResearchState)
         assert len(result.messages) == 1
-        assert result.messages[0] == mock_notebook_message
 
         mock_get_model.assert_called_once()
         mock_astream_notebook.assert_called_once()
@@ -353,13 +360,19 @@ class TestDeepResearchReportNode:
     @patch.object(DeepResearchReportNode, "_get_model")
     @patch.object(DeepResearchReportNode, "_astream_notebook")
     @patch("ee.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
-    async def test_arun_handles_empty_artifacts(self, mock_executor_class, mock_astream_notebook, mock_get_model):
+    @patch("langgraph.config.get_config")
+    @patch("langgraph.config.get_stream_writer")
+    async def test_arun_handles_empty_artifacts(
+        self, mock_get_stream_writer, mock_get_config, mock_executor_class, mock_astream_notebook, mock_get_model
+    ):
         """Test that arun handles cases with no artifacts gracefully."""
-        mock_notebook_message = NotebookUpdateMessage(
-            notebook_id="test_notebook", content=ProsemirrorJSONContent(type="doc", content=[])
-        )
-        mock_notebook_message.id = "message_id"
-        mock_astream_notebook.return_value = mock_notebook_message
+        mock_get_stream_writer.return_value = MagicMock()
+        mock_get_config.return_value = {"configurable": {"thread_id": "test_thread"}}
+        mock_notebook = MagicMock()
+        mock_notebook.short_id = "test_notebook"
+        mock_notebook.title = "Test Notebook"
+        mock_notebook.content = ProsemirrorJSONContent(type="doc", content=[])
+        mock_astream_notebook.return_value = mock_notebook
 
         mock_model = MagicMock()
         mock_get_model.return_value = mock_model
@@ -379,19 +392,23 @@ class TestDeepResearchReportNode:
     @patch.object(DeepResearchReportNode, "_get_model")
     @patch.object(DeepResearchReportNode, "_astream_notebook")
     @patch("ee.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
+    @patch("langgraph.config.get_config")
+    @patch("langgraph.config.get_stream_writer")
     async def test_arun_handles_empty_intermediate_results(
-        self, mock_executor_class, mock_astream_notebook, mock_get_model
+        self, mock_get_stream_writer, mock_get_config, mock_executor_class, mock_astream_notebook, mock_get_model
     ):
         """Test that arun handles cases with no intermediate results gracefully."""
+        mock_get_stream_writer.return_value = MagicMock()
+        mock_get_config.return_value = {"configurable": {"thread_id": "test_thread"}}
         mock_executor = MagicMock()
         mock_executor.run_and_format_query.return_value = ("Formatted results", False)
         mock_executor_class.return_value = mock_executor
 
-        mock_notebook_message = NotebookUpdateMessage(
-            notebook_id="test_notebook", content=ProsemirrorJSONContent(type="doc", content=[])
-        )
-        mock_notebook_message.id = "message_id"
-        mock_astream_notebook.return_value = mock_notebook_message
+        mock_notebook = MagicMock()
+        mock_notebook.short_id = "test_notebook"
+        mock_notebook.title = "Test Notebook"
+        mock_notebook.content = ProsemirrorJSONContent(type="doc", content=[])
+        mock_astream_notebook.return_value = mock_notebook
 
         mock_model = MagicMock()
         mock_get_model.return_value = mock_model
@@ -439,19 +456,23 @@ class TestDeepResearchReportNode:
     @patch.object(DeepResearchReportNode, "_get_model")
     @patch.object(DeepResearchReportNode, "_astream_notebook")
     @patch("ee.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
+    @patch("langgraph.config.get_config")
+    @patch("langgraph.config.get_stream_writer")
     async def test_arun_passes_correct_parameters_to_stream(
-        self, mock_executor_class, mock_astream_notebook, mock_get_model
+        self, mock_get_stream_writer, mock_get_config, mock_executor_class, mock_astream_notebook, mock_get_model
     ):
         """Test that arun passes the correct parameters to the streaming method."""
+        mock_get_stream_writer.return_value = MagicMock()
+        mock_get_config.return_value = {"configurable": {"thread_id": "test_thread"}}
         mock_executor = MagicMock()
         mock_executor.run_and_format_query.return_value = ("Formatted results", False)
         mock_executor_class.return_value = mock_executor
 
-        mock_notebook_message = NotebookUpdateMessage(
-            notebook_id="test_notebook", content=ProsemirrorJSONContent(type="doc", content=[])
-        )
-        mock_notebook_message.id = "message_id"
-        mock_astream_notebook.return_value = mock_notebook_message
+        mock_notebook = MagicMock()
+        mock_notebook.short_id = "test_notebook"
+        mock_notebook.title = "Test Notebook"
+        mock_notebook.content = ProsemirrorJSONContent(type="doc", content=[])
+        mock_astream_notebook.return_value = mock_notebook
 
         mock_model = MagicMock()
         mock_get_model.return_value = mock_model
@@ -538,17 +559,23 @@ class TestDeepResearchReportNode:
     @patch.object(DeepResearchReportNode, "_get_model")
     @patch.object(DeepResearchReportNode, "_astream_notebook")
     @patch("ee.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
-    async def test_arun_creates_proper_message_chain(self, mock_executor_class, mock_astream_notebook, mock_get_model):
+    @patch("langgraph.config.get_config")
+    @patch("langgraph.config.get_stream_writer")
+    async def test_arun_creates_proper_message_chain(
+        self, mock_get_stream_writer, mock_get_config, mock_executor_class, mock_astream_notebook, mock_get_model
+    ):
         """Test that arun creates proper message chain for LLM interaction."""
+        mock_get_stream_writer.return_value = MagicMock()
+        mock_get_config.return_value = {"configurable": {"thread_id": "test_thread"}}
         mock_executor = MagicMock()
         mock_executor.run_and_format_query.return_value = ("Formatted results", False)
         mock_executor_class.return_value = mock_executor
 
-        mock_notebook_message = NotebookUpdateMessage(
-            notebook_id="test_notebook", content=ProsemirrorJSONContent(type="doc", content=[])
-        )
-        mock_notebook_message.id = "message_id"
-        mock_astream_notebook.return_value = mock_notebook_message
+        mock_notebook = MagicMock()
+        mock_notebook.short_id = "test_notebook"
+        mock_notebook.title = "Test Notebook"
+        mock_notebook.content = ProsemirrorJSONContent(type="doc", content=[])
+        mock_astream_notebook.return_value = mock_notebook
         mock_model = MagicMock()
         mock_get_model.return_value = mock_model
 
@@ -602,22 +629,25 @@ class TestDeepResearchReportNode:
     @patch("ee.hogai.graph.deep_research.report.nodes.DeepResearchReportNode._get_model")
     @patch("ee.hogai.graph.deep_research.report.nodes.DeepResearchReportNode._astream_notebook")
     @patch("ee.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
+    @patch("langgraph.config.get_config")
+    @patch("langgraph.config.get_stream_writer")
     async def test_arun_includes_stage_notebooks_in_final_message(
-        self, mock_executor_class, mock_astream_notebook, mock_get_model
+        self, mock_get_stream_writer, mock_get_config, mock_executor_class, mock_astream_notebook, mock_get_model
     ):
         """Test that the report node includes all stage notebooks in the final message."""
-        from posthog.schema import DeepResearchNotebookInfo
+        mock_get_stream_writer.return_value = MagicMock()
+        mock_get_config.return_value = {"configurable": {"thread_id": "test_thread"}}
+        # Using DeepResearchNotebook instead of DeepResearchNotebookInfo
 
         mock_executor = MagicMock()
         mock_executor.run_and_format_query.return_value = ("Results", False)
         mock_executor_class.return_value = mock_executor
 
-        mock_notebook_message = NotebookUpdateMessage(
-            notebook_id="report_notebook_123",
-            content=ProsemirrorJSONContent(type="doc", content=[]),
-        )
-        mock_notebook_message.id = "message_id"
-        mock_astream_notebook.return_value = mock_notebook_message
+        mock_notebook = MagicMock()
+        mock_notebook.short_id = "report_notebook_123"
+        mock_notebook.title = "Test Notebook"
+        mock_notebook.content = ProsemirrorJSONContent(type="doc", content=[])
+        mock_astream_notebook.return_value = mock_notebook
 
         mock_model = MagicMock()
         mock_get_model.return_value = mock_model
@@ -627,31 +657,32 @@ class TestDeepResearchReportNode:
         self.node.notebook = mock_notebook
 
         existing_notebooks = [
-            DeepResearchNotebookInfo(stage="notebook_planning", notebook_id="planning_123", title="Planning Doc"),
-            DeepResearchNotebookInfo(stage="intermediate", notebook_id="intermediate_456", title="Analysis"),
+            DeepResearchNotebook(
+                notebook_type=DeepResearchType.PLANNING, notebook_id="planning_123", title="Planning Doc"
+            ),
+            DeepResearchNotebook(
+                notebook_type=DeepResearchType.REPORT, notebook_id="intermediate_456", title="Analysis"
+            ),
         ]
 
         tool_call_message = AssistantToolCallMessage(content="Task execution complete", tool_call_id="tool_call_123")
         state = DeepResearchState(
             messages=[tool_call_message],
-            stage_notebooks=existing_notebooks,
+            conversation_notebooks=existing_notebooks,
+            current_run_notebooks=existing_notebooks,
             task_results=[],
             intermediate_results=[],
         )
 
         result = await self.node.arun(state, self.config)
 
-        assert len(result.stage_notebooks) == 3  # 2 existing + 1 report
-        assert result.stage_notebooks[0].stage == "notebook_planning"
-        assert result.stage_notebooks[0].notebook_id == "planning_123"
-        assert result.stage_notebooks[1].stage == "intermediate"
-        assert result.stage_notebooks[1].notebook_id == "intermediate_456"
-        assert result.stage_notebooks[2].stage == "report"
-        assert result.stage_notebooks[2].notebook_id == "report_notebook_123"
-        assert result.stage_notebooks[2].title == "Final Research Report"
+        # Check that the new report notebook was added to conversation_notebooks
+        assert len(result.conversation_notebooks) == 1  # Only the new report notebook
+        # The new report notebook should be a REPORT type
+        report_notebook = result.conversation_notebooks[0]
+        assert report_notebook.notebook_type == DeepResearchType.REPORT
+        assert report_notebook.notebook_id == "report_notebook_123"
+        assert report_notebook.title == "Test Notebook"
 
-        assert mock_notebook_message.stage_notebooks is not None
-        assert len(mock_notebook_message.stage_notebooks) == 3
-        assert mock_notebook_message.stage_notebooks[0].stage == "notebook_planning"
-        assert mock_notebook_message.stage_notebooks[1].stage == "intermediate"
-        assert mock_notebook_message.stage_notebooks[2].stage == "report"
+        # Check that current_run_notebooks contains all notebooks
+        assert len(result.current_run_notebooks) == 3  # 2 existing + 1 new

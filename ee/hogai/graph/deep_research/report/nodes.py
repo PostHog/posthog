@@ -1,6 +1,9 @@
+from uuid import uuid4
+
 from langchain_core.messages import ToolMessage as LangchainToolMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
+from langgraph.config import get_stream_writer
 from pydantic import BaseModel
 
 from posthog.schema import (
@@ -11,6 +14,7 @@ from posthog.schema import (
     AssistantTrendsQuery,
     DeepResearchNotebook,
     DeepResearchType,
+    NotebookUpdateMessage,
 )
 
 from posthog.exceptions_capture import capture_exception
@@ -104,33 +108,23 @@ class DeepResearchReportNode(DeepResearchNode):
         # Combine all conversation notebooks with the current report for the final display
         all_conversation_notebooks = [*state.conversation_notebooks, current_notebook_info]
 
-        # Create and stream the final rich notebook message
-        from uuid import uuid4
-
-        from langgraph.config import get_stream_writer
-
-        from posthog.schema import NotebookUpdateMessage
-
         notebook_update_message = NotebookUpdateMessage(
             id=str(uuid4()),
             notebook_id=notebook.short_id,
             content=notebook.content,
             notebook_type="deep_research",
-            conversation_notebooks=all_conversation_notebooks,  # Show all conversation notebooks in UI
-            current_run_notebook_ids=[
-                nb.notebook_id for nb in current_run_notebooks
-            ],  # IDs of notebooks from current run
+            conversation_notebooks=all_conversation_notebooks,
+            current_run_notebooks=current_run_notebooks,
         )
 
-        # Stream the final rich message to the UI
         writer = get_stream_writer()
         custom_message = self._message_to_langgraph_update(notebook_update_message, DeepResearchNodeName.REPORT)
         writer(custom_message)
 
         return PartialDeepResearchState(
             messages=[notebook_update_message],
-            conversation_notebooks=[current_notebook_info],  # Add to persistent list
-            current_run_notebooks=current_run_notebooks,  # Update current run list
+            conversation_notebooks=[current_notebook_info],
+            current_run_notebooks=current_run_notebooks,
         )
 
     def _collect_all_artifacts(self, state: DeepResearchState) -> list[InsightArtifact]:

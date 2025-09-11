@@ -12,6 +12,8 @@ from parameterized import parameterized
 from posthog.schema import (
     AssistantMessage,
     AssistantTrendsQuery,
+    DeepResearchNotebook,
+    DeepResearchType,
     HumanMessage,
     MultiVisualizationMessage,
     PlanningMessage,
@@ -62,7 +64,7 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
         tasks: list[TaskExecutionItem] | None = None,
         task_results: list[DeepResearchSingleTaskResult] | None = None,
         intermediate_results: list[DeepResearchIntermediateResult] | None = None,
-        notebook_short_id: str | None = None,
+        current_run_notebooks: list[DeepResearchNotebook] | None = None,
     ) -> DeepResearchState:
         return DeepResearchState(
             messages=messages or [],
@@ -70,7 +72,13 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
             tasks=tasks,
             task_results=task_results or [],
             intermediate_results=intermediate_results or [],
-            notebook_short_id=notebook_short_id,
+            conversation_notebooks=[],
+            current_run_notebooks=current_run_notebooks
+            or [
+                DeepResearchNotebook(
+                    notebook_id="test_nb_123", notebook_type=DeepResearchType.PLANNING, title="Test Planning Notebook"
+                )
+            ],
         )
 
     def _create_mock_human_message(self, content: str) -> HumanMessage:
@@ -140,10 +148,14 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
     def test_invalid_notebook_reference_handling(self, mock_llm_class, mock_get_model):
         """Test handling of invalid notebook references."""
         # Create state with non-existent notebook ID
-        state = self._create_mock_state(notebook_short_id="nonexistent_nb")
+        invalid_notebook = DeepResearchNotebook(
+            notebook_id="nonexistent_nb", notebook_type=DeepResearchType.PLANNING, title="Nonexistent Notebook"
+        )
+        state = self._create_mock_state(current_run_notebooks=[invalid_notebook])
 
         # Should still create valid state but with invalid reference
-        self.assertEqual(state.notebook_short_id, "nonexistent_nb")
+        self.assertEqual(len(state.current_run_notebooks), 1)
+        self.assertEqual(state.current_run_notebooks[0].notebook_id, "nonexistent_nb")
 
         # Verify notebook doesn't exist in database
         nonexistent_notebook = Notebook.objects.filter(short_id="nonexistent_nb").first()
@@ -193,22 +205,28 @@ class TestDeepResearchE2E(APIBaseTest):
         self.assertEqual(routing, "onboarding")
 
         # Scenario 2: Single human message -> should go to onboarding
-        single_message_state = DeepResearchState(messages=[HumanMessage(content="First question")])
+        single_message_state = DeepResearchState(
+            messages=[HumanMessage(content="First question")],
+            conversation_notebooks=[],
+            current_run_notebooks=None,
+        )
         routing = onboarding_node.should_run_onboarding_at_start(single_message_state)
         self.assertEqual(routing, "onboarding")
 
-        # Scenario 3: Multiple human messages without notebook -> should go to planning
+        # Scenario 3: Multiple human messages without current run notebooks -> should go to planning
         multi_message_state = DeepResearchState(
             messages=[
                 HumanMessage(content="First question"),
                 AssistantMessage(content="Response"),
                 HumanMessage(content="Follow-up question"),
-            ]
+            ],
+            conversation_notebooks=[],
+            current_run_notebooks=None,
         )
         routing = onboarding_node.should_run_onboarding_at_start(multi_message_state)
         self.assertEqual(routing, "planning")
 
-        # Scenario 4: Multiple human messages with notebook -> should continue
+        # Scenario 4: Multiple human messages with current run notebooks -> should continue
         notebook = Notebook.objects.create(team=self.team, created_by=self.user, short_id="test_e2e_nb")
         existing_conversation_state = DeepResearchState(
             messages=[
@@ -216,7 +234,12 @@ class TestDeepResearchE2E(APIBaseTest):
                 AssistantMessage(content="Previous response"),
                 HumanMessage(content="Continue research"),
             ],
-            notebook_short_id=notebook.short_id,
+            conversation_notebooks=[],
+            current_run_notebooks=[
+                DeepResearchNotebook(
+                    notebook_id=notebook.short_id, notebook_type=DeepResearchType.PLANNING, title="Test Notebook"
+                )
+            ],
         )
         routing = onboarding_node.should_run_onboarding_at_start(existing_conversation_state)
         self.assertEqual(routing, "continue")
@@ -253,7 +276,6 @@ class TestDeepResearchE2E(APIBaseTest):
                     id="task_1", description="Test task", result="Test result", status=TaskExecutionStatus.COMPLETED
                 )
             ],
-            notebook_short_id=notebook.short_id,
         )
 
         # Test serialization roundtrip
@@ -264,7 +286,6 @@ class TestDeepResearchE2E(APIBaseTest):
         todos = cast(list[DeepResearchTodo], deserialized.todos)
         self.assertEqual(len(cast(list[DeepResearchTodo], deserialized.todos)), 1)
         self.assertEqual(len(deserialized.task_results), 1)
-        self.assertEqual(deserialized.notebook_short_id, notebook.short_id)
         self.assertEqual(todos[0].description, "Test todo")
         self.assertEqual(deserialized.task_results[0].result, "Test result")
 

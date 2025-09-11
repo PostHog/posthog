@@ -5573,19 +5573,13 @@ export enum Category {
 
 export enum DeepResearchType {
     PLANNING = 'planning',
-    TASK_EXECUTION = 'task_execution',
     REPORT = 'report',
-    GENERAL = 'general',
 }
-
-// --- Base fields shared by all notebooks --------------------------------------
 
 interface _NotebookBase {
     notebook_id: string
     title: string
 }
-
-// --- The only supported notebook ---------------------------------------------
 
 export interface DeepResearchNotebook extends _NotebookBase {
     category: Category.DEEP_RESEARCH

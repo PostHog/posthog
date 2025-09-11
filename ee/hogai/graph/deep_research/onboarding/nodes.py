@@ -60,11 +60,8 @@ class DeepResearchOnboardingNode(DeepResearchNode):
 
         content = extract_content_from_ai_message(response)
 
-        # Check if this is a new research run (no current_run_notebooks means we're starting fresh)
-        is_new_run = not state.current_run_notebooks
-
         return PartialDeepResearchState(
             messages=[AssistantMessage(content=content, id=str(uuid4()))],
             previous_response_id=response_id,
-            current_run_notebooks=[] if is_new_run else None,  # Reset current run notebooks on new run
+            current_run_notebooks=[],  # Reset current run notebooks on new run
         )

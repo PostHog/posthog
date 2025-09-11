@@ -10,7 +10,6 @@ from posthog.schema import DeepResearchNotebook, PlanningStepStatus, TaskExecuti
 from ee.hogai.utils.types import AssistantMessageUnion, InsightArtifact, add_and_merge_messages
 from ee.hogai.utils.types.base import BaseStateWithMessages, append, replace
 
-# Type alias for notebook info
 NotebookInfo = DeepResearchNotebook
 
 
@@ -69,7 +68,7 @@ class _SharedDeepResearchState(BaseStateWithMessages):
     """
     conversation_notebooks: Annotated[list[NotebookInfo], append] = Field(default=[])
     """
-    All notebooks created across the entire conversation (persisted).
+    All notebooks created across the entire conversation.
     """
     current_run_notebooks: Annotated[Optional[list[NotebookInfo]], replace] = Field(default=None)
     """

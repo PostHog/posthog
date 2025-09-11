@@ -127,7 +127,7 @@ export interface NotebookUpdateMessage extends BaseAssistantMessage {
     content: ProsemirrorJSONContent
     notebook_type?: Category
     conversation_notebooks?: NotebookInfo[]
-    current_run_notebook_ids?: string[]
+    current_run_notebooks?: NotebookInfo[]
     tool_calls?: AssistantToolCall[]
 }
 

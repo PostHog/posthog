@@ -43,9 +43,6 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
         )
 
     async def _create_notebook(self) -> Notebook:
-        if self.notebook:
-            return self.notebook
-
         notebook = await Notebook.objects.acreate(
             team=self._team,
             created_by=self._user,
@@ -60,7 +57,7 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
         node_name: DeepResearchNodeName,
         stream_parameters: Optional[dict] = None,
         context: Optional[NotebookContext] = None,
-    ) -> "Notebook":  # <-- return the actual notebook model
+    ) -> Notebook:
         notebook_update_message = None
         writer = get_stream_writer()
         chunk = AIMessageChunk(content="")
@@ -75,22 +72,15 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
             chunk = merge_message_chunk(chunk, new_chunk)
             notebook_update_message = await self._llm_chunk_to_notebook_update_message(chunk, context)
 
-            # stream the partial update to the UI (unchanged)
             custom_message = self._message_to_langgraph_update(notebook_update_message, node_name)
             writer(custom_message)
 
         if not notebook_update_message:
             raise ValueError("No notebook update message found.")
 
-        # Mark completion and emit a final update so downstream listeners know we're done.
+        # Mark completion and emit a final update.
         notebook_update_message.id = str(uuid4())
         writer(self._message_to_langgraph_update(notebook_update_message, node_name))
-
-        # Return the fully-updated notebook model
-        if not self.notebook:
-            # Shouldn't happen because _llm_chunk_to_notebook_update_message creates/saves it,
-            # but this guards the type checker.
-            self.notebook = await self._create_notebook()
 
         return self.notebook
 

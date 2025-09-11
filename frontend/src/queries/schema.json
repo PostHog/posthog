@@ -6699,6 +6699,10 @@
             "required": ["results"],
             "type": "object"
         },
+        "Category": {
+            "const": "deep_research",
+            "type": "string"
+        },
         "ChartAxis": {
             "additionalProperties": false,
             "properties": {
@@ -9645,21 +9649,29 @@
         "Day": {
             "$ref": "#/definitions/integer"
         },
-        "DeepResearchNotebookInfo": {
+        "DeepResearchNotebook": {
             "additionalProperties": false,
             "properties": {
+                "category": {
+                    "const": "deep_research",
+                    "type": "string"
+                },
                 "notebook_id": {
                     "type": "string"
                 },
-                "stage": {
-                    "type": "string"
+                "notebook_type": {
+                    "$ref": "#/definitions/DeepResearchType"
                 },
                 "title": {
                     "type": "string"
                 }
             },
-            "required": ["stage", "notebook_id", "title"],
+            "required": ["category", "notebook_id", "title"],
             "type": "object"
+        },
+        "DeepResearchType": {
+            "enum": ["planning", "report"],
+            "type": "string"
         },
         "DefaultChannelTypes": {
             "enum": [
@@ -16416,11 +16428,26 @@
             ],
             "type": "string"
         },
+        "NotebookInfo": {
+            "$ref": "#/definitions/DeepResearchNotebook"
+        },
         "NotebookUpdateMessage": {
             "additionalProperties": false,
             "properties": {
                 "content": {
                     "$ref": "#/definitions/ProsemirrorJSONContent"
+                },
+                "conversation_notebooks": {
+                    "items": {
+                        "$ref": "#/definitions/NotebookInfo"
+                    },
+                    "type": "array"
+                },
+                "current_run_notebooks": {
+                    "items": {
+                        "$ref": "#/definitions/NotebookInfo"
+                    },
+                    "type": "array"
                 },
                 "id": {
                     "type": "string"
@@ -16428,11 +16455,8 @@
                 "notebook_id": {
                     "type": "string"
                 },
-                "stage_notebooks": {
-                    "items": {
-                        "$ref": "#/definitions/DeepResearchNotebookInfo"
-                    },
-                    "type": "array"
+                "notebook_type": {
+                    "$ref": "#/definitions/Category"
                 },
                 "tool_calls": {
                     "items": {

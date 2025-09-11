@@ -6,7 +6,15 @@ from unittest.mock import Mock
 from parameterized import parameterized
 from pydantic import ValidationError
 
-from posthog.schema import AssistantMessage, AssistantTrendsQuery, HumanMessage, PlanningStepStatus, TaskExecutionItem
+from posthog.schema import (
+    AssistantMessage,
+    AssistantTrendsQuery,
+    DeepResearchNotebook,
+    DeepResearchType,
+    HumanMessage,
+    PlanningStepStatus,
+    TaskExecutionItem,
+)
 
 from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
@@ -197,7 +205,6 @@ class TestDeepResearchStates(BaseTest):
         self.assertEqual(state.task_results, [])
         self.assertEqual(state.intermediate_results, [])
         self.assertIsNone(state.previous_response_id)
-        self.assertIsNone(state.notebook_short_id)
         self.assertIsNone(state.start_id)
         self.assertIsNone(state.graph_status)
 
@@ -244,6 +251,9 @@ class TestDeepResearchStates(BaseTest):
 
         messages = [HumanMessage(content="Test message"), AssistantMessage(content="Response")]
 
+        test_notebook = DeepResearchNotebook(
+            notebook_id="nb-456", notebook_type=DeepResearchType.PLANNING, title="Test Notebook"
+        )
         state = DeepResearchState(
             todos=todos,
             tasks=tasks,
@@ -251,7 +261,8 @@ class TestDeepResearchStates(BaseTest):
             intermediate_results=intermediate_results,
             messages=messages,
             previous_response_id="resp-123",
-            notebook_short_id="nb-456",
+            conversation_notebooks=[test_notebook],
+            current_run_notebooks=[test_notebook],
             start_id="start-789",
             graph_status="resumed",
         )
@@ -262,7 +273,8 @@ class TestDeepResearchStates(BaseTest):
         self.assertEqual(len(state.intermediate_results), 1)
         self.assertEqual(len(state.messages), 2)
         self.assertEqual(state.previous_response_id, "resp-123")
-        self.assertEqual(state.notebook_short_id, "nb-456")
+        self.assertEqual(len(state.conversation_notebooks), 1)
+        self.assertEqual(state.conversation_notebooks[0].notebook_id, "nb-456")
         self.assertEqual(state.start_id, "start-789")
         self.assertEqual(state.graph_status, "resumed")
 
@@ -294,6 +306,9 @@ class TestDeepResearchStates(BaseTest):
 
     def test_state_serialization_deserialization(self):
         """Should serialize and deserialize complex state correctly."""
+        test_notebook = DeepResearchNotebook(
+            notebook_id="nb-123", notebook_type=DeepResearchType.PLANNING, title="Test Notebook"
+        )
         original_state = DeepResearchState(
             todos=[DeepResearchTodo(id=1, description="Test todo", status="pending", priority="high")],
             task_results=[
@@ -305,7 +320,8 @@ class TestDeepResearchStates(BaseTest):
                 DeepResearchIntermediateResult(content="Test content", artifact_ids=["art-1", "art-2"])
             ],
             messages=[HumanMessage(content="Hello")],
-            notebook_short_id="nb-123",
+            conversation_notebooks=[test_notebook],
+            current_run_notebooks=[test_notebook],
         )
 
         serialized = original_state.model_dump()
@@ -319,4 +335,5 @@ class TestDeepResearchStates(BaseTest):
         self.assertEqual(len(deserialized.intermediate_results), 1)
         self.assertEqual(deserialized.intermediate_results[0].content, "Test content")
         self.assertEqual(len(deserialized.messages), 1)
-        self.assertEqual(deserialized.notebook_short_id, "nb-123")
+        self.assertEqual(len(deserialized.conversation_notebooks), 1)
+        self.assertEqual(deserialized.conversation_notebooks[0].notebook_id, "nb-123")
