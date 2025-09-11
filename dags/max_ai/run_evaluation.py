@@ -184,6 +184,7 @@ def spawn_evaluation_container(
             "OBJECT_STORAGE_ACCESS_KEY_ID": settings.OBJECT_STORAGE_ACCESS_KEY_ID,  # type: ignore
             "OBJECT_STORAGE_SECRET_ACCESS_KEY": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,  # type: ignore
             "OPENAI_API_KEY": settings.OPENAI_API_KEY,
+            "OPENAI_BASE_URL": settings.OPENAI_BASE_URL,
             "ANTHROPIC_API_KEY": settings.ANTHROPIC_API_KEY,
             "GEMINI_API_KEY": settings.GEMINI_API_KEY,
             "INKEEP_API_KEY": settings.INKEEP_API_KEY,
