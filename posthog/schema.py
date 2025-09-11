@@ -1694,6 +1694,7 @@ class MarketingAnalyticsBaseColumns(StrEnum):
     IMPRESSIONS = "Impressions"
     CPC = "CPC"
     CTR = "CTR"
+    REPORTED_CONVERSION = "Reported Conversion"
 
 
 class MarketingAnalyticsColumnsSchemaNames(StrEnum):
@@ -1704,6 +1705,7 @@ class MarketingAnalyticsColumnsSchemaNames(StrEnum):
     DATE = "date"
     IMPRESSIONS = "impressions"
     SOURCE = "source"
+    REPORTED_CONVERSION = "reported_conversion"
 
 
 class MarketingAnalyticsHelperForColumnNames(StrEnum):
@@ -2480,6 +2482,7 @@ class SourceMap(BaseModel):
     currency: Optional[str] = None
     date: Optional[str] = None
     impressions: Optional[str] = None
+    reported_conversion: Optional[str] = None
     source: Optional[str] = None
 
 

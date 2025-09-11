@@ -37,6 +37,7 @@ CONVERSION_GOAL_PREFIX = "conversion_"
 TOTAL_COST_FIELD = "total_cost"
 TOTAL_CLICKS_FIELD = "total_clicks"
 TOTAL_IMPRESSIONS_FIELD = "total_impressions"
+TOTAL_REPORTED_CONVERSION_FIELD = "total_reported_conversions"
 
 # Fallback query when no valid adapters are found
 FALLBACK_EMPTY_QUERY = f"SELECT 'No Campaign' as {MarketingAnalyticsColumnsSchemaNames.CAMPAIGN}, 'No Source' as {MarketingAnalyticsColumnsSchemaNames.SOURCE}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.CLICKS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.COST} WHERE 1=0"
@@ -119,6 +120,13 @@ BASE_COLUMN_MAPPING = {
             ],
         ),
     ),
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.REPORTED_CONVERSION,
+        expr=ast.Call(
+            name="round",
+            args=[ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_REPORTED_CONVERSION_FIELD]), ast.Constant(value=0)],
+        ),
+    ),
 }
 
 BASE_COLUMNS = [BASE_COLUMN_MAPPING[column] for column in MarketingAnalyticsBaseColumns]
@@ -166,6 +174,7 @@ COLUMN_KIND_MAPPING = {
     MarketingAnalyticsBaseColumns.IMPRESSIONS: "unit",
     MarketingAnalyticsBaseColumns.CPC: "currency",
     MarketingAnalyticsBaseColumns.CTR: "percentage",
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: "unit",
 }
 
 # isIncreaseBad mapping for MarketingAnalyticsBaseColumns
@@ -177,6 +186,7 @@ IS_INCREASE_BAD_MAPPING = {
     MarketingAnalyticsBaseColumns.IMPRESSIONS: False,  # More impressions is good
     MarketingAnalyticsBaseColumns.CPC: True,  # Higher CPC is bad
     MarketingAnalyticsBaseColumns.CTR: False,  # Higher CTR is good
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: False,  # More reported conversions is good
 }
 
 
