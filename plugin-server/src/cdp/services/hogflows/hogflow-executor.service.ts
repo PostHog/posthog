@@ -312,9 +312,9 @@ export class HogFlowExecutorService {
         } catch (err) {
             // The final catch - in this case we are always just logging the final outcome
             result.error = err.message
+            result.finished = true // Explicitly set to true to prevent infinite loops
 
-            const currentAction = ensureCurrentAction(invocation)
-            result.finished = currentAction.on_error === 'abort'
+            this.maybeContinueToNextActionOnError(result)
 
             logger.error(
                 '🦔',
@@ -350,6 +350,34 @@ export class HogFlowExecutorService {
         this.trackActionMetric(result, currentAction, reason === 'filtered' ? 'filtered' : 'succeeded')
 
         return result
+    }
+
+    /**
+     * If the action has on_error set to 'continue' then we continue to the next action instead of failing the flow
+     */
+    private maybeContinueToNextActionOnError(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
+    ): void {
+        const { invocation } = result
+        // If current action's on_error is set to 'continue', we move to the next action instead of failing the flow
+        const currentAction = ensureCurrentAction(invocation)
+        if (currentAction?.on_error === 'continue') {
+            const nextAction = findContinueAction(invocation)
+            if (nextAction) {
+                this.logAction(
+                    result,
+                    currentAction,
+                    'info',
+                    `Continuing to next action ${actionIdForLogging(nextAction)} despite error due to on_error setting`
+                )
+
+                /**
+                 * TODO: Determine if we should track this as a 'succeeded' metric here or
+                 * a new metric_name e.g. 'continued_after_error'
+                 */
+                this.goToNextAction(result, currentAction, nextAction, 'succeeded')
+            }
+        }
     }
 
     /**
