@@ -14,6 +14,7 @@ use capture::{
     time::TimeSource,
     v0_request::{DataType, ProcessedEvent},
 };
+use chrono::{DateTime, Utc};
 
 #[path = "./utils.rs"]
 mod test_utils;
@@ -920,12 +921,12 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
 //
 
 struct FixedTime {
-    pub time: String,
+    pub time: DateTime<Utc>,
 }
 
 impl TimeSource for FixedTime {
-    fn current_time(&self) -> String {
-        self.time.to_string()
+    fn current_time(&self) -> DateTime<Utc> {
+        self.time
     }
 }
 
@@ -957,7 +958,9 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
     let liveness = HealthRegistry::new("integration_tests");
     let sink = MemorySink::default();
     let timesource = FixedTime {
-        time: unit.fixed_time.to_string(),
+        time: DateTime::parse_from_rfc3339(unit.fixed_time)
+            .expect("Invalid fixed time format in test case")
+            .with_timezone(&Utc),
     };
     let redis = Arc::new(MockRedisClient::new());
 

@@ -162,7 +162,7 @@ describe('KafkaMessageParser', () => {
 
             expect(results).toHaveLength(0)
             expect(KafkaMetrics.incrementMessageDropped).toHaveBeenCalledWith(
-                'session_recordings_blob_ingestion',
+                'session_recordings_blob_ingestion_v2',
                 'message_value_or_timestamp_is_empty'
             )
         })
@@ -174,7 +174,7 @@ describe('KafkaMessageParser', () => {
 
             expect(results).toHaveLength(0)
             expect(KafkaMetrics.incrementMessageDropped).toHaveBeenCalledWith(
-                'session_recordings_blob_ingestion',
+                'session_recordings_blob_ingestion_v2',
                 'message_value_or_timestamp_is_empty'
             )
         })
@@ -186,7 +186,7 @@ describe('KafkaMessageParser', () => {
 
             expect(results).toHaveLength(0)
             expect(KafkaMetrics.incrementMessageDropped).toHaveBeenCalledWith(
-                'session_recordings_blob_ingestion',
+                'session_recordings_blob_ingestion_v2',
                 'invalid_gzip_data'
             )
         })
@@ -198,7 +198,7 @@ describe('KafkaMessageParser', () => {
 
             expect(results).toHaveLength(0)
             expect(KafkaMetrics.incrementMessageDropped).toHaveBeenCalledWith(
-                'session_recordings_blob_ingestion',
+                'session_recordings_blob_ingestion_v2',
                 'invalid_json'
             )
         })
@@ -221,7 +221,7 @@ describe('KafkaMessageParser', () => {
 
             expect(results).toHaveLength(0)
             expect(KafkaMetrics.incrementMessageDropped).toHaveBeenCalledWith(
-                'session_recordings_blob_ingestion',
+                'session_recordings_blob_ingestion_v2',
                 'invalid_message_payload'
             )
         })
@@ -243,7 +243,7 @@ describe('KafkaMessageParser', () => {
 
             expect(results).toHaveLength(0)
             expect(KafkaMetrics.incrementMessageDropped).toHaveBeenCalledWith(
-                'session_recordings_blob_ingestion',
+                'session_recordings_blob_ingestion_v2',
                 'received_non_snapshot_message'
             )
         })

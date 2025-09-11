@@ -89,7 +89,7 @@ export const privilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
 
 // Persons
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3
-export const PERSON_DISPLAY_NAME_COLUMN_NAME = 'person_display_name -- Person '
+export const PERSON_DISPLAY_NAME_COLUMN_NAME = 'person_display_name -- Person'
 
 // Sync with .../api/person.py and .../ingestion/hooks.ts
 export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
@@ -292,7 +292,6 @@ export const FEATURE_FLAGS = {
     MAX_BILLING_CONTEXT: 'max-billing-context', // owner: @pawel-cebula #team-billing
     SCENE_TABS: 'scene-tabs', // owner @mariusandra #team-devex
     TASKS: 'tasks', // owner: #team-llm-analytics
-    FEATURE_FLAGS_FLAG_DEPENDENCY: 'feature-flags-flag-dependency', // owner: @haacked #team-feature-flags
     LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT: 'llm-observability-show-input-output', // owner: #team-llm-analytics
     MAX_SESSION_SUMMARIZATION: 'max-session-summarization', // owner: #team-max-ai
     CDP_NEW_PRICING: 'cdp-new-pricing', // owner: #team-messaging
@@ -305,6 +304,7 @@ export const FEATURE_FLAGS = {
     NOTEBOOKS_COLLAPSIBLE_SECTIONS: 'notebooks-collapsible-sections', // owner: @daibhin @benjackwhite
     QUERY_EXECUTION_DETAILS: 'query-execution-details', // owner: @sakce
     PASSWORD_PROTECTED_SHARES: 'password-protected-shares', // owner: @aspicer
+    ADVANCED_ACTIVITY_LOGS: 'advanced-activity-logs', // owner: @yasen-posthog #team-platform-features
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
@@ -388,6 +388,7 @@ export const SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5
 export const GENERATED_DASHBOARD_PREFIX = 'Generated Dashboard'
 
 export const ACTIVITY_PAGE_SIZE = 20
+export const ADVANCED_ACTIVITY_PAGE_SIZE = 100
 export const EVENT_DEFINITIONS_PER_PAGE = 50
 export const PROPERTY_DEFINITIONS_PER_EVENT = 5
 export const EVENT_PROPERTY_DEFINITIONS_PER_PAGE = 50
