@@ -72,7 +72,7 @@ class ReplaceFilters(CloningVisitor):
                         found_logs = True
                     if last_join.table.chain == ["groups"]:
                         found_groups = True
-                    if found_events and found_sessions:
+                    if found_events and found_sessions or found_groups:
                         break
                 last_join = last_join.next_join
 
