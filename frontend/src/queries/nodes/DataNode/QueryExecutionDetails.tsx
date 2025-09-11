@@ -6,7 +6,7 @@ import { IconChip } from '@posthog/icons'
 
 import { Popover } from 'lib/lemon-ui/Popover'
 
-import { humanizeBytes } from '~/lib/utils'
+import { humanFriendlyMilliseconds, humanizeBytes } from '~/lib/utils'
 
 import { dataNodeLogic } from './dataNodeLogic'
 
@@ -26,27 +26,30 @@ export function QueryExecutionDetails(): JSX.Element | null {
     let memoryUsage = null
     let cpuMicroseconds = null
     let readBytes = null
+    let queryDurationMs = null
 
     if (executionDetails && columns.length > 0) {
         const memoryUsageIndex = columns.indexOf('memory_usage')
         const cpuMicrosecondsIndex = columns.indexOf('cpu_microseconds')
         const readBytesIndex = columns.indexOf('read_bytes')
+        const queryDurationMsIndex = columns.indexOf('query_duration_ms')
 
         memoryUsage = memoryUsageIndex >= 0 ? executionDetails[memoryUsageIndex] : null
         cpuMicroseconds = cpuMicrosecondsIndex >= 0 ? executionDetails[cpuMicrosecondsIndex] : null
         readBytes = readBytesIndex >= 0 ? executionDetails[readBytesIndex] : null
+        queryDurationMs = queryDurationMsIndex >= 0 ? executionDetails[queryDurationMsIndex] : null
     }
 
     const formatCpuTime = (microseconds: number): string => {
         if (microseconds < 1000) {
             return `${microseconds}μs`
         } else if (microseconds < 1000000) {
-            return `${(microseconds / 1000).toFixed(1)}ms`
+            return `${(microseconds / 1000).toFixed(2)}ms`
         }
         return `${(microseconds / 1000000).toFixed(2)}s`
     }
 
-    const hasData = memoryUsage !== null || cpuMicroseconds !== null || readBytes !== null
+    const hasData = memoryUsage !== null || cpuMicroseconds !== null || readBytes !== null || queryDurationMs !== null
 
     return (
         <Popover
@@ -75,6 +78,12 @@ export function QueryExecutionDetails(): JSX.Element | null {
                                 <div className="flex justify-between items-start deprecated-space-x-2 py-1">
                                     <span>CPU time:</span>
                                     <span className="font-mono">{formatCpuTime(cpuMicroseconds)}</span>
+                                </div>
+                            )}
+                            {queryDurationMs !== null && (
+                                <div className="flex justify-between items-start deprecated-space-x-2 py-1">
+                                    <span>Duration:</span>
+                                    <span className="font-mono">{humanFriendlyMilliseconds(queryDurationMs)}</span>
                                 </div>
                             )}
                         </>
