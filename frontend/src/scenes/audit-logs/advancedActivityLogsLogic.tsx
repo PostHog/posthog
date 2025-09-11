@@ -52,7 +52,6 @@ export interface ExportedAsset {
 
 const DEFAULT_FILTERS: AdvancedActivityLogFilters = {
     start_date: '-30d',
-    end_date: null,
     users: [],
     scopes: [],
     activities: [],
@@ -201,9 +200,17 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         },
         exportLogs: async ({ format }) => {
             try {
+                // Convert relative dates to ISO strings for the export API
+                const startDate = values.filters.start_date
+                    ? dateStringToDayJs(values.filters.start_date)?.toISOString()
+                    : undefined
+                const endDate = values.filters.end_date
+                    ? dateStringToDayJs(values.filters.end_date)?.toISOString()
+                    : undefined
+
                 const filtersToExport = {
-                    start_date: values.filters.start_date,
-                    end_date: values.filters.end_date,
+                    start_date: startDate,
+                    end_date: endDate,
                     users: values.filters.users,
                     scopes: values.filters.scopes,
                     activities: values.filters.activities,

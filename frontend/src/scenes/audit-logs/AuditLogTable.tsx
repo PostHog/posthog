@@ -63,11 +63,11 @@ export function AuditLogTableRow({ logItem }: AuditLogTableRowProps): JSX.Elemen
                 </div>
 
                 <div className="col-span-2">
-                    <span className="font-medium capitalize">{unprocessed?.activity || 'Unknown'}</span>
+                    <span className="capitalize">{unprocessed?.activity || 'Unknown'}</span>
                 </div>
 
                 <div className="col-span-2">
-                    <span className="inline-block px-2 py-1 bg-accent-3000 rounded text-xs font-medium">
+                    <span className="inline-block px-2 py-1 bg-accent-3000 rounded">
                         {unprocessed?.scope ? humanizeScope(unprocessed.scope, true) : 'Unknown'}
                     </span>
                 </div>
