@@ -1,4 +1,4 @@
-import { actions, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, kea, key, path, props, reducers, selectors, events } from 'kea'
 
 import { dayjs } from 'lib/dayjs'
 import {
@@ -150,7 +150,7 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                                 kind: NodeKind.HogQLQuery,
                                 query: apiQueriesCountQuery,
                             },
-                            display: ChartDisplayType.ActionsStackedBar,
+                            display: ChartDisplayType.ActionsBar,
                             chartSettings: {
                                 xAxis: { column: 'event_date' },
                                 yAxis: [
@@ -159,7 +159,7 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                                         settings: { formatting: { prefix: '', suffix: '' } },
                                     },
                                 ],
-                                showLegend: true,
+                                showLegend: requestNameBreakdownEnabled ? true : false,
                                 seriesBreakdownColumn: requestNameBreakdownEnabled ? 'name' : null,
                             },
                         },
@@ -192,7 +192,7 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                                         settings: { formatting: { prefix: '', suffix: '' } },
                                     },
                                 ],
-                                showLegend: true,
+                                showLegend: requestNameBreakdownEnabled ? true : false,
                                 seriesBreakdownColumn: requestNameBreakdownEnabled ? 'name' : null,
                             },
                         },
@@ -225,7 +225,7 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                                         settings: { formatting: { prefix: '', suffix: '' } },
                                     },
                                 ],
-                                showLegend: true,
+                                showLegend: requestNameBreakdownEnabled ? true : false,
                                 seriesBreakdownColumn: requestNameBreakdownEnabled ? 'name' : null,
                             },
                         },
@@ -353,4 +353,11 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
             }
         ],
     }),
+
+    events(({ actions, values }) => ({
+        afterMount: () => {
+            // Force initial breakdown state setup
+            actions.setRequestNameBreakdownEnabled(values.requestNameBreakdownEnabled)
+        },
+    })),
 ])
