@@ -27,15 +27,6 @@ pub enum CheckpointMode {
     Incremental,
 }
 
-impl std::fmt::Display for CheckpointMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CheckpointMode::Full => write!(f, "full"),
-            CheckpointMode::Incremental => write!(f, "incremental"),
-        }
-    }
-}
-
 impl CheckpointMode {
     pub fn as_str(&self) -> &'static str {
         match self {
