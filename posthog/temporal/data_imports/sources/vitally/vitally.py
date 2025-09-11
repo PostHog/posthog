@@ -381,7 +381,7 @@ def get_messages(
                     f"{get_base_url(region, subdomain)}resources/conversations/{id}",
                     headers={"Authorization": f"Basic {basic_token}:"},
                 )
-                messages = conversation_response.json().get("messages")
+                messages = conversation_response.json().get("messages") or []
                 logger.debug(f"Yielding {len(messages)} messages")
                 for message in messages:
                     message["conversation_updated_at"] = conversation_updated_at
