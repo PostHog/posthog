@@ -145,17 +145,6 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
 
         return columns
 
-    def get_clickhouse_column_type(self, column_name: str) -> Optional[str]:
-        clickhouse_type = self.columns.get(column_name, None)
-
-        if isinstance(clickhouse_type, dict) and self.columns[column_name].get("clickhouse"):
-            clickhouse_type = self.columns[column_name].get("clickhouse")
-
-            if clickhouse_type.startswith("Nullable("):
-                clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
-
-        return clickhouse_type
-
     @property
     def s3_tables(self):
         from posthog.hogql.context import HogQLContext
