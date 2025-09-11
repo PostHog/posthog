@@ -92,6 +92,9 @@ pub struct Config {
     #[envconfig(default = "300")] // 5 minutes in seconds
     pub checkpoint_interval_secs: u64,
 
+    #[envconfig(default = "120")] // 2 minutes in seconds
+    pub cleanup_interval_secs: u64,
+
     #[envconfig(default = "3")]
     pub max_concurrent_checkpoints: usize,
 
@@ -258,6 +261,11 @@ impl Config {
     /// Get checkpoint interval as Duration
     pub fn checkpoint_interval(&self) -> Duration {
         Duration::from_secs(self.checkpoint_interval_secs)
+    }
+
+    /// Get cleanup interval as Duration
+    pub fn cleanup_interval(&self) -> Duration {
+        Duration::from_secs(self.cleanup_interval_secs)
     }
 
     /// Get S3 timeout as Duration

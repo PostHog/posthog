@@ -6,6 +6,9 @@ pub struct CheckpointConfig {
     /// How often to trigger a checkpoint
     pub checkpoint_interval: Duration,
 
+    /// How often to cleanup local checkpoints
+    pub cleanup_interval: Duration,
+
     /// Base directory for local checkpoints
     pub local_checkpoint_dir: String,
 
@@ -35,6 +38,7 @@ impl Default for CheckpointConfig {
     fn default() -> Self {
         Self {
             checkpoint_interval: Duration::from_secs(300), // 5 minutes
+            cleanup_interval: Duration::from_secs(120),    // 2 minutes
             local_checkpoint_dir: "./checkpoints".to_string(),
             s3_bucket: "".to_string(),
             s3_key_prefix: "deduplication-checkpoints".to_string(),

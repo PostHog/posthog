@@ -504,6 +504,30 @@ impl CheckpointManager {
             } // end 'outer loop
         });
         self.checkpoint_task = Some(submit_handle);
+
+        let cleanup_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(config.cleanup_interval);
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+            // Skip first tick to avoid immediate flush
+            interval.tick().await;
+
+            loop {
+                tokio::select! {
+                    _ = cancel_submit_loop.cancelled() => {
+                        info!("Checkpoint manager: cleanup loop shutting down");
+                        break;
+                    }
+
+                    _ = interval.tick() => {
+                        if let Err(e) = Self::cleanup_local_checkpoints(&config).await {
+                            error!("Checkpoint manager: failed to cleanup local checkpoints: {}", e);
+                        }
+                    }
+                }
+            }
+        });
+        self.cleanup_task = Some(cleanup_handle);
     }
 
     /// Stop the checkpoint manager
