@@ -495,7 +495,7 @@ def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
     return [*cohort_ids, *static_cohort_ids]
 
 
-def get_dependent_cohorts(
+def get_all_dependency_cohorts(
     cohort: Cohort,
     using_database: str = "default",
     seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,

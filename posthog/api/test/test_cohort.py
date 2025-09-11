@@ -2043,7 +2043,7 @@ email@example.org,
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
-                "detail": "A dependent cohort (cohort XX) has filters based on events. These cohorts can't be used in feature flags.",
+                "detail": "A dependency cohort (cohort XX) has filters based on events. These cohorts can't be used in feature flags.",
                 "attr": "filters",
             },
             response.json(),
