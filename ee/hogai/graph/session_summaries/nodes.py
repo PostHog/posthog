@@ -1,3 +1,4 @@
+import json
 import time
 import asyncio
 from typing import Any, cast
@@ -192,7 +193,7 @@ class SessionSummarizationNode(AssistantNode):
         total = len(session_ids)
         completed = 0
 
-        async def _summarize(session_id: str) -> str:
+        async def _summarize(session_id: str) -> dict[str, Any]:
             nonlocal completed
             result = await execute_summarize_session(
                 session_id=session_id,
@@ -208,9 +209,9 @@ class SessionSummarizationNode(AssistantNode):
         # Run all tasks concurrently
         tasks = [_summarize(sid) for sid in session_ids]
         summaries = await asyncio.gather(*tasks)
-        # TODO: Add layer to convert JSON into more readable text for Max to returns to user
         self._stream_progress(progress_message=f"Generating a summary, almost there", writer=writer)
-        return "\n".join(summaries)
+        # Dumping to ensure that summaries content is always stringified JSON
+        return json.dumps(summaries)
 
     async def _summarize_sessions_as_group(
         self,
