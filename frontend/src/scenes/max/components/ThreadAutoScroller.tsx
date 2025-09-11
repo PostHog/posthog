@@ -38,17 +38,16 @@ export function ThreadAutoScroller({ children }: { children: React.ReactNode }):
 
         // Detect if the user has scrolled the content during generation,
         // so we can stop auto-scrolling
-        function scrollListener(event: Event): void {
+        function scrollListener(): void {
             if (
                 scrollOrigin.current.programmatic ||
                 scrollOrigin.current.resizing ||
                 !sentinelRef.current ||
-                !event.target
+                !scrollableContainer
             ) {
                 return
             }
 
-            const scrollableContainer = event.target as HTMLElement
             // Avoid layout thrash by using scroll metrics instead of getBoundingClientRect on every scroll
             const bottomDistance =
                 scrollableContainer.scrollHeight - scrollableContainer.scrollTop - scrollableContainer.clientHeight
@@ -58,10 +57,10 @@ export function ThreadAutoScroller({ children }: { children: React.ReactNode }):
                 scrollOrigin.current.user = true
             }
         }
-        scrollableContainer.addEventListener('scroll', scrollListener)
+        scrollableContainer.addEventListener('scroll', scrollListener, { passive: true })
 
         // When the thread is resized during generation, we need to scroll to the bottom
-        let resizeTimeout: NodeJS.Timeout | null = null
+        let resizeTimeout: ReturnType<typeof setTimeout> | null = null
         // eslint-disable-next-line compat/compat
         const resizeObserver = new ResizeObserver(() => {
             if (scrollOrigin.current.user) {

@@ -291,7 +291,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     apiData.billing_context = values.billingContext
                 }
 
-                if (values.deepResearchMode) {
+                if ((values as any).deepResearchMode) {
                     apiData.deep_research_mode = true
                 }
 
@@ -349,7 +349,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                 })
                             } else {
                                 if (isNotebookUpdateMessage(parsedResponse)) {
-                                    actions.processNotebookUpdate(
+                                    ;(actions.processNotebookUpdate as any)(
                                         parsedResponse.notebook_id,
                                         parsedResponse.content,
                                         parsedResponse.id ?? null
@@ -538,13 +538,20 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.askMax(command.name)
             }
         },
-        processNotebookUpdate: async ({ notebookId, notebookContent, messageId }) => {
+        processNotebookUpdate: async (payload: any) => {
             try {
+                const { notebookId, notebookContent, messageId } = payload as {
+                    notebookId: string
+                    notebookContent: JSONContent
+                    messageId?: string | null
+                }
                 const EDITOR_UPDATE_INTERVAL_MS = 120
                 const HEADLESS_UPDATE_INTERVAL_MS = 200
                 type StreamingCache = {
                     lastUpdateAt: Record<string, number>
                     raf: Record<string, number>
+                    timeout: Record<string, number | undefined>
+                    pending: Record<string, (() => void) | undefined>
                     autoOpened: Record<string, boolean>
                     autoOpenInFlight: Record<string, boolean>
                     headlessByNotebook: Record<string, ReturnType<typeof notebookLogic>>
@@ -558,6 +565,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         c.streaming = {
                             lastUpdateAt: {},
                             raf: {},
+                            timeout: {},
+                            pending: {},
                             autoOpened: {},
                             autoOpenInFlight: {},
                             headlessByNotebook: {},
@@ -567,22 +576,36 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     return c.streaming as StreamingCache
                 }
 
-                const throttleByNotebook = (id: string, interval: number, fn: () => void): void => {
+                const throttleByNotebook = (id: string, intervalMs: number, fn: () => void): void => {
                     const sc = getStreamingCache()
                     const now = performance.now()
                     const last = sc.lastUpdateAt[id] || 0
-                    if (now - last >= interval) {
-                        fn()
-                        sc.lastUpdateAt[id] = now
-                    } else {
-                        const raf = sc.raf[id]
-                        if (raf) {
-                            cancelAnimationFrame(raf)
-                        }
-                        sc.raf[id] = requestAnimationFrame(() => {
-                            fn()
+                    const remaining = intervalMs - (now - last)
+
+                    // Always keep the latest pending work
+                    sc.pending[id] = fn
+
+                    const run = (): void => {
+                        const toRun = sc.pending[id]
+                        sc.pending[id] = undefined
+                        if (toRun) {
+                            requestAnimationFrame(() => {
+                                toRun()
+                                sc.lastUpdateAt[id] = performance.now()
+                            })
+                        } else {
                             sc.lastUpdateAt[id] = performance.now()
-                        })
+                        }
+                    }
+
+                    if (remaining <= 0 || !sc.timeout[id]) {
+                        run()
+                        sc.timeout[id] = window.setTimeout(() => {
+                            sc.timeout[id] = undefined
+                            if (sc.pending[id]) {
+                                run()
+                            }
+                        }, intervalMs)
                     }
                 }
 
@@ -601,7 +624,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 if (mounted) {
                     throttleByNotebook(notebookId, EDITOR_UPDATE_INTERVAL_MS, () => {
-                        mounted.actions.setLocalContent(notebookContent, true, true)
+                        mounted.actions.setLocalContent(notebookContent, true)
                     })
                 } else {
                     const sc = getStreamingCache()
@@ -609,7 +632,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         sc.autoOpenInFlight[notebookId] = true
                         try {
                             await openNotebook(notebookId, NotebookTarget.Scene, undefined, (logic) => {
-                                logic.actions.setLocalContent(notebookContent, true, true)
+                                logic.actions.setLocalContent(notebookContent, true)
                             })
                             sc.autoOpened[notebookId] = true
                         } finally {
@@ -620,7 +643,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                     const headless = ensureHeadless(notebookId)
                     throttleByNotebook(notebookId, HEADLESS_UPDATE_INTERVAL_MS, () => {
-                        headless.actions.setLocalContent(notebookContent, false, true)
+                        headless.actions.setLocalContent(notebookContent, false)
                     })
 
                     const sc2 = getStreamingCache()
@@ -782,7 +805,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         showDeepResearchModeToggle: [
             (s) => [s.conversation, s.featureFlags],
-            (conversation, featureFlags) =>
+            (conversation: Conversation | null, featureFlags: Record<string, boolean>) =>
                 // if a conversation is already marked as deep research, or has already started (has title/is in progress), don't show the toggle
                 !!featureFlags[FEATURE_FLAGS.MAX_DEEP_RESEARCH] &&
                 conversation?.type !== ConversationType.DeepResearch &&
@@ -816,6 +839,30 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     beforeUnmount(({ cache, values }) => {
         if (!values.streamingActive) {
             cache.unmount()
+        }
+        // Cleanup any pending animation frames or timeouts created by streaming throttle
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const sc = (cache as any).streaming as
+            | {
+                  raf?: Record<string, number>
+                  timeout?: Record<string, number | undefined>
+              }
+            | undefined
+        if (sc) {
+            if (sc.raf) {
+                const rafIds = Object.values(sc.raf) as number[]
+                for (const rafId of rafIds) {
+                    cancelAnimationFrame(rafId)
+                }
+            }
+            if (sc.timeout) {
+                const timeouts = Object.values(sc.timeout) as (number | undefined)[]
+                for (const t of timeouts) {
+                    if (t != null) {
+                        clearTimeout(t)
+                    }
+                }
+            }
         }
     }),
 ])

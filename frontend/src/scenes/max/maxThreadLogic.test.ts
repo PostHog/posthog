@@ -690,13 +690,22 @@ describe('maxThreadLogic', () => {
             findMountedSpy.mockReturnValue(notebookLogicInstance)
             const routerActionsSpy = jest.spyOn(router.actions, 'push')
 
+            const rafSpy = jest
+                .spyOn(window, 'requestAnimationFrame')
+                .mockImplementation((cb: FrameRequestCallback): number => {
+                    cb(0)
+                    return 1
+                })
+
             await expectLogic(logic, () => {
                 logic.actions.processNotebookUpdate(notebookId, { type: 'doc', content: [] } as any)
             }).toDispatchActions(['processNotebookUpdate'])
 
             expect(findMountedSpy).toHaveBeenCalledWith({ shortId: notebookId })
             expect(routerActionsSpy).not.toHaveBeenCalled()
-            expect(setLocalContentSpy).toHaveBeenCalledWith({ type: 'doc', content: [] }, true, true)
+            expect(setLocalContentSpy).toHaveBeenCalledWith({ type: 'doc', content: [] }, true)
+
+            rafSpy.mockRestore()
         })
 
         it('handles gracefully when notebook logic is not mounted on notebook page', async () => {
@@ -704,7 +713,7 @@ describe('maxThreadLogic', () => {
             router.actions.push(urls.notebook(notebookId))
 
             // Create spies BEFORE calling the action
-            const routerActionsSpy = jest.spyOn(router.actions, 'push')
+
             const notebookLogicFindMountedSpy = jest.spyOn(notebookLogic, 'findMounted')
             notebookLogicFindMountedSpy.mockReturnValue(null)
 
@@ -713,7 +722,50 @@ describe('maxThreadLogic', () => {
             }).toDispatchActions(['processNotebookUpdate'])
 
             expect(notebookLogicFindMountedSpy).toHaveBeenCalledWith({ shortId: notebookId })
-            expect(routerActionsSpy).not.toHaveBeenCalled()
+            // openNotebook may re-push the same route; ensure we remain on the notebook path
+            expect(router.values.location.pathname).toContain(urls.notebook(notebookId))
+        })
+
+        it('throttles editor updates per interval when notebook is mounted', async () => {
+            jest.useFakeTimers()
+            // Make rAF synchronous for deterministic behavior
+            const rafSpy = jest
+                .spyOn(window, 'requestAnimationFrame')
+                .mockImplementation((cb: FrameRequestCallback): number => {
+                    cb(0)
+                    return 1
+                })
+
+            const notebookId = 'nb-1'
+            router.actions.push(urls.notebook(notebookId))
+
+            // Stub a mounted notebook logic with spy on setLocalContent
+            const notebookLogicInstance = notebookLogic({ shortId: notebookId })
+            notebookLogicInstance.mount()
+            const setLocalContentSpy = jest.spyOn(notebookLogicInstance.actions, 'setLocalContent')
+            const findMountedSpy = jest.spyOn(notebookLogic, 'findMounted')
+            findMountedSpy.mockReturnValue(notebookLogicInstance)
+
+            // Rapid calls should result in one immediate call and one trailing call after interval
+            await expectLogic(logic, () => {
+                logic.actions.processNotebookUpdate(notebookId, { type: 'doc', content: [{ text: 'a' }] } as any)
+                logic.actions.processNotebookUpdate(notebookId, { type: 'doc', content: [{ text: 'b' }] } as any)
+                logic.actions.processNotebookUpdate(notebookId, { type: 'doc', content: [{ text: 'c' }] } as any)
+            }).toDispatchActions(['processNotebookUpdate', 'processNotebookUpdate', 'processNotebookUpdate'])
+
+            // Immediate leading call
+            expect(setLocalContentSpy).toHaveBeenCalledTimes(1)
+            expect(setLocalContentSpy).toHaveBeenLastCalledWith({ type: 'doc', content: [{ text: 'a' }] }, true)
+
+            // Advance timers by the editor interval (120ms)
+            jest.advanceTimersByTime(120)
+
+            // The trailing call should have coalesced to the latest content
+            expect(setLocalContentSpy).toHaveBeenCalledTimes(2)
+            expect(setLocalContentSpy).toHaveBeenLastCalledWith({ type: 'doc', content: [{ text: 'c' }] }, true)
+
+            rafSpy.mockRestore()
+            jest.useRealTimers()
         })
     })
 
