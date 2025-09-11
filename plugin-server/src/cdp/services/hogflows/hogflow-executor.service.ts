@@ -134,7 +134,7 @@ export class HogFlowExecutorService {
             : 'trigger'
         logs.push({
             level: 'debug',
-            message: `Starting workflow execution for workflow at ${currentAction}`,
+            message: `Resuming workflow execution at ${currentAction}`,
             timestamp: DateTime.now(),
         })
 
