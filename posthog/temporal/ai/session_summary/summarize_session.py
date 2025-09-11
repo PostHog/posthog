@@ -5,7 +5,7 @@ import asyncio
 import dataclasses
 from collections.abc import Generator
 from datetime import timedelta
-from typing import cast
+from typing import Any, cast
 
 from django.conf import settings
 
@@ -19,7 +19,7 @@ from temporalio.exceptions import ApplicationError
 from posthog import constants
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.redis import get_async_client, get_client
+from posthog.redis import get_client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
@@ -443,12 +443,12 @@ async def execute_summarize_session(
     model_to_use: str = SESSION_SUMMARIES_SYNC_MODEL,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
-) -> str:
+) -> dict[str, Any]:
     """
     Start the direct summarization workflow (no streaming) and return the summary.
     Intended to use as a part of other tools or workflows to get more context on summary, so implemented async.
     """
-    _, _, redis_output_key, session_input, workflow_id = _prepare_execution(
+    _, _, _, session_input, workflow_id = _prepare_execution(
         session_id=session_id,
         user_id=user_id,
         team=team,
@@ -457,21 +457,20 @@ async def execute_summarize_session(
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
     )
-    redis_client = get_async_client()
     # Wait for the workflow to complete
     await _execute_single_session_summary_workflow(inputs=session_input, workflow_id=workflow_id)
-    redis_data_raw = await redis_client.get(redis_output_key)
-    if not redis_data_raw:
+    # Get the summary from the DB
+    summary_row = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
+        team_id=team.id,
+        session_id=session_id,
+        extra_summary_context=extra_summary_context,
+    )
+    if not summary_row:
         raise ValueError(
-            f"No data found in Redis for key {redis_output_key} when "
-            f"generating single session summary for session {session_id}"
+            f"No ready summary found in DB when generating single session summary for session {session_id}"
         )
-    try:
-        return decompress_redis_data(redis_data_raw)
-    except Exception as e:
-        raise ValueError(
-            f"Failed to parse Redis output data ({redis_data_raw}) for key {redis_output_key} when generating single session summary: {e}"
-        )
+    summary = summary_row.summary
+    return summary
 
 
 def execute_summarize_session_stream(
