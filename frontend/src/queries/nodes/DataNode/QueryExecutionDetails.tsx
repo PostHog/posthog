@@ -5,17 +5,16 @@ import { useState } from 'react'
 import { IconChip } from '@posthog/icons'
 
 import { Popover } from 'lib/lemon-ui/Popover'
+import { multitabEditorLogic } from 'scenes/data-warehouse/editor/multitabEditorLogic'
 
 import { humanFriendlyMilliseconds, humanizeBytes } from '~/lib/utils'
 
 import { dataNodeLogic } from './dataNodeLogic'
 
-interface QueryExecutionDetailsProps {
-    dataNodeLogicKey?: string
-}
+export function QueryExecutionDetails(): JSX.Element | null {
+    const { dataLogicKey } = useValues(multitabEditorLogic)
+    const logic = dataNodeLogic({ key: dataLogicKey, query: {} as any })
 
-export function QueryExecutionDetails({ dataNodeLogicKey }: QueryExecutionDetailsProps): JSX.Element | null {
-    const logic = dataNodeLogicKey ? dataNodeLogic({ key: dataNodeLogicKey, query: {} as any }) : dataNodeLogic
     const { queryLog, queryId, queryLogLoading, queryLogQueryId } = useValues(logic)
     const { loadQueryLog } = useActions(logic)
 
