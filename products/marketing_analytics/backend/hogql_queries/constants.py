@@ -124,7 +124,10 @@ BASE_COLUMN_MAPPING = {
         alias=MarketingAnalyticsBaseColumns.REPORTED_CONVERSION,
         expr=ast.Call(
             name="round",
-            args=[ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_REPORTED_CONVERSION_FIELD]), ast.Constant(value=0)],
+            args=[
+                ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_REPORTED_CONVERSION_FIELD]),
+                ast.Constant(value=DECIMAL_PRECISION),
+            ],
         ),
     ),
 }
