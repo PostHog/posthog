@@ -134,9 +134,6 @@ class VercelInstallationViewSet(VercelRegionProxyMixin, VercelErrorResponseMixin
         installation_id = validate_installation_id(self.kwargs.get("installation_id"))
         response_data = VercelIntegration.delete_installation(installation_id)
 
-        # Update cache since installation no longer exists
-        self.set_installation_cache(installation_id, False)
-
         return Response(response_data, status=200)
 
     @decorators.action(detail=True, methods=["get"])
