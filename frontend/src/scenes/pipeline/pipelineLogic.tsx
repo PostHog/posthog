@@ -2,7 +2,7 @@ import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -33,10 +33,10 @@ export const pipelineLogic = kea<pipelineLogicType>([
             },
         ],
     }),
-    selectors(() => ({
+    selectors({
         breadcrumbs: [
             (s) => [s.currentTab, s.featureFlags],
-            (tab: PipelineTab, featureFlags): Breadcrumb[] => {
+            (tab: PipelineTab, featureFlags: FeatureFlagsSet): Breadcrumb[] => {
                 return [
                     ...(featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
                         ? []
@@ -57,7 +57,7 @@ export const pipelineLogic = kea<pipelineLogicType>([
                 }
             },
         ],
-    })),
+    }),
     actionToUrl(({ values }) => {
         return {
             setCurrentTab: () => [urls.pipeline(values.currentTab)],
