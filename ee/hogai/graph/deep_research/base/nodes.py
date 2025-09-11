@@ -58,6 +58,9 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
         stream_parameters: Optional[dict] = None,
         context: Optional[NotebookContext] = None,
     ) -> Notebook:
+        if self.notebook is None:
+            self.notebook = await self._create_notebook()
+
         notebook_update_message = None
         writer = get_stream_writer()
         chunk = AIMessageChunk(content="")
