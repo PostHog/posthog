@@ -186,7 +186,6 @@ def spawn_evaluation_container(
             "OPENAI_API_KEY": settings.OPENAI_API_KEY,
             "OPENAI_BASE_URL": settings.OPENAI_BASE_URL,
             "ANTHROPIC_API_KEY": settings.ANTHROPIC_API_KEY,
-            "GEMINI_API_KEY": settings.GEMINI_API_KEY,
             "INKEEP_API_KEY": settings.INKEEP_API_KEY,
             "AZURE_INFERENCE_ENDPOINT": settings.AZURE_INFERENCE_ENDPOINT,
             "AZURE_INFERENCE_CREDENTIAL": settings.AZURE_INFERENCE_CREDENTIAL,
