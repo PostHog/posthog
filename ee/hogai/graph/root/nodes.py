@@ -799,10 +799,8 @@ class RootNodeTools(AssistantNode):
     def router(self, state: AssistantState) -> RouteName:
         last_message = state.messages[-1]
 
-        if isinstance(last_message, AssistantToolCallMessage) and not last_message.visible:
+        if isinstance(last_message, AssistantToolCallMessage):
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
-        elif isinstance(last_message, AssistantToolCallMessage) and last_message.visible:
-            return "end"
         if isinstance(last_message, AssistantMessage) and state.root_tool_call_id:
             tool_calls = getattr(last_message, "tool_calls", None)
             if tool_calls and len(tool_calls) > 0:
