@@ -375,7 +375,11 @@ class SessionSummarizationNode(AssistantNode):
                     start_time=start_time,
                 )
                 if filter_generation_result is None:
-                    return self._create_error_response(self._base_error_instructions, state)
+                    return self._create_error_response(
+                        "INSTRUCTIONS: Tell the user that you encountered an issue while generating session filters to match the user's query. "
+                        'Suggest to use more specific conditions (like ids) or go to "Session replay" page and use its filters when summarizing.',
+                        state,
+                    )
                 # Check if we got a clarification question instead of filters
                 if isinstance(filter_generation_result, str):
                     # Return the clarification question to the user
