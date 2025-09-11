@@ -1,1 +1,0 @@
-export { InsightCard } from './InsightCard'

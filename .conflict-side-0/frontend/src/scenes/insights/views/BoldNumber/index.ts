@@ -1,1 +1,0 @@
-export { BoldNumber } from './BoldNumber'

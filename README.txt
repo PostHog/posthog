@@ -1,1 +1,0 @@
-You have checked out a GitButler Conflicted commit. You probably didn't mean to do this.

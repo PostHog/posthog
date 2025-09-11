@@ -1,1 +1,0 @@
-export { TrendsCalendarHeatMap } from './TrendsCalendarHeatMap'

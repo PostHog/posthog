@@ -1,1 +1,0 @@
-# Marketing Analytics Source Adapters

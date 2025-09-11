@@ -1,1 +1,0 @@
-export { PropertiesTable } from './PropertiesTable'
