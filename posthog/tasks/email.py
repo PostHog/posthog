@@ -465,59 +465,68 @@ def login_from_new_device_notification(
         return
 
     user: User = User.objects.get(pk=user_id)
-
-    # Send email if feature flag is enabled or in tests
-    if settings.TEST:
-        enabled = True
-    elif user.current_organization is None:
-        enabled = False
-    else:
-        enabled = posthoganalytics.feature_enabled(
-            key="login-from-new-device-notification",
-            distinct_id=str(user.distinct_id),
-            groups={"organization": str(user.current_organization.id)},
-        )
-
-    if not enabled:
-        return
-
     login_time_str = login_time.strftime("%B %-d, %Y at %H:%M UTC")
     geoip_properties = get_geoip_properties(ip_address)
     country = geoip_properties.get("$geoip_country_name", "Unknown")
     city = geoip_properties.get("$geoip_city_name", "Unknown")
 
     is_new_device = check_and_cache_login_device(user_id, country, short_user_agent)
-    if not is_new_device:
-        return
 
-    message = EmailMessage(
-        use_http=True,
-        campaign_key=f"login_notification_{user.uuid}-{timezone.now().timestamp()}",
-        template_name="login_notification",
-        subject="A new device logged into your account",
-        template_context={
-            "login_time": login_time_str,
-            "ip_address": ip_address,
-            "location": country,
-            "browser": short_user_agent,
-        },
+    flag_enabled = posthoganalytics.feature_enabled(
+        key="login-from-new-device-notification",
+        distinct_id=str(user.distinct_id),
+        groups={"organization": str(user.current_organization.id)},
     )
-    message.add_recipient(user.email)
-    message.send()
+
+    send_email = (settings.TEST or flag_enabled) and is_new_device
 
     # Capture event using ph_client for reliability in Celery tasks
     ph_client = get_client()
-    ph_client.capture(
-        distinct_id=str(user.distinct_id),
-        event="login notification sent",
-        properties={
-            "ip_address": ip_address,
-            "geoip_country": country,
-            "geoip_city": city,
-            "short_user_agent": short_user_agent,
-        },
-        groups=groups(user.current_organization, user.current_team),
-    )
+
+    if send_email:
+        message = EmailMessage(
+            use_http=True,
+            campaign_key=f"login_notification_{user.uuid}-{timezone.now().timestamp()}",
+            template_name="login_notification",
+            subject="A new device logged into your account",
+            template_context={
+                "login_time": login_time_str,
+                "ip_address": ip_address,
+                "location": country,
+                "browser": short_user_agent,
+            },
+        )
+        message.add_recipient(user.email)
+        message.send()
+
+        ph_client.capture(
+            distinct_id=str(user.distinct_id),
+            event="login notification sent",
+            properties={
+                "ip_address": ip_address,
+                "geoip_country": country,
+                "geoip_city": city,
+                "short_user_agent": short_user_agent,
+            },
+            groups=groups(user.current_organization, user.current_team),
+        )
+    else:
+        # Capture attempt for debugging
+        # TODO: remove after verifying ip address and geoip properties are correct
+        ph_client.capture(
+            distinct_id=str(user.distinct_id),
+            event="login notification attempt",
+            properties={
+                "ip_address": ip_address,
+                "geoip_country": country,
+                "geoip_city": city,
+                "short_user_agent": short_user_agent,
+                "feature_flag_enabled": flag_enabled,
+                "is_new_device": is_new_device,
+            },
+            groups=groups(user.current_organization, user.current_team),
+        )
+
     ph_client.shutdown()
 
 
