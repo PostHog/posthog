@@ -116,14 +116,3 @@ async def eval_offline_sql(eval_ctx: EvaluationContext, pytestconfig):
         data=generate_test_cases(eval_ctx),
         pytestconfig=pytestconfig,
     )
-
-
-@pytest.mark.django_db
-async def eval_offline_sql2(eval_ctx: EvaluationContext, pytestconfig):
-    await MaxPrivateEval(
-        experiment_name=eval_ctx.formatted_experiment_name,
-        task=call_graph,
-        scores=[sql_syntax_scorer, sql_semantics_scorer],
-        data=generate_test_cases(eval_ctx),
-        pytestconfig=pytestconfig,
-    )

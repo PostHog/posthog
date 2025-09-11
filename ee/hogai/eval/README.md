@@ -36,7 +36,7 @@ Remember to continuously review traces and curate your datasets–it's the key t
 
 ### Evaluation module
 
-Additionally, you need an evaluation module that contains an evaluation test case with defined scorers. The test suite may contain multiple test cases, and they are separately reported. For example, if we wanted to evaluate SQL, we could implement the following evaluation module:
+Additionally, you need an evaluation module in `ee/hogai/eval/offline/*` that contains an evaluation test case with defined scorers. The test suite may contain multiple test cases, and they are separately reported. For example, if we wanted to evaluate SQL, we could implement the following evaluation module:
 
 ```python
 import pytest
