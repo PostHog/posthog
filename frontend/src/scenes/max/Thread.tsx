@@ -77,6 +77,7 @@ import {
     castAssistantQuery,
     isAssistantMessage,
     isAssistantToolCallMessage,
+    isDeepResearchReportCompletion,
     isFailureMessage,
     isHumanMessage,
     isMultiVisualizationMessage,
@@ -441,23 +442,16 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
     }
 
     // Only show the full notebook list if this is the final report message from deep research
-    const isReportCompletion =
-        message.notebook_type === 'deep_research' &&
-        message.conversation_notebooks &&
-        message.conversation_notebooks.some((nb) => nb.category === 'deep_research' && nb.notebook_type === 'report')
+    const isReportCompletion = isDeepResearchReportCompletion(message)
 
     const NOTEBOOK_TYPE_DISPLAY_NAMES: Record<string, string> = {
         planning: 'Planning',
-        task_execution: 'Task Execution',
         report: 'Final Report',
-        general: 'General',
     }
 
     const NOTEBOOK_TYPE_DESCRIPTIONS: Record<string, string> = {
         planning: 'Initial research plan and objectives',
-        task_execution: 'Task execution and analysis',
         report: 'Comprehensive analysis and findings',
-        general: 'General notebook',
     }
 
     if (isReportCompletion && message.conversation_notebooks) {
@@ -475,18 +469,10 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
                         </p>
 
                         {message.conversation_notebooks.map((notebook) => {
-                            const displayName =
-                                NOTEBOOK_TYPE_DISPLAY_NAMES[notebook.notebook_type] || notebook.notebook_type
-                            const description =
-                                NOTEBOOK_TYPE_DESCRIPTIONS[notebook.notebook_type] || 'Research documentation'
-                            // Show "New" tag only if there are previous notebooks and this notebook is from the current run
-                            const hasMultipleRuns =
-                                (message.conversation_notebooks?.length || 0) >
-                                (message.current_run_notebooks?.length || 0)
-                            const isCurrentRunNotebook = message.current_run_notebooks?.some(
-                                (nb) => nb.notebook_id === notebook.notebook_id
-                            )
-                            const shouldShowNewTag = hasMultipleRuns && isCurrentRunNotebook
+                            const typeKey = (notebook.notebook_type ??
+                                'general') as keyof typeof NOTEBOOK_TYPE_DISPLAY_NAMES
+                            const displayName = NOTEBOOK_TYPE_DISPLAY_NAMES[typeKey] || notebook.notebook_type
+                            const description = NOTEBOOK_TYPE_DESCRIPTIONS[typeKey] || 'Research documentation'
 
                             return (
                                 <div
@@ -500,11 +486,6 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
                                                 <span className="font-medium text-sm">
                                                     {notebook.title || `${displayName} Notebook`}
                                                 </span>
-                                                {shouldShowNewTag && (
-                                                    <span className="text-xs bg-success text-success-content px-1.5 py-0.5 rounded-full font-medium">
-                                                        New
-                                                    </span>
-                                                )}
                                             </div>
                                             <div className="text-xs text-muted">{description}</div>
                                         </div>
