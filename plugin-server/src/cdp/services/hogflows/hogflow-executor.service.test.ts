@@ -608,6 +608,114 @@ describe('Hogflow Executor', () => {
                     ]
                 `)
             })
+
+            describe('on_error handling', () => {
+                let hogFlow: HogFlow
+                beforeEach(async () => {
+                    hogFlow = new FixtureHogFlowBuilder()
+                        .withWorkflow({
+                            actions: {
+                                trigger: {
+                                    type: 'trigger',
+                                    config: {
+                                        type: 'event',
+                                        filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                                    },
+                                },
+                                function_id_1: {
+                                    type: 'function',
+                                    config: {
+                                        template_id: 'template-test-hogflow-executor',
+                                        inputs: {
+                                            name: {
+                                                value: `Mr {event?.properties?.name}`,
+                                                bytecode: await compileHog(`raise Exception('fail!')`),
+                                            },
+                                        },
+                                    },
+                                    // filters: none
+                                },
+                                exit: {
+                                    type: 'exit',
+                                    config: {},
+                                },
+                            },
+                            edges: [
+                                { from: 'trigger', to: 'function_id_1', type: 'continue' },
+                                { from: 'function_id_1', to: 'exit', type: 'continue' },
+                            ],
+                        })
+                        .build()
+                })
+
+                it('should continue to next action if on_error is continue', async () => {
+                    // Set on_error: 'continue' for function_id_1
+                    const action = hogFlow.actions.find((a) => a.id === 'function_id_1')!
+                    action.on_error = 'continue'
+
+                    const invocation = createExampleHogFlowInvocation(hogFlow, {
+                        event: {
+                            ...createHogExecutionGlobals().event,
+                            properties: { name: 'Error User' },
+                        },
+                    })
+
+                    const result = await executor.execute(invocation)
+                    expect(result.finished).toBe(true)
+                    // Should move to exit action after error
+                    expect(result.invocation.state.currentAction?.id).toBe('exit')
+                    // Should log error and continuation
+                    expect(result.logs.map((l) => l.message)).toEqual(
+                        expect.arrayContaining([
+                            expect.stringContaining('Errored: fail!'),
+                            expect.stringContaining('Continuing to next action'),
+                            expect.stringContaining('Workflow moved to action [Action:exit]'),
+                            expect.stringContaining('Workflow completed'),
+                        ])
+                    )
+                    // Should track failed and succeeded metrics
+                    expect(result.metrics.find((m) => m.instance_id === 'function_id_1')).toMatchObject({
+                        metric_kind: 'failure',
+                        metric_name: 'failed',
+                    })
+                    expect(result.metrics.find((m) => m.instance_id === 'exit')).toMatchObject({
+                        metric_kind: 'success',
+                        metric_name: 'succeeded',
+                    })
+                })
+
+                it('should abort workflow if on_error is abort', async () => {
+                    // Set on_error: 'abort' for function_id_1
+                    const action = hogFlow.actions.find((a) => a.id === 'function_id_1')!
+                    action.on_error = 'abort'
+
+                    const invocation = createExampleHogFlowInvocation(hogFlow, {
+                        event: {
+                            ...createHogExecutionGlobals().event,
+                            properties: { name: 'Error User' },
+                        },
+                    })
+
+                    const result = await executor.execute(invocation)
+                    expect(result.finished).toBe(true)
+                    // Should NOT move to exit action, should stay on function_id_1
+                    expect(result.invocation.state.currentAction?.id).toBe('function_id_1')
+                    // Should log error and abort
+                    expect(result.logs.map((l) => l.message)).toEqual(
+                        expect.arrayContaining([
+                            expect.stringContaining('Errored: fail!'),
+                            expect.stringContaining("Workflow is aborting due to the action's error handling setting"),
+                        ])
+                    )
+                    // Should track failed metric only
+                    expect(result.metrics.find((m) => m.instance_id === 'function_id_1')).toMatchObject({
+                        metric_kind: 'failure',
+                        metric_name: 'failed',
+                    })
+                    // Should not have succeeded metric for exit
+                    expect(result.metrics.find((m) => m.instance_id === 'exit')).toBeUndefined()
+                })
+            })
         })
 
         describe('per action runner tests', () => {
