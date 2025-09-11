@@ -494,7 +494,7 @@ export function calculateBillingPeriodMarkers(
 const sumSeries = (values: number[]): number => values.reduce((sum, v) => sum + v, 0)
 
 // Keep up to N decimals without trailing zeros
-const formatWithDecimals = (value: number, decimals?: number): string =>
+export const formatWithDecimals = (value: number, decimals?: number): string =>
     typeof decimals === 'number' ? String(Number(value.toFixed(decimals))) : String(value)
 
 /**
