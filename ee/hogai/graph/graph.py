@@ -17,7 +17,6 @@ from ee.hogai.utils.types import AssistantNodeName, AssistantState, StateType
 from ee.hogai.utils.types.base import BaseState
 from ee.hogai.utils.types.composed import MaxNodeName
 
-from .base import StateType
 from .dashboards.nodes import DashboardCreatorNode
 from .funnels.nodes import FunnelGeneratorNode, FunnelGeneratorToolsNode
 from .inkeep_docs.nodes import InkeepDocsNode

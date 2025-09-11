@@ -151,10 +151,10 @@ class InsightQuery(BaseModel):
     """
 
     name: str = Field(
-        description="The short name of the insight to be included in the dashboard, it will be used in the dashboard tile. So keep it short and concise."
+        description="The short name of the insight to be included in the dashboard, it will be used in the dashboard tile. So keep it short and concise. It will be displayed as a header in the insight tile, so make sure it is starting with a capital letter. Be specific about time periods and filters if the user mentioned them. Do not be general or vague."
     )
     description: str = Field(
-        description="The detailed description of the insight to be included in the dashboard. Include all relevant context about the insight from earlier messages too, as the tool won't see that conversation history. Do not forget fiters, properties, event names if the user mentioned them."
+        description="The detailed description of the insight to be included in the dashboard. Include all relevant context about the insight from earlier messages too, as the tool won't see that conversation history. Do not forget fiters, properties, event names if the user mentioned them. Be specific about time periods and filters if the user mentioned them. Do not be general or vague."
     )
 
 
@@ -319,7 +319,6 @@ class AssistantNodeName(StrEnum):
     INSIGHTS_SEARCH = "insights_search"
     SESSION_SUMMARIZATION = "session_summarization"
     DASHBOARD_CREATOR = "dashboard_creator"
-    DASHBOARD_CREATOR_TASK_EXECUTOR = "task_executor"
 
 
 class AssistantMode(StrEnum):
