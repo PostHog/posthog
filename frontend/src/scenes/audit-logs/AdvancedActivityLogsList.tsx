@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { SkeletonLog } from 'lib/components/ActivityLog/ActivityLog'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { humanize } from 'lib/components/ActivityLog/humanizeActivity'
+import { WarningHog } from 'lib/components/hedgehogs'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 
 import { AuditLogTableHeader, AuditLogTableRow } from './AuditLogTable'
@@ -51,8 +52,14 @@ const AdvancedActivityLogsListSkeleton = (): JSX.Element => (
 )
 
 const AdvancedActivityLogsEmptyState = (): JSX.Element => (
-    <div className="text-center py-12">
-        <div className="text-muted text-lg mb-2">No activity logs found</div>
-        <p className="text-sm text-muted">Try adjusting your filters or date range to see more results.</p>
+    <div
+        data-attr="billing-empty-state"
+        className="flex flex-col bg-white border rounded px-4 py-8 items-center text-center mx-auto"
+    >
+        <WarningHog width="100" height="100" className="mb-4" />
+        <h2 className="text-xl leading-tight">We couldn't find any activity logs for your current query.</h2>
+        <p className="text-sm text-balance text-tertiary">
+            Try adjusting your filters or date range to see more results.
+        </p>
     </div>
 )
