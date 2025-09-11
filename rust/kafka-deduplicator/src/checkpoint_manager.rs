@@ -61,7 +61,7 @@ pub struct CheckpointWorker {
     store: DeduplicationStore,
 
     /// Checkpoint export module
-    exporter: Arc<Option<Box<CheckpointExporter>>>,
+    exporter: Option<Arc<CheckpointExporter>>,
 }
 
 impl CheckpointWorker {
@@ -71,7 +71,7 @@ impl CheckpointWorker {
         mode: CheckpointMode,
         partition: Partition,
         store: DeduplicationStore,
-        exporter: Arc<Option<Box<CheckpointExporter>>>,
+        exporter: Option<Arc<CheckpointExporter>>,
     ) -> Self {
         Self {
             worker_id,
@@ -101,10 +101,49 @@ impl CheckpointWorker {
             partition = partition_tag,
             local_path = local_path_tag,
             checkpoint_mode = self.mode.as_str(),
-            "Initiating checkpoint"
+            "Checkpoint worker: initializing checkpoint"
         );
 
-        // Ensure local checkpoint directory exists
+        // Ensure local checkpoint directory exists - results observed internally, safe to bubble up
+        self.create_partition_checkpoint_directory(&partition_tag, &local_path_tag)
+            .await?;
+
+        // this creates the local RocksDB checkpoint - results observed internally, safe to bubble up
+        self.create_local_partition_checkpoint(
+            &local_checkpoint_path,
+            start_time,
+            &partition_tag,
+            &local_path_tag,
+        )
+        .await?;
+
+        // update store metrics - this can fail without blocking the checkpoint attempt
+        if let Err(e) = self.store.update_metrics() {
+            warn!(
+                self.worker_id,
+                partition = partition_tag,
+                local_path = local_path_tag,
+                checkpoint_mode = self.mode.as_str(),
+                "Checkpoint worker: failed store metrics update after local chekcpoint: {}",
+                e
+            );
+        }
+
+        // export the checkpoint - observed internally, safe to return result
+        self.export_checkpoint(
+            &local_checkpoint_path,
+            &checkpoint_name,
+            &partition_tag,
+            &local_path_tag,
+        )
+        .await
+    }
+
+    async fn create_partition_checkpoint_directory(
+        &self,
+        partition_tag: &str,
+        local_path_tag: &str,
+    ) -> Result<()> {
         if let Err(e) = tokio::fs::create_dir_all(&self.config.local_checkpoint_dir)
             .await
             .context("Failed to create local checkpoint directory")
@@ -123,12 +162,23 @@ impl CheckpointWorker {
                 "Failed to create local checkpoint directory: {}",
                 e
             );
+
+            return Err(anyhow::anyhow!(e));
         }
 
-        // this creates the local RocksDB checkpoint
+        Ok(())
+    }
+
+    async fn create_local_partition_checkpoint(
+        &self,
+        local_checkpoint_path: &PathBuf,
+        start_time: Instant,
+        partition_tag: &str,
+        local_path_tag: &str,
+    ) -> Result<()> {
         match self
             .store
-            .create_checkpoint_with_metadata(&local_checkpoint_path)
+            .create_checkpoint_with_metadata(local_checkpoint_path)
         {
             Ok(sst_files) => {
                 let checkpoint_duration = start_time.elapsed();
@@ -136,8 +186,7 @@ impl CheckpointWorker {
                     .record(checkpoint_duration.as_secs_f64());
 
                 metrics::histogram!(CHECKPOINT_FILE_COUNT_HISTOGRAM).record(sst_files.len() as f64);
-                if let Ok(checkpoint_size) = Self::get_directory_size(&local_checkpoint_path).await
-                {
+                if let Ok(checkpoint_size) = Self::get_directory_size(local_checkpoint_path).await {
                     metrics::histogram!(CHECKPOINT_SIZE_HISTOGRAM).record(checkpoint_size as f64);
                 }
 
@@ -149,6 +198,8 @@ impl CheckpointWorker {
                     checkpoint_mode = self.mode.as_str(),
                     "Created local checkpoint",
                 );
+
+                Ok(())
             }
 
             Err(e) => {
@@ -175,34 +226,30 @@ impl CheckpointWorker {
                     error_chain.join(" -> ")
                 );
 
-                return Err(anyhow::anyhow!(error_chain.join(" -> ")));
+                Err(anyhow::anyhow!(error_chain.join(" -> ")))
             }
         }
+    }
 
-        // Update metrics
-        if let Err(e) = self.store.update_metrics() {
-            warn!(
-                self.worker_id,
-                partition = partition_tag,
-                local_path = local_path_tag,
-                checkpoint_mode = self.mode.as_str(),
-                "Failed store metrics update after local chekcpoint: {}",
-                e
-            );
-        }
-
+    async fn export_checkpoint(
+        &self,
+        local_checkpoint_path: &Path,
+        checkpoint_name: &str,
+        partition_tag: &str,
+        local_path_tag: &str,
+    ) -> Result<Option<String>> {
         info!(
             self.worker_id,
             partition = partition_tag,
             local_path = local_path_tag,
             checkpoint_mode = self.mode.as_str(),
-            "Exporting remote checkpoint",
+            "Checkpoint worker: exporting remote checkpoint",
         );
 
         match self.exporter.as_ref() {
             Some(exporter) => {
                 match exporter
-                    .export_checkpoint(&local_checkpoint_path, &checkpoint_name, self.mode)
+                    .export_checkpoint(local_checkpoint_path, checkpoint_name, self.mode)
                     .await
                 {
                     Ok(remote_key_prefix) => {
@@ -245,7 +292,7 @@ impl CheckpointWorker {
                 }
             }
 
-            &None => {
+            None => {
                 let tags = [
                     ("mode", self.mode.as_str()),
                     ("result", "success"),
@@ -319,7 +366,7 @@ pub struct CheckpointManager {
 
     // Checkpoint export module - if populated, locally checkpointed partitions will be backed up remotely
     // TODO(eli): unbox this, keep it on the stack if possible
-    exporter: Arc<Option<Box<CheckpointExporter>>>,
+    exporter: Option<Arc<CheckpointExporter>>,
 
     /// Cancellation token for the flush task
     cancel_token: CancellationToken,
@@ -336,15 +383,13 @@ impl CheckpointManager {
     pub fn new(
         config: CheckpointConfig,
         store_manager: Arc<StoreManager>,
-        exporter: Option<Box<CheckpointExporter>>,
+        exporter: Option<Arc<CheckpointExporter>>,
     ) -> Self {
         info!(
             max_concurrent_checkpoints = config.max_concurrent_checkpoints,
-            exporting = exporter.is_some(),
+            export_enabled = exporter.is_some(),
             "Creating checkpoint manager",
         );
-
-        let exporter = Arc::new(exporter);
 
         Self {
             config,
@@ -414,16 +459,16 @@ impl CheckpointManager {
                         info!("Checkpoint manager: attempting checkpoint submission for {} stores", store_count);
 
                         // Snapshot all entries to avoid holding locks
-                        let partitions: Vec<Partition> = stores
+                        let candidates: Vec<(Partition, DeduplicationStore)> = stores
                             .iter()
-                            .map(|entry| entry.key().clone())
+                            .map(|entry| (entry.key().clone(), entry.value().clone()))
                             .collect();
 
                         // Flush, checkpoint, and update metrics for each known store.
                         // if we block here, we can miss a few ticks it's OK. If upon
                         // successful receipt this partition's store is no longer owned
                         // by the StoreManager, the receiver will bail out and continue
-                        for partition in partitions {
+                        for (partition, store) in candidates {
                             let partition_tag = partition.to_string();
 
                             if Self::checkpoint_in_progress(&partition, &is_checkpointing).await {
@@ -434,21 +479,18 @@ impl CheckpointManager {
                             // Determine if this should be a full upload or incremental
                             let mode = Self::get_checkpoint_mode(&partition, &checkpoint_counters, &config).await;
 
-                            // Attempt to acquire the store for this partition: more expensive op
-                            let store = match store_manager
-                                .get(partition.topic(), partition.partition_number())
-                                {
-                                    // ensure we can pass this instance to the worker thread we spawn next
-                                    Some(store) => store.clone(),
-                                    None => {
-                                        // TODO(eli): stat this w/tag
-                                        warn!(
-                                            partition = partition_tag,
-                                            "Checkpoint manager: partition no longer owned by store manager, skipping"
-                                        );
-                                        continue;
-                                    }
-                                };
+                            // Ensure the store is still associated with this pod and store manager
+                            if store_manager.get(partition.topic(), partition.partition_number()).is_none() {
+                                    // TODO(eli): stat this w/tag
+                                    warn!(
+                                        partition = partition_tag,
+                                        "Checkpoint manager: partition no longer owned by store manager, skipping"
+                                    );
+                                    continue;
+                            }
+
+                            // if the exporter is configured, clone it for the worker thread
+                            let resolved_exporter = exporter.as_ref().map(|e| e.clone());
 
                             // spin up worker with unique task ID for logging
                             worker_task_id += 1;
@@ -458,7 +500,7 @@ impl CheckpointManager {
                                 mode,
                                 partition.clone(),
                                 store,
-                                exporter.clone(),
+                                resolved_exporter,
                             );
 
                             // clone things that the worker thread will need references to
