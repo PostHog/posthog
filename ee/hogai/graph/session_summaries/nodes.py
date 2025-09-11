@@ -112,7 +112,7 @@ class SessionSummarizationNode(AssistantNode):
             - question: str if clarification is needed
             - None if there's an error
         """
-        from products.replay.backend.max_tools import SearchSessionRecordingsTool
+        from products.replay.backend.max_tools import SearchSessionRecordingsTool  # Avoid circular import
 
         # Create the tool instance with minimal context (no current_filters for fresh generation)
         tool = SearchSessionRecordingsTool(team=self._team, user=self._user)
