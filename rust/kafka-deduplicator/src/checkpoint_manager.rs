@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
@@ -318,6 +318,7 @@ pub struct CheckpointManager {
     store_manager: Arc<StoreManager>,
 
     // Checkpoint export module - if populated, locally checkpointed partitions will be backed up remotely
+    // TODO(eli): unbox this, keep it on the stack if possible
     exporter: Arc<Option<Box<CheckpointExporter>>>,
 
     /// Cancellation token for the flush task
@@ -367,16 +368,15 @@ impl CheckpointManager {
             self.config.checkpoint_interval
         );
 
-        let worker_count = self.config.max_concurrent_checkpoints;
-
         // TODO(eli): ADD SEMAPHORE GATING TO SUBMIT LOOP THREAD BELOW!
+        let _semaphore = Arc::new(Semaphore::new(self.config.max_concurrent_checkpoints));
 
         // clones we can reuse as bases within the checkpoint submission loop
         // without involving "self" and moving it into the loop
         let config = self.config.clone();
         let store_manager = self.store_manager.clone();
         let exporter = self.exporter.clone();
-        let cancel_submit_loop = self.cancel_token.child_token();
+        let cancel_submit_loop_token = self.cancel_token.child_token();
 
         // loop-local counter for individual worker task logging
         let mut worker_task_id = 0_u32;
@@ -396,7 +396,7 @@ impl CheckpointManager {
 
             'outer: loop {
                 tokio::select! {
-                    _ = cancel_submit_loop.cancelled() => {
+                    _ = cancel_submit_loop_token.cancelled() => {
                         info!("Checkpoint manager: submit loop shutting down");
                         break 'outer;
                     }
@@ -451,7 +451,7 @@ impl CheckpointManager {
                                 };
 
                             // spin up worker with unique task ID for logging
-                            worker_task_id = worker_task_id + 1;
+                            worker_task_id += 1;
                             let worker = CheckpointWorker::new(
                                 worker_task_id,
                                 config.clone(),
@@ -461,13 +461,17 @@ impl CheckpointManager {
                                 exporter.clone(),
                             );
 
+                            // clone things that the worker thread will need references to
+                            let cancel_worker_token = cancel_submit_loop_token.child_token();
+                            let is_checkpointing_worker = is_checkpointing.clone();
+                            let checkpoint_counters_worker = checkpoint_counters.clone();
+
                             // TODO: for now, we don't bother to track the handles of spawned workers
                             // because each worker represents one best-effort checkpoint attempt
-                            let _ = tokio::spawn(async move || {
+                            tokio::spawn(async move {
                                 tokio::select! {
-                                    _ = cancel_submit_loop.cancelled() => {
+                                    _ = cancel_worker_token.cancelled() => {
                                         info!(partition = partition_tag, "Checkpoint manager: inner submit loop shutting down");
-                                        return;
                                     }
 
                                     result = worker.checkpoint_partition() => {
@@ -475,7 +479,7 @@ impl CheckpointManager {
 
                                         // release the in-flight lock regardless of outcome
                                         {
-                                            let mut is_checkpointing_guard = is_checkpointing.lock().await;
+                                            let mut is_checkpointing_guard = is_checkpointing_worker.lock().await;
                                             is_checkpointing_guard.remove(&partition);
                                         }
 
@@ -483,12 +487,12 @@ impl CheckpointManager {
                                         // so we only care if the export was successful and we need to
                                         // increment the checkpoint counter
                                         if let Ok(Some(_)) = result {
-                                            // increment checkpoint counter on successful checkpoint + export
-                                            // NOTE: could race another task attempt on same partition between
+                                            // NOTE: could race another checkpoint attempt on same partition between
                                             //       is_checkpointing release and this call, but we also need to
-                                            //       maintain lock access ordering here. May need to rethink this
+                                            //       maintain lock access ordering here. May need to consider
+                                            //       implementing these a single lock-wrapped object...
                                             {
-                                                let mut counter_guard = checkpoint_counters.lock().await;
+                                                let mut counter_guard = checkpoint_counters_worker.lock().await;
                                                 let counter_for_partition = *counter_guard.get(&partition).unwrap_or(&0_u32);
                                                 counter_guard.insert(partition.clone(), counter_for_partition + 1);
                                             }
@@ -505,8 +509,10 @@ impl CheckpointManager {
         });
         self.checkpoint_task = Some(submit_handle);
 
+        let cleanup_config = self.config.clone();
+        let cancel_cleanup_loop_token = self.cancel_token.child_token();
         let cleanup_handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(config.cleanup_interval);
+            let mut interval = tokio::time::interval(cleanup_config.cleanup_interval);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
             // Skip first tick to avoid immediate flush
@@ -514,13 +520,13 @@ impl CheckpointManager {
 
             loop {
                 tokio::select! {
-                    _ = cancel_submit_loop.cancelled() => {
+                    _ = cancel_cleanup_loop_token.cancelled() => {
                         info!("Checkpoint manager: cleanup loop shutting down");
                         break;
                     }
 
                     _ = interval.tick() => {
-                        if let Err(e) = Self::cleanup_local_checkpoints(&config).await {
+                        if let Err(e) = Self::cleanup_local_checkpoints(&cleanup_config).await {
                             error!("Checkpoint manager: failed to cleanup local checkpoints: {}", e);
                         }
                     }
@@ -591,7 +597,7 @@ impl CheckpointManager {
         let counter_for_partition: u32;
         {
             let counter_guard = checkpoint_counters.lock().await;
-            counter_for_partition = *counter_guard.get(&partition).unwrap_or(&0_u32);
+            counter_for_partition = *counter_guard.get(partition).unwrap_or(&0_u32);
         }
 
         if counter_for_partition % config.full_upload_interval == 0 {
@@ -606,7 +612,7 @@ impl CheckpointManager {
         is_checkpointing: &Arc<Mutex<HashSet<Partition>>>,
     ) -> bool {
         let mut is_checkpointing_guard = is_checkpointing.lock().await;
-        if is_checkpointing_guard.contains(&partition) {
+        if is_checkpointing_guard.contains(partition) {
             return true;
         }
 
