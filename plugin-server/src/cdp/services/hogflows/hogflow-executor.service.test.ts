@@ -17,6 +17,7 @@ import { HogFunctionTemplateManagerService } from '../managers/hog-function-temp
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { HogFlowExecutorService } from './hogflow-executor.service'
+import { HogFlowFunctionsService } from './hogflow-functions.service'
 
 // Mock before importing fetch
 jest.mock('~/utils/request', () => {
@@ -56,17 +57,16 @@ describe('Hogflow Executor', () => {
         })
         const hogExecutor = new HogExecutorService(hub)
         const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub)
+        const hogFlowFunctionsService = new HogFlowFunctionsService(hub, hogFunctionTemplateManager, hogExecutor)
         const recipientsManager = new RecipientsManagerService(hub)
         const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
-
-        const exampleHog = `
-            print(f'Hello, {inputs.name}!')
-            print('Fetch 1', fetch('https://posthog.com').status)`
 
         await insertHogFunctionTemplate(hub.postgres, {
             id: 'template-test-hogflow-executor',
             name: 'Test Template',
-            code: exampleHog,
+            code: `
+            print(f'Hello, {inputs.name}!')
+            print('Fetch 1', fetch('https://posthog.com').status)`,
             inputs_schema: [
                 {
                     key: 'name',
@@ -74,20 +74,17 @@ describe('Hogflow Executor', () => {
                     required: true,
                 },
             ],
-            bytecode: await compileHog(exampleHog),
         })
-
-        const exampleHogMultiFetch = `
-            print(f'Hello, {inputs.name}!')
-            print('Fetch 1', fetch('https://posthog.com').status)
-            print('Fetch 2', fetch('https://posthog.com').status)
-            print('Fetch 3', fetch('https://posthog.com').status)
-            print('All fetches done!')`
 
         await insertHogFunctionTemplate(hub.postgres, {
             id: 'template-test-hogflow-executor-async',
             name: 'Test template multi fetch',
-            code: exampleHogMultiFetch,
+            code: `
+            print(f'Hello, {inputs.name}!')
+            print('Fetch 1', fetch('https://posthog.com').status)
+            print('Fetch 2', fetch('https://posthog.com').status)
+            print('Fetch 3', fetch('https://posthog.com').status)
+            print('All fetches done!')`,
             inputs_schema: [
                 {
                     key: 'name',
@@ -95,10 +92,9 @@ describe('Hogflow Executor', () => {
                     required: true,
                 },
             ],
-            bytecode: await compileHog(exampleHogMultiFetch),
         })
 
-        executor = new HogFlowExecutorService(hub, hogExecutor, hogFunctionTemplateManager, recipientPreferencesService)
+        executor = new HogFlowExecutorService(hogFlowFunctionsService, recipientPreferencesService)
     })
 
     describe('general event processing', () => {
@@ -112,7 +108,7 @@ describe('Hogflow Executor', () => {
                             type: 'trigger',
                             config: {
                                 type: 'event',
-                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters,
+                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
                             },
                         },
 
@@ -407,7 +403,7 @@ describe('Hogflow Executor', () => {
                             type: 'trigger',
                             config: {
                                 type: 'event',
-                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters,
+                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
                             },
                         },
                         delay: {
@@ -440,7 +436,7 @@ describe('Hogflow Executor', () => {
                                 type: 'trigger',
                                 config: {
                                     type: 'event',
-                                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
+                                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
                                 },
                             },
                             function_id_1: {
@@ -537,7 +533,7 @@ describe('Hogflow Executor', () => {
                 hogFlow.exit_condition = 'exit_on_trigger_not_matched'
                 hogFlow.trigger = {
                     type: 'event',
-                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
+                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
                 }
 
                 const invocation1 = createExampleHogFlowInvocation(hogFlow, {
@@ -575,7 +571,7 @@ describe('Hogflow Executor', () => {
                 hogFlow.exit_condition = 'exit_on_trigger_not_matched_or_conversion'
                 hogFlow.trigger = {
                     type: 'event',
-                    filters: HOG_FILTERS_EXAMPLES.no_filters.filters,
+                    filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
                 }
                 hogFlow.conversion = {
                     window_minutes: 10,

@@ -630,6 +630,9 @@ importers:
       algoliasearch:
         specifier: ^4.22.1
         version: 4.22.1
+      bintrees:
+        specifier: ^1.0.2
+        version: 1.0.2
       buffer:
         specifier: ^6.0.3
         version: 6.0.3
@@ -962,6 +965,9 @@ importers:
       '@testing-library/user-event':
         specifier: ^13.5.0
         version: 13.5.0(@testing-library/dom@8.19.0)
+      '@types/bintrees':
+        specifier: ^1.0.6
+        version: 1.0.6
       '@types/chartjs-plugin-crosshair':
         specifier: ^1.1.1
         version: 1.1.4
@@ -1650,6 +1656,33 @@ importers:
       kea-forms:
         specifier: ^3.2.0
         version: 3.2.0(kea@3.1.7(react@18.2.0))
+      kea-loaders:
+        specifier: ^3.1.1
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
+      kea-router:
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
+  products/embedded_analytics:
+    dependencies:
+      '@posthog/icons':
+        specifier: 0.30.0
+        version: 0.30.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      fuse.js:
+        specifier: '*'
+        version: 6.6.2
+      kea:
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.7(react@18.2.0))
@@ -8213,6 +8246,9 @@ packages:
 
   '@types/base16@1.0.5':
     resolution: {integrity: sha512-OzOWrTluG9cwqidEzC/Q6FAmIPcnZfm8BFRlIx0+UIUqnuAmi5OS88O0RpT3Yz6qdmqObvUhasrbNsCofE4W9A==}
+
+  '@types/bintrees@1.0.6':
+    resolution: {integrity: sha512-pZWT4Bz+tWwxlDspSjdoIza4PE5lbGI4Xvs3FZV/2v5m5SDA8LwNpU8AXxlndmARO7OaQ1Vf3zFenOsNMzaRkQ==}
 
   '@types/bluebird@3.5.38':
     resolution: {integrity: sha512-yR/Kxc0dd4FfwtEoLZMoqJbM/VE/W7hXn/MIjb+axcwag0iFmSPK7OBUZq1YWLynJUoWQkfUrI7T0HDqGApNSg==}
@@ -26675,6 +26711,8 @@ snapshots:
       '@babel/types': 7.26.3
 
   '@types/base16@1.0.5': {}
+
+  '@types/bintrees@1.0.6': {}
 
   '@types/bluebird@3.5.38': {}
 

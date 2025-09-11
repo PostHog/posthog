@@ -2,10 +2,28 @@
 import { getContext } from 'kea'
 import type { BuiltLogic, Context as KeaContext } from 'kea'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { List, ListRowProps } from 'react-virtualized/dist/es/List'
 
 type MountedMap = Record<string, BuiltLogic>
 type SortMode = 'alpha' | 'recent'
 type Tab = 'logics' | 'actions' | 'graph' | 'memory'
+
+function useDebounce<T>(value: T, delay: number): T {
+    const [debouncedValue, setDebouncedValue] = useState(value)
+
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setDebouncedValue(value)
+        }, delay)
+
+        return () => {
+            clearTimeout(handler)
+        }
+    }, [value, delay])
+
+    return debouncedValue
+}
 
 type KeaDevtoolsProps = {
     defaultOpen?: boolean
@@ -1703,9 +1721,11 @@ export function KeaDevtools({
                     payload: action?.payload,
                 }
                 setActions((prev) => {
-                    const next = [...prev, entry]
+                    // Prepend new action to show newest first (avoids reversing later)
+                    const next = [entry, ...prev]
                     if (next.length > maxActions) {
-                        next.splice(0, next.length - maxActions)
+                        // Remove oldest items from the end
+                        next.splice(maxActions)
                     }
                     return next
                 })
@@ -1733,9 +1753,12 @@ export function KeaDevtools({
         }
     }, [selectedKey, allKeys])
 
+    // Debounce the search query for better performance
+    const debouncedQuery = useDebounce(query, 300)
+
     // left list: filter + sort
     const visibleKeys = useMemo(() => {
-        const q = query.trim().toLowerCase()
+        const q = debouncedQuery.trim().toLowerCase()
         const base = q
             ? allKeys.filter((k) => {
                   const name = displayName(mounted[k]).toLowerCase()
@@ -1746,7 +1769,7 @@ export function KeaDevtools({
             base.sort((a, b) => (recent.current.get(b) ?? 0) - (recent.current.get(a) ?? 0))
         }
         return base
-    }, [allKeys, sortMode, query, mounted])
+    }, [allKeys, sortMode, debouncedQuery, mounted])
 
     const selectedLogic = selectedKey ? mounted[selectedKey] : undefined
 
@@ -2021,8 +2044,11 @@ function ActionsTab({
     const [q, setQ] = useState('')
     const [expanded, setExpanded] = useState<Set<number>>(new Set())
 
+    // Debounce the search query for better performance
+    const debouncedQ = useDebounce(q, 300)
+
     const filtered = useMemo(() => {
-        const s = q.trim().toLowerCase()
+        const s = debouncedQ.trim().toLowerCase()
         if (!s) {
             return actions
         }
@@ -2031,7 +2057,7 @@ function ActionsTab({
                 a.type.toLowerCase().includes(s) ||
                 (typeof a.payload === 'string' && a.payload.toLowerCase().includes(s))
         )
-    }, [actions, q])
+    }, [actions, debouncedQ])
 
     const toggleExpanded = (id: number): void => {
         setExpanded((prev) => {
@@ -2062,6 +2088,117 @@ function ActionsTab({
         }
     }
 
+    // Calculate dynamic row height based on whether payload is expanded
+    const getRowHeight = ({ index }: { index: number }): number => {
+        const action = filtered[index]
+        if (!action) {
+            return 80
+        }
+        const isOpen = expanded.has(action.id)
+        if (isOpen) {
+            // Estimate height based on payload size
+            const lines = pretty(action.payload).split('\n').length
+            return Math.min(80 + lines * 20, 600) // Cap at 600px
+        }
+        return 80 // Default height for collapsed rows
+    }
+
+    // Row renderer for virtualized list
+    const renderRow = ({ index, key, style }: ListRowProps): JSX.Element => {
+        const action = filtered[index]
+        if (!action) {
+            return <div key={key} style={style} />
+        }
+
+        const isOpen = expanded.has(action.id)
+
+        return (
+            <div
+                key={key}
+                style={{
+                    ...style,
+                    display: 'flex',
+                    borderBottom: '1px solid rgba(0,0,0,0.05)',
+                    background: '#fff',
+                }}
+            >
+                {/* Left column: action + time */}
+                <div
+                    style={{
+                        width: '40%',
+                        padding: '10px 12px',
+                        borderRight: '1px solid rgba(0,0,0,0.06)',
+                    }}
+                >
+                    <div>
+                        <code
+                            style={{
+                                fontWeight: 700,
+                                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                                wordBreak: 'break-word',
+                            }}
+                        >
+                            {action.type}
+                        </code>
+                    </div>
+                    <div
+                        style={{
+                            marginTop: 4,
+                            color: 'rgba(0,0,0,0.6)',
+                            fontSize: 12,
+                        }}
+                        title={new Date(action.ts).toISOString()}
+                    >
+                        {new Date(action.ts).toLocaleString()}
+                    </div>
+                </div>
+
+                {/* Right column: payload */}
+                <div
+                    style={{
+                        flex: 1,
+                        padding: '10px 12px',
+                        display: 'flex',
+                        gap: 8,
+                        alignItems: 'flex-start',
+                        minWidth: 0, // Allow flex item to shrink below content width
+                    }}
+                >
+                    <div
+                        style={{
+                            flex: 1,
+                            height: isOpen ? 'calc(100% - 20px)' : 'auto',
+                            maxWidth: isOpen ? '600px' : '300px',
+                            whiteSpace: isOpen ? 'pre-wrap' : 'nowrap',
+                            overflow: isOpen ? 'auto' : 'hidden',
+                            textOverflow: isOpen ? 'clip' : 'ellipsis',
+                            wordBreak: isOpen ? 'break-word' : 'normal',
+                            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                        }}
+                    >
+                        {action.payload === undefined ? '—' : isOpen ? pretty(action.payload) : oneLine(action.payload)}
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => toggleExpanded(action.id)}
+                        style={{ ...simpleBtnStyle, marginLeft: 'auto', flexShrink: 0 }}
+                        title={isOpen ? 'Collapse payload' : 'Expand payload'}
+                    >
+                        {isOpen ? 'Collapse' : 'Expand'}
+                    </button>
+                </div>
+            </div>
+        )
+    }
+
+    // Create a ref for the List to trigger re-render when expanded state changes
+    const listRef = useRef<List>(null)
+
+    // Force re-render of list when expanded state changes
+    useEffect(() => {
+        listRef.current?.recomputeRowHeights()
+    }, [expanded])
+
     return (
         <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, gap: 8, padding: 10, flex: 1 }}>
             <div style={{ display: 'flex', gap: 6 }}>
@@ -2083,111 +2220,64 @@ function ActionsTab({
             <div
                 style={{
                     flex: 1,
-                    overflow: 'auto',
                     background: '#fff',
                     border: '1px solid rgba(0,0,0,0.06)',
                     borderRadius: 12,
+                    position: 'relative',
                 }}
             >
-                {filtered.length === 0 ? (
-                    <div style={{ padding: 12, color: 'rgba(0,0,0,0.6)' }}>No actions yet.</div>
-                ) : (
-                    <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
-                        <thead style={{ position: 'sticky', top: 0, background: '#fafafa', zIndex: 1 }}>
-                            <tr>
-                                <th
-                                    style={{
-                                        textAlign: 'left',
-                                        padding: '10px 12px',
-                                        borderBottom: '1px solid rgba(0,0,0,0.06)',
-                                        width: '40%',
-                                    }}
-                                >
-                                    Action • Date
-                                </th>
-                                <th
-                                    style={{
-                                        textAlign: 'left',
-                                        padding: '10px 12px',
-                                        borderBottom: '1px solid rgba(0,0,0,0.06)',
-                                    }}
-                                >
-                                    Payload
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {filtered
-                                .slice()
-                                .reverse()
-                                .map((a) => {
-                                    const isOpen = expanded.has(a.id)
-                                    return (
-                                        <tr key={a.id} style={{ borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
-                                            {/* Left cell: action + time below (no truncation) */}
-                                            <td style={{ padding: '10px 12px', verticalAlign: 'top' }}>
-                                                <div>
-                                                    <code
-                                                        style={{
-                                                            fontWeight: 700,
-                                                            fontFamily:
-                                                                'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-                                                            wordBreak: 'break-word',
-                                                        }}
-                                                    >
-                                                        {a.type}
-                                                    </code>
-                                                </div>
-                                                <div
-                                                    style={{
-                                                        marginTop: 4,
-                                                        color: 'rgba(0,0,0,0.6)',
-                                                        fontSize: 12,
-                                                    }}
-                                                    title={new Date(a.ts).toISOString()}
-                                                >
-                                                    {new Date(a.ts).toLocaleString()}
-                                                </div>
-                                            </td>
+                {/* Header */}
+                <div
+                    style={{
+                        display: 'flex',
+                        position: 'sticky',
+                        top: 0,
+                        background: '#fafafa',
+                        borderBottom: '1px solid rgba(0,0,0,0.06)',
+                        zIndex: 1,
+                    }}
+                >
+                    <div
+                        style={{
+                            width: '40%',
+                            padding: '10px 12px',
+                            fontWeight: 700,
+                            borderRight: '1px solid rgba(0,0,0,0.06)',
+                        }}
+                    >
+                        Action • Date
+                    </div>
+                    <div
+                        style={{
+                            flex: 1,
+                            padding: '10px 12px',
+                            fontWeight: 700,
+                        }}
+                    >
+                        Payload
+                    </div>
+                </div>
 
-                                            {/* Right cell: payload one-line unless expanded */}
-                                            <td style={{ padding: '10px 12px', verticalAlign: 'top' }}>
-                                                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                                                    <div
-                                                        style={{
-                                                            flex: 1,
-                                                            // one line by default; no truncation requested for left column only,
-                                                            // right column remains single-line unless expanded:
-                                                            whiteSpace: isOpen ? 'pre-wrap' : 'nowrap',
-                                                            overflow: isOpen ? 'visible' : 'hidden',
-                                                            textOverflow: isOpen ? 'clip' : 'ellipsis',
-                                                            wordBreak: isOpen ? 'break-word' : 'normal',
-                                                            fontFamily:
-                                                                'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-                                                        }}
-                                                    >
-                                                        {a.payload === undefined
-                                                            ? '—'
-                                                            : isOpen
-                                                              ? pretty(a.payload)
-                                                              : oneLine(a.payload)}
-                                                    </div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => toggleExpanded(a.id)}
-                                                        style={simpleBtnStyle}
-                                                        title={isOpen ? 'Collapse payload' : 'Expand payload'}
-                                                    >
-                                                        {isOpen ? 'Collapse' : 'Expand'}
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    )
-                                })}
-                        </tbody>
-                    </table>
-                )}
+                {/* Content */}
+                <div style={{ height: 'calc(100% - 41px)' }}>
+                    {filtered.length === 0 ? (
+                        <div style={{ padding: 12, color: 'rgba(0,0,0,0.6)' }}>No actions yet.</div>
+                    ) : (
+                        <AutoSizer>
+                            {({ height, width }) => (
+                                <List
+                                    ref={listRef}
+                                    width={width}
+                                    height={height}
+                                    rowCount={filtered.length}
+                                    rowHeight={getRowHeight}
+                                    rowRenderer={renderRow}
+                                    overscanRowCount={10}
+                                />
+                            )}
+                        </AutoSizer>
+                    )}
+                </div>
             </div>
         </div>
     )

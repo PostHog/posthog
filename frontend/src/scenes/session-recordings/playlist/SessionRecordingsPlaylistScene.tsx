@@ -17,6 +17,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { SceneExport } from 'scenes/sceneTypes'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 
@@ -30,6 +31,7 @@ import {
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { isUniversalFilters } from '../utils'
 import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
@@ -109,6 +111,14 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                                 onClick={() => duplicatePlaylist()}
                                                 fullWidth
                                                 data-attr="duplicate-playlist"
+                                                accessControl={{
+                                                    resourceType: AccessControlResourceType.SessionRecording,
+                                                    minAccessLevel: AccessControlLevel.Editor,
+                                                    userAccessLevel:
+                                                        getAppContext()?.resource_access_control?.[
+                                                            AccessControlResourceType.SessionRecording
+                                                        ],
+                                                }}
                                             >
                                                 Duplicate
                                             </LemonButton>
@@ -120,12 +130,32 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                                     })
                                                 }
                                                 fullWidth
+                                                accessControl={{
+                                                    resourceType: AccessControlResourceType.SessionRecording,
+                                                    minAccessLevel: AccessControlLevel.Editor,
+                                                    userAccessLevel:
+                                                        getAppContext()?.resource_access_control?.[
+                                                            AccessControlResourceType.SessionRecording
+                                                        ],
+                                                }}
                                             >
                                                 {playlist.pinned ? 'Unpin collection' : 'Pin collection'}
                                             </LemonButton>
                                             <LemonDivider />
 
-                                            <LemonButton status="danger" onClick={() => deletePlaylist()} fullWidth>
+                                            <LemonButton
+                                                status="danger"
+                                                onClick={() => deletePlaylist()}
+                                                fullWidth
+                                                accessControl={{
+                                                    resourceType: AccessControlResourceType.SessionRecording,
+                                                    minAccessLevel: AccessControlLevel.Editor,
+                                                    userAccessLevel:
+                                                        getAppContext()?.resource_access_control?.[
+                                                            AccessControlResourceType.SessionRecording
+                                                        ],
+                                                }}
+                                            >
                                                 Delete collection
                                             </LemonButton>
                                         </>

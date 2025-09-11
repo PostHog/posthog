@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
 
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { DashboardPrivilegeLevel } from 'lib/constants'
@@ -164,10 +163,12 @@ export function DashboardsTable({
                                           View
                                       </LemonButton>
 
-                                      <AccessControlledLemonButton
-                                          userAccessLevel={user_access_level}
-                                          minAccessLevel={AccessControlLevel.Editor}
-                                          resourceType={AccessControlResourceType.Dashboard}
+                                      <LemonButton
+                                          accessControl={{
+                                              resourceType: AccessControlResourceType.Dashboard,
+                                              minAccessLevel: AccessControlLevel.Editor,
+                                              userAccessLevel: user_access_level,
+                                          }}
                                           to={urls.dashboard(id)}
                                           onClick={() => {
                                               dashboardLogic({ id }).mount()
@@ -179,7 +180,7 @@ export function DashboardsTable({
                                           fullWidth
                                       >
                                           Edit
-                                      </AccessControlledLemonButton>
+                                      </LemonButton>
 
                                       <LemonButton
                                           onClick={() => {
@@ -202,10 +203,12 @@ export function DashboardsTable({
 
                                       <LemonDivider />
 
-                                      <AccessControlledLemonButton
-                                          userAccessLevel={user_access_level}
-                                          minAccessLevel={AccessControlLevel.Editor}
-                                          resourceType={AccessControlResourceType.Dashboard}
+                                      <LemonButton
+                                          accessControl={{
+                                              resourceType: AccessControlResourceType.Dashboard,
+                                              minAccessLevel: AccessControlLevel.Editor,
+                                              userAccessLevel: user_access_level,
+                                          }}
                                           onClick={() => {
                                               showDeleteDashboardModal(id)
                                           }}
@@ -213,7 +216,7 @@ export function DashboardsTable({
                                           status="danger"
                                       >
                                           Delete dashboard
-                                      </AccessControlledLemonButton>
+                                      </LemonButton>
                                   </>
                               }
                           />

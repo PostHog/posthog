@@ -17,3 +17,11 @@ export type UsageTypeOption = (typeof USAGE_TYPES)[number]
 export type UsageTypeValue = UsageTypeOption['value']
 
 export const ALL_USAGE_TYPES: UsageTypeValue[] = USAGE_TYPES.map((opt) => opt.value)
+
+// Date after which billing for data pipelines ends and add-on upgrades/downgrades are disabled,
+// in sync with billing_end_date of data_pipelines in billing plans config
+export const DATA_PIPELINES_CUTOFF_DATE = '2025-09-10'
+
+// Date when billing for realtime destinations and batch exports begins (day after data pipelines cutoff),
+// in sync with billing_start_date of realtime_destinations and batch_exports in billing plans config
+export const REALTIME_DESTINATIONS_BILLING_START_DATE = '2025-09-11'

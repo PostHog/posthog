@@ -523,9 +523,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         # JWT based access (ExportedAsset)
         token = self.request.query_params.get("token")
         if token:
-            asset = asset_for_token(token)
-            if asset:
-                return asset
+            try:
+                asset = asset_for_token(token)
+                if asset:
+                    return asset
+            except ExportedAsset.DoesNotExist:
+                raise NotFound()
 
         # Path based access (SharingConfiguration only)
         access_token = self.kwargs.get("access_token", "").split(".")[0]

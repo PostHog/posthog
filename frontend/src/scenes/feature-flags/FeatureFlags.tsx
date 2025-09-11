@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 import { IconLock } from '@posthog/icons'
 import { LemonDialog, LemonInput, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -105,10 +104,12 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                         Copy feature flag key
                     </LemonButton>
 
-                    <AccessControlledLemonButton
-                        userAccessLevel={featureFlag.user_access_level}
-                        minAccessLevel={AccessControlLevel.Editor}
-                        resourceType={AccessControlResourceType.FeatureFlag}
+                    <LemonButton
+                        accessControl={{
+                            resourceType: AccessControlResourceType.FeatureFlag,
+                            minAccessLevel: AccessControlLevel.Editor,
+                            userAccessLevel: featureFlag.user_access_level,
+                        }}
                         data-attr={`feature-flag-${featureFlag.key}-switch`}
                         onClick={() => {
                             const newValue = !featureFlag.active
@@ -141,13 +142,15 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                         fullWidth
                     >
                         {featureFlag.active ? 'Disable' : 'Enable'} feature flag
-                    </AccessControlledLemonButton>
+                    </LemonButton>
 
                     {featureFlag.id && (
-                        <AccessControlledLemonButton
-                            userAccessLevel={featureFlag.user_access_level}
-                            minAccessLevel={AccessControlLevel.Editor}
-                            resourceType={AccessControlResourceType.FeatureFlag}
+                        <LemonButton
+                            accessControl={{
+                                resourceType: AccessControlResourceType.FeatureFlag,
+                                minAccessLevel: AccessControlLevel.Editor,
+                                userAccessLevel: featureFlag.user_access_level,
+                            }}
                             fullWidth
                             disabled={!featureFlag.can_edit}
                             onClick={() => {
@@ -159,7 +162,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                             }}
                         >
                             Edit
-                        </AccessControlledLemonButton>
+                        </LemonButton>
                     )}
 
                     <LemonButton
@@ -183,10 +186,12 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                     <LemonDivider />
 
                     {featureFlag.id && (
-                        <AccessControlledLemonButton
-                            userAccessLevel={featureFlag.user_access_level}
-                            minAccessLevel={AccessControlLevel.Editor}
-                            resourceType={AccessControlResourceType.FeatureFlag}
+                        <LemonButton
+                            accessControl={{
+                                resourceType: AccessControlResourceType.FeatureFlag,
+                                minAccessLevel: AccessControlLevel.Editor,
+                                userAccessLevel: featureFlag.user_access_level,
+                            }}
                             status="danger"
                             onClick={() => {
                                 void deleteWithUndo({
@@ -211,7 +216,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                             fullWidth
                         >
                             Delete feature flag
-                        </AccessControlledLemonButton>
+                        </LemonButton>
                     )}
                 </>
             }
@@ -568,18 +573,19 @@ export function FeatureFlags(): JSX.Element {
         <SceneContent className="feature_flags">
             <PageHeader
                 buttons={
-                    <AccessControlledLemonButton
+                    <LemonButton
                         type="primary"
                         to={urls.featureFlag('new')}
                         data-attr="new-feature-flag"
-                        resourceType={AccessControlResourceType.FeatureFlag}
-                        minAccessLevel={AccessControlLevel.Editor}
-                        userAccessLevel={
-                            getAppContext()?.resource_access_control?.[AccessControlResourceType.FeatureFlag]
-                        }
+                        accessControl={{
+                            resourceType: AccessControlResourceType.FeatureFlag,
+                            minAccessLevel: AccessControlLevel.Editor,
+                            userAccessLevel:
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.FeatureFlag],
+                        }}
                     >
                         New feature flag
-                    </AccessControlledLemonButton>
+                    </LemonButton>
                 }
             />
             <SceneTitleSection
