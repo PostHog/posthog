@@ -437,7 +437,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             swapAffectedUsers(values.affectedUsers, actions, index, index + 1)
         },
         resetAffectedUsers: () => {
-            actions.calculateBlastRadius()
+            actions.setAffectedUsers(0, values.totalUsers ?? undefined)
         },
     })),
     selectors({
