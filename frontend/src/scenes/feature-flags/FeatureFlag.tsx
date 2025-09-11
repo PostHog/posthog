@@ -487,7 +487,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     label="Create Usage Dashboard"
                                                     onChange={() => onChange(!value)}
                                                     checked={value}
-                                                    dataAttr="create-usage-dashboard-checkbox"
+                                                    data-attr="create-usage-dashboard-checkbox"
                                                 />
                                             </div>
                                         )}
