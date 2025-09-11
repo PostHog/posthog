@@ -1,8 +1,9 @@
+import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconDocument, IconPencil } from '@posthog/icons'
-import { Link, Tooltip } from '@posthog/lemon-ui'
+import { IconPencil } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -11,6 +12,7 @@ import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { FileSystemIconColor } from '~/types'
 
@@ -41,7 +43,6 @@ type SceneMainTitleProps = {
     isLoading?: boolean
     onNameChange?: (value: string) => void
     onDescriptionChange?: (value: string) => void
-    docsURL?: string
     /**
      * If true, the name and description will be editable
      */
@@ -59,7 +60,7 @@ type SceneMainTitleProps = {
      */
     renameDebounceMs?: number
     /**
-     * If true, the actions will be shown
+     * If true, the actions from PageHeader will be shown
      * @default false
      */
     actions?: boolean
@@ -73,17 +74,17 @@ export function SceneTitleSection({
     isLoading = false,
     onNameChange,
     onDescriptionChange,
-    docsURL,
     canEdit = false,
     forceEdit = false,
     renameDebounceMs,
     actions = true,
 }: SceneMainTitleProps): JSX.Element | null {
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-
+    const { breadcrumbs } = useValues(breadcrumbsLogic)
     if (!newSceneLayout) {
         return null
     }
+    const willShowBreadcrumbs = breadcrumbs.length > 2
 
     const icon = resourceType.forceIcon ? (
         <ProductIconWrapper type={resourceType.type} colorOverride={resourceType.forceIconColorOverride}>
@@ -93,67 +94,52 @@ export function SceneTitleSection({
         iconForType(resourceType.type ? (resourceType.type as FileSystemIconType) : undefined)
     )
     return (
-        <div className="@container/scene-title-section">
-            <div className="scene-title-section w-full flex flex-col lg:flex-row gap-3 group/colorful-product-icons colorful-product-icons-true items-start">
-                <div className="flex flex-col gap-1 flex-1 -ml-[var(--button-padding-x-sm)] order-last lg:order-first">
-                    <SceneBreadcrumbBackButton />
+        <div className="scene-title-section w-full flex flex-col @2xl/main-content:flex-row gap-3 group/colorful-product-icons colorful-product-icons-true items-start">
+            <div className="w-full flex flex-col gap-1 flex-1 -ml-[var(--button-padding-x-sm)] group/colorful-product-icons colorful-product-icons-true items-start">
+                {/* If we're showing breadcrumbs, we want to show the actions inline with the back button */}
+                {willShowBreadcrumbs && (
+                    <div className="flex justify-between w-full">
+                        <SceneBreadcrumbBackButton />
+                        {actions && <SceneActions className="shrink-0 ml-auto" />}
+                    </div>
+                )}
+                <div className="flex gap-2 [&_svg]:size-6 items-center w-full">
+                    <span
+                        className={buttonPrimitiveVariants({
+                            size: 'base',
+                            iconOnly: true,
+                            className: 'rounded-sm h-[var(--button-height-lg)]',
+                            inert: true,
+                        })}
+                        aria-hidden
+                    >
+                        {icon}
+                    </span>
+                    <SceneName
+                        name={name}
+                        isLoading={isLoading}
+                        onChange={onNameChange}
+                        canEdit={canEdit}
+                        forceEdit={forceEdit}
+                        renameDebounceMs={renameDebounceMs}
+                    />
+                </div>
+                {description !== null && (description || canEdit) && (
                     <div className="flex gap-2 [&_svg]:size-6 items-center w-full">
-                        <span
-                            className={buttonPrimitiveVariants({
-                                size: 'base',
-                                iconOnly: true,
-                                className: 'rounded-sm h-[var(--button-height-lg)]',
-                                inert: true,
-                            })}
-                            aria-hidden
-                        >
-                            {icon}
-                        </span>
-                        <SceneName
-                            name={name}
+                        <SceneDescription
+                            description={description}
+                            markdown={markdown}
                             isLoading={isLoading}
-                            onChange={onNameChange}
+                            onChange={onDescriptionChange}
                             canEdit={canEdit}
                             forceEdit={forceEdit}
                             renameDebounceMs={renameDebounceMs}
                         />
                     </div>
-                    {description !== null && (description || canEdit) && (
-                        <div className="flex gap-2 [&_svg]:size-6 items-center">
-                            <SceneDescription
-                                description={description}
-                                markdown={markdown}
-                                isLoading={isLoading}
-                                onChange={onDescriptionChange}
-                                canEdit={canEdit}
-                                forceEdit={forceEdit}
-                                renameDebounceMs={renameDebounceMs}
-                            />
-                        </div>
-                    )}
-                </div>
-                {docsURL && (
-                    <>
-                        <Link
-                            to={`${docsURL}?utm_medium=in-product&utm_campaign=scene-title-section-docs-link`}
-                            buttonProps={{ variant: 'panel', className: 'rounded-sm' }}
-                            tooltip={`View docs for ${resourceType.type}`}
-                            className="hidden @lg:block"
-                        >
-                            <IconDocument /> Read the docs
-                        </Link>
-                        <Link
-                            to={`${docsURL}?utm_medium=in-product&utm_campaign=scene-title-section-docs-link`}
-                            buttonProps={{ variant: 'panel', className: 'rounded-sm', size: 'lg' }}
-                            tooltip={`View docs for ${resourceType.type}`}
-                            className="@lg:hidden"
-                        >
-                            <IconDocument />
-                        </Link>
-                    </>
                 )}
-                {actions && <SceneActions className="order-first lg:order-last self-end lg:self-start" />}
             </div>
+            {/* If we're not showing breadcrumbs, we want to show the actions inline with the title */}
+            {!willShowBreadcrumbs && <div className="">{actions && <SceneActions className="shrink-0 ml-auto" />}</div>}
         </div>
     )
 }
