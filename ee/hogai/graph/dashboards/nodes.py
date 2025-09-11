@@ -171,57 +171,6 @@ class DashboardInsightCreationTaskExecutorNode(
         )
 
 
-# class DashboardTaskExecutorNode(
-#     GenericTaskExecutorNode[DashboardInsightSearchTaskExecutionState, PartialDashboardInsightSearchTaskExecutionState, DashboardSingleTaskResult]
-# ):
-#     """
-#     Task executor node specifically for dashboard creation workflows.
-#     """
-
-#     def __init__(self, team: Team, user: User, executor: Union[CompiledStateGraph, AssistantNode]):
-#         super().__init__(team, user, executor)
-
-#     def _create_task_executor_tool(
-#         self, executor: Union[CompiledStateGraph, AssistantNode]
-#     ) -> TaskExecutorTool[DashboardSingleTaskResult]:
-#         """Create the appropriate task executor tool based on executor type."""
-#         # This class should not be used directly - use specific task executors instead
-#         raise ValueError("Use InsightSearchTaskExecutorNode or InsightCreationTaskExecutorNode instead")
-
-#     def _get_node_name(self) -> AssistantNodeName:
-#         """Get the node name for this executor."""
-#         return AssistantNodeName.DASHBOARD_CREATOR
-
-#     def _create_final_response(
-#         self,
-#         task_results: list[DashboardSingleTaskResult],
-#         tool_call_id: str,
-#         task_execution_message_id: str,
-#         tasks: list[Any],
-#     ) -> PartialDashboardTaskExecutionState:
-#         """Create the final response after task execution."""
-#         final_completed_message = TaskExecutionMessage(id=task_execution_message_id, tasks=tasks.copy())
-
-#         return PartialDashboardTaskExecutionState(
-#             messages=[
-#                 final_completed_message,
-#                 AssistantToolCallMessage(
-#                     content=f"Completed {len(task_results)} dashboard tasks successfully.",
-#                     id=str(uuid.uuid4()),
-#                     tool_call_id=tool_call_id,
-#                 ),
-#             ],
-#             task_results=task_results,
-#             tasks=None,  # Reset tasks
-#         )
-
-#     def _create_empty_response(self, tool_call_id: str) -> PartialDashboardTaskExecutionState:
-#         """Create an empty response when no tasks are provided."""
-#         return PartialDashboardTaskExecutionState(
-#             messages=[AssistantToolCallMessage(content="No tasks to execute", tool_call_id=tool_call_id)]
-#         )
-
-
 class DashboardCreatorNode(AssistantNode):
     REASONING_MESSAGE = "Creating dashboard"
 
