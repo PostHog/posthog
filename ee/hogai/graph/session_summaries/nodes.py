@@ -103,15 +103,17 @@ class SessionSummarizationNode(AssistantNode):
     async def _generate_replay_filters(self, plain_text_query: str) -> MaxRecordingUniversalFilters | None:
         """Generates replay filters to get session ids by querying a compiled Universal filters graph."""
         from products.replay.backend.max_tools import SessionReplayFilterOptionsGraph
+        from products.replay.backend.prompts import GENERATE_FILTER_OPTIONS_PROMPT
 
         graph = SessionReplayFilterOptionsGraph(self._team, self._user).compile_full_graph()
         # Call with user's query
-        result = await graph.ainvoke(
-            {
-                "change": plain_text_query,
-                "current_filters": {},  # Empty state, as we need results from the query-to-filter
-            }
-        )
+        graph_context = {
+            "change": GENERATE_FILTER_OPTIONS_PROMPT.format(change=plain_text_query),
+            "output": None,
+            "tool_progress_messages": [],
+            "current_filters": {},
+        }
+        result = await graph.ainvoke(graph_context)
         if not result or not isinstance(result, dict) or not result.get("output"):
             self.logger.error(
                 f"Invalid result from filter options graph: {result}",

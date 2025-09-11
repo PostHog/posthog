@@ -265,3 +265,9 @@ Current filters: {current_filters}
 
 DO NOT CHANGE THE CURRENT FILTERS. ONLY ADD NEW FILTERS or update the existing filters.
 """.strip()
+
+GENERATE_FILTER_OPTIONS_PROMPT = """
+Goal: {change}
+
+ONLY ADD NEW FILTERS.
+""".strip()
