@@ -365,7 +365,6 @@ pub struct CheckpointManager {
     store_manager: Arc<StoreManager>,
 
     // Checkpoint export module - if populated, locally checkpointed partitions will be backed up remotely
-    // TODO(eli): unbox this, keep it on the stack if possible
     exporter: Option<Arc<CheckpointExporter>>,
 
     /// Cancellation token for the flush task
@@ -505,43 +504,50 @@ impl CheckpointManager {
 
                             // clone things that the worker thread will need references to
                             let cancel_worker_token = cancel_submit_loop_token.child_token();
-                            let is_checkpointing_worker = is_checkpointing.clone();
-                            let checkpoint_counters_worker = checkpoint_counters.clone();
 
                             // TODO: for now, we don't bother to track the handles of spawned workers
                             // because each worker represents one best-effort checkpoint attempt
-                            tokio::spawn(async move {
+                            let result = tokio::spawn(async move {
                                 tokio::select! {
                                     _ = cancel_worker_token.cancelled() => {
                                         info!(partition = partition_tag, "Checkpoint manager: inner submit loop shutting down");
+                                        Ok(None)
                                     }
 
                                     result = worker.checkpoint_partition() => {
-                                        info!(worker_task_id, partition = partition_tag, successful = result.is_ok(), "Checkpoint manager: checkpoint attempt completed");
+                                        let status = match &result {
+                                            &Ok(Some(_)) => "success",
+                                            &Ok(None) => "skipped",
+                                            &Err(_) => "error",
+                                        };
+                                        info!(worker_task_id, partition = partition_tag, result = status,
+                                            "Checkpoint manager: checkpoint attempt completed");
 
-                                        // release the in-flight lock regardless of outcome
-                                        {
-                                            let mut is_checkpointing_guard = is_checkpointing_worker.lock().await;
-                                            is_checkpointing_guard.remove(&partition);
-                                        }
-
-                                        // result is observed interally and errors shouldn't bubble up here
-                                        // so we only care if the export was successful and we need to
-                                        // increment the checkpoint counter
-                                        if let Ok(Some(_)) = result {
-                                            // NOTE: could race another checkpoint attempt on same partition between
-                                            //       is_checkpointing release and this call, but we also need to
-                                            //       maintain lock access ordering here. May need to consider
-                                            //       implementing these a single lock-wrapped object...
-                                            {
-                                                let mut counter_guard = checkpoint_counters_worker.lock().await;
-                                                let counter_for_partition = *counter_guard.get(&partition).unwrap_or(&0_u32);
-                                                counter_guard.insert(partition.clone(), counter_for_partition + 1);
-                                            }
-                                        }
+                                        result
                                     }
                                 }
                             });
+
+                            // release the in-flight lock regardless of outcome
+                            {
+                                let mut is_checkpointing_guard = is_checkpointing.lock().await;
+                                is_checkpointing_guard.remove(&partition);
+                            }
+
+                            // result is observed interally and errors shouldn't bubble up here
+                            // so we only care if the export was successful and we need to
+                            // increment the checkpoint counter
+                            if let Ok(Ok(Some(_))) = result.await {
+                                // NOTE: could race another checkpoint attempt on same partition between
+                                //       is_checkpointing release and this call, but we also need to
+                                //       maintain lock access ordering here. May need to consider
+                                //       implementing these a single lock-wrapped object...
+                                {
+                                    let mut counter_guard = checkpoint_counters.lock().await;
+                                    let counter_for_partition = *counter_guard.get(&partition).unwrap_or(&0_u32);
+                                    counter_guard.insert(partition.clone(), counter_for_partition + 1);
+                                }
+                            }
                         } // end partition loop
 
                         info!("Completed periodic checkpoint attempt for {} stores", store_count);
