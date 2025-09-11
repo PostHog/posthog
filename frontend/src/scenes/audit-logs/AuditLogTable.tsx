@@ -155,13 +155,7 @@ const ActivityDetailsSection = ({ logItem }: { logItem: HumanizedActivityLogItem
                           key: 'extended description',
                           label: 'Extended Description',
                           tooltip: 'Some activities have a more detailed description that is not shown when collapsed.',
-                          content: (
-                              <div>
-                                  {logItem.extendedDescription
-                                      ? logItem.extendedDescription
-                                      : 'This item has no extended description'}
-                              </div>
-                          ),
+                          content: <div>{logItem.extendedDescription}</div>,
                       }
                     : false,
                 {

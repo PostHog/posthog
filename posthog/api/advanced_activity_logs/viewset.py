@@ -1,6 +1,7 @@
 import json
+import hashlib
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
 from django.db.models import Q, QuerySet
@@ -84,6 +85,27 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             self._field_discovery = AdvancedActivityLogFieldDiscovery(self.organization.id)
         return self._field_discovery
 
+    def _make_filters_serializable(self, filters_data: dict) -> dict:
+        serializable_filters = {}
+        for key, value in filters_data.items():
+            if isinstance(value, list):
+                serializable_filters[key] = [str(v) if hasattr(v, "hex") else v for v in value]
+            else:
+                serializable_filters[key] = value
+        return serializable_filters
+
+    def _generate_export_filename(self, filters_data: dict, export_format: str) -> str:
+        filter_string = json.dumps(filters_data, sort_keys=True)
+        filter_hash = hashlib.md5(filter_string.encode()).hexdigest()[:6]
+
+        has_filters = any(filters_data.values())
+
+        current_date = datetime.now().strftime("%Y%m%d")
+        filename_base = (
+            f"activity_logs_{filter_hash}_{current_date}" if has_filters else f"activity_logs_all_{current_date}"
+        )
+        return filename_base
+
     def dangerously_get_queryset(self) -> QuerySet[ActivityLog]:
         include_organization_scoped = self.request.query_params.get("include_organization_scoped")
 
@@ -158,12 +180,17 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                     query_params[key] = str(value)
 
         try:
+            serializable_filters = self._make_filters_serializable(filters_serializer.validated_data)
+            filename = self._generate_export_filename(serializable_filters, export_format)
+
             exported_asset = ExportedAsset.objects.create(
                 team=self.team,
                 export_format=format_mapping[export_format],
                 export_context={
                     "path": f"/api/projects/{self.team_id}/advanced_activity_logs/?{urlencode(query_params)}",
                     "method": "GET",
+                    "filters": serializable_filters,
+                    "filename": filename,
                 },
                 created_by=request.user,
                 expires_after=now() + timedelta(days=7),
