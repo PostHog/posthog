@@ -21,7 +21,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                     dateFrom={filters.start_date}
                     dateTo={filters.end_date}
                     onChange={(start_date, end_date) => {
-                        setFilters({ start_date: start_date as string | null, end_date: end_date as string | null })
+                        setFilters({ start_date: start_date || undefined, end_date: end_date || undefined })
                     }}
                     placeholder="All time"
                     data-attr="audit-logs-date-filter"
@@ -31,7 +31,7 @@ export const BasicFiltersTab = (): JSX.Element => {
             <div>
                 <label className="block text-sm font-medium mb-1">User</label>
                 <LemonSelect
-                    value={filters.users[0] || null}
+                    value={filters.users?.[0] || null}
                     onChange={(user) => setFilters({ users: user ? [user] : [] })}
                     options={
                         availableFilters?.static_filters?.users?.map((u: any) => ({
@@ -48,7 +48,7 @@ export const BasicFiltersTab = (): JSX.Element => {
             <div>
                 <label className="block text-sm font-medium mb-1">Scope</label>
                 <LemonSelect
-                    value={filters.scopes[0] || null}
+                    value={filters.scopes?.[0] || null}
                     onChange={(scope) => setFilters({ scopes: scope ? [scope as ActivityScope] : [] })}
                     options={
                         availableFilters?.static_filters?.scopes?.map((s: any) => ({
@@ -65,7 +65,7 @@ export const BasicFiltersTab = (): JSX.Element => {
             <div>
                 <label className="block text-sm font-medium mb-1">Action</label>
                 <LemonSelect
-                    value={filters.activities[0] || null}
+                    value={filters.activities?.[0] || null}
                     onChange={(activity) => setFilters({ activities: activity ? [activity] : [] })}
                     options={
                         availableFilters?.static_filters?.activities?.map((a: any) => ({
