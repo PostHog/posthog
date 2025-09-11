@@ -126,6 +126,18 @@ class SessionSummarizationNode(AssistantNode):
         filters_data = result["output"]
         if not filters_data:
             return None
+        # Check if the output is a string (error message) instead of filter object
+        if isinstance(filters_data, str):
+            self.logger.exception(
+                f"Filter generation returned error message instead of filters: {filters_data}",
+                extra={
+                    "team_id": getattr(self._team, "id", "unknown"),
+                    "user_id": getattr(self._user, "id", "unknown"),
+                    "query": plain_text_query,
+                    "error_message": filters_data,
+                },
+            )
+            return None
         max_filters = cast(MaxRecordingUniversalFilters, filters_data)
         return max_filters
 
