@@ -11,6 +11,7 @@ import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { pollForResults } from '~/queries/query'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import {
+    AccessControlLevel,
     AccessControlResourceType,
     DashboardLayoutSize,
     InsightModel,
@@ -122,7 +123,11 @@ export async function getInsightWithRetry(
     initialDelay: number = 1200
 ): Promise<QueryBasedInsightModel | null> {
     // Check if user has access to this insight before making API calls
-    const canViewInsight = accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Viewer)
+    const canViewInsight = accessLevelSatisfied(
+        AccessControlResourceType.Insight,
+        insight.user_access_level,
+        AccessControlLevel.Viewer
+    )
 
     if (!canViewInsight) {
         // Return the insight as-is without making API calls - it should already have minimal data

@@ -104,6 +104,16 @@ export function InsightMeta({
         ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Editor)
         : false
 
+    // For dashboard-specific actions (remove from dashboard, change tile color), check dashboard permissions
+    const currentDashboard = dashboardId ? nameSortedDashboards.find((d) => d.id === dashboardId) : null
+    const canEditDashboard = currentDashboard?.user_access_level
+        ? accessLevelSatisfied(
+              AccessControlResourceType.Dashboard,
+              currentDashboard.user_access_level,
+              AccessControlLevel.Editor
+          )
+        : false
+
     const summary = useSummarizeInsight()(insight.query)
 
     // If user can't view the insight, show minimal interface
@@ -130,7 +140,6 @@ export function InsightMeta({
                 }
                 metaDetails={null}
                 samplingFactor={samplingFactor}
-                moreButtons={null}
             />
         )
     }
@@ -197,7 +206,7 @@ export function InsightMeta({
                     </LemonButton>
 
                     {/* Dashboard related */}
-                    {canEditInsight && (
+                    {canEditDashboard && (
                         <>
                             <LemonDivider />
                             {updateColor && (
@@ -254,27 +263,33 @@ export function InsightMeta({
                                     Move to
                                 </LemonButtonWithDropdown>
                             )}
-                            {removeFromDashboard ? (
+                            {removeFromDashboard && (
                                 <LemonButton status="danger" onClick={removeFromDashboard} fullWidth>
                                     Remove from dashboard
                                 </LemonButton>
-                            ) : (
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => {
-                                        void (async () => {
-                                            try {
-                                                await deleteWithUndo?.()
-                                            } catch (error: any) {
-                                                lemonToast.error(`Failed to delete insight meta: ${error.detail}`)
-                                            }
-                                        })()
-                                    }}
-                                    fullWidth
-                                >
-                                    Delete insight
-                                </LemonButton>
                             )}
+                        </>
+                    )}
+
+                    {/* Insight deletion - separate from dashboard actions */}
+                    {canEditInsight && !removeFromDashboard && deleteWithUndo && (
+                        <>
+                            <LemonDivider />
+                            <LemonButton
+                                status="danger"
+                                onClick={() => {
+                                    void (async () => {
+                                        try {
+                                            await deleteWithUndo?.()
+                                        } catch (error: any) {
+                                            lemonToast.error(`Failed to delete insight meta: ${error.detail}`)
+                                        }
+                                    })()
+                                }}
+                                fullWidth
+                            >
+                                Delete insight
+                            </LemonButton>
                         </>
                     )}
 
