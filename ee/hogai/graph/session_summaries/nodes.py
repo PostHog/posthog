@@ -101,47 +101,42 @@ class SessionSummarizationNode(AssistantNode):
         writer(("session_summarization_node", "messages", message))
 
     async def _generate_replay_filters(self, plain_text_query: str) -> MaxRecordingUniversalFilters | None:
-        """Generates replay filters to get session ids by querying a compiled Universal filters graph."""
-        from products.replay.backend.max_tools import SessionReplayFilterOptionsGraph
-        from products.replay.backend.prompts import GENERATE_FILTER_OPTIONS_PROMPT
+        """Generates replay filters to get session ids by directly using SearchSessionRecordingsTool."""
+        from products.replay.backend.max_tools import SearchSessionRecordingsTool
 
-        graph = SessionReplayFilterOptionsGraph(self._team, self._user).compile_full_graph()
-        # Call with user's query
-        graph_context = {
-            "change": GENERATE_FILTER_OPTIONS_PROMPT.format(change=plain_text_query),
-            "output": None,
-            "tool_progress_messages": [],
-            "current_filters": {},
-        }
-        result = await graph.ainvoke(graph_context)
-        if not result or not isinstance(result, dict) or not result.get("output"):
-            self.logger.error(
-                f"Invalid result from filter options graph: {result}",
-                extra={
-                    "team_id": getattr(self._team, "id", "unknown"),
-                    "user_id": getattr(self._user, "id", "unknown"),
-                    "result": result,
-                },
-            )
-            return None
-        # Extract the generated filters
-        filters_data = result["output"]
-        if not filters_data:
-            return None
-        # Check if the output is a string (error message) instead of filter object
-        if isinstance(filters_data, str):
+        # Create the tool instance
+        tool = SearchSessionRecordingsTool(team=self._team, user=self._user)
+        # Set up minimal context for the tool (no current_filters for fresh generation)
+        tool._context = {"current_filters": {}}
+        try:
+            # Call the tool's implementation directly
+            content, filters = await tool._arun_impl(change=plain_text_query)
+            # Check if filters were generated successfully
+            if not filters:
+                self.logger.error(
+                    f"Filter generation failed: {filters}",
+                    extra={
+                        "team_id": getattr(self._team, "id", "unknown"),
+                        "user_id": getattr(self._user, "id", "unknown"),
+                        "query": plain_text_query,
+                        "content": content,
+                    },
+                )
+                return None
+            if filters is str:
+                # TODO: Understand how to return the clarificationquestion to the user
+                pass
+            return filters
+        except Exception as e:
             self.logger.exception(
-                f"Filter generation returned error message instead of filters: {filters_data}",
+                f"Error generating replay filters: {e}",
                 extra={
                     "team_id": getattr(self._team, "id", "unknown"),
                     "user_id": getattr(self._user, "id", "unknown"),
                     "query": plain_text_query,
-                    "error_message": filters_data,
                 },
             )
             return None
-        max_filters = cast(MaxRecordingUniversalFilters, filters_data)
-        return max_filters
 
     def _convert_max_filters_to_recordings_query(self, replay_filters: MaxRecordingUniversalFilters) -> RecordingsQuery:
         """Convert Max-generated filters into recordings query format"""
