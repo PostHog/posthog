@@ -6297,9 +6297,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         instance = FeatureFlag.objects.get(id=response.json()["id"])
         self.assertEqual(instance.key, "no-usage-dashboard")
         self.assertEqual(instance.name, "")
-        flag_id = response.json()["id"]
-        feature_flag = FeatureFlag.objects.get(id=flag_id)
-        assert feature_flag.usage_dashboard is None, "Usage dashboard should not be created"
+        assert instance.usage_dashboard is None, "Usage dashboard should not be created"
 
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
