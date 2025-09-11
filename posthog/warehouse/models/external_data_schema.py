@@ -10,6 +10,7 @@ from dateutil import parser
 from django_deprecate_fields import deprecate_field
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
@@ -252,8 +253,11 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     def delete_table(self):
         if self.table is not None:
-            client = get_s3_client()
-            client.delete(f"{settings.BUCKET_URL}/{self.folder_path()}", recursive=True)
+            try:
+                client = get_s3_client()
+                client.delete(f"{settings.BUCKET_URL}/{self.folder_path()}", recursive=True)
+            except Exception as e:
+                capture_exception(e)
 
             self.table.soft_delete()
             self.table_id = None
