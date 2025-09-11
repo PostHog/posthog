@@ -227,20 +227,25 @@ const JsonDiffViewer = ({ field, before, after }: JsonDiffViewerProps): JSX.Elem
     return (
         <div className="border rounded bg-surface-primary">
             <div className="font-medium text-sm p-2">{field}</div>
-            <div className="h-40">
-                <MonacoDiffEditor
-                    original={beforeStr}
-                    value={afterStr}
-                    modified={afterStr}
-                    language="json"
-                    options={{
-                        readOnly: true,
-                        minimap: { enabled: false },
-                        scrollBeyondLastLine: false,
-                        renderSideBySide: true,
-                    }}
-                />
-            </div>
+            <MonacoDiffEditor
+                original={beforeStr}
+                value={afterStr}
+                modified={afterStr}
+                language="json"
+                options={{
+                    readOnly: true,
+                    minimap: { enabled: false },
+                    scrollBeyondLastLine: false,
+                    renderSideBySide: true,
+                    hideUnchangedRegions: {
+                        enabled: true,
+                        contextLineCount: 3,
+                        minimumLineCount: 3,
+                        revealLineCount: 20,
+                    },
+                    diffAlgorithm: 'advanced',
+                }}
+            />
         </div>
     )
 }
