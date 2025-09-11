@@ -1,6 +1,6 @@
 import dataclasses
 from enum import Enum
-from math import ceil
+from math import floor
 from typing import Any
 
 import yaml
@@ -437,7 +437,8 @@ def combine_patterns_with_events_context(
         )
         combined_patterns.append(enriched_pattern)
     # If not enough patterns were properly enriched - fail the activity
-    minimum_expected_patterns_count = ceil(len(patterns.patterns) * FAILED_PATTERNS_ENRICHMENT_MIN_RATIO)
+    # Using `floor`` as for small numbers of patterns - >30% could be filtered as "non-blocking only"
+    minimum_expected_patterns_count = floor(len(patterns.patterns) * FAILED_PATTERNS_ENRICHMENT_MIN_RATIO)
     successful_patterns_count = len(combined_patterns) + non_failed_empty_patterns_count
     failed_patterns_count = len(patterns.patterns) - successful_patterns_count
     if minimum_expected_patterns_count > successful_patterns_count:
