@@ -276,7 +276,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     // This allows flags to filter on distinct_id even when no other person properties exist
     all_person_properties.insert(
         "distinct_id".to_string(),
-        Value::String(distinct_id.clone()),
+        Value::String(distinct_id),
     );
 
     flag_evaluation_state.set_person_properties(all_person_properties);
