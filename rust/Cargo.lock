@@ -1644,6 +1644,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-compression"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "flate2",
+ "thiserror 2.0.12",
+]
+
+[[package]]
 name = "common-cookieless"
 version = "0.0.1"
 dependencies = [
@@ -1948,9 +1957,9 @@ name = "cyclotron-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "common-compression",
  "common-metrics",
  "csv",
- "flate2",
  "futures",
  "hex",
  "serde",
@@ -2483,6 +2492,7 @@ dependencies = [
  "bytes",
  "chrono",
  "common-alloc",
+ "common-compression",
  "common-cookieless",
  "common-database",
  "common-geoip",
@@ -2491,7 +2501,6 @@ dependencies = [
  "common-types",
  "dateparser",
  "envconfig",
- "flate2",
  "futures",
  "health",
  "json5",
