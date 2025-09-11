@@ -6,6 +6,7 @@ import { LemonButton, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
 import { IconRecordingClip } from 'lib/lemon-ui/icons'
 import { colonDelimitedDuration } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -119,6 +120,7 @@ export function ClipOverlay(): JSX.Element | null {
                 disabledReason={
                     !duration || duration < 5 || duration > 15 ? 'Duration must be between 5 and 15 seconds' : undefined
                 }
+                data-attr="replay-clip-create"
             >
                 Create clip
             </LemonButton>
@@ -126,7 +128,7 @@ export function ClipOverlay(): JSX.Element | null {
     )
 }
 
-export function ClipRecording(): JSX.Element {
+export function ClipRecording({ className }: { className?: string }): JSX.Element {
     const { showingClipParams, currentPlayerTime, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { setPause, setShowingClipParams } = useActions(sessionRecordingPlayerLogic)
 
@@ -136,7 +138,8 @@ export function ClipRecording(): JSX.Element {
         <LemonButton
             size="xsmall"
             active={showingClipParams}
-            onClick={() => {
+            onClick={(e) => {
+                e.stopPropagation()
                 setPause()
                 setShowingClipParams(!showingClipParams)
             }}
@@ -150,7 +153,7 @@ export function ClipRecording(): JSX.Element {
                     </LemonTag>
                 </div>
             }
-            icon={<IconRecordingClip className="text-xl" />}
+            icon={<IconRecordingClip className={cn('text-xl', className)} />}
             data-attr="replay-clip"
             tooltipPlacement="top"
         />

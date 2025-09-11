@@ -48,6 +48,24 @@ const cdpHttpRequestTiming = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 10000],
 })
 
+export async function cdpTrackedFetch({
+    url,
+    fetchParams,
+    templateId,
+}: {
+    url: string
+    fetchParams: FetchOptions
+    templateId: string
+}): Promise<{ fetchError: Error | null; fetchResponse: FetchResponse | null; fetchDuration: number }> {
+    const start = performance.now()
+    const [fetchError, fetchResponse] = await tryCatch(async () => await fetch(url, fetchParams))
+    const fetchDuration = performance.now() - start
+    cdpHttpRequestTiming.observe(fetchDuration)
+    cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error', template_id: templateId })
+
+    return { fetchError, fetchResponse, fetchDuration }
+}
+
 export const RETRIABLE_STATUS_CODES = [
     408, // Request Timeout
     429, // Too Many Requests (rate limiting)
@@ -603,15 +621,15 @@ export class HogExecutorService {
             fetchParams.body = params.body
         }
 
-        const start = performance.now()
-        const [fetchError, fetchResponse] = await tryCatch(async () => await fetch(params.url, fetchParams))
-        const duration = performance.now() - start
-        cdpHttpRequestTiming.observe(duration)
-        cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error', template_id: templateId })
+        const { fetchError, fetchResponse, fetchDuration } = await cdpTrackedFetch({
+            url: params.url,
+            fetchParams,
+            templateId,
+        })
 
         result.invocation.state.timings.push({
             kind: 'async_function',
-            duration_ms: duration,
+            duration_ms: fetchDuration,
         })
 
         result.invocation.state.attempts++

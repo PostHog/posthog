@@ -5,7 +5,10 @@ import React, { useContext } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 
+import { accessLevelSatisfied, resourceTypeToString } from 'lib/components/AccessControlAction'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
 import { Link } from '../Link'
@@ -79,6 +82,14 @@ export interface LemonButtonPropsBase
     tooltipArrowOffset?: number
     /** Whether to force the tooltip to be visible. */
     tooltipForceMount?: boolean
+    /** Whether to stop event propagation on click */
+    stopPropagation?: boolean
+    /** Access control props for automatic permission checking */
+    accessControl?: {
+        resourceType: AccessControlResourceType
+        minAccessLevel: AccessControlLevel
+        userAccessLevel?: AccessControlLevel
+    }
 }
 
 export type SideAction = Pick<
@@ -151,6 +162,8 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 buttonWrapper,
                 tooltipDocLink,
                 tooltipForceMount,
+                stopPropagation,
+                accessControl,
                 ...buttonProps
             },
             ref
@@ -189,6 +202,22 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             }
             if (within3000PageHeader && parentPopoverLevel === -1) {
                 size = 'small' // Ensure that buttons in the page header are small (but NOT inside dropdowns!)
+            }
+
+            // Handle access control
+            if (accessControl) {
+                const { userAccessLevel, minAccessLevel, resourceType } = accessControl
+                const hasAccess = userAccessLevel
+                    ? accessLevelSatisfied(resourceType, userAccessLevel, minAccessLevel)
+                    : true
+                if (!hasAccess) {
+                    disabled = true
+                    if (!disabledReason) {
+                        disabledReason = `You don't have sufficient permissions for this ${resourceTypeToString(
+                            resourceType
+                        )}. Your access level (${userAccessLevel}) doesn't meet the required level (${minAccessLevel}).`
+                    }
+                }
             }
 
             let tooltipContent: TooltipProps['title']
@@ -238,7 +267,16 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         truncate && 'LemonButton--truncate',
                         className
                     )}
-                    onClick={!disabled ? onClick : undefined}
+                    onClick={
+                        !disabled
+                            ? (event) => {
+                                  if (stopPropagation) {
+                                      event.stopPropagation()
+                                  }
+                                  onClick?.(event)
+                              }
+                            : undefined
+                    }
                     // We are using the ARIA disabled instead of native HTML because of this:
                     // https://css-tricks.com/making-disabled-buttons-more-inclusive/
                     aria-disabled={disabled}

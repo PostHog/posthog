@@ -9,6 +9,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
+import { StepSchemaErrors } from './components/StepSchemaErrors'
 
 export function StepRandomCohortBranchConfiguration({
     node,
@@ -80,6 +81,8 @@ export function StepRandomCohortBranchConfiguration({
 
     return (
         <>
+            <StepSchemaErrors />
+
             {cohorts.map((cohort, index) => (
                 <div key={index} className="flex flex-col gap-2 p-2 rounded border">
                     <div className="flex justify-between items-center">

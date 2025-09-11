@@ -197,7 +197,11 @@ export const formatHogInput = async (
     return bytecode
 }
 
-const formatLiquidInput = (value: unknown, globals: HogFunctionInvocationGlobalsWithInputs, key?: string): any => {
+export const formatLiquidInput = (
+    value: unknown,
+    globals: HogFunctionInvocationGlobalsWithInputs,
+    key?: string
+): any => {
     if (value === null || value === undefined) {
         return value
     }

@@ -1,6 +1,7 @@
 // Loads custom icons (some icons may come from a third-party library)
 import { ImgHTMLAttributes } from 'react'
 
+import bigLeaguesHog from 'public/hedgehog/big-leagues.png'
 import blushingHog from 'public/hedgehog/blushing-hog.png'
 import builderHog1 from 'public/hedgehog/builder-hog-01.png'
 import builderHog2 from 'public/hedgehog/builder-hog-02.png'
@@ -172,4 +173,7 @@ export const ClimberHog2 = (props: HedgehogProps): JSX.Element => {
 }
 export const YCHog = (props: HedgehogProps): JSX.Element => {
     return <RectangularHedgehog src={ycHog} width={1134} height={651} {...props} />
+}
+export const BigLeaguesHog = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={bigLeaguesHog} {...props} />
 }

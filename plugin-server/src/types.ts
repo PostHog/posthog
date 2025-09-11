@@ -75,8 +75,6 @@ export enum PluginServerMode {
     ingestion_v2 = 'ingestion-v2',
     local_cdp = 'local-cdp',
     async_webhooks = 'async-webhooks',
-    recordings_blob_ingestion = 'recordings-blob-ingestion',
-    recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
     recordings_blob_ingestion_v2 = 'recordings-blob-ingestion-v2',
     recordings_blob_ingestion_v2_overflow = 'recordings-blob-ingestion-v2-overflow',
     cdp_processed_events = 'cdp-processed-events',
@@ -424,6 +422,9 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     COOKIELESS_REDIS_HOST: string
     COOKIELESS_REDIS_PORT: number
 
+    // Timestamp comparison logging (0.0 = disabled, 1.0 = 100% sampling)
+    TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: number
+
     SESSION_RECORDING_MAX_BATCH_SIZE_KB: number
     SESSION_RECORDING_MAX_BATCH_AGE_MS: number
     SESSION_RECORDING_V2_S3_BUCKET: string
@@ -513,8 +514,6 @@ export interface PluginServerCapabilities {
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
     processAsyncWebhooksHandlers?: boolean
-    sessionRecordingBlobIngestion?: boolean
-    sessionRecordingBlobOverflowIngestion?: boolean
     sessionRecordingBlobIngestionV2?: boolean
     sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean
@@ -1344,15 +1343,23 @@ export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
     token?: string
 }
 
+export interface EventHeaders {
+    token?: string
+    distinct_id?: string
+    timestamp?: string
+}
+
 export interface IncomingEvent {
     message: Message
     event: PipelineEvent
+    headers?: EventHeaders
 }
 
 export interface IncomingEventWithTeam {
     message: Message
     event: PipelineEvent
     team: Team
+    headers: EventHeaders
 }
 
 export type RedisPool = GenericPool<Redis>

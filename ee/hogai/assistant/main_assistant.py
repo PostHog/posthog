@@ -160,6 +160,7 @@ class MainAssistant(BaseAssistant):
                 "prompt": self._latest_message.content if self._latest_message else None,
                 "output": output,
                 "response": visualization_response,
+                "is_new_conversation": self._is_new_conversation,
             },
         )
 

@@ -74,10 +74,27 @@ export function CampaignsTable(): JSX.Element {
             key: 'name',
             sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
             render: (_, item) => {
-                return <LemonTableLink to={urls.messagingCampaign(item.id)} title={item.name} />
+                return (
+                    <LemonTableLink
+                        to={urls.messagingCampaign(item.id)}
+                        title={item.name}
+                        description={item.description}
+                    />
+                )
             },
         },
 
+        {
+            title: 'Trigger',
+            width: 0,
+            render: (_, item) => {
+                return (
+                    <Link to={urls.messagingCampaign(item.id, 'workflow') + '?node=trigger_node'}>
+                        <LemonTag type="default">{capitalizeFirstLetter(item.trigger?.type ?? 'unknown')}</LemonTag>
+                    </Link>
+                )
+            },
+        },
         {
             title: 'Actions',
             width: 0,
@@ -153,7 +170,7 @@ export function CampaignsTable(): JSX.Element {
                 dataSource={campaigns}
                 loading={campaignsLoading}
                 columns={columns}
-                defaultSorting={{ columnKey: 'status', order: -1 }}
+                defaultSorting={{ columnKey: 'status', order: 1 }}
             />
         </div>
     )

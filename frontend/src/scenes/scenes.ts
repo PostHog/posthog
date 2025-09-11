@@ -42,6 +42,11 @@ export const preloadedScenes: Record<string, SceneExport> = {
 }
 
 export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
+    [Scene.AdvancedActivityLogs]: {
+        projectBased: true,
+        organizationBased: false,
+        name: 'Advanced activity logs',
+    },
     [Scene.AsyncMigrations]: { instanceLevel: true },
     [Scene.BillingAuthorizationStatus]: {
         hideProjectNotice: true,
@@ -156,7 +161,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Login]: { onlyUnauthenticated: true },
     [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw', hideProjectNotice: true },
     [Scene.MoveToPostHogCloud]: { name: 'Move to PostHog Cloud', hideProjectNotice: true },
-    [Scene.NewTab]: { projectBased: true, name: 'New tab' },
+    [Scene.NewTab]: { projectBased: true, name: 'New tab', hideProjectNotice: true, layout: 'app-raw' },
     [Scene.Notebook]: {
         projectBased: true,
         hideProjectNotice: true,
@@ -338,6 +343,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/web-analytics',
     },
+    [Scene.EmbeddedAnalytics]: {
+        projectBased: true,
+        name: 'Embedded analytics',
+        layout: 'app-container',
+    },
     [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },
     ...productConfiguration,
 }
@@ -444,6 +454,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
     [urls.webAnalyticsMarketing()]: [Scene.WebAnalytics, 'webAnalyticsMarketing'],
     [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
+    [urls.embeddedAnalytics()]: [Scene.EmbeddedAnalytics, 'embeddedAnalytics'],
     [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
     [urls.marketingAnalytics()]: [Scene.DataManagement, 'marketingAnalytics'],
@@ -543,6 +554,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.canvas()]: [Scene.Canvas, 'canvas'],
     [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
+    [urls.advancedActivityLogs()]: [Scene.AdvancedActivityLogs, 'advancedActivityLogs'],
     [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
     [urls.links()]: [Scene.Links, 'links'],
     [urls.link(':id')]: [Scene.Link, 'link'],

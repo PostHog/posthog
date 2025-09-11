@@ -752,6 +752,7 @@ class InsightSearchNode(AssistantNode):
                 plan=f"Showing existing insight: {insight_name}",
                 answer=query_obj,
                 id=str(uuid4()),
+                short_id=insight["short_id"],
             )
 
             return visualization_message

@@ -11,7 +11,7 @@ from posthog.models.utils import UUIDTModel
 from posthog.session_recordings.models.metadata import RecordingMatchingEvents, RecordingMetadata
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents, ttl_days
-from posthog.tasks.tasks import ee_persist_single_recording
+from posthog.tasks.tasks import ee_persist_single_recording_v2
 
 
 class SessionRecording(UUIDTModel):
@@ -101,6 +101,7 @@ class SessionRecording(UUIDTModel):
             self.console_log_count = metadata["console_log_count"]
             self.console_warn_count = metadata["console_warn_count"]
             self.console_error_count = metadata["console_error_count"]
+            self.retention_period_days = metadata["retention_period_days"]
 
         return True
 
@@ -201,6 +202,7 @@ class SessionRecording(UUIDTModel):
             recording.set_start_url_from_urls(ch_recording.get("urls", None), ch_recording.get("first_url", None))
             recording.ongoing = bool(ch_recording.get("ongoing", False))
             recording.activity_score = ch_recording.get("activity_score", None)
+            recording.retention_period_days = ch_recording.get("retention_period_days", None)
 
             recordings.append(recording)
 
@@ -218,4 +220,4 @@ class SessionRecording(UUIDTModel):
 @mutable_receiver(models.signals.post_save, sender=SessionRecording)
 def attempt_persist_recording(sender, instance: SessionRecording, created: bool, **kwargs):
     if created:
-        ee_persist_single_recording.delay(instance.session_id, instance.team_id)
+        ee_persist_single_recording_v2.delay(instance.session_id, instance.team_id)
