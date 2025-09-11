@@ -38,7 +38,7 @@ const EmbeddedQueryTileItem = ({ tile }: { tile: EmbeddedQueryTile }): JSX.Eleme
                 </div>
             )}
 
-            <Query query={query} readOnly={true} />
+            <Query key={`${tile.tileId}-${JSON.stringify(query.chartSettings?.seriesBreakdownColumn)}`} query={query} readOnly={true} />
         </div>
     )
 }
