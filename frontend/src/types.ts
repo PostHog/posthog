@@ -112,6 +112,7 @@ export enum AvailableFeature {
     REPLAY_DOM_EXPLORER = 'replay_dom_explorer',
     WORKS_WITH_POSTHOG_JS = 'works_with_posthog_js',
     REPLAY_AUTOMATIC_PLAYLISTS = 'replay_automatic_playlists',
+    MOBILE_REPLAY = 'mobile_replay',
     GROUP_ANALYTICS = 'group_analytics',
     SURVEYS_UNLIMITED_SURVEYS = 'surveys_unlimited_surveys',
     SURVEYS_ALL_QUESTION_TYPES = 'surveys_all_question_types',
@@ -218,6 +219,7 @@ export enum ProductKey {
     PERSONS = 'persons',
     SURVEYS = 'surveys',
     SESSION_REPLAY = 'session_replay',
+    MOBILE_REPLAY = 'mobile_replay',
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
@@ -1179,6 +1181,7 @@ export interface SessionPlayerData {
     end: Dayjs | null
     fullyLoaded: boolean
     sessionRecordingId: SessionRecordingId
+    sessionRetentionPeriodDays: number | null
 }
 
 export enum SessionRecordingUsageType {
@@ -1682,6 +1685,8 @@ export interface SessionRecordingType {
      * calculated on the backend so that we can sort by it, definition may change over time
      */
     activity_score?: number
+    /** retention period for this recording */
+    retention_period_days?: number
 }
 
 export interface SessionRecordingUpdateType {
@@ -1848,6 +1853,7 @@ export type BillingFeatureType = {
     } | null
     icon_key?: string | null
     entitlement_only?: boolean
+    is_plan_default?: boolean
     type?: 'primary' | 'secondary' | null
 }
 
@@ -1898,7 +1904,7 @@ export interface BillingProductV2Type {
     addons: BillingProductV2AddonType[]
     // addons-only: if this addon is included with the base product and not subscribed individually. for backwards compatibility.
     included_with_main_product?: boolean
-    trial?: BillingTrialType
+    trial?: BillingTrialType | null
     legacy_product?: boolean | null
 }
 
@@ -1928,9 +1934,14 @@ export interface BillingProductV2AddonType {
     free_allocation?: number | null
     percentage_usage?: number
     features: BillingFeatureType[]
-    included_if?: 'no_active_subscription' | 'has_subscription' | null
+    included_if?:
+        | 'no_active_subscription'
+        | 'has_subscription'
+        | 'no_active_parent_subscription'
+        | 'has_parent_subscription'
+        | null
     usage_limit?: number | null
-    trial?: BillingTrialType
+    trial?: BillingTrialType | null
     legacy_product?: boolean | null
 }
 export interface BillingType {
@@ -2004,7 +2015,12 @@ export interface BillingPlanType {
     current_plan?: boolean | null
     tiers?: BillingTierType[] | null
     unit_amount_usd: string | null
-    included_if?: 'no_active_subscription' | 'has_subscription' | null
+    included_if?:
+        | 'no_active_subscription'
+        | 'has_subscription'
+        | 'no_active_parent_subscription'
+        | 'has_parent_subscription'
+        | null
     initial_billing_limit?: number | null
     contact_support: boolean | null
 }
