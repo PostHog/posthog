@@ -79,7 +79,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                 />
             )}
             {newSceneLayout && (
-                <div className="mb-2">
+                <div className="mb-2 -ml-[var(--button-padding-x-lg)]">
                     <SceneBreadcrumbBackButton />
                 </div>
             )}
