@@ -425,6 +425,9 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 actions.setFlagKeysLoading(false)
             }
         },
+        resetAffectedUsers: () => {
+            // actions.setAffectedUsers(0, values.totalUsers ?? undefined)
+        },
     })),
     selectors({
         // Get the appropriate groups based on isSuper
