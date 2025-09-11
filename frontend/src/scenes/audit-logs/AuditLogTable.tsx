@@ -43,7 +43,7 @@ export function AuditLogTableRow({ logItem }: AuditLogTableRowProps): JSX.Elemen
                 data-attr="audit-log-row"
             >
                 <div className="col-span-4">
-                    <div className="truncate">
+                    <div className="truncate [&_div]:inline [&_div]:mr-1">
                         {typeof logItem.description === 'string'
                             ? logItem.description
                             : logItem.description || 'No description'}
@@ -63,11 +63,11 @@ export function AuditLogTableRow({ logItem }: AuditLogTableRowProps): JSX.Elemen
                 </div>
 
                 <div className="col-span-2">
-                    <span className="font-medium capitalize">{unprocessed?.activity || 'Unknown'}</span>
+                    <span className="capitalize">{unprocessed?.activity || 'Unknown'}</span>
                 </div>
 
                 <div className="col-span-2">
-                    <span className="inline-block px-2 py-1 bg-accent-3000 rounded text-xs font-medium">
+                    <span className="inline-block px-2 py-1 bg-accent-3000 rounded">
                         {unprocessed?.scope ? humanizeScope(unprocessed.scope, true) : 'Unknown'}
                     </span>
                 </div>
@@ -103,14 +103,16 @@ export function AuditLogTableRow({ logItem }: AuditLogTableRowProps): JSX.Elemen
                                                 <div className="text-xs font-medium text-muted-alt uppercase tracking-wider mb-1">
                                                     Description
                                                 </div>
-                                                <div className="text-sm  text-default">{logItem.description}</div>
+                                                <div className="text-sm text-default [&_div]:inline [&_div]:mr-1">
+                                                    {logItem.description}
+                                                </div>
                                             </div>
                                             {logItem.extendedDescription && (
                                                 <div>
                                                     <div className="text-xs font-medium text-muted-alt uppercase tracking-wider mb-1">
                                                         Extended Description
                                                     </div>
-                                                    <div className="text-sm  text-default">
+                                                    <div className="text-sm text-default [&_div]:inline [&_div]:mr-1">
                                                         {logItem.extendedDescription}
                                                     </div>
                                                 </div>
@@ -155,13 +157,7 @@ const ActivityDetailsSection = ({ logItem }: { logItem: HumanizedActivityLogItem
                           key: 'extended description',
                           label: 'Extended Description',
                           tooltip: 'Some activities have a more detailed description that is not shown when collapsed.',
-                          content: (
-                              <div>
-                                  {logItem.extendedDescription
-                                      ? logItem.extendedDescription
-                                      : 'This item has no extended description'}
-                              </div>
-                          ),
+                          content: <div className="[&_div]:inline [&_div]:mr-1">{logItem.extendedDescription}</div>,
                       }
                     : false,
                 {
@@ -233,20 +229,25 @@ const JsonDiffViewer = ({ field, before, after }: JsonDiffViewerProps): JSX.Elem
     return (
         <div className="border rounded bg-surface-primary">
             <div className="font-medium text-sm p-2">{field}</div>
-            <div className="h-40">
-                <MonacoDiffEditor
-                    original={beforeStr}
-                    value={afterStr}
-                    modified={afterStr}
-                    language="json"
-                    options={{
-                        readOnly: true,
-                        minimap: { enabled: false },
-                        scrollBeyondLastLine: false,
-                        renderSideBySide: true,
-                    }}
-                />
-            </div>
+            <MonacoDiffEditor
+                original={beforeStr}
+                value={afterStr}
+                modified={afterStr}
+                language="json"
+                options={{
+                    readOnly: true,
+                    minimap: { enabled: false },
+                    scrollBeyondLastLine: false,
+                    renderSideBySide: true,
+                    hideUnchangedRegions: {
+                        enabled: true,
+                        contextLineCount: 3,
+                        minimumLineCount: 3,
+                        revealLineCount: 20,
+                    },
+                    diffAlgorithm: 'advanced',
+                }}
+            />
         </div>
     )
 }
