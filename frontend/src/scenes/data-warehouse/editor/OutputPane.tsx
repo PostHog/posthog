@@ -273,6 +273,7 @@ export function OutputPane(): JSX.Element {
         showLegacyFilters,
         localStorageResponse,
         queryInput,
+        dataLogicKey,
     } = useValues(multitabEditorLogic)
     const { saveAsInsight, updateInsight, setSourceQuery, runQuery, shareTab } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
@@ -624,7 +625,11 @@ export function OutputPane(): JSX.Element {
                     {response && !responseError ? <LoadPreviewText localResponse={localStorageResponse} /> : <></>}
                 </div>
                 <div className="flex items-center gap-4">
-                    {featureFlags[FEATURE_FLAGS.QUERY_EXECUTION_DETAILS] ? <QueryExecutionDetails /> : <ElapsedTime />}
+                    {featureFlags[FEATURE_FLAGS.QUERY_EXECUTION_DETAILS] ? (
+                        <QueryExecutionDetails dataNodeLogicKey={dataLogicKey} />
+                    ) : (
+                        <ElapsedTime />
+                    )}
                 </div>
             </div>
             <RowDetailsModal

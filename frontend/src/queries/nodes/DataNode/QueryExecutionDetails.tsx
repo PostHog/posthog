@@ -10,9 +10,14 @@ import { humanFriendlyMilliseconds, humanizeBytes } from '~/lib/utils'
 
 import { dataNodeLogic } from './dataNodeLogic'
 
-export function QueryExecutionDetails(): JSX.Element | null {
-    const { queryLog, queryId, queryLogLoading, queryLogQueryId } = useValues(dataNodeLogic)
-    const { loadQueryLog } = useActions(dataNodeLogic)
+interface QueryExecutionDetailsProps {
+    dataNodeLogicKey?: string
+}
+
+export function QueryExecutionDetails({ dataNodeLogicKey }: QueryExecutionDetailsProps): JSX.Element | null {
+    const logic = dataNodeLogicKey ? dataNodeLogic({ key: dataNodeLogicKey, query: {} as any }) : dataNodeLogic
+    const { queryLog, queryId, queryLogLoading, queryLogQueryId } = useValues(logic)
+    const { loadQueryLog } = useActions(logic)
 
     const [popoverVisible, setPopoverVisible] = useState(false)
 
