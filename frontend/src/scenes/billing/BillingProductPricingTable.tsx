@@ -13,6 +13,7 @@ import {
 } from '~/types'
 
 import { getTierDescription } from './BillingProduct'
+import { isProductVariantPrimary } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 
@@ -135,28 +136,26 @@ export const BillingProductPricingTable = ({
                           ],
                       }
                       // take the tier.current_amount_usd and add it to the same tier level for all the addons
-                      const totalForTier =
-                          product.type === 'session_replay'
-                              ? parseFloat(tier.current_amount_usd || '0')
-                              : parseFloat(tier.current_amount_usd || '') +
-                                ('addons' in product
-                                    ? product.addons?.reduce(
-                                          (acc: number, addon: BillingProductV2AddonType) =>
-                                              acc + parseFloat(addon.tiers?.[i]?.current_amount_usd || ''),
-                                          0
-                                      ) || 0
-                                    : 0)
-                      const projectedTotalForTier =
-                          product.type === 'session_replay'
-                              ? parseFloat(tier.projected_amount_usd || '0')
-                              : (parseFloat(tier.projected_amount_usd || '') || 0) +
-                                ('addons' in product
-                                    ? product.addons?.reduce(
-                                          (acc: number, addon: BillingProductV2AddonType) =>
-                                              acc + (parseFloat(addon.tiers?.[i]?.projected_amount_usd || '') || 0),
-                                          0
-                                      ) || 0
-                                    : 0)
+                      const totalForTier = isProductVariantPrimary(product.type)
+                          ? parseFloat(tier.current_amount_usd || '0')
+                          : parseFloat(tier.current_amount_usd || '') +
+                            ('addons' in product
+                                ? product.addons?.reduce(
+                                      (acc: number, addon: BillingProductV2AddonType) =>
+                                          acc + parseFloat(addon.tiers?.[i]?.current_amount_usd || ''),
+                                      0
+                                  ) || 0
+                                : 0)
+                      const projectedTotalForTier = isProductVariantPrimary(product.type)
+                          ? parseFloat(tier.projected_amount_usd || '0')
+                          : (parseFloat(tier.projected_amount_usd || '') || 0) +
+                            ('addons' in product
+                                ? product.addons?.reduce(
+                                      (acc: number, addon: BillingProductV2AddonType) =>
+                                          acc + (parseFloat(addon.tiers?.[i]?.projected_amount_usd || '') || 0),
+                                      0
+                                  ) || 0
+                                : 0)
 
                       const tierData = {
                           volume: product.tiers // this is silly because we know there are tiers since we check above, but typescript doesn't
@@ -214,7 +213,7 @@ export const BillingProductPricingTable = ({
 
     return (
         <div className="pl-16 pb-8">
-            {(product.tiered || product.type === 'mobile_replay') && tableTierData ? (
+            {product.tiered && tableTierData ? (
                 <>
                     <LemonTable
                         stealth
