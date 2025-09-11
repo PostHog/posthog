@@ -126,6 +126,35 @@ def _convert_to_gif(
         raise RuntimeError(error_msg) from e
 
 
+def _scale_dimensions_if_needed(width: int, height: int, max_size: int = 1400) -> tuple[int, int]:
+    """Scale down dimensions while maintaining aspect ratio if either dimension exceeds max_size."""
+    if width <= max_size and height <= max_size:
+        return width, height
+
+    # Determine which dimension is larger and scale based on that
+    if width > height:
+        # Width is larger, scale based on width
+        scale_factor = max_size / width
+        scaled_width = max_size
+        scaled_height = int(height * scale_factor)
+    else:
+        # Height is larger (or equal), scale based on height
+        scale_factor = max_size / height
+        scaled_width = int(width * scale_factor)
+        scaled_height = max_size
+
+    logger.info(
+        "video_exporter.dimensions_scaled",
+        original_width=width,
+        original_height=height,
+        scaled_width=scaled_width,
+        scaled_height=scaled_height,
+        scale_factor=scale_factor,
+    )
+
+    return scaled_width, scaled_height
+
+
 def detect_recording_resolution(
     browser: Browser,
     url_to_render: str,
@@ -234,6 +263,9 @@ def record_replay_to_file(
                     default_height=default_height,
                 )
                 logger.info("video_exporter.using_detected_dimensions", width=width, height=height)
+
+            # Scale dimensions if needed to fit within max width while maintaining aspect ratio
+            width, height = _scale_dimensions_if_needed(width, height)
 
             # Phase 2: Create recording context with exact resolution
             context = browser.new_context(

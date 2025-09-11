@@ -176,7 +176,6 @@ class TestVideoExporter(APIBaseTest):
     @patch("posthog.tasks.exports.video_exporter.sync_playwright")
     @patch("posthog.tasks.exports.video_exporter.shutil.which")
     def test_record_replay_to_file_auto_detect_dimensions(self, mock_which: Mock, mock_playwright: Mock) -> None:
-        """Test auto-detection of dimensions when width/height are None."""
         mock_playwright_instance, mock_recording_page = self._setup_playwright_mocks(mock_playwright, mock_which)
 
         # Additional mocks for the detection phase
@@ -221,6 +220,94 @@ class TestVideoExporter(APIBaseTest):
                     viewport = recording_context_call[1]["viewport"]
                     assert viewport["width"] == 1920
                     assert viewport["height"] == 1080
+
+                finally:
+                    if os.path.exists(tmp_file.name):
+                        os.unlink(tmp_file.name)
+
+    @patch("posthog.tasks.exports.video_exporter.sync_playwright")
+    @patch("posthog.tasks.exports.video_exporter.shutil.which")
+    def test_record_replay_to_file_dimension_scaling(self, mock_which: Mock, mock_playwright: Mock) -> None:
+        mock_playwright_instance, mock_recording_page = self._setup_playwright_mocks(mock_playwright, mock_which)
+
+        # Mock browser context creation to capture the viewport dimensions
+        mock_browser = mock_playwright_instance.chromium.launch.return_value
+        mock_context = Mock()
+        mock_browser.new_context.return_value = mock_context
+        mock_context.new_page.return_value = mock_recording_page
+
+        with patch("posthog.tasks.exports.video_exporter.subprocess.run") as mock_subprocess:
+            mock_subprocess.return_value = Mock(returncode=0)
+
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_file:
+                try:
+                    # Test with large landscape dimensions (1920x1080 should scale to 1400x787)
+                    video_exporter.record_replay_to_file(
+                        image_path=tmp_file.name,
+                        url_to_render="http://localhost:8000/exporter?token=test",
+                        screenshot_width=1920,  # Large width
+                        wait_for_css_selector=".replayer-wrapper",
+                        screenshot_height=1080,  # Proportional height
+                        recording_duration=5,
+                    )
+
+                    # Verify browser context was created with scaled dimensions
+                    mock_browser.new_context.assert_called_once()
+                    context_call = mock_browser.new_context.call_args
+                    viewport = context_call[1]["viewport"]
+
+                    # Should be scaled down to fit 1400px width while maintaining aspect ratio
+                    assert viewport["width"] == 1400
+                    assert viewport["height"] == 787  # 1080 * (1400/1920) = 787.5 -> 787
+
+                    # Verify record_video_size matches viewport
+                    record_video_size = context_call[1]["record_video_size"]
+                    assert record_video_size["width"] == 1400
+                    assert record_video_size["height"] == 787
+
+                finally:
+                    if os.path.exists(tmp_file.name):
+                        os.unlink(tmp_file.name)
+
+    @patch("posthog.tasks.exports.video_exporter.sync_playwright")
+    @patch("posthog.tasks.exports.video_exporter.shutil.which")
+    def test_record_replay_to_file_portrait_dimension_scaling(self, mock_which: Mock, mock_playwright: Mock) -> None:
+        mock_playwright_instance, mock_recording_page = self._setup_playwright_mocks(mock_playwright, mock_which)
+
+        # Mock browser context creation to capture the viewport dimensions
+        mock_browser = mock_playwright_instance.chromium.launch.return_value
+        mock_context = Mock()
+        mock_browser.new_context.return_value = mock_context
+        mock_context.new_page.return_value = mock_recording_page
+
+        with patch("posthog.tasks.exports.video_exporter.subprocess.run") as mock_subprocess:
+            mock_subprocess.return_value = Mock(returncode=0)
+
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_file:
+                try:
+                    # Test with large portrait dimensions (1080x1920 should scale to 787x1400)
+                    video_exporter.record_replay_to_file(
+                        image_path=tmp_file.name,
+                        url_to_render="http://localhost:8000/exporter?token=test",
+                        screenshot_width=1080,  # Width smaller than height
+                        wait_for_css_selector=".replayer-wrapper",
+                        screenshot_height=1920,  # Large height
+                        recording_duration=5,
+                    )
+
+                    # Verify browser context was created with scaled dimensions
+                    mock_browser.new_context.assert_called_once()
+                    context_call = mock_browser.new_context.call_args
+                    viewport = context_call[1]["viewport"]
+
+                    # Should be scaled down to fit 1400px height while maintaining aspect ratio
+                    assert viewport["width"] == 787  # 1080 * (1400/1920) = 787.5 -> 787
+                    assert viewport["height"] == 1400
+
+                    # Verify record_video_size matches viewport
+                    record_video_size = context_call[1]["record_video_size"]
+                    assert record_video_size["width"] == 787
+                    assert record_video_size["height"] == 1400
 
                 finally:
                     if os.path.exists(tmp_file.name):
