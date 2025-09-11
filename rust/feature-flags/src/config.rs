@@ -74,14 +74,17 @@ impl FromStr for TeamIdCollection {
             let mut team_ids = Vec::new();
             for part in s.split(',').map(|p| p.trim()) {
                 if part.contains(':') {
-                    let bounds: Vec<&str> = part.split(':').collect();
-                    if bounds.len() != 2 {
+                    let mut bounds = part.split(':');
+                    let (Some(start_str), Some(end_str)) = (bounds.next(), bounds.next()) else {
+                        return Err(ParseTeamIdsError::InvalidRange(part.to_string()));
+                    };
+                    if bounds.next().is_some() {
                         return Err(ParseTeamIdsError::InvalidRange(part.to_string()));
                     }
-                    let start = bounds[0]
+                    let start = start_str
                         .parse::<i32>()
                         .map_err(ParseTeamIdsError::InvalidNumber)?;
-                    let end = bounds[1]
+                    let end = end_str
                         .parse::<i32>()
                         .map_err(ParseTeamIdsError::InvalidNumber)?;
                     if end < start {
