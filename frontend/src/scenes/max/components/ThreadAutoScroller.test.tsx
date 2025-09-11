@@ -15,11 +15,23 @@ function MockScrollable({ children }: { children: React.ReactNode }): JSX.Elemen
         if (!ref.current) {
             return
         }
-        // Make it scrollable
-        Object.assign(ref.current, {
-            scrollHeight: 2000,
-            clientHeight: 1000,
-            scrollTop: 0,
+        // Make it scrollable in jsdom by defining getters/setters
+        const el = ref.current as HTMLElement
+        let scrollTopValue = 0
+        Object.defineProperty(el, 'scrollHeight', {
+            configurable: true,
+            get: () => 2000,
+        })
+        Object.defineProperty(el, 'clientHeight', {
+            configurable: true,
+            get: () => 1000,
+        })
+        Object.defineProperty(el, 'scrollTop', {
+            configurable: true,
+            get: () => scrollTopValue,
+            set: (v: number) => {
+                scrollTopValue = v
+            },
         })
     }, [])
     return (
