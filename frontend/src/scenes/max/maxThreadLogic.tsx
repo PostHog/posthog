@@ -291,7 +291,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     apiData.billing_context = values.billingContext
                 }
 
-                if ((values as any).deepResearchMode) {
+                if (values.deepResearchMode) {
                     apiData.deep_research_mode = true
                 }
 
@@ -589,9 +589,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         const toRun = sc.pending[id]
                         sc.pending[id] = undefined
                         if (toRun) {
-                            requestAnimationFrame(() => {
+                            // Cancel any previously scheduled frame for this id to avoid duplicates
+                            if (sc.raf[id]) {
+                                cancelAnimationFrame(sc.raf[id])
+                                delete sc.raf[id]
+                            }
+                            sc.raf[id] = requestAnimationFrame(() => {
                                 toRun()
                                 sc.lastUpdateAt[id] = performance.now()
+                                delete sc.raf[id]
                             })
                         } else {
                             sc.lastUpdateAt[id] = performance.now()
@@ -599,6 +605,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
 
                     if (remaining <= 0 || !sc.timeout[id]) {
+                        // Clear any stray scheduled frame before running immediately
+                        if (sc.raf[id]) {
+                            cancelAnimationFrame(sc.raf[id])
+                            delete sc.raf[id]
+                        }
                         run()
                         sc.timeout[id] = window.setTimeout(() => {
                             sc.timeout[id] = undefined

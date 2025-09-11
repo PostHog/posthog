@@ -9,6 +9,7 @@ export function ThreadAutoScroller({ children }: { children: React.ReactNode }):
 
     const scrollOrigin = useRef({ user: false, programmatic: false, resizing: false })
     const sentinelRef = useRef<HTMLDivElement | null>(null)
+    // How close to the bottom we still consider "at bottom" for auto-scroll
     const BOTTOM_EPSILON_PX = 2
 
     const scrollToBottom = useRef(() => {

@@ -1,5 +1,5 @@
 import { render } from '@testing-library/react'
-import { Provider, useMountedLogic } from 'kea'
+import { BindLogic, Provider } from 'kea'
 import React, { useEffect, useRef } from 'react'
 
 import { maxThreadLogic } from 'scenes/max/maxThreadLogic'
@@ -41,20 +41,15 @@ describe('ThreadAutoScroller', () => {
         // Simulate streaming active so listener attaches
         logic.actions.streamConversation({ content: 'hi' } as any, 0)
 
-        const KeyedLogicWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
-            useMountedLogic(maxThreadLogic({ conversationId: 'x' }))
-            return <>{children}</>
-        }
-
         const { container } = render(
             <Provider>
-                <KeyedLogicWrapper>
+                <BindLogic logic={maxThreadLogic} props={{ conversationId: 'x' }}>
                     <MockScrollable>
                         <ThreadAutoScroller>
                             <div>content</div>
                         </ThreadAutoScroller>
                     </MockScrollable>
-                </KeyedLogicWrapper>
+                </BindLogic>
             </Provider>
         )
 
@@ -65,10 +60,19 @@ describe('ThreadAutoScroller', () => {
         // Dispatch a scroll event; listener is passive and should not throw
         scroller.dispatchEvent(new Event('scroll'))
 
-        // user flag is private, but behaviorally: subsequent resizes should not auto-scroll
-        // We assert by toggling streamingActive to false->true and ensuring no throw.
-        logic.actions.completeThreadGeneration()
-        logic.actions.reconnectToStream()
+        // Mock ResizeObserver to trigger resize path and ensure no throw
+        const callbacks: Function[] = []
+        // eslint-disable-next-line compat/compat
+        ;(global as any).ResizeObserver = class {
+            callback: Function
+            constructor(cb: Function) {
+                this.callback = cb
+                callbacks.push(cb)
+            }
+            observe(): void {}
+            disconnect(): void {}
+        }
+        callbacks.forEach((cb) => cb())
 
         logic.unmount()
     })
