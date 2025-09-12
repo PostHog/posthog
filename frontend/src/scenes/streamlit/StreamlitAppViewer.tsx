@@ -1,9 +1,11 @@
-import { useValues, useActions } from 'kea'
-import { IconX, IconRefresh } from '@posthog/icons'
+import { useActions, useValues } from 'kea'
 
-import { streamlitAppsLogic } from './streamlitAppsLogic'
+import { IconRefresh, IconX } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+
+import { streamlitAppsLogic } from './streamlitAppsLogic'
 
 export function StreamlitAppViewer(): JSX.Element | null {
     const { openApp } = useValues(streamlitAppsLogic)
@@ -26,11 +28,14 @@ export function StreamlitAppViewer(): JSX.Element | null {
             footer={
                 <div className="flex justify-between items-center w-full">
                     <div className="text-sm text-muted-foreground">
-                        <strong>Status:</strong> {openApp.container_status} | 
-                        <strong> Port:</strong> {openApp.port || 'N/A'} | 
-                        <strong> Container ID:</strong> {openApp.container_id || 'Not deployed yet'}
+                        <strong>Status:</strong> {openApp.container_status} |<strong> Port:</strong>{' '}
+                        {openApp.port || 'N/A'} |<strong> Container ID:</strong>{' '}
+                        {openApp.container_id || 'Not deployed yet'}
                         {openApp.last_accessed && (
-                            <> | <strong> Last accessed:</strong> {new Date(openApp.last_accessed).toLocaleString()}</>
+                            <>
+                                {' '}
+                                | <strong> Last accessed:</strong> {new Date(openApp.last_accessed).toLocaleString()}
+                            </>
                         )}
                         <br />
                         <strong>URL:</strong> {appUrl}
@@ -58,11 +63,7 @@ export function StreamlitAppViewer(): JSX.Element | null {
                         >
                             Refresh
                         </LemonButton>
-                        <LemonButton
-                            icon={<IconX />}
-                            size="small"
-                            onClick={closeApp}
-                        >
+                        <LemonButton icon={<IconX />} size="small" onClick={closeApp}>
                             Close
                         </LemonButton>
                     </div>
@@ -81,4 +82,3 @@ export function StreamlitAppViewer(): JSX.Element | null {
         </LemonModal>
     )
 }
-

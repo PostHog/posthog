@@ -1,6 +1,6 @@
 import { actions, kea, path, props, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
 import { afterMount } from 'kea'
+import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
@@ -39,8 +39,18 @@ export const streamlitAppsLogic = kea<streamlitAppsLogicType>([
 
     actions({
         loadApps: true,
-        createApp: (name: string, description?: string, appType?: 'default' | 'custom', entrypointFile?: File, requirementsFile?: File) => ({ 
-            name, description, appType, entrypointFile, requirementsFile 
+        createApp: (
+            name: string,
+            description?: string,
+            appType?: 'default' | 'custom',
+            entrypointFile?: File,
+            requirementsFile?: File
+        ) => ({
+            name,
+            description,
+            appType,
+            entrypointFile,
+            requirementsFile,
         }),
         deleteApp: (appId: string) => ({ appId }),
         refreshApps: true,
@@ -66,14 +76,14 @@ export const streamlitAppsLogic = kea<streamlitAppsLogicType>([
                     formData.append('name', name)
                     formData.append('description', description || '')
                     formData.append('app_type', appType || 'default')
-                    
+
                     if (entrypointFile) {
                         formData.append('entrypoint_file', entrypointFile)
                     }
                     if (requirementsFile) {
                         formData.append('requirements_file', requirementsFile)
                     }
-                    
+
                     const newApp = await api.create('/api/projects/@current/streamlit_apps/', formData)
                     // Reload apps after creation
                     const response = await api.get('/api/projects/@current/streamlit_apps/')
@@ -126,8 +136,8 @@ export const streamlitAppsLogic = kea<streamlitAppsLogicType>([
         ],
         openApp: [
             (s) => [s.apps, s.openAppId],
-            (apps: StreamlitApp[], openAppId: string | null) => 
-                openAppId && apps ? apps.find(app => app.id === openAppId) || null : null,
+            (apps: StreamlitApp[], openAppId: string | null) =>
+                openAppId && apps ? apps.find((app) => app.id === openAppId) || null : null,
         ],
     }),
 

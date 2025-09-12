@@ -38,4 +38,3 @@ export const scene: SceneExport = {
     component: StreamlitScene,
     logic: streamlitLogic,
 }
-

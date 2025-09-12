@@ -1,22 +1,24 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
-import { IconPlus, IconTrash, IconPlay, IconRefresh } from '@posthog/icons'
 
-import { streamlitLogic } from './streamlitLogic'
-import { streamlitAppsLogic } from './streamlitAppsLogic'
-import { StreamlitAppViewer } from './StreamlitAppViewer'
+import { IconPlay, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
+import { LemonSelect } from '@posthog/lemon-ui'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+
+import { StreamlitAppViewer } from './StreamlitAppViewer'
+import { streamlitAppsLogic } from './streamlitAppsLogic'
+import { streamlitLogic } from './streamlitLogic'
 
 export function StreamlitDashboard(): JSX.Element {
     const { apps, isLoading: appsLoading, runningApps, pendingApps, failedApps } = useValues(streamlitAppsLogic)
     const { createApp, deleteApp, refreshApps, openApp } = useActions(streamlitAppsLogic)
-    
+
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
     const [newAppName, setNewAppName] = useState('')
     const [newAppDescription, setNewAppDescription] = useState('')
@@ -27,10 +29,10 @@ export function StreamlitDashboard(): JSX.Element {
     const handleCreateApp = () => {
         if (newAppName.trim()) {
             createApp(
-                newAppName.trim(), 
-                newAppDescription.trim(), 
-                appType, 
-                entrypointFile || undefined, 
+                newAppName.trim(),
+                newAppDescription.trim(),
+                appType,
+                entrypointFile || undefined,
                 requirementsFile || undefined
             )
             setNewAppName('')
@@ -65,9 +67,7 @@ export function StreamlitDashboard(): JSX.Element {
             render: (name: string, app: any) => (
                 <div>
                     <div className="font-medium">{name}</div>
-                    {app.description && (
-                        <div className="text-sm text-muted-foreground">{app.description}</div>
-                    )}
+                    {app.description && <div className="text-sm text-muted-foreground">{app.description}</div>}
                 </div>
             ),
         },
@@ -92,9 +92,7 @@ export function StreamlitDashboard(): JSX.Element {
             dataIndex: 'created_at',
             key: 'created_at',
             render: (createdAt: string) => (
-                <div className="text-sm text-muted-foreground">
-                    {new Date(createdAt).toLocaleDateString()}
-                </div>
+                <div className="text-sm text-muted-foreground">{new Date(createdAt).toLocaleDateString()}</div>
             ),
         },
         {
@@ -103,20 +101,11 @@ export function StreamlitDashboard(): JSX.Element {
             render: (_: any, app: any) => (
                 <div className="flex gap-2">
                     {app.container_status === 'running' && (
-                        <LemonButton
-                            size="small"
-                            icon={<IconPlay />}
-                            onClick={() => openApp(app.id)}
-                        >
+                        <LemonButton size="small" icon={<IconPlay />} onClick={() => openApp(app.id)}>
                             Open
                         </LemonButton>
                     )}
-                    <LemonButton
-                        size="small"
-                        icon={<IconTrash />}
-                        status="danger"
-                        onClick={() => deleteApp(app.id)}
-                    >
+                    <LemonButton size="small" icon={<IconTrash />} status="danger" onClick={() => deleteApp(app.id)}>
                         Delete
                     </LemonButton>
                 </div>
@@ -132,23 +121,13 @@ export function StreamlitDashboard(): JSX.Element {
                     <div className="flex justify-between items-center">
                         <div>
                             <h2 className="text-2xl font-bold">Streamlit Apps</h2>
-                            <p className="text-muted-foreground">
-                                Deploy and manage your Streamlit applications
-                            </p>
+                            <p className="text-muted-foreground">Deploy and manage your Streamlit applications</p>
                         </div>
                         <div className="flex gap-2">
-                            <LemonButton
-                                icon={<IconRefresh />}
-                                onClick={refreshApps}
-                                loading={appsLoading}
-                            >
+                            <LemonButton icon={<IconRefresh />} onClick={refreshApps} loading={appsLoading}>
                                 Refresh
                             </LemonButton>
-                            <LemonButton
-                                type="primary"
-                                icon={<IconPlus />}
-                                onClick={() => setIsCreateModalOpen(true)}
-                            >
+                            <LemonButton type="primary" icon={<IconPlus />} onClick={() => setIsCreateModalOpen(true)}>
                                 Create App
                             </LemonButton>
                         </div>
@@ -201,14 +180,8 @@ export function StreamlitDashboard(): JSX.Element {
                         title="Create Streamlit App"
                         footer={
                             <div className="flex gap-2">
-                                <LemonButton onClick={() => setIsCreateModalOpen(false)}>
-                                    Cancel
-                                </LemonButton>
-                                <LemonButton
-                                    type="primary"
-                                    onClick={handleCreateApp}
-                                    disabled={!newAppName.trim()}
-                                >
+                                <LemonButton onClick={() => setIsCreateModalOpen(false)}>Cancel</LemonButton>
+                                <LemonButton type="primary" onClick={handleCreateApp} disabled={!newAppName.trim()}>
                                     Create App
                                 </LemonButton>
                             </div>
@@ -232,7 +205,7 @@ export function StreamlitDashboard(): JSX.Element {
                                     rows={3}
                                 />
                             </div>
-                            
+
                             <div>
                                 <label className="block text-sm font-medium mb-2">App Type</label>
                                 <LemonSelect
@@ -245,11 +218,13 @@ export function StreamlitDashboard(): JSX.Element {
                                     fullWidth
                                 />
                             </div>
-                            
+
                             {appType === 'custom' && (
                                 <>
                                     <div>
-                                        <label className="block text-sm font-medium mb-2">Entrypoint File (Python)</label>
+                                        <label className="block text-sm font-medium mb-2">
+                                            Entrypoint File (Python)
+                                        </label>
                                         <input
                                             type="file"
                                             accept=".py"
@@ -260,9 +235,11 @@ export function StreamlitDashboard(): JSX.Element {
                                             Main Python file for your Streamlit app
                                         </p>
                                     </div>
-                                    
+
                                     <div>
-                                        <label className="block text-sm font-medium mb-2">Requirements File (Optional)</label>
+                                        <label className="block text-sm font-medium mb-2">
+                                            Requirements File (Optional)
+                                        </label>
                                         <input
                                             type="file"
                                             accept=".txt"
