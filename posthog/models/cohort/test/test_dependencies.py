@@ -1,7 +1,6 @@
 from posthog.test.base import BaseTest
 from pytest import fixture
 from unittest import mock
-from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
@@ -9,6 +8,7 @@ from parameterized import parameterized
 
 from posthog.models import Cohort
 from posthog.models.cohort.dependencies import (
+    COHORT_DEPENDENCY_CACHE_COUNTER,
     DEPENDENCY_CACHE_TIMEOUT,
     get_cohort_dependencies,
     get_cohort_dependents,
@@ -283,3 +283,99 @@ class TestCohortDependencies(BaseTest):
         # get_cohort_dependents is a more expensive cache miss, it warms the entire cache because
         # it has to iterate all cohorts in the team
         self._assert_depends_on(cohort_b, cohort_a)
+
+    @parameterized.expand(
+        [
+            ("dependencies",),
+            ("dependents",),
+        ]
+    )
+    def test_cache_hit_counters(self, cache_type: str):
+        cohort_a = self._create_cohort(name="Test Cohort A")
+        cohort_b = self._create_cohort(
+            name="Test Cohort B", groups=[{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.id}]}]
+        )
+
+        # Warm the cache first
+        warm_team_cohort_dependency_cache(self.team.id)
+
+        # Get initial counter values
+        initial_hits = COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type=cache_type, result="hit")._value._value
+
+        if cache_type == "dependencies":
+            get_cohort_dependencies(cohort_b)
+        else:
+            get_cohort_dependents(cohort_a)
+
+        # Verify hit counter incremented
+        final_hits = COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type=cache_type, result="hit")._value._value
+        self.assertEqual(final_hits, initial_hits + 1)
+
+    @parameterized.expand(
+        [
+            ("dependencies",),
+            ("dependents",),
+        ]
+    )
+    def test_cache_miss_counters(self, cache_type: str):
+        cohort_a = self._create_cohort(name="Test Cohort A")
+        cohort_b = self._create_cohort(
+            name="Test Cohort B", groups=[{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.id}]}]
+        )
+
+        # Clear cache to ensure miss
+        cache.clear()
+
+        # Get initial counter values
+        initial_misses = COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type=cache_type, result="miss")._value._value
+
+        if cache_type == "dependencies":
+            get_cohort_dependencies(cohort_b)
+        else:
+            get_cohort_dependents(cohort_a)
+
+        # Verify miss counter incremented
+        final_misses = COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type=cache_type, result="miss")._value._value
+        self.assertEqual(final_misses, initial_misses + 1)
+
+    def test_cache_hit_miss_sequence(self):
+        cohort_a = self._create_cohort(name="Test Cohort A")
+        cohort_b = self._create_cohort(
+            name="Test Cohort B", groups=[{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.id}]}]
+        )
+
+        cache.clear()
+
+        # Get initial counter values
+        dep_initial_hits = COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="hit")._value._value
+        dep_initial_misses = COHORT_DEPENDENCY_CACHE_COUNTER.labels(
+            cache_type="dependencies", result="miss"
+        )._value._value
+        dept_initial_hits = COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependents", result="hit")._value._value
+        dept_initial_misses = COHORT_DEPENDENCY_CACHE_COUNTER.labels(
+            cache_type="dependents", result="miss"
+        )._value._value
+
+        # First call should be a miss
+        get_cohort_dependencies(cohort_b)
+        dep_after_first = COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="miss")._value._value
+        self.assertEqual(dep_after_first, dep_initial_misses + 1)
+
+        # Second call should be a hit
+        get_cohort_dependencies(cohort_b)
+        dep_hits_after_second = COHORT_DEPENDENCY_CACHE_COUNTER.labels(
+            cache_type="dependencies", result="hit"
+        )._value._value
+        self.assertEqual(dep_hits_after_second, dep_initial_hits + 1)
+
+        # First dependents call should be a miss (and warms cache)
+        get_cohort_dependents(cohort_a)
+        dept_after_first = COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependents", result="miss")._value._value
+        self.assertEqual(dept_after_first, dept_initial_misses + 1)
+
+        # Second dependents call should be a hit
+        get_cohort_dependents(cohort_a)
+        dept_hits_after_second = COHORT_DEPENDENCY_CACHE_COUNTER.labels(
+            cache_type="dependents", result="hit"
+        )._value._value
+        self.assertEqual(dept_hits_after_second, dept_initial_hits + 1)

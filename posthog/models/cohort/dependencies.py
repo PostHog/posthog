@@ -3,6 +3,7 @@ from django.db import transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
+from prometheus_client import Counter
 from structlog import get_logger
 
 from posthog.models.cohort.cohort import Cohort
@@ -10,6 +11,13 @@ from posthog.models.team.team import Team
 
 logger = get_logger(__name__)
 DEPENDENCY_CACHE_TIMEOUT = 7 * 24 * 60 * 60  # 1 week
+
+# Prometheus metrics for cache hit/miss tracking
+COHORT_DEPENDENCY_CACHE_COUNTER = Counter(
+    "posthog_cohort_dependency_cache_requests_total",
+    "Total number of cohort dependency cache requests",
+    labelnames=["cache_type", "result"],
+)
 
 
 def _cohort_dependencies_key(cohort_id: int) -> str:
@@ -37,11 +45,23 @@ def get_cohort_dependencies(cohort: Cohort) -> list[int]:
     Get the list of cohort IDs that the given cohort depends on.
     """
     cache_key = _cohort_dependencies_key(cohort.id)
+
+    # Check if value exists in cache first
+    cache_hit = cache.has_key(cache_key)
+
+    def compute_dependencies():
+        COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="miss").inc()
+        return list(extract_cohort_dependencies(cohort))
+
+    if cache_hit:
+        COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="hit").inc()
+
     result = cache.get_or_set(
         cache_key,
-        lambda: list(extract_cohort_dependencies(cohort)),
+        compute_dependencies,
         timeout=DEPENDENCY_CACHE_TIMEOUT,
     )
+
     if result is None:
         logger.error("Cohort dependencies cache returned None", cohort_id=cohort.id)
     return result or []
@@ -53,11 +73,18 @@ def get_cohort_dependents(cohort: Cohort) -> list[int]:
     """
     cache_key = _cohort_dependents_key(cohort.id)
 
+    # Check if value exists in cache first
+    cache_hit = cache.has_key(cache_key)
+
     def compute_or_fallback() -> list[int]:
+        COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependents", result="miss").inc()
         warm_team_cohort_dependency_cache(cohort.team_id)
         return cache.get(cache_key, [])
 
-    result = cache.get_or_set(cache_key, lambda: compute_or_fallback(), timeout=DEPENDENCY_CACHE_TIMEOUT)
+    if cache_hit:
+        COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependents", result="hit").inc()
+
+    result = cache.get_or_set(cache_key, compute_or_fallback, timeout=DEPENDENCY_CACHE_TIMEOUT)
     if result is None:
         logger.error("Cohort dependents cache returned None", cohort_id=cohort.id)
     return result or []
