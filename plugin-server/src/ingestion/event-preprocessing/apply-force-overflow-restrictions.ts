@@ -1,5 +1,3 @@
-import { Message } from 'node-rdkafka'
-
 import { ingestionOverflowingMessagesTotal } from '../../main/ingestion-queues/batch-processing/metrics'
 import { EventHeaders } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
@@ -18,7 +16,7 @@ export type OverflowConfig = {
     overflowEnabled: boolean
 }
 
-export function applyForceOverflowRestrictions(
+function applyForceOverflowRestrictions(
     eventIngestionRestrictionManager: EventIngestionRestrictionManager,
     headers?: EventHeaders
 ): ForceOverflowDecision {
@@ -37,30 +35,33 @@ export function applyForceOverflowRestrictions(
     return { shouldRedirect: true, preservePartitionLocality }
 }
 
-export function createApplyForceOverflowRestrictionsStep(
+export function createApplyForceOverflowRestrictionsStep<T extends { headers: EventHeaders }>(
     eventIngestionRestrictionManager: EventIngestionRestrictionManager,
     overflowConfig: OverflowConfig
-): SyncPreprocessingStep<{ message: Message; headers: EventHeaders }, { message: Message; headers: EventHeaders }> {
+): SyncPreprocessingStep<T, T> {
     return (input) => {
-        const { message, headers } = input
+        const { headers } = input
 
-        const forceOverflowDecision = applyForceOverflowRestrictions(eventIngestionRestrictionManager, headers)
-        if (forceOverflowDecision.shouldRedirect && overflowConfig.overflowEnabled) {
-            ingestionOverflowingMessagesTotal.inc()
-
-            const preservePartitionLocality =
-                forceOverflowDecision.preservePartitionLocality !== undefined
-                    ? forceOverflowDecision.preservePartitionLocality
-                    : overflowConfig.preservePartitionLocality
-
-            return redirect(
-                'Event redirected to overflow due to force overflow restrictions',
-                overflowConfig.overflowTopic,
-                preservePartitionLocality,
-                false
-            )
+        if (!overflowConfig.overflowEnabled) {
+            return success(input)
         }
 
-        return success({ message, headers })
+        const forceOverflowDecision = applyForceOverflowRestrictions(eventIngestionRestrictionManager, headers)
+        if (!forceOverflowDecision.shouldRedirect) {
+            return success(input)
+        }
+
+        ingestionOverflowingMessagesTotal.inc()
+
+        const preservePartitionLocality =
+            forceOverflowDecision.preservePartitionLocality !== undefined
+                ? forceOverflowDecision.preservePartitionLocality
+                : overflowConfig.preservePartitionLocality
+        return redirect(
+            'Event redirected to overflow due to force overflow restrictions',
+            overflowConfig.overflowTopic,
+            preservePartitionLocality,
+            false
+        )
     }
 }

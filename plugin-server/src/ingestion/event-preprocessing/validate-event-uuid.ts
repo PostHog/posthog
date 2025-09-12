@@ -5,10 +5,7 @@ import { drop, success } from '../../worker/ingestion/event-pipeline/pipeline-st
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
 import { AsyncPreprocessingStep } from '../processing-pipeline'
 
-export async function validateEventUuid(
-    eventWithTeam: IncomingEventWithTeam,
-    hub: Pick<Hub, 'db'>
-): Promise<IncomingEventWithTeam | null> {
+async function isEventUuidValid(eventWithTeam: IncomingEventWithTeam, hub: Pick<Hub, 'db'>): Promise<boolean> {
     const { event, team } = eventWithTeam
 
     if (!event.uuid) {
@@ -21,7 +18,7 @@ export async function validateEventUuid(
                 drop_cause: 'empty_uuid',
             })
             .inc()
-        return null
+        return false
     }
 
     if (!UUID.validateString(event.uuid, false)) {
@@ -34,21 +31,21 @@ export async function validateEventUuid(
                 drop_cause: 'invalid_uuid',
             })
             .inc()
-        return null
+        return false
     }
 
-    return eventWithTeam
+    return true
 }
 
-export function createValidateEventUuidStep(
+export function createValidateEventUuidStep<T extends { eventWithTeam: IncomingEventWithTeam }>(
     hub: Hub
-): AsyncPreprocessingStep<IncomingEventWithTeam, IncomingEventWithTeam> {
-    return async (eventWithTeam) => {
-        const validEvent = await validateEventUuid(eventWithTeam, hub)
-        if (!validEvent) {
+): AsyncPreprocessingStep<T, T> {
+    return async (input) => {
+        const { eventWithTeam } = input
+        const isValid = await isEventUuidValid(eventWithTeam, hub)
+        if (!isValid) {
             return drop('Event has invalid UUID')
         }
-
-        return success(validEvent)
+        return success(input)
     }
 }

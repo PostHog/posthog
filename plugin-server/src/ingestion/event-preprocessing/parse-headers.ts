@@ -5,9 +5,13 @@ import { EventHeaders } from '../../types'
 import { success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
 import { SyncPreprocessingStep } from '../processing-pipeline'
 
-export function createParseHeadersStep(): SyncPreprocessingStep<Message, { message: Message; headers: EventHeaders }> {
-    return (message: Message) => {
-        const headers = parseEventHeaders(message.headers)
-        return success({ message, headers })
+export function createParseHeadersStep<T extends { message: Pick<Message, 'headers'> }>(): SyncPreprocessingStep<
+    T,
+    T & { headers: EventHeaders }
+> {
+    return (input) => {
+        const { message } = input
+        const parsedHeaders = parseEventHeaders(message.headers)
+        return success({ ...input, headers: parsedHeaders })
     }
 }

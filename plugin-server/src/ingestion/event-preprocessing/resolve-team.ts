@@ -6,12 +6,12 @@ import { tokenOrTeamPresentCounter } from '../../worker/ingestion/event-pipeline
 import { drop, success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
 import { AsyncPreprocessingStep } from '../processing-pipeline'
 
-export async function resolveTeam(
+async function resolveTeam(
     hub: Pick<Hub, 'teamManager'>,
-    incomingEvent: IncomingEvent
+    message: Message,
+    headers: EventHeaders,
+    event: IncomingEvent['event']
 ): Promise<IncomingEventWithTeam | null> {
-    const event = incomingEvent.event
-
     tokenOrTeamPresentCounter
         .labels({
             team_id_present: event.team_id ? 'true' : 'false',
@@ -44,27 +44,23 @@ export async function resolveTeam(
     return {
         event,
         team,
-        message: incomingEvent.message,
-        headers: incomingEvent.headers,
+        message,
+        headers,
     }
 }
 
-export function createResolveTeamStep(
+export function createResolveTeamStep<T extends { message: Message; headers: EventHeaders; event: IncomingEvent }>(
     hub: Hub
-): AsyncPreprocessingStep<
-    { message: Message; headers: EventHeaders; event: IncomingEvent },
-    { message: Message; headers: EventHeaders; eventWithTeam: IncomingEventWithTeam }
-> {
+): AsyncPreprocessingStep<T, T & { eventWithTeam: IncomingEventWithTeam }> {
     return async (input) => {
         const { message, headers, event } = input
 
-        const eventWithHeaders = { ...event, headers }
-        const eventWithTeam = await resolveTeam(hub, eventWithHeaders)
+        const eventWithTeam = await resolveTeam(hub, message, headers, event.event)
 
         if (!eventWithTeam) {
             return drop('Failed to resolve team')
         }
 
-        return success({ message, headers, eventWithTeam })
+        return success({ ...input, eventWithTeam })
     }
 }

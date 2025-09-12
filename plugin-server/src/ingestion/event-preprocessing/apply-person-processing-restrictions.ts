@@ -1,11 +1,9 @@
-import { Message } from 'node-rdkafka'
-
-import { EventHeaders, IncomingEventWithTeam } from '../../types'
+import { IncomingEventWithTeam } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
 import { success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
 import { SyncPreprocessingStep } from '../processing-pipeline'
 
-export function applyPersonProcessingRestrictions(
+function applyPersonProcessingRestrictions(
     eventWithTeam: IncomingEventWithTeam,
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
 ): void {
@@ -27,17 +25,13 @@ export function applyPersonProcessingRestrictions(
     }
 }
 
-export function createApplyPersonProcessingRestrictionsStep(
+// TODO: Refactor this to use just headers and the team before parsing the event
+export function createApplyPersonProcessingRestrictionsStep<T extends { eventWithTeam: IncomingEventWithTeam }>(
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
-): SyncPreprocessingStep<
-    { message: Message; headers: EventHeaders; eventWithTeam: IncomingEventWithTeam },
-    IncomingEventWithTeam
-> {
+): SyncPreprocessingStep<T, T> {
     return (input) => {
         const { eventWithTeam } = input
-
         applyPersonProcessingRestrictions(eventWithTeam, eventIngestionRestrictionManager)
-
-        return success(eventWithTeam)
+        return success(input)
     }
 }

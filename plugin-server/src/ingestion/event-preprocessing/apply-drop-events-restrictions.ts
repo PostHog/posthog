@@ -1,12 +1,10 @@
-import { Message } from 'node-rdkafka'
-
 import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { EventHeaders } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
 import { drop, success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
 import { SyncPreprocessingStep } from '../processing-pipeline'
 
-export function applyDropEventsRestrictions(
+function applyDropEventsRestrictions(
     eventIngestionRestrictionManager: EventIngestionRestrictionManager,
     headers?: EventHeaders
 ): boolean {
@@ -16,11 +14,11 @@ export function applyDropEventsRestrictions(
     return eventIngestionRestrictionManager.shouldDropEvent(token, distinctId)
 }
 
-export function createApplyDropRestrictionsStep(
+export function createApplyDropRestrictionsStep<T extends { headers: EventHeaders }>(
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
-): SyncPreprocessingStep<{ message: Message; headers: EventHeaders }, { message: Message; headers: EventHeaders }> {
+): SyncPreprocessingStep<T, T> {
     return (input) => {
-        const { message, headers } = input
+        const { headers } = input
 
         if (applyDropEventsRestrictions(eventIngestionRestrictionManager, headers)) {
             eventDroppedCounter
@@ -32,6 +30,6 @@ export function createApplyDropRestrictionsStep(
             return drop('Event dropped due to token restrictions')
         }
 
-        return success({ message, headers })
+        return success(input)
     }
 }
