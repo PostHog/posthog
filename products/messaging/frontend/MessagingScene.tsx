@@ -11,6 +11,8 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Breadcrumb } from '~/types'
 
 import { CampaignsTable } from './Campaigns/CampaignsTable'
@@ -107,7 +109,6 @@ export function MessagingScene(): JSX.Element {
             content: (
                 <>
                     <PageHeader
-                        caption="Create automated messaging campaigns triggered by events"
                         buttons={
                             <LemonButton
                                 data-attr="new-campaign"
@@ -119,6 +120,14 @@ export function MessagingScene(): JSX.Element {
                             </LemonButton>
                         }
                     />
+                    <SceneTitleSection
+                        name="Campaigns"
+                        description="Create automated messaging campaigns triggered by events"
+                        resourceType={{
+                            type: 'campaign',
+                        }}
+                    />
+
                     <CampaignsTable />
                 </>
             ),
@@ -142,6 +151,13 @@ export function MessagingScene(): JSX.Element {
                             </LemonButton>
                         }
                     />
+                    <SceneTitleSection
+                        name="Message templates"
+                        description="Create and manage reusable messages designs."
+                        resourceType={{
+                            type: 'template',
+                        }}
+                    />
 
                     <MessageTemplatesTable />
                 </>
@@ -159,5 +175,9 @@ export function MessagingScene(): JSX.Element {
         },
     ]
 
-    return <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} />
+    return (
+        <SceneContent className="messaging">
+            <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} />
+        </SceneContent>
+    )
 }

@@ -9,6 +9,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { EmailTemplater } from 'scenes/hog-functions/email-templater/EmailTemplater'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+
 import { MessageTemplateLogicProps, messageTemplateLogic } from './messageTemplateLogic'
 
 export const scene: SceneExport<MessageTemplateLogicProps> = {
@@ -52,6 +54,12 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element 
                             </LemonButton>
                         </>
                     }
+                />
+                <SceneTitleSection
+                    name="Manage template"
+                    resourceType={{
+                        type: 'template',
+                    }}
                 />
                 <div className="flex flex-wrap gap-4 items-start">
                     <div className="flex-1 self-start p-3 space-y-2 rounded border min-w-100 bg-surface-primary">

@@ -13,6 +13,8 @@ import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons/icons'
 import { urls } from 'scenes/urls'
 
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+
 import { ChannelSetupModal } from './ChannelSetupModal'
 
 const MESSAGING_CHANNEL_TYPES = ['email', 'slack', 'twilio'] as const
@@ -76,6 +78,12 @@ export function MessageChannels(): JSX.Element {
                         </LemonMenu>
                     </div>
                 }
+            />
+            <SceneTitleSection
+                name="Message channels"
+                resourceType={{
+                    type: 'channel',
+                }}
             />
             <ChannelSetupModal
                 isOpen={setupModalOpen}

@@ -8,6 +8,8 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+
 import { NewCategoryModal } from './NewCategoryModal'
 import { OptOutList } from './OptOutList'
 import { optOutCategoriesLogic } from './optOutCategoriesLogic'
@@ -128,7 +130,6 @@ export function OptOutCategories(): JSX.Element {
     return (
         <>
             <PageHeader
-                caption="Configure message categories and view opt-outs"
                 buttons={
                     <LemonButton
                         data-attr="new-optout-category"
@@ -140,6 +141,13 @@ export function OptOutCategories(): JSX.Element {
                         New category
                     </LemonButton>
                 }
+            />
+            <SceneTitleSection
+                name="Opt-out categories"
+                description="Configure message categories and view opt-outs"
+                resourceType={{
+                    type: 'category',
+                }}
             />
             {categoriesLoading ? (
                 <LemonSkeleton className="h-10" />
