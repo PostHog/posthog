@@ -58,7 +58,7 @@ impl AckableMessage {
             "Acked message: id={}, offset={}",
             self.handle.message_id, offset
         );
-        
+
         // Increment completion counter with acked status
         metrics::counter!(MESSAGES_COMPLETED, "status" => "acked").increment(1);
     }
@@ -80,7 +80,7 @@ impl AckableMessage {
             "Nacked message: id={}, offset={}, error={}",
             self.handle.message_id, offset, error
         );
-        
+
         // Increment completion counter with nacked status
         metrics::counter!(MESSAGES_COMPLETED, "status" => "nacked").increment(1);
     }
