@@ -341,13 +341,23 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                         />
                                     )}
                                 </LemonField>
-                                <LemonDivider label="OR" />
-                                <Query
-                                    query={creationPersonQuery}
-                                    setQuery={setCreationPersonQuery}
-                                    context={createStaticCohortContext}
-                                />
                             </SceneSection>
+                            {isNewCohort && (
+                                <>
+                                    <LemonDivider label="OR" />
+                                    <div>
+                                        <h3 className="font-semibold my-0 mb-1 max-w-prose">Add users manually</h3>
+                                        <span className="max-w-prose">
+                                            Select the users that you would like to add to the new cohort.
+                                        </span>
+                                    </div>
+                                    <Query
+                                        query={creationPersonQuery}
+                                        setQuery={setCreationPersonQuery}
+                                        context={createStaticCohortContext}
+                                    />
+                                </>
+                            )}
                             {!isNewCohort && (
                                 <>
                                     <LemonDivider label="OR" />
