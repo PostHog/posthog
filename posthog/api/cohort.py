@@ -843,6 +843,39 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         )
         return Response({"success": True}, status=200)
 
+    @action(methods=["PATCH"], detail=True)
+    def remove_person_from_static_cohort(self, request: request.Request, **kwargs):
+        cohort: Cohort = self.get_object()
+        if not cohort.is_static:
+            raise ValidationError("Can only remove users from static cohorts")
+        person_id = request.data.get("person_id", None)
+        if not person_id:
+            raise ValidationError("person_id is required")
+        if not isinstance(person_id, str):
+            raise ValidationError("person_id must be a string")
+
+        # Check if person exists and belongs to this team
+        try:
+            person_uuid = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(
+                team_id=self.team_id, uuid=person_id
+            ).uuid
+        except Person.DoesNotExist:
+            raise ValidationError("Person not found")
+
+        cohort.remove_user_by_uuid(str(person_uuid), team_id=self.team_id)
+
+        log_activity(
+            organization_id=cast(UUIDT, self.organization_id),
+            team_id=self.team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=str(cohort.id),
+            scope="Cohort",
+            activity="person_removed_manually",
+            detail=Detail(changes=[Change(type="Cohort", action="changed")]),
+        )
+        return Response({"success": True}, status=200)
+
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
