@@ -6,7 +6,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use kafka_deduplicator::checkpoint::{CheckpointConfig, CheckpointExporter, CheckpointUploader};
-use kafka_deduplicator::checkpoint_manager::{CheckpointWorker, CHECKPOINT_NAME_PREFIX};
+use kafka_deduplicator::checkpoint_manager::{
+    CheckpointMode, CheckpointPath, CheckpointWorker, CHECKPOINT_NAME_PREFIX,
+};
 use kafka_deduplicator::kafka::types::Partition;
 use kafka_deduplicator::store::{DeduplicationStore, DeduplicationStoreConfig};
 use kafka_deduplicator::store_manager::StoreManager;
@@ -186,6 +188,7 @@ impl CheckpointUploader for MockUploader {
         self.available
     }
 }
+
 fn create_test_dedup_store() -> (DeduplicationStore, TempDir) {
     let temp_dir = TempDir::new().unwrap();
     let config = DeduplicationStoreConfig {
@@ -219,6 +222,7 @@ async fn test_checkpoint_exporter_creation() {
     let temp_dir = TempDir::new().unwrap();
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
+        cleanup_interval: Duration::from_secs(60),
         local_checkpoint_dir: temp_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
@@ -252,6 +256,7 @@ async fn test_manual_checkpoint() {
 
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
+        cleanup_interval: Duration::from_secs(60),
         local_checkpoint_dir: checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
@@ -263,49 +268,37 @@ async fn test_manual_checkpoint() {
     };
 
     let uploader = MockUploader::new().unwrap();
-    let exporter = Arc::new(Some(Box::new(CheckpointExporter::new(
+    let exporter = Some(Arc::new(CheckpointExporter::new(
         config.clone(),
         Box::new(uploader),
-    ))));
-    let checkpoint_counters = Arc::new(Mutex::new(HashMap::<Partition, u32>::new()));
-    let is_checkpointing = Arc::new(Mutex::new(HashSet::new()));
+    )));
     let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
         path: checkpoint_dir.path().to_path_buf(),
         max_capacity: 1_000_000,
     }));
 
     let partition = Partition::new("test_topic".to_string(), 0);
+    let paths =
+        CheckpointPath::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
     store_manager
         .stores()
         .insert(partition.clone(), store.clone());
     let worker = CheckpointWorker::new(
         1,
-        store_manager.clone(),
+        CheckpointMode::Full,
+        paths.clone(),
+        store.clone(),
         exporter.clone(),
-        checkpoint_counters.clone(),
-        is_checkpointing.clone(),
-        config.clone(),
     );
 
-    let start_counter = *checkpoint_counters
-        .lock()
-        .await
-        .get(&partition)
-        .unwrap_or(&0_u32);
-    assert_eq!(start_counter, 0);
-
     // Perform checkpoint
-    let result = worker.attempt_checkpoint(partition.clone()).await;
+    let result = worker.checkpoint_partition().await;
     assert!(result.is_ok());
-    assert!(result.unwrap()); // Should return true indicating checkpoint was performed
 
-    // Check that checkpoint timestamp was updated
-    let end_counter = *checkpoint_counters
-        .lock()
-        .await
-        .get(&partition)
-        .unwrap_or(&0_u32);
-    assert_eq!(end_counter, 1);
+    let result = result.unwrap();
+    assert!(result.is_some());
+    assert!(result.unwrap() == paths.remote_path);
+
 }
 
 #[tokio::test]
@@ -326,6 +319,7 @@ async fn test_checkpoint_skips_when_in_progress() {
 
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
+        cleanup_interval: Duration::from_secs(60),
         local_checkpoint_dir: checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
@@ -337,42 +331,45 @@ async fn test_checkpoint_skips_when_in_progress() {
     };
 
     let uploader = Box::new(MockUploader::new().unwrap());
-    let exporter = Arc::new(Some(Box::new(CheckpointExporter::new(
+    let exporter = Some(Arc::new(CheckpointExporter::new(
         config.clone(),
         uploader.clone(),
-    ))));
+    )));
+
+    // TODO(eli): convert test to use CheckpointManager and worker loop
     let checkpoint_counters = Arc::new(Mutex::new(HashMap::<Partition, u32>::new()));
     let is_checkpointing = Arc::new(Mutex::new(HashSet::new()));
+
     let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
         path: checkpoint_dir.path().to_path_buf(),
         max_capacity: 1_000_000,
     }));
 
     let partition = Partition::new("test_topic".to_string(), 0);
+    let paths =
+        CheckpointPath::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
     store_manager
         .stores()
         .insert(partition.clone(), store.clone());
 
     let worker1 = CheckpointWorker::new(
         1,
-        store_manager.clone(),
+        CheckpointMode::Full,
+        paths.clone(),
+        store.clone(),
         exporter.clone(),
-        checkpoint_counters.clone(),
-        is_checkpointing.clone(),
-        config.clone(),
     );
     let worker2 = CheckpointWorker::new(
         2,
-        store_manager.clone(),
+        CheckpointMode::Full,
+        paths.clone(),
+        store.clone(),
         exporter.clone(),
-        checkpoint_counters.clone(),
-        is_checkpointing.clone(),
-        config.clone(),
     );
 
     let (result1, result2) = tokio::join!(
-        worker1.attempt_checkpoint(partition.clone()),
-        worker2.attempt_checkpoint(partition.clone()),
+        worker1.checkpoint_partition(),
+        worker2.checkpoint_partition(),
     );
 
     // Both should succeed
@@ -382,12 +379,16 @@ async fn test_checkpoint_skips_when_in_progress() {
     let first_completed = result1.unwrap();
     let second_completed = result2.unwrap();
 
-    println!("First checkpoint completed: {first_completed}");
-    println!("Second checkpoint completed: {second_completed}");
+    println!("First checkpoint completed: {}", first_completed.is_some());
+    println!(
+        "Second checkpoint completed: {}",
+        second_completed.is_some()
+    );
 
     // Exactly one should have completed the checkpoint, one should have been skipped
     assert!(
-        (first_completed && !second_completed) || (!first_completed && second_completed),
+        (first_completed.is_some() && second_completed.is_none())
+            || (first_completed.is_none() && second_completed.is_some()),
         "Exactly one checkpoint should complete, the other should be skipped"
     );
 
@@ -436,6 +437,7 @@ async fn test_checkpoint_with_mock_uploader() {
 
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
+        cleanup_interval: Duration::from_secs(60),
         local_checkpoint_dir: checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
@@ -447,34 +449,39 @@ async fn test_checkpoint_with_mock_uploader() {
     };
 
     let uploader = Box::new(MockUploader::new().unwrap());
-    let exporter = Arc::new(Some(Box::new(CheckpointExporter::new(
+    let exporter = Some(Arc::new(CheckpointExporter::new(
         config.clone(),
         uploader.clone(),
-    ))));
+    )));
+
+    // TODO(eli): convert test to use CheckpointManager and worker loop
     let checkpoint_counters = Arc::new(Mutex::new(HashMap::<Partition, u32>::new()));
     let is_checkpointing = Arc::new(Mutex::new(HashSet::new()));
+
     let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
         path: checkpoint_dir.path().to_path_buf(),
         max_capacity: 1_000_000,
     }));
 
     let partition = Partition::new("test_topic".to_string(), 0);
+    let paths =
+        CheckpointPath::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
     store_manager
         .stores()
         .insert(partition.clone(), store.clone());
 
     let worker = CheckpointWorker::new(
         1,
-        store_manager.clone(),
+        CheckpointMode::Full,
+        paths,
+        store.clone(),
         exporter.clone(),
-        checkpoint_counters.clone(),
-        is_checkpointing.clone(),
-        config.clone(),
     );
 
-    let result = worker.attempt_checkpoint(partition.clone()).await;
+    let result = worker.checkpoint_partition().await;
     assert!(result.is_ok());
-    assert!(result.unwrap()); // Should return true indicating checkpoint was performed
+    assert!(result.unwrap().is_some());
+    assert!(result.unwrap().unwrap() == paths.remote_path);
 
     // Verify files were "uploaded" to mock storage
     let file_count = uploader.file_count().await.unwrap();
@@ -505,6 +512,7 @@ async fn test_incremental_vs_full_upload() {
 
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
+        cleanup_interval: Duration::from_secs(60),
         local_checkpoint_dir: checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
@@ -516,34 +524,38 @@ async fn test_incremental_vs_full_upload() {
     };
 
     let uploader = Box::new(MockUploader::new().unwrap());
-    let exporter = Arc::new(Some(Box::new(CheckpointExporter::new(
+    let exporter = Some(Arc::new(CheckpointExporter::new(
         config.clone(),
         uploader.clone(),
-    ))));
+    )));
+
+    // TODO(eli): convert test to use CheckpointManager and worker loop
     let checkpoint_counters = Arc::new(Mutex::new(HashMap::<Partition, u32>::new()));
     let is_checkpointing = Arc::new(Mutex::new(HashSet::new()));
+
     let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
         path: checkpoint_dir.path().to_path_buf(),
         max_capacity: 1_000_000,
     }));
 
     let partition = Partition::new("test_topic".to_string(), 0);
+    let paths =
+        CheckpointPath::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
     store_manager
         .stores()
         .insert(partition.clone(), store.clone());
 
     let worker = CheckpointWorker::new(
         1,
-        config.clone(),
-        partition.clone(),
+        CheckpointMode::Full,
+        paths,
         store.clone(),
         exporter.clone(),
-        checkpoint_counters.clone(),
     );
 
     // Perform multiple checkpoints
     for i in 0..=config.max_local_checkpoints {
-        let result = worker.checkpoint_partition(partition.clone(), &store).await;
+        let result = worker.checkpoint_partition().await;
         assert!(
             result.is_ok(),
             "Checkpoint {i} should succeed, got: {:?}",
@@ -601,6 +613,7 @@ async fn test_unavailable_uploader() {
 
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
+        cleanup_interval: Duration::from_secs(60),
         local_checkpoint_dir: checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
@@ -612,36 +625,35 @@ async fn test_unavailable_uploader() {
     };
 
     let uploader = Box::new(MockUploader::new_unavailable().unwrap());
-    let exporter = Arc::new(Some(Box::new(CheckpointExporter::new(
+    let exporter = Some(Arc::new(CheckpointExporter::new(
         config.clone(),
         uploader.clone(),
-    ))));
-    let checkpoint_counters = Arc::new(Mutex::new(HashMap::<Partition, u32>::new()));
-    let is_checkpointing = Arc::new(Mutex::new(HashSet::new()));
+    )));
     let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
         path: checkpoint_dir.path().to_path_buf(),
         max_capacity: 1_000_000,
     }));
 
     let partition = Partition::new("test_topic".to_string(), 0);
+    let paths =
+        CheckpointPath::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
     store_manager
         .stores()
         .insert(partition.clone(), store.clone());
 
     let worker = CheckpointWorker::new(
         1,
-        store_manager.clone(),
+        CheckpointMode::Full,
+        paths,
+        store.clone(),
         exporter.clone(),
-        checkpoint_counters.clone(),
-        is_checkpointing.clone(),
-        config.clone(),
     );
 
     // Now that we report (log/stat) the successful local checkpoint and
     // the unavailable uploader without failing the run or bubbling up
     // and crashing the worker, feels like erroring is the right output
     // for this? We will want to monitor + alert on it when frequent enough
-    let result = worker.attempt_checkpoint(partition).await;
+    let result = worker.checkpoint_partition().await;
     assert!(result.is_err());
 
     // No files should be uploaded
@@ -670,6 +682,7 @@ async fn test_unpopulated_exporter() {
 
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
+        cleanup_interval: Duration::from_secs(60),
         local_checkpoint_dir: checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
@@ -680,29 +693,22 @@ async fn test_unpopulated_exporter() {
         s3_timeout: Duration::from_secs(30),
     };
 
-    let checkpoint_counters = Arc::new(Mutex::new(HashMap::<Partition, u32>::new()));
-    let is_checkpointing = Arc::new(Mutex::new(HashSet::new()));
     let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
         path: checkpoint_dir.path().to_path_buf(),
         max_capacity: 1_000_000,
     }));
 
     let partition = Partition::new("test_topic".to_string(), 0);
+    let paths =
+        CheckpointPath::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
     store_manager
         .stores()
         .insert(partition.clone(), store.clone());
 
-    let worker = CheckpointWorker::new(
-        1,
-        store_manager.clone(),
-        Arc::new(None),
-        checkpoint_counters.clone(),
-        is_checkpointing.clone(),
-        config.clone(),
-    );
+    let worker = CheckpointWorker::new(1, CheckpointMode::Full, paths, store.clone(), None);
 
     // Checkpoint should still succeed even if uploader is unavailable
-    let result = worker.attempt_checkpoint(partition).await;
+    let result = worker.checkpoint_partition().await;
     assert!(result.is_ok()); // Should return OK result
-    assert!(!result.unwrap()); // Should return false for non-existent partition
+    assert!(result.unwrap().is_none()); // Should return false for non-existent partition
 }
