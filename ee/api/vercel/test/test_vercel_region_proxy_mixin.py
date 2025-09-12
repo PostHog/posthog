@@ -290,6 +290,13 @@ class TestVercelRegionProxyMixin(VercelTestBase):
         mock_request.META = headers or {"HTTP_AUTHORIZATION": "Bearer token", "HTTP_X_VERCEL_AUTH": "user"}
         mock_request.GET = {}
         mock_request.body = None
+
+        # Mock the headers attribute that behaves like a dict when dict() is called on it
+        headers_dict = {
+            "Authorization": "Bearer token",
+            "X-Vercel-Auth": "user",
+        }
+        mock_request.headers = headers_dict
         return mock_request
 
     def test_dispatch_behavior(self):
