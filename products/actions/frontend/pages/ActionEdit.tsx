@@ -129,6 +129,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                                                 }
                                                 onSave={(value) => {
                                                     onChange(value)
+
                                                     submitAction()
                                                     /* When clicking 'Set' on an `EditableField`, always save the form */
                                                 }}
@@ -231,7 +232,8 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                                     type="primary"
                                     htmlType="submit"
                                     loading={actionLoading}
-                                    onClick={() => {
+                                    onClick={(e) => {
+                                        e.preventDefault()
                                         if (id) {
                                             submitAction()
                                         } else {
