@@ -104,7 +104,7 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
                     alias="previous_amount",
                     expr=ast.WindowFunction(
                         name="lagInFrame",
-                        args=[
+                        exprs=[
                             ast.Field(chain=["amount"]),
                             ast.Constant(value=1),
                             ast.Call(name="assumeNotNull", args=[ZERO_IN_DECIMAL_PRECISION]),

@@ -182,7 +182,7 @@ RUN apt-get update && \
     "libxmlsec1-dev" \
     "libxml2" \
     "gettext-base" \
-    "ffmpeg=7:5.1.6-0+deb12u1"
+    "ffmpeg"
 
 # Install MS SQL dependencies
 RUN curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/trusted.gpg.d/microsoft.asc

@@ -13,7 +13,6 @@ import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataW
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
 import { urls } from 'scenes/urls'
 
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ProductKey } from '~/types'
@@ -34,7 +33,7 @@ export function DataPipelinesSources({ newUrl }: { newUrl?: string }): JSX.Eleme
     )
 
     return (
-        <SceneContent forceNewSpacing>
+        <div className="flex flex-col gap-4">
             <PageHeader buttons={newButton} />
 
             {!dataWarehouseSourcesLoading && dataWarehouseSources?.results.length === 0 ? (
@@ -113,6 +112,6 @@ export function DataPipelinesSources({ newUrl }: { newUrl?: string }): JSX.Eleme
                 )}
                 <DataWarehouseSelfManagedSourcesTable />
             </SceneSection>
-        </SceneContent>
+        </div>
     )
 }

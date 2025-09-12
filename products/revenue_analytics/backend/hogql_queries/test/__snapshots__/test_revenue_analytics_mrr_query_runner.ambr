@@ -14,16 +14,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -212,16 +210,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -389,16 +385,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -587,16 +581,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -811,16 +803,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -1057,16 +1047,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -1304,16 +1292,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -1502,16 +1488,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -1726,16 +1710,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -1924,16 +1906,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -2148,16 +2128,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -2344,16 +2322,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -2566,16 +2542,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -2821,16 +2795,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -3073,16 +3045,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -3280,16 +3250,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -3509,16 +3477,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -3707,16 +3673,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -3931,16 +3895,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -4129,16 +4091,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -4353,16 +4313,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -4552,16 +4510,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -4776,16 +4732,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -4983,16 +4937,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -5212,16 +5164,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -5419,16 +5369,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -5648,16 +5596,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
@@ -5855,16 +5801,14 @@
             mrr_per_day_subquery.subscription_id AS subscription_id,
             mrr_per_day_subquery.date AS date,
             mrr_per_day_subquery.amount AS amount,
-            lagInFrame()(mrr_per_day_subquery.amount,
-                         1,
-                         assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
-                                                                                                   mrr_per_day_subquery.customer_id,
-                                                                                                   mrr_per_day_subquery.subscription_id
-                                                                                      ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
-                                                                                     if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
-                                                                                     if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
-                                                                                     negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
-                                                                                     negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
+            lagInFrame(mrr_per_day_subquery.amount, 1, assumeNotNull(accurateCastOrNull(0, 'Decimal64(10)'))) OVER (PARTITION BY mrr_per_day_subquery.breakdown_by,
+                                                                                                                                 mrr_per_day_subquery.customer_id,
+                                                                                                                                 mrr_per_day_subquery.subscription_id
+                                                                                                                    ORDER BY mrr_per_day_subquery.date ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_amount,
+                                                                                                                   if(ifNull(equals(previous_amount, 0), 0), mrr_per_day_subquery.amount, accurateCastOrNull(0, 'Decimal64(10)')) AS new_amount,
+                                                                                                                   if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, previous_amount), 0)), minus(mrr_per_day_subquery.amount, previous_amount), accurateCastOrNull(0, 'Decimal64(10)')) AS expansion_amount,
+                                                                                                                   negate(if(and(ifNull(greater(previous_amount, 0), 0), ifNull(greater(mrr_per_day_subquery.amount, 0), 0), ifNull(less(mrr_per_day_subquery.amount, previous_amount), 0)), minus(previous_amount, mrr_per_day_subquery.amount), accurateCastOrNull(0, 'Decimal64(10)'))) AS contraction_amount,
+                                                                                                                   negate(multiIf(isNull(mrr_per_day_subquery.subscription_id), mrr_per_day_subquery.amount, ifNull(equals(mrr_per_day_subquery.amount, 0), 0), previous_amount, accurateCastOrNull(0, 'Decimal64(10)'))) AS churn_amount
      FROM
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
