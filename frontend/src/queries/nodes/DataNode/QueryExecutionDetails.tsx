@@ -6,18 +6,14 @@ import { IconChip } from '@posthog/icons'
 
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { multitabEditorLogic } from 'scenes/data-warehouse/editor/multitabEditorLogic'
 
 import { humanFriendlyMilliseconds, humanizeBytes } from '~/lib/utils'
 
 import { dataNodeLogic } from './dataNodeLogic'
 
 export function QueryExecutionDetails(): JSX.Element | null {
-    const { dataLogicKey } = useValues(multitabEditorLogic)
-    const logic = dataNodeLogic({ key: dataLogicKey, query: {} as any })
-
-    const { queryLog, queryId, queryLogLoading, queryLogQueryId } = useValues(logic)
-    const { loadQueryLog } = useActions(logic)
+    const { queryLog, queryId, queryLogLoading, queryLogQueryId } = useValues(dataNodeLogic)
+    const { loadQueryLog } = useActions(dataNodeLogic)
 
     const [popoverVisible, setPopoverVisible] = useState(false)
 
