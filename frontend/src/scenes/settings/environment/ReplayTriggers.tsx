@@ -1,3 +1,8 @@
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+import { useState } from 'react'
+
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
@@ -11,48 +16,52 @@ import {
     LemonSelect,
     LemonSnack,
     LemonTag,
-    lemonToast,
     Link,
     Popover,
     Spinner,
+    lemonToast,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
-import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { useState } from 'react'
+import { IconCancel } from 'lib/lemon-ui/icons'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { AiRegexHelper, AiRegexHelperButton } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
-import { isStringWithLength, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
 import { SupportedPlatforms } from 'scenes/settings/environment/SessionRecordingSettings'
+import { isStringWithLength, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
 import { sessionReplayIngestionControlLogic } from 'scenes/settings/environment/sessionReplayIngestionControlLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { SelectOption } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
-import { AvailableFeature, MultivariateFlagOptions } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AvailableFeature, MultivariateFlagOptions } from '~/types'
 import { SessionReplayUrlTriggerConfig } from '~/types'
 
-function variantOptions(multivariate: MultivariateFlagOptions | undefined): LemonSegmentedButtonOption<string>[] {
+export const ANY_VARIANT = 'any'
+
+export function variantOptions(
+    multivariate: MultivariateFlagOptions | undefined,
+    disabledReason?: string | null
+): LemonSegmentedButtonOption<string>[] {
     if (!multivariate) {
         return []
     }
     return [
         {
-            label: 'any',
-            value: 'any',
+            label: ANY_VARIANT,
+            value: ANY_VARIANT,
+            disabledReason: disabledReason ?? undefined,
         },
         ...multivariate.variants.map((variant) => {
             return {
                 label: variant.key,
                 value: variant.key,
+                disabledReason: disabledReason ?? undefined,
             }
         }),
     ]
@@ -81,13 +90,25 @@ function LinkedFlagSelector(): JSX.Element | null {
                         <TriggerMatchTypeTag /> Enable recordings using feature flag {featureFlagLoading && <Spinner />}
                     </LemonLabel>
                     <div className="flex flex-row justify-start">
-                        <FlagSelector
-                            value={currentTeam?.session_recording_linked_flag?.id ?? undefined}
-                            onChange={(id, key, flag) => {
-                                selectFeatureFlag(flag)
-                                updateCurrentTeam({ session_recording_linked_flag: { id, key, variant: null } })
-                            }}
-                        />
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.SessionRecording}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
+                            }
+                        >
+                            {({ disabledReason }) => (
+                                <FlagSelector
+                                    value={currentTeam?.session_recording_linked_flag?.id ?? undefined}
+                                    onChange={(id, key, flag) => {
+                                        selectFeatureFlag(flag)
+                                        updateCurrentTeam({ session_recording_linked_flag: { id, key, variant: null } })
+                                    }}
+                                    disabledReason={disabledReason ?? undefined}
+                                    readOnly={!!disabledReason}
+                                />
+                            )}
+                        </AccessControlAction>
                         {currentTeam?.session_recording_linked_flag && (
                             <LemonButton
                                 className="ml-2"
@@ -96,6 +117,14 @@ function LinkedFlagSelector(): JSX.Element | null {
                                 type="secondary"
                                 onClick={() => updateCurrentTeam({ session_recording_linked_flag: null })}
                                 title="Clear selected flag"
+                                accessControl={{
+                                    resourceType: AccessControlResourceType.SessionRecording,
+                                    minAccessLevel: AccessControlLevel.Editor,
+                                    userAccessLevel:
+                                        getAppContext()?.resource_access_control?.[
+                                            AccessControlResourceType.SessionRecording
+                                        ],
+                                }}
                             />
                         )}
                     </div>
@@ -111,24 +140,34 @@ function LinkedFlagSelector(): JSX.Element | null {
                 {flagHasVariants && (
                     <>
                         <LemonLabel className="text-base">Link to a specific flag variant</LemonLabel>
-                        <LemonSegmentedButton
-                            className="min-w-1/3"
-                            value={currentTeam?.session_recording_linked_flag?.variant ?? 'any'}
-                            options={variantOptions(linkedFlag?.filters.multivariate)}
-                            onChange={(variant) => {
-                                if (!linkedFlag) {
-                                    return
-                                }
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.SessionRecording}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
+                            }
+                        >
+                            {({ disabledReason }) => (
+                                <LemonSegmentedButton
+                                    className="min-w-1/3"
+                                    value={currentTeam?.session_recording_linked_flag?.variant ?? ANY_VARIANT}
+                                    options={variantOptions(linkedFlag?.filters.multivariate, disabledReason)}
+                                    onChange={(variant) => {
+                                        if (!linkedFlag) {
+                                            return
+                                        }
 
-                                updateCurrentTeam({
-                                    session_recording_linked_flag: {
-                                        id: linkedFlag?.id,
-                                        key: linkedFlag?.key,
-                                        variant: variant === 'any' ? null : variant,
-                                    },
-                                })
-                            }}
-                        />
+                                        updateCurrentTeam({
+                                            session_recording_linked_flag: {
+                                                id: linkedFlag?.id,
+                                                key: linkedFlag?.key,
+                                                variant: variant === ANY_VARIANT ? null : variant,
+                                            },
+                                        })
+                                    }}
+                                />
+                            )}
+                        </AccessControlAction>
                         <p>
                             This is a multi-variant flag. You can link to "any" variant of the flag, and recordings will
                             start whenever the flag is enabled for a user.
@@ -178,26 +217,24 @@ function UrlConfigForm({
             </div>
             <div className="flex justify-between gap-2 w-full">
                 <div>
-                    <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_AI_REGEX}>
-                        <AiRegexHelper
-                            onApply={(regex) => {
-                                try {
-                                    const payload: SessionReplayUrlTriggerConfig = {
-                                        url: regex,
-                                        matching: 'regex',
-                                    }
-                                    if (type === 'trigger') {
-                                        addUrlTrigger(payload)
-                                    } else {
-                                        addUrlBlocklist(payload)
-                                    }
-                                } catch {
-                                    lemonToast.error('Failed to apply regex')
+                    <AiRegexHelper
+                        onApply={(regex) => {
+                            try {
+                                const payload: SessionReplayUrlTriggerConfig = {
+                                    url: regex,
+                                    matching: 'regex',
                                 }
-                            }}
-                        />
-                        <AiRegexHelperButton />
-                    </FlaggedFeature>
+                                if (type === 'trigger') {
+                                    addUrlTrigger(payload)
+                                } else {
+                                    addUrlBlocklist(payload)
+                                }
+                            } catch {
+                                lemonToast.error('Failed to apply regex')
+                            }
+                        }}
+                    />
+                    <AiRegexHelperButton />
                 </div>
 
                 <div className="flex gap-2">
@@ -248,7 +285,20 @@ function UrlConfigRow({
                 <span>{trigger.url}</span>
             </span>
             <div className="Actions flex deprecated-space-x-1 shrink-0">
-                <LemonButton icon={<IconPencil />} onClick={() => onEdit(index)} tooltip="Edit" center />
+                <LemonButton
+                    icon={<IconPencil />}
+                    onClick={() => onEdit(index)}
+                    tooltip="Edit"
+                    center
+                    accessControl={{
+                        resourceType: AccessControlResourceType.SessionRecording,
+                        minAccessLevel: AccessControlLevel.Editor,
+                        userAccessLevel:
+                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                    }}
+                >
+                    Edit
+                </LemonButton>
                 <LemonButton
                     icon={<IconTrash />}
                     tooltip={`Remove URL ${type}`}
@@ -267,7 +317,15 @@ function UrlConfigRow({
                             },
                         })
                     }}
-                />
+                    accessControl={{
+                        resourceType: AccessControlResourceType.SessionRecording,
+                        minAccessLevel: AccessControlLevel.Editor,
+                        userAccessLevel:
+                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                    }}
+                >
+                    Remove
+                </LemonButton>
             </div>
         </div>
     )
@@ -300,6 +358,12 @@ function UrlConfigSection({
                     type="secondary"
                     icon={<IconPlus />}
                     data-attr={`session-replay-add-url-${type}`}
+                    accessControl={{
+                        resourceType: AccessControlResourceType.SessionRecording,
+                        minAccessLevel: AccessControlLevel.Editor,
+                        userAccessLevel:
+                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                    }}
                 >
                     Add
                 </LemonButton>
@@ -411,6 +475,12 @@ function EventSelectButton(): JSX.Element {
                 icon={<IconPlus />}
                 sideIcon={null}
                 onClick={() => setOpen(!open)}
+                accessControl={{
+                    resourceType: AccessControlResourceType.SessionRecording,
+                    minAccessLevel: AccessControlLevel.Editor,
+                    userAccessLevel:
+                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                }}
             >
                 Add event
             </LemonButton>
@@ -439,14 +509,28 @@ function EventTriggerOptions(): JSX.Element | null {
             />
             <div className="flex gap-2">
                 {eventTriggerConfig?.map((evnt) => (
-                    <LemonSnack
-                        key={evnt}
-                        onClose={() => {
-                            updateEventTriggerConfig(eventTriggerConfig?.filter((e) => e !== evnt))
-                        }}
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.SessionRecording}
+                        minAccessLevel={AccessControlLevel.Editor}
+                        userAccessLevel={
+                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
+                        }
                     >
-                        {evnt}
-                    </LemonSnack>
+                        {({ disabledReason }) => (
+                            <LemonSnack
+                                key={evnt}
+                                onClose={
+                                    !disabledReason
+                                        ? () => {
+                                              updateEventTriggerConfig(eventTriggerConfig?.filter((e) => e !== evnt))
+                                          }
+                                        : undefined
+                                }
+                            >
+                                {evnt}
+                            </LemonSnack>
+                        )}
+                    </AccessControlAction>
                 ))}
             </div>
         </div>
@@ -563,6 +647,12 @@ function Sampling(): JSX.Element {
                             ? currentTeam?.session_recording_sample_rate
                             : '1.00'
                     }
+                    accessControl={{
+                        resourceType: AccessControlResourceType.SessionRecording,
+                        minAccessLevel: AccessControlLevel.Editor,
+                        userAccessLevel:
+                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                    }}
                 />
             </div>
             <SupportedPlatforms web={{ version: '1.85.0' }} />
@@ -591,6 +681,12 @@ function MinimumDurationSetting(): JSX.Element | null {
                         }}
                         options={SESSION_REPLAY_MINIMUM_DURATION_OPTIONS}
                         value={currentTeam?.session_recording_minimum_duration_milliseconds}
+                        accessControl={{
+                            resourceType: AccessControlResourceType.SessionRecording,
+                            minAccessLevel: AccessControlLevel.Editor,
+                            userAccessLevel:
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                        }}
                     />
                 </div>
                 <SupportedPlatforms web={{ version: '1.85.0' }} />
@@ -675,6 +771,12 @@ function TriggerMatchChoice(): JSX.Element {
                         updateCurrentTeam({ session_recording_trigger_match_type_config: value })
                     }}
                     value={currentTeam?.session_recording_trigger_match_type_config || 'all'}
+                    accessControl={{
+                        resourceType: AccessControlResourceType.SessionRecording,
+                        minAccessLevel: AccessControlLevel.Editor,
+                        userAccessLevel:
+                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                    }}
                 />
                 <div>triggers below match</div>
             </div>
@@ -718,8 +820,10 @@ export function ReplayTriggers(): JSX.Element {
                 <LemonDivider />
                 <UrlTriggerOptions />
                 <EventTriggerOptions />
-                <PayGateMini feature={AvailableFeature.SESSION_REPLAY_SAMPLING}>
+                <PayGateMini feature={AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING}>
                     <LinkedFlagSelector />
+                </PayGateMini>
+                <PayGateMini feature={AvailableFeature.SESSION_REPLAY_SAMPLING}>
                     <Sampling />
                 </PayGateMini>
             </div>

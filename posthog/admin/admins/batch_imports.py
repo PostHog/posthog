@@ -1,5 +1,6 @@
-from django.contrib import admin
 from django import forms
+from django.contrib import admin
+
 from posthog.models.batch_imports import BatchImport
 
 
@@ -44,6 +45,7 @@ class BatchImportAdmin(admin.ModelAdmin):
     list_filter = ("status", "created_at")
     search_fields = ("id", "status_message", "team__name")
     readonly_fields = ("id", "created_at", "updated_at", "state", "import_config")
+    autocomplete_fields = ("team",)
     fieldsets = (
         (None, {"fields": ("team", "created_by_id", "status", "status_message")}),
         (

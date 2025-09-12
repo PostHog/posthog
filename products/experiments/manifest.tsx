@@ -1,10 +1,9 @@
-import { IconFlask } from '@posthog/icons'
 import { toParams } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
+import { ExperimentMetric } from '~/queries/schema/schema-general'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Experiments',
@@ -13,7 +12,7 @@ export const manifest: ProductManifest = {
             id: string | number,
             formMode?: string | null,
             options?: {
-                metric?: ExperimentTrendsQuery | ExperimentFunnelsQuery
+                metric?: ExperimentMetric
                 name?: string
             }
         ): string => {
@@ -28,9 +27,9 @@ export const manifest: ProductManifest = {
     fileSystemTypes: {
         experiment: {
             name: 'Experiment',
-            icon: <IconFlask />,
+            iconType: 'experiment',
             href: (ref: string) => urls.experiment(ref),
-            iconColor: ['var(--product-experiments-light)'],
+            iconColor: ['var(--color-product-experiments-light)'],
             filterKey: 'experiment',
         },
     },
@@ -39,6 +38,8 @@ export const manifest: ProductManifest = {
             path: `Experiment`,
             type: 'experiment',
             href: urls.experiment('new'),
+            iconType: 'experiment',
+            iconColor: ['var(--color-product-experiments-light)'] as FileSystemIconColor,
         },
     ],
     treeItemsProducts: [
@@ -47,6 +48,8 @@ export const manifest: ProductManifest = {
             category: 'Features',
             type: 'experiment',
             href: urls.experiments(),
+            iconType: 'experiment',
+            iconColor: ['var(--color-product-experiments-light)'] as FileSystemIconColor,
         },
     ],
 }

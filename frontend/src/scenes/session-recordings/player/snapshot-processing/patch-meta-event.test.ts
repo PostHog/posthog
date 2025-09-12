@@ -1,9 +1,10 @@
-import { EventType } from '@posthog/rrweb-types'
 import posthog from 'posthog-js'
+
+import { EventType } from '@posthog/rrweb-types'
 
 import { RecordingSnapshot } from '~/types'
 
-import { patchMetaEventIntoWebData, ViewportResolution } from './patch-meta-event'
+import { ViewportResolution, patchMetaEventIntoWebData } from './patch-meta-event'
 import { clearThrottle } from './throttle-capturing'
 
 describe('patchMetaEventIntoWebData', () => {

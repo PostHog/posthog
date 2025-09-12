@@ -1,8 +1,9 @@
+import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+
 import { DateTime, Settings } from 'luxon'
 
 import { defaultConfig } from '~/config/config'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { fetch, FetchResponse } from '~/utils/request'
 
 import { createHogFunction } from '../_tests/fixtures'
 import {
@@ -16,7 +17,6 @@ import { SegmentDestinationExecutorService } from './segment-destination-executo
 
 describe('SegmentDestinationExecutorService', () => {
     let service: SegmentDestinationExecutorService
-    let mockFetch: jest.Mock<Promise<FetchResponse>, Parameters<typeof fetch>>
 
     const amplitudePlugin = SEGMENT_DESTINATIONS_BY_ID['segment-actions-amplitude']
     const amplitudeAction = amplitudePlugin.destination.actions['logEventV2']
@@ -28,10 +28,12 @@ describe('SegmentDestinationExecutorService', () => {
     const pipedriveAction = pipedrivePlugin.destination.actions['createUpdatePerson']
 
     beforeEach(() => {
+        mockFetch.mockReset()
+
         Settings.defaultZone = 'UTC'
         service = new SegmentDestinationExecutorService(defaultConfig)
 
-        service.fetch = mockFetch = jest.fn((_url, _options) =>
+        mockFetch.mockImplementation((_url, _options) =>
             Promise.resolve({
                 status: 200,
                 json: () => Promise.resolve({}),
@@ -154,7 +156,7 @@ describe('SegmentDestinationExecutorService', () => {
                 functionId: expect.any(String),
                 hogFunction: expect.any(Object),
                 id: expect.any(String),
-                queue: 'segment',
+                queue: 'hog',
                 queueMetadata: {
                     tries: 1,
                 },
@@ -217,7 +219,7 @@ describe('SegmentDestinationExecutorService', () => {
                 hogFunction: expect.any(Object),
                 functionId: expect.any(String),
                 id: expect.any(String),
-                queue: 'segment',
+                queue: 'hog',
                 queueMetadata: { tries: 1 },
                 queueParameters: undefined,
                 queuePriority: 1,
@@ -246,7 +248,7 @@ describe('SegmentDestinationExecutorService', () => {
                 hogFunction: expect.any(Object),
                 functionId: expect.any(String),
                 id: expect.any(String),
-                queue: 'segment',
+                queue: 'hog',
                 queueMetadata: {
                     tries: 2,
                 },
@@ -279,7 +281,7 @@ describe('SegmentDestinationExecutorService', () => {
                 hogFunction: expect.any(Object),
                 functionId: expect.any(String),
                 id: expect.any(String),
-                queue: 'segment',
+                queue: 'hog',
                 queueMetadata: { tries: 3 },
                 queueParameters: undefined,
                 queuePriority: 0,
@@ -344,7 +346,7 @@ describe('SegmentDestinationExecutorService', () => {
                 hogFunction: expect.any(Object),
                 functionId: expect.any(String),
                 id: expect.any(String),
-                queue: 'segment',
+                queue: 'hog',
                 queueMetadata: { tries: 1 },
                 queueParameters: undefined,
                 queuePriority: 0,

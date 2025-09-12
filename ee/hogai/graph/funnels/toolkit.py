@@ -1,5 +1,6 @@
-from ee.hogai.utils.helpers import dereference_schema
 from posthog.schema import AssistantFunnelsQuery
+
+from ee.hogai.utils.helpers import dereference_schema
 
 
 def generate_funnel_schema() -> dict:

@@ -1,32 +1,42 @@
 import logging
-from typing import Union
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import Any, Union
 
-from posthog.models import Experiment
+from posthog.schema import (
+    ExperimentDataWarehouseNode,
+    ExperimentFunnelMetric,
+    ExperimentMeanMetric,
+    ExperimentStatsBase,
+    IntervalType,
+)
+
 from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.experiments.exposure_query_logic import (
-    get_multiple_variant_handling_from_experiment,
-    get_entity_key,
-)
+
 from posthog.hogql_queries.experiments.base_query_utils import (
     get_experiment_date_range,
     get_experiment_exposure_query,
-    get_metric_events_query,
+    get_exposure_time_window_constraints,
     get_metric_aggregation_expr,
+    get_metric_events_query,
     get_winsorized_metric_values_query,
 )
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.schema import (
-    IntervalType,
-    ExperimentMeanMetric,
-    ExperimentFunnelMetric,
-    ExperimentDataWarehouseNode,
-    ExperimentStatsBase,
+from posthog.hogql_queries.experiments.exposure_query_logic import (
+    get_entity_key,
+    get_multiple_variant_handling_from_experiment,
 )
+from posthog.hogql_queries.experiments.utils import (
+    get_bayesian_experiment_result,
+    get_experiment_stats_method,
+    get_frequentist_experiment_result,
+    get_new_variant_results,
+    split_baseline_and_test_variants,
+)
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models import Experiment
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +68,8 @@ class ExperimentTimeseries:
         self.is_data_warehouse_query = isinstance(self.metric, ExperimentMeanMetric) and isinstance(
             self.metric.source, ExperimentDataWarehouseNode
         )
+
+        self.stats_method = get_experiment_stats_method(self.experiment)
 
     def _get_daily_exposure_counts_query(self, exposure_query: ast.SelectQuery) -> ast.SelectQuery:
         """
@@ -105,18 +117,13 @@ class ExperimentTimeseries:
         )
 
     def _get_daily_entity_metrics_from_exposed_users_query(
-        self, metric_events_query: ast.SelectQuery
+        self, exposure_query: ast.SelectQuery, metric_events_query: ast.SelectQuery
     ) -> ast.SelectQuery:
         """
         Aggregates each user's metric events by day (for users who were exposed to the experiment).
 
-        INPUT (metric_events_query): One row per metric event from exposed users
-        | variant | entity_id | timestamp           | value |
-        |---------|-----------|---------------------|-------|
-        | control | user_1    | 2025-05-27 14:35:00 | 1     |
-        | control | user_1    | 2025-05-27 18:20:00 | 1     |
-        | control | user_2    | 2025-05-28 10:15:00 | 1     |
-        | test-1  | user_3    | 2025-05-27 12:30:00 | 1     |
+        INPUT (metric_events_query): One row per metric event
+        INPUT (exposure_query): One row per exposed user with variant
 
         OUTPUT: One row per user per day (aggregated metric values)
         | variant | entity_id | date       | value |
@@ -127,10 +134,8 @@ class ExperimentTimeseries:
         """
         return ast.SelectQuery(
             select=[
-                ast.Field(chain=["metric_events", "variant"]),
-                ast.Field(chain=["metric_events", "entity_id"])
-                if not self.is_data_warehouse_query
-                else ast.Field(chain=["metric_events", "entity_identifier"]),
+                ast.Field(chain=["exposures", "variant"]),
+                ast.Field(chain=["exposures", "entity_id"]),
                 ast.Alias(
                     alias="date",
                     expr=ast.Call(
@@ -143,12 +148,45 @@ class ExperimentTimeseries:
                     alias="value",
                 ),
             ],
-            select_from=ast.JoinExpr(table=metric_events_query, alias="metric_events"),
+            select_from=ast.JoinExpr(
+                table=exposure_query,
+                alias="exposures",
+                next_join=ast.JoinExpr(
+                    table=metric_events_query,
+                    join_type="INNER JOIN",
+                    alias="metric_events",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.And(
+                            exprs=[
+                                ast.CompareOperation(
+                                    left=ast.Field(
+                                        chain=[
+                                            "exposures",
+                                            "exposure_identifier" if self.is_data_warehouse_query else "entity_id",
+                                        ]
+                                    ),
+                                    right=ast.Field(
+                                        chain=[
+                                            "metric_events",
+                                            "entity_identifier" if self.is_data_warehouse_query else "entity_id",
+                                        ]
+                                    ),
+                                    op=ast.CompareOperationOp.Eq,
+                                ),
+                                *get_exposure_time_window_constraints(
+                                    self.metric,
+                                    ast.Field(chain=["metric_events", "timestamp"]),
+                                    ast.Field(chain=["exposures", "first_exposure_time"]),
+                                ),
+                            ]
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
             group_by=[
-                ast.Field(chain=["metric_events", "variant"]),
-                ast.Field(chain=["metric_events", "entity_id"])
-                if not self.is_data_warehouse_query
-                else ast.Field(chain=["metric_events", "entity_identifier"]),
+                ast.Field(chain=["exposures", "variant"]),
+                ast.Field(chain=["exposures", "entity_id"]),
                 ast.Call(
                     name="toStartOfDay",
                     args=[ast.Field(chain=["metric_events", "timestamp"])],
@@ -344,7 +382,15 @@ class ExperimentTimeseries:
                     alias="num_users",
                     expr=ast.WindowFunction(
                         name="sum",
-                        args=[ast.Field(chain=["combined_daily", "daily_new_users"])],
+                        exprs=[
+                            ast.Call(
+                                name="coalesce",
+                                args=[
+                                    ast.Field(chain=["combined_daily", "daily_new_users"]),
+                                    ast.Constant(value=0),
+                                ],
+                            )
+                        ],
                         over_expr=ast.WindowExpr(
                             partition_by=[ast.Field(chain=["combined_daily", "variant"])],
                             order_by=[ast.OrderExpr(expr=ast.Field(chain=["combined_daily", "date"]))],
@@ -364,7 +410,15 @@ class ExperimentTimeseries:
                     alias="total_sum",
                     expr=ast.WindowFunction(
                         name="sum",
-                        args=[ast.Field(chain=["combined_daily", "daily_metric_sum"])],
+                        exprs=[
+                            ast.Call(
+                                name="coalesce",
+                                args=[
+                                    ast.Field(chain=["combined_daily", "daily_metric_sum"]),
+                                    ast.Constant(value=0),
+                                ],
+                            )
+                        ],
                         over_expr=ast.WindowExpr(
                             partition_by=[ast.Field(chain=["combined_daily", "variant"])],
                             order_by=[ast.OrderExpr(expr=ast.Field(chain=["combined_daily", "date"]))],
@@ -384,7 +438,15 @@ class ExperimentTimeseries:
                     alias="total_sum_of_squares",
                     expr=ast.WindowFunction(
                         name="sum",
-                        args=[ast.Field(chain=["combined_daily", "daily_sum_of_squares"])],
+                        exprs=[
+                            ast.Call(
+                                name="coalesce",
+                                args=[
+                                    ast.Field(chain=["combined_daily", "daily_sum_of_squares"]),
+                                    ast.Constant(value=0),
+                                ],
+                            )
+                        ],
                         over_expr=ast.WindowExpr(
                             partition_by=[ast.Field(chain=["combined_daily", "variant"])],
                             order_by=[ast.OrderExpr(expr=ast.Field(chain=["combined_daily", "date"]))],
@@ -438,7 +500,6 @@ class ExperimentTimeseries:
 
         metric_events_query = get_metric_events_query(
             self.metric,
-            exposure_query,
             self.team,
             self.entity_key,
             self.experiment,
@@ -449,7 +510,9 @@ class ExperimentTimeseries:
         daily_exposure_counts_query = self._get_daily_exposure_counts_query(exposure_query)
 
         # Stream B: Get daily metric aggregations from exposed users
-        daily_entity_metrics_query = self._get_daily_entity_metrics_from_exposed_users_query(metric_events_query)
+        daily_entity_metrics_query = self._get_daily_entity_metrics_from_exposed_users_query(
+            exposure_query, metric_events_query
+        )
 
         # Winsorize if needed
         if isinstance(self.metric, ExperimentMeanMetric) and (
@@ -465,46 +528,6 @@ class ExperimentTimeseries:
 
         return self._get_cumulative_timeseries_query(combined_daily_query)
 
-    def _transform_timeseries_results(self, results: list[tuple]) -> list[dict]:
-        """
-        Transform raw query results:
-        [
-            {
-                "date": "2025-07-15T00:00:00Z",
-                "variant_results": [
-                    {
-                        "key": "control",
-                        "number_of_samples": 1000,
-                        "sum": 226537017.70000008,
-                        "sum_squares": 567352528220837.6
-                    },
-                    ...
-                ]
-            },
-            ...
-        ]
-        """
-
-        grouped_by_date: dict[str, list[dict[str, Union[str, int, float]]]] = {}
-        for variant, date, num_users, total_sum, total_sum_of_squares in results:
-            date_str = f"{date.isoformat()}T00:00:00Z"
-            if date_str not in grouped_by_date:
-                grouped_by_date[date_str] = []
-
-            grouped_by_date[date_str].append(
-                {
-                    "key": variant,
-                    "number_of_samples": num_users,
-                    "sum": total_sum,
-                    "sum_squares": total_sum_of_squares,
-                }
-            )
-
-        return [
-            {"date": date_str, "variant_results": variant_data}
-            for date_str, variant_data in sorted(grouped_by_date.items())
-        ]
-
     def _create_experiment_stats_base(
         self, variant: str, num_users: int, total_sum: float, total_sum_of_squares: float
     ) -> ExperimentStatsBase:
@@ -516,28 +539,31 @@ class ExperimentTimeseries:
             sum_squares=total_sum_of_squares,
         )
 
-    def get_result(self) -> list[dict]:
+    def _generate_experiment_dates(self) -> list[str]:
         """
-        Get the experiment timeseries results.
+        Generate all dates that should be included in the timeseries based on experiment start/end dates.
+        Returns dates as ISO strings without timezone info (e.g. '2025-07-15').
+        """
+        if not self.date_range.date_from:
+            return []
 
-        Returns:
-            list[dict]: Transformed timeseries results with format:
-                [
-                    {
-                        "date": "2025-07-15T00:00:00Z",
-                        "variant_results": [
-                            {
-                                "key": "control",
-                                "number_of_samples": 1000,
-                                "sum": 226537017.70000008,
-                                "sum_squares": 567352528220837.6
-                            },
-                            ...
-                        ]
-                    },
-                    ...
-                ]
-        """
+        start_date = datetime.fromisoformat(self.date_range.date_from).date()
+
+        # If no end date, use today
+        if self.date_range.date_to:
+            end_date = datetime.fromisoformat(self.date_range.date_to).date()
+        else:
+            end_date = datetime.now().date()
+
+        dates = []
+        current_date = start_date
+        while current_date <= end_date:
+            dates.append(current_date.isoformat())  # e.g. '2025-07-15'
+            current_date += timedelta(days=1)
+
+        return dates
+
+    def get_result(self) -> list[dict[str, Any]]:
         experiment_query = self._get_experiment_timeseries_query()
 
         timings = HogQLTimings()
@@ -547,7 +573,48 @@ class ExperimentTimeseries:
             team=self.team,
             timings=timings,
             modifiers=create_default_modifiers_for_team(self.team),
-            settings=HogQLGlobalSettings(max_execution_time=180),
+            settings=HogQLGlobalSettings(max_execution_time=180, allow_experimental_analyzer=True),
         )
 
-        return self._transform_timeseries_results(response.results)
+        timeseries = []
+
+        # Group db results by date
+        grouped_by_date: dict[str, list[tuple[str, int, int, int]]] = {}
+        for variant, date, num_users, total_sum, total_sum_of_squares in response.results:
+            date_key = date.date().isoformat()  # e.g. '2024-01-01'
+            if date_key not in grouped_by_date:
+                grouped_by_date[date_key] = []
+            grouped_by_date[date_key].append((variant, num_users, total_sum, total_sum_of_squares))
+
+        experiment_dates = self._generate_experiment_dates()
+
+        # Calculate statistical results for each date in the experiment period
+        for date_key in experiment_dates:
+            if date_key in grouped_by_date:
+                try:
+                    variants_tuples = grouped_by_date[date_key]
+                    variants = get_new_variant_results(variants_tuples)
+                    control_variant, test_variants = split_baseline_and_test_variants(variants)
+
+                    if self.stats_method == "bayesian":
+                        daily_result = get_bayesian_experiment_result(
+                            metric=self.metric,
+                            control_variant=control_variant,
+                            test_variants=test_variants,
+                        )
+                    elif self.stats_method == "frequentist":
+                        daily_result = get_frequentist_experiment_result(
+                            metric=self.metric,
+                            control_variant=control_variant,
+                            test_variants=test_variants,
+                        )
+
+                    daily_result_dict = {"date": date_key, **daily_result.model_dump()}
+                except Exception as e:
+                    daily_result_dict = {"date": date_key, "error": str(e)}
+            else:
+                daily_result_dict = {"date": date_key}
+
+            timeseries.append(daily_result_dict)
+
+        return timeseries

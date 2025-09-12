@@ -1,5 +1,6 @@
 import { kea, path, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
+
 import api from 'lib/api'
 
 import type { eventIngestionRestrictionLogicType } from './eventIngestionRestrictionLogicType'

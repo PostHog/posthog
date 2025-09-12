@@ -1,6 +1,8 @@
 import { useValues } from 'kea'
+
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
 
@@ -13,7 +15,7 @@ export function HogFunctionSourceWebhookInfo(): JSX.Element {
             <CodeSnippet thing="Webhook URL">
                 {!id
                     ? 'The webhook URL will be shown here once you save'
-                    : window.location.origin + '/public/webhooks/' + id}
+                    : publicWebhooksHostOrigin() + '/public/webhooks/' + id}
             </CodeSnippet>
 
             <p className="text-sm">

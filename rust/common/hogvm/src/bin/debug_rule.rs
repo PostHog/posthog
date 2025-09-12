@@ -18,6 +18,15 @@ pub fn main() {
     let rule_bytecode = json.get("bytecode").unwrap().as_str().unwrap();
     let rule_bytecode: Vec<Value> =
         serde_json::from_str(rule_bytecode).expect("Failed to convert bytecode to json");
+    println!(
+        "Bytecode:\n{}",
+        rule_bytecode
+            .iter()
+            .enumerate()
+            .fold(String::new(), |acc, (i, value)| format!(
+                "{acc}({i}){value:?}\n"
+            ))
+    );
 
     // Grab the data we fed in to the invocation that caused the rule to be disabled
     let disabled_data = json.get("disabled_data").unwrap().as_str().unwrap();
@@ -44,11 +53,11 @@ pub fn main() {
         let step_result = vm.step().unwrap();
         match step_result {
             StepOutcome::Finished(Value::Bool(b)) => {
-                println!("OK: Rule finished with outcome: {:?}", b);
+                println!("OK: Rule finished with outcome: {b:?}");
                 return;
             }
             StepOutcome::Finished(res) => {
-                panic!("ERR: Rule finished with unexpected result: {:?}", res);
+                panic!("ERR: Rule finished with unexpected result: {res:?}");
             }
             StepOutcome::NativeCall(name, args) => context
                 .execute_native_function_call(&mut vm, &name, args)

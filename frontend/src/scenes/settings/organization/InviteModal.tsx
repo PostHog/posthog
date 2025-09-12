@@ -1,8 +1,10 @@
 import './InviteModal.scss'
 
+import { useActions, useValues } from 'kea'
+
 import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -11,13 +13,13 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { capitalizeFirstLetter, isEmail, pluralize } from 'lib/utils'
 import { organizationMembershipLevelIntegers } from 'lib/utils/permissioning'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { inviteLogic } from './inviteLogic'
 import { AccessControlLevel, AvailableFeature } from '~/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
+import { inviteLogic } from './inviteLogic'
 
 /** Shuffled placeholder names */
 const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(
@@ -25,7 +27,7 @@ const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fil
 )
 export const MAX_INVITES_AT_ONCE = 20
 
-export function EmailUnavailableMessage(): JSX.Element {
+export function EmailUnavailableForInvitesBanner(): JSX.Element {
     return (
         <LemonBanner type="info" className="my-2">
             <>
@@ -192,7 +194,6 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
 
     const { hasAvailableFeature } = useValues(userLogic)
     const hasAdvancedPermissions = hasAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS)
-    const hasProjectAccessFeature = useFeatureFlag('INVITE_PROJECT_ACCESS')
 
     const { invitesToSend } = useValues(inviteLogic)
     const { updateInviteAtIndex, inviteTeamMembers, deleteInviteAtIndex } = useActions(inviteLogic)
@@ -288,7 +289,7 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
                 )}
             </div>
 
-            {hasAdvancedPermissions && hasProjectAccessFeature && <ProjectAccessSelector inviteIndex={index} />}
+            {hasAdvancedPermissions && <ProjectAccessSelector inviteIndex={index} />}
         </div>
     )
 }
@@ -444,8 +445,8 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                                         userCannotInvite
                                             ? "You don't have permissions to invite others."
                                             : !canSubmit
-                                            ? 'Please fill out all fields'
-                                            : undefined
+                                              ? 'Please fill out all fields'
+                                              : undefined
                                     }
                                     data-attr="invite-team-member-submit"
                                 >

@@ -121,8 +121,7 @@ const errorTrackingQueryResponse: ErrorTrackingQueryResponse = {
             occurrences: occurrences,
             sessions: sessions,
             users: users,
-            volumeDay: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            volumeRange: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            volume_buckets: new Array(24).fill({ label: new Date().toISOString(), value: 0 }),
         },
     })),
 }

@@ -30,9 +30,9 @@ WHERE ...
 
 **Benefits of this approach:**
 
--   **Property resolution**: Complex property filters (including nested properties) are resolved at the SQL level where the HogQL type system works correctly
--   **Performance**: Property filtering happens early in the query pipeline
--   **Compatibility**: Works with all property types and operators without UDF limitations
+- **Property resolution**: Complex property filters (including nested properties) are resolved at the SQL level where the HogQL type system works correctly
+- **Performance**: Property filtering happens early in the query pipeline
+- **Compatibility**: Works with all property types and operators without UDF limitations
 
 ### UDF step condition construction
 
@@ -43,9 +43,9 @@ multiply(1, metric_events.step_0),
 multiply(2, metric_events.step_1),
 ```
 
--   **Purpose**: Creates numeric step identifiers for each event
--   **Logic**: If event matches the step condition, return the step number (1, 2, 3), otherwise 0
--   **Result**: Each event gets tagged with which funnel steps it satisfies
+- **Purpose**: Creates numeric step identifiers for each event
+- **Logic**: If event matches the step condition, return the step number (1, 2, 3), otherwise 0
+- **Result**: Each event gets tagged with which funnel steps it satisfies
 
 ### 2. Events array construction
 
@@ -62,10 +62,10 @@ arraySort(t -> t.1, groupArray(tuple(
 )))
 ```
 
--   **Purpose**: Creates the main input array for the UDF
--   **Sorting**: Events are sorted by timestamp (t.1) to ensure chronological order
--   **Filtering**: `arrayFilter(x -> x != 0, [...])` removes zeros, leaving only actual step numbers
--   **Example result**: `[(1704110400.0, uuid1, '', [1]), (1704110700.0, uuid2, '', [2])]`
+- **Purpose**: Creates the main input array for the UDF
+- **Sorting**: Events are sorted by timestamp (t.1) to ensure chronological order
+- **Filtering**: `arrayFilter(x -> x != 0, [...])` removes zeros, leaving only actual step numbers
+- **Example result**: `[(1704110400.0, uuid1, '', [1]), (1704110700.0, uuid2, '', [2])]`
 
 ### 3. UDF function call
 
@@ -80,20 +80,20 @@ aggregate_funnel_array(
 )
 ```
 
--   **Purpose**: Performs the funnel analysis logic
--   **Window**: 3600 seconds = 1 hour maximum between first and last step
--   **Attribution**: Which attribution type to use. Only relevant if using breakdowns. We don't.
--   **Ordering**: 'ordered' means step 2 must come after step 1, step 3 after step 2
--   **Returns**: Array of tuples with results for each user
+- **Purpose**: Performs the funnel analysis logic
+- **Window**: 3600 seconds = 1 hour maximum between first and last step
+- **Attribution**: Which attribution type to use. Only relevant if using breakdowns. We don't.
+- **Ordering**: 'ordered' means step 2 must come after step 1, step 3 after step 2
+- **Returns**: Array of tuples with results for each user
 
 ### 4. Result output
 
 The UDF returns tuples with this structure:
 
--   **`step_reached`**: Highest step completed (0-indexed, so 2 = completed all 3 steps)
--   **`breakdown_values`**: Array of breakdown property values (empty in our case)
--   **`conversion_times`**: Array of seconds between steps [step1→step2, step2→step3]
--   **`event_uuids`**: Arrays of UUIDs for events used in each step
+- **`step_reached`**: Highest step completed (0-indexed, so 2 = completed all 3 steps)
+- **`breakdown_values`**: Array of breakdown property values (empty in our case)
+- **`conversion_times`**: Array of seconds between steps [step1→step2, step2→step3]
+- **`event_uuids`**: Arrays of UUIDs for events used in each step
 
 ### 5. Result evaluation
 

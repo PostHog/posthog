@@ -2,8 +2,8 @@ import '../../lib/components/Cards/InsightCard/InsightCard.scss'
 
 import {
     ActivityLogItem,
-    defaultDescriber,
     HumanizedChange,
+    defaultDescriber,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/lemon-ui/Link'

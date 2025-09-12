@@ -1,3 +1,8 @@
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import { useEffect, useState } from 'react'
+
 import { IconFlask } from '@posthog/icons'
 import {
     LemonBanner,
@@ -14,16 +19,20 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
-import { IconAreaChart } from 'lib/lemon-ui/icons'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
-import { useEffect, useState } from 'react'
+import { IconAreaChart } from 'lib/lemon-ui/icons'
+import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
+import { useMaxTool } from 'scenes/max/useMaxTool'
+import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
+import { captureMaxAISurveyCreationException } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
@@ -43,16 +52,96 @@ import {
     ExperimentConclusion,
     ExperimentIdType,
     InsightShortId,
+    ProductKey,
     ProgressStatus,
+    UserType,
 } from '~/types'
 
-import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
+import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatusColor } from '../experimentsLogic'
 import { getIndexForVariant } from '../legacyExperimentCalculations'
 import { modalsLogic } from '../modalsLogic'
 import { getExperimentInsightColour } from '../utils'
+
+// Utility function to create MaxTool configuration for experiment survey creation
+export function createMaxToolExperimentSurveyConfig(
+    experiment: Experiment,
+    user: UserType | null
+): {
+    identifier: 'create_survey'
+    active: boolean
+    initialMaxPrompt: string
+    suggestions: string[]
+    context: Record<string, any>
+    callback: (toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => void
+} {
+    const variants = experiment.parameters?.feature_flag_variants || []
+    const hasMultipleVariants = variants.length > 1
+    const featureFlagKey = experiment.feature_flag?.key
+
+    return {
+        identifier: 'create_survey' as const,
+        active: Boolean(user?.uuid && experiment.id),
+        initialMaxPrompt: `Create a survey to collect feedback about the "${experiment.name}" experiment${experiment.description ? ` (${experiment.description})` : ''}${featureFlagKey ? ` using feature flag "${featureFlagKey}"` : ''}${hasMultipleVariants ? ` which tests variants: ${variants.map((v) => `"${v.key}"`).join(', ')}` : ''}`,
+        suggestions: !featureFlagKey
+            ? [] // No suggestions if no feature flag key
+            : hasMultipleVariants
+              ? [
+                    `Create a feedback survey comparing variants in the "${experiment.name}" experiment targeting users with feature flag "${featureFlagKey}"`,
+                    // Include specific variant suggestion only if variant exists
+                    ...(variants[0]?.key
+                        ? [
+                              `Create a survey for users who saw the "${variants[0].key}" variant of feature flag "${featureFlagKey}" in the "${experiment.name}" experiment`,
+                          ]
+                        : []),
+                    `Create an A/B test survey asking users to compare variants from feature flag "${featureFlagKey}" in the "${experiment.name}" experiment`,
+                    `Create a survey to understand which variant of feature flag "${featureFlagKey}" performed better in the "${experiment.name}" experiment`,
+                    `Create a survey targeting users exposed to any variant of feature flag "${featureFlagKey}" to gather feedback on the "${experiment.name}" test`,
+                ]
+              : [
+                    `Create a feedback survey for users who were exposed to feature flag "${featureFlagKey}" in the "${experiment.name}" experiment`,
+                    `Create an NPS survey for users who saw feature flag "${featureFlagKey}" during the "${experiment.name}" experiment`,
+                    `Create a satisfaction survey asking about the experience with feature flag "${featureFlagKey}" in the "${experiment.name}" experiment`,
+                    `Create a survey to understand user reactions to changes introduced by feature flag "${featureFlagKey}" in the "${experiment.name}" experiment`,
+                ],
+        context: {
+            user_id: user?.uuid,
+            experiment_name: experiment.name,
+            experiment_description: experiment.description,
+            feature_flag_key: experiment.feature_flag?.key,
+            feature_flag_id: experiment.feature_flag?.id,
+            feature_flag_name: experiment.feature_flag?.name,
+            target_feature_flag: experiment.feature_flag?.key,
+            survey_purpose: 'collect_feedback_for_experiment',
+            has_multiple_variants: hasMultipleVariants,
+            variants: variants.map((v) => ({
+                key: v.key,
+                name: v.name || '',
+                rollout_percentage: v.rollout_percentage,
+            })),
+            variant_count: variants?.length || 0,
+        },
+        callback: (toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => {
+            addProductIntent({
+                product_type: ProductKey.SURVEYS,
+                intent_context: ProductIntentContext.SURVEY_CREATED,
+                metadata: {
+                    survey_id: toolOutput.survey_id,
+                    source: SURVEY_CREATED_SOURCE.EXPERIMENTS,
+                    created_successfully: !toolOutput?.error,
+                },
+            })
+
+            if (toolOutput?.error || !toolOutput?.survey_id) {
+                return captureMaxAISurveyCreationException(toolOutput.error, SURVEY_CREATED_SOURCE.EXPERIMENTS)
+            }
+            // Redirect to the new survey
+            router.actions.push(urls.survey(toolOutput.survey_id))
+        },
+    }
+}
 
 export function VariantTag({
     experimentId,
@@ -117,15 +206,26 @@ export function VariantTag({
     )
 }
 
-export function ResultsTag({ metricIndex = 0 }: { metricIndex?: number }): JSX.Element {
-    const { isPrimaryMetricSignificant, significanceDetails } = useValues(experimentLogic)
-    const result: { color: LemonTagType; label: string } = isPrimaryMetricSignificant(metricIndex)
+export function ResultsTag({ metricUuid }: { metricUuid?: string }): JSX.Element {
+    const { isPrimaryMetricSignificant, significanceDetails, experiment } = useValues(experimentLogic)
+
+    // Use first primary metric UUID if not provided
+    const uuid = metricUuid || experiment.metrics?.[0]?.uuid || ''
+    if (!uuid) {
+        return (
+            <LemonTag type="primary">
+                <b className="uppercase">Not significant</b>
+            </LemonTag>
+        )
+    }
+
+    const result: { color: LemonTagType; label: string } = isPrimaryMetricSignificant(uuid)
         ? { color: 'success', label: 'Significant' }
         : { color: 'primary', label: 'Not significant' }
 
-    if (significanceDetails(metricIndex)) {
+    if (significanceDetails(uuid)) {
         return (
-            <Tooltip title={significanceDetails(metricIndex)}>
+            <Tooltip title={significanceDetails(uuid)}>
                 <LemonTag className="cursor-pointer" type={result.color}>
                     <b className="uppercase">{result.label}</b>
                 </LemonTag>
@@ -252,7 +352,7 @@ export function ResultsHeader(): JSX.Element {
 export function EllipsisAnimation(): JSX.Element {
     const [ellipsis, setEllipsis] = useState('.')
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         let count = 1
         let direction = 1
 
@@ -266,7 +366,7 @@ export function EllipsisAnimation(): JSX.Element {
         }, 300)
 
         return () => clearInterval(interval)
-    }, [])
+    })
 
     return <span>{ellipsis}</span>
 }
@@ -287,19 +387,32 @@ export function PageHeaderCustom(): JSX.Element {
     const {
         experimentId,
         experiment,
+        isExperimentDraft,
         isExperimentRunning,
         isExperimentStopped,
-        isPrimaryMetricSignificant,
         isSingleVariantShipped,
         hasPrimaryMetricSet,
         isCreatingExperimentDashboard,
+        primaryMetricsResults,
+        legacyPrimaryMetricsResults,
+        hasMinimumExposureForResults,
     } = useValues(experimentLogic)
     const { launchExperiment, archiveExperiment, createExposureCohort, createExperimentDashboard } =
         useActions(experimentLogic)
     const { openShipVariantModal, openStopExperimentModal } = useActions(modalsLogic)
+    const { user } = useValues(userLogic)
     const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
 
+    // Initialize MaxTool hook for experiment survey creation
+    const { openMax } = useMaxTool(createMaxToolExperimentSurveyConfig(experiment, user))
+
     const exposureCohortId = experiment?.exposure_cohort
+
+    const shouldShowShipVariantButton =
+        !isExperimentDraft &&
+        !isSingleVariantShipped &&
+        hasMinimumExposureForResults &&
+        (legacyPrimaryMetricsResults.length > 0 || primaryMetricsResults.length > 0)
 
     return (
         <PageHeader
@@ -346,6 +459,16 @@ export function PageHeaderCustom(): JSX.Element {
                                             >
                                                 Create dashboard
                                             </LemonButton>
+                                            {experiment.feature_flag && (
+                                                <LemonButton
+                                                    onClick={openMax || undefined}
+                                                    fullWidth
+                                                    data-attr="create-survey"
+                                                    disabled={!openMax}
+                                                >
+                                                    Create survey
+                                                </LemonButton>
+                                            )}
                                         </>
                                     }
                                 />
@@ -394,7 +517,7 @@ export function PageHeaderCustom(): JSX.Element {
                             )}
                         </div>
                     )}
-                    {isPrimaryMetricSignificant(0) && !isSingleVariantShipped && (
+                    {shouldShowShipVariantButton && (
                         <>
                             <Tooltip title="Choose a variant and roll it out to all users">
                                 <LemonButton type="primary" icon={<IconFlask />} onClick={() => openShipVariantModal()}>
@@ -750,7 +873,7 @@ export function MetricDisplayFunnels({ query }: { query: FunnelsQuery }): JSX.El
                         <div
                             className="shrink-0 w-6 h-6 mr-2 font-bold text-center text-primary-alt border rounded"
                             // eslint-disable-next-line react/forbid-dom-props
-                            style={{ backgroundColor: 'var(--bg-table)' }}
+                            style={{ backgroundColor: 'var(--color-bg-table)' }}
                         >
                             {idx + 1}
                         </div>

@@ -1,5 +1,8 @@
 import './Variables.scss'
 
+import { useActions, useValues } from 'kea'
+import { useEffect, useRef, useState } from 'react'
+
 import { IconCopy, IconGear, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
@@ -10,11 +13,10 @@ import {
     LemonSwitch,
     Popover,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { useEffect, useRef, useState } from 'react'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -27,24 +29,25 @@ import { variableModalLogic } from './variableModalLogic'
 import { variablesLogic } from './variablesLogic'
 
 export const VariablesForDashboard = (): JSX.Element => {
-    const { dashboardVariables } = useValues(dashboardLogic)
+    const { effectiveVariablesAndAssociatedInsights } = useValues(dashboardLogic)
     const { overrideVariableValue } = useActions(dashboardLogic)
 
-    if (!dashboardVariables.length) {
+    if (!effectiveVariablesAndAssociatedInsights.length) {
         return <></>
     }
 
     return (
         <>
-            {dashboardVariables.map((n) => (
+            {effectiveVariablesAndAssociatedInsights.map((n) => (
                 <VariableComponent
                     key={n.variable.id}
                     variable={n.variable}
                     showEditingUI={false}
-                    onChange={(variableId, value, isNull) => overrideVariableValue(variableId, value, isNull, true)}
+                    onChange={(variableId, value, isNull) => overrideVariableValue(variableId, value, isNull)}
                     variableOverridesAreSet={false}
                     emptyState={<i className="text-xs">No override set</i>}
-                    insightsUsingVariable={n.insights}
+                    insightsUsingVariable={n.insightNames}
+                    size="small"
                 />
             ))}
         </>
@@ -294,6 +297,7 @@ interface VariableComponentProps {
     variableSettingsOnClick?: () => void
     insightsUsingVariable?: string[]
     emptyState?: JSX.Element | string
+    size?: 'small' | 'medium'
 }
 
 export const VariableComponent = ({
@@ -305,6 +309,7 @@ export const VariableComponent = ({
     variableSettingsOnClick,
     insightsUsingVariable,
     emptyState = '',
+    size = 'medium',
 }: VariableComponentProps): JSX.Element => {
     const [isPopoverOpen, setPopoverOpen] = useState(false)
 
@@ -358,12 +363,13 @@ export const VariableComponent = ({
                         className="min-w-32 DataVizVariable_Button"
                         onClick={() => setPopoverOpen(!isPopoverOpen)}
                         disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
+                        size={size}
                     >
                         {variable.isNull
                             ? 'Set to null'
                             : (variable.value?.toString() || variable.default_value?.toString() || '') === ''
-                            ? emptyState
-                            : variable.value?.toString() ?? variable.default_value?.toString()}
+                              ? emptyState
+                              : (variable.value?.toString() ?? variable.default_value?.toString())}
                     </LemonButton>
                 </LemonField.Pure>
             </div>

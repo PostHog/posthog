@@ -1,9 +1,12 @@
 import './368Hedgehogs.scss'
 
+import { useCallback, useRef, useState } from 'react'
+
 import { IconInfo } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { useCallback, useRef, useState } from 'react'
+
 // ==========================================================================
 export type Hog = 'hog1' | 'hog2' | 'hog3' | 'hog4'
 export type Orientation = 'horizontal' | 'vertical'

@@ -4,7 +4,12 @@ import { performQuery } from '~/queries/query'
 import { ActorsQuery, NodeKind, RetentionQuery } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 
-export function retentionToActorsQuery(query: RetentionQuery, selectedInterval: number, offset = 0): ActorsQuery {
+export function retentionToActorsQuery(
+    query: RetentionQuery,
+    selectedInterval: number,
+    offset = 0,
+    breakdownValue?: string | number | null
+): ActorsQuery {
     const group = query.aggregation_group_type_index != null
     const selectActor = group ? 'group' : 'person'
     const totalIntervals = query.retentionFilter.totalIntervals || 7
@@ -19,6 +24,8 @@ export function retentionToActorsQuery(query: RetentionQuery, selectedInterval: 
                 {
                     kind: NodeKind.InsightActorsQuery,
                     interval: selectedInterval,
+                    breakdown:
+                        breakdownValue !== undefined && breakdownValue !== null ? [String(breakdownValue)] : undefined,
                     source: {
                         ...query,
                         retentionFilter: {
@@ -38,9 +45,10 @@ export function retentionToActorsQuery(query: RetentionQuery, selectedInterval: 
 export async function queryForActors(
     retentionQuery: RetentionQuery,
     selectedInterval: number,
-    offset: number = 0
+    offset: number = 0,
+    breakdownValue?: string | number | null
 ): Promise<RetentionTablePeoplePayload> {
-    const actorsQuery = retentionToActorsQuery(retentionQuery, selectedInterval, offset)
+    const actorsQuery = retentionToActorsQuery(retentionQuery, selectedInterval, offset, breakdownValue)
     const response = await performQuery(actorsQuery)
     const results: RetentionTableAppearanceType[] = response.results.map((row) => ({
         person: row[0],

@@ -9,14 +9,14 @@
     margin-left: 0.5rem;
     font-size: 0.8125rem;
     font-weight: 600;
-    color: var(--accent);
+    color: var(--color-accent);
     text-align: right;
 }
 
 .AccountPopover__section {
     width: 100%;
     padding: 0.5rem 0;
-    border-bottom: 1px solid var(--border-primary);
+    border-bottom: 1px solid var(--color-border-primary);
 
     &:first-child {
         padding-top: 0;

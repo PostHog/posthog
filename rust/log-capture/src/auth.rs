@@ -31,7 +31,7 @@ pub enum AuthError {
     InvalidHeaderFormat,
 
     #[error("JWT error: {0}")]
-    JwtError(#[from] jsonwebtoken::errors::Error),
+    JwtError(Box<jsonwebtoken::errors::Error>),
 }
 
 /// Extract and validate JWT token from the Authorization header
@@ -63,7 +63,8 @@ pub fn extract_team_id_from_jwt(
         token,
         &DecodingKey::from_secret(jwt_secret.as_bytes()),
         &Validation::new(Algorithm::HS256),
-    )?;
+    )
+    .map_err(|e| AuthError::JwtError(Box::new(e)))?;
 
     // Return the team_id from the claims
     Ok(token_data.claims.team_id)
@@ -73,16 +74,14 @@ pub fn extract_team_id_from_jwt(
 pub fn authenticate_request(
     request: &Request<impl std::fmt::Debug>,
     jwt_secret: &str,
-) -> Result<String, Status> {
+) -> Result<String, Box<Status>> {
     extract_team_id_from_jwt(request, jwt_secret).map_err(|err| {
-        tracing::error!("Authentication error: {}", err);
-        match err {
+        tracing::error!("Authentication error: {err}");
+        Box::new(match err {
             AuthError::MissingHeader | AuthError::InvalidHeaderFormat => {
                 Status::unauthenticated("Invalid or missing Authorization header")
             }
-            AuthError::JwtError(_) => {
-                Status::unauthenticated(format!("Invalid JWT token: {}", err))
-            }
-        }
+            AuthError::JwtError(_) => Status::unauthenticated(format!("Invalid JWT token: {err}")),
+        })
     })
 }

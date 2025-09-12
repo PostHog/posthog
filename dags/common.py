@@ -1,16 +1,11 @@
 from contextlib import suppress
 from enum import Enum
 
-from clickhouse_driver.errors import Error, ErrorCodes
 import dagster
+from clickhouse_driver.errors import Error, ErrorCodes
 
 from posthog.clickhouse import query_tagging
-from posthog.clickhouse.cluster import (
-    ClickhouseCluster,
-    ExponentialBackoff,
-    RetryPolicy,
-    get_cluster,
-)
+from posthog.clickhouse.cluster import ClickhouseCluster, ExponentialBackoff, RetryPolicy, get_cluster
 from posthog.clickhouse.custom_metrics import MetricsClient
 from posthog.clickhouse.query_tagging import DagsterTags
 
@@ -21,6 +16,8 @@ class JobOwners(str, Enum):
     TEAM_WEB_ANALYTICS = "team-web-analytics"
     TEAM_ERROR_TRACKING = "team-error-tracking"
     TEAM_GROWTH = "team-growth"
+    TEAM_EXPERIMENTS = "team-experiments"
+    TEAM_MAX_AI = "team-max-ai"
 
 
 class ClickhouseClusterResource(dagster.ConfigurableResource):

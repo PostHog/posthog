@@ -1,7 +1,9 @@
 import random
 from typing import Any
+
 from django.core.management.base import BaseCommand
 from django.db import transaction
+
 from posthog.models import Person, PersonDistinctId, Team
 from posthog.models.utils import UUIDT
 
@@ -845,8 +847,9 @@ class Command(BaseCommand):
 
     def _generate_events_for_persons(self, team: Team, person_count: int):
         """Generate some basic events for the persons"""
-        from posthog.models.event.util import create_event
         from uuid import uuid4
+
+        from posthog.models.event.util import create_event
 
         event_types = ["pageview", "click", "form_submit", "signup", "purchase", "download"]
         pages = ["/", "/pricing", "/features", "/about", "/contact", "/blog", "/docs"]

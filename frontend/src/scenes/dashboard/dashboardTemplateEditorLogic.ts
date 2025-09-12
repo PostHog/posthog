@@ -1,13 +1,15 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { DashboardTemplateEditorType, DashboardTemplateType, MonacoMarker } from '~/types'
 
-import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
 import type { dashboardTemplateEditorLogicType } from './dashboardTemplateEditorLogicType'
+import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
 
 export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType>([
     path(['scenes', 'dashboard', 'dashboardTemplateEditorLogic']),

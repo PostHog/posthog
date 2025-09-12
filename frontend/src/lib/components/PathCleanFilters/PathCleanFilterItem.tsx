@@ -1,10 +1,12 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import clsx from 'clsx'
+import { useState } from 'react'
+
 import { IconArrowCircleRight } from '@posthog/icons'
 import { LemonSnack, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
+
 import { isValidRegexp } from 'lib/utils/regexp'
-import { useState } from 'react'
 
 import { PathCleaningFilter } from '~/types'
 

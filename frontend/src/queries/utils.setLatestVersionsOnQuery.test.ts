@@ -10,7 +10,6 @@ jest.mock('./latest-versions', () => {
 
 jest.resetModules()
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const { setLatestVersionsOnQuery } = require('./utils')
 
 // in a separate file to make it easier to mock the LATEST_VERSIONS

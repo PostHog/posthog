@@ -1,21 +1,29 @@
 import {
     Assignment,
-    ClientMetrics,
     CODES,
+    ClientMetrics,
     ConsumerGlobalConfig,
-    KafkaConsumer as RdKafkaConsumer,
     LibrdKafkaError,
     Message,
     MessageHeader,
     Metadata,
     PartitionMetadata,
+    KafkaConsumer as RdKafkaConsumer,
     TopicPartitionOffset,
     WatermarkOffsets,
 } from 'node-rdkafka'
 import { hostname } from 'os'
 import { Gauge, Histogram } from 'prom-client'
 
+import {
+    EventHeaders,
+    HealthCheckResult,
+    HealthCheckResultDegraded,
+    HealthCheckResultError,
+    HealthCheckResultOk,
+} from '~/types'
 import { isTestEnv } from '~/utils/env-utils'
+import { parseJSON } from '~/utils/json-parse'
 
 import { defaultConfig } from '../config/config'
 import { kafkaConsumerAssignment } from '../main/ingestion-queues/metrics'
@@ -29,6 +37,7 @@ import { getKafkaConfigFromEnv } from './config'
 const DEFAULT_BATCH_TIMEOUT_MS = 500
 const SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS = 10000
 const MAX_HEALTH_HEARTBEAT_INTERVAL_MS = 60_000
+const STATISTICS_INTERVAL_MS = 5000 // Emit internal metrics every 5 seconds
 
 const consumedBatchDuration = new Histogram({
     name: 'consumed_batch_duration_ms',
@@ -75,19 +84,22 @@ const histogramKafkaConsumeInterval = new Histogram({
 
 export const findOffsetsToCommit = (messages: TopicPartitionOffset[]): TopicPartitionOffset[] => {
     // We only need to commit the highest offset for a batch of messages
-    const messagesByTopicPartition = messages.reduce((acc, message) => {
-        if (!acc[message.topic]) {
-            acc[message.topic] = {}
-        }
+    const messagesByTopicPartition = messages.reduce(
+        (acc, message) => {
+            if (!acc[message.topic]) {
+                acc[message.topic] = {}
+            }
 
-        if (!acc[message.topic][message.partition]) {
-            acc[message.topic][message.partition] = []
-        }
+            if (!acc[message.topic][message.partition]) {
+                acc[message.topic][message.partition] = []
+            }
 
-        acc[message.topic][message.partition].push(message)
+            acc[message.topic][message.partition].push(message)
 
-        return acc
-    }, {} as { [topic: string]: { [partition: number]: TopicPartitionOffset[] } })
+            return acc
+        },
+        {} as { [topic: string]: { [partition: number]: TopicPartitionOffset[] } }
+    )
 
     // Then we find the highest offset for each topic partition
     const highestOffsets = Object.entries(messagesByTopicPartition).flatMap(([topic, partitions]) => {
@@ -112,12 +124,21 @@ export type KafkaConsumerConfig = {
     callEachBatchWhenEmpty?: boolean
     autoOffsetStore?: boolean
     autoCommit?: boolean
+    waitForBackgroundTasksOnRebalance?: boolean
 }
 
 export type RdKafkaConsumerConfig = Omit<
     ConsumerGlobalConfig,
     'group.id' | 'enable.auto.offset.store' | 'enable.auto.commit'
 >
+
+type RebalanceCallback = boolean | ((err: LibrdKafkaError, assignments: Assignment[]) => void)
+
+interface RebalanceCoordination {
+    isRebalancing: boolean
+    rebalanceTimeoutMs: number
+    rebalanceStartTime: number
+}
 
 export class KafkaConsumer {
     private isStopping = false
@@ -130,18 +151,37 @@ export class KafkaConsumer {
     private consumerLoop: Promise<void> | undefined
     private backgroundTask: Promise<void>[]
     private podName: string
+    // New health monitoring state
+    private consumerLoopStallThresholdMs: number
+    private lastConsumerLoopTime = 0
+    private consumerState: string | undefined
+    private lastStatsEmitTime = 0
+    private rebalanceCoordination: RebalanceCoordination = {
+        isRebalancing: false,
+        rebalanceTimeoutMs: 20000,
+        rebalanceStartTime: 0,
+    }
 
-    constructor(private config: KafkaConsumerConfig, rdKafkaConfig: RdKafkaConsumerConfig = {}) {
+    constructor(
+        private config: KafkaConsumerConfig,
+        rdKafkaConfig: RdKafkaConsumerConfig = {}
+    ) {
         this.backgroundTask = []
         this.podName = process.env.HOSTNAME || hostname()
 
         this.config.autoCommit ??= true
         this.config.autoOffsetStore ??= true
         this.config.callEachBatchWhenEmpty ??= false
+        this.config.waitForBackgroundTasksOnRebalance = defaultConfig.CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE
         this.maxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
         this.fetchBatchSize = defaultConfig.CONSUMER_BATCH_SIZE
         this.maxHealthHeartbeatIntervalMs =
             defaultConfig.CONSUMER_MAX_HEARTBEAT_INTERVAL_MS || MAX_HEALTH_HEARTBEAT_INTERVAL_MS
+        this.consumerLoopStallThresholdMs = defaultConfig.CONSUMER_LOOP_STALL_THRESHOLD_MS
+
+        const rebalancecb: RebalanceCallback = this.config.waitForBackgroundTasksOnRebalance
+            ? this.rebalanceCallback.bind(this)
+            : true
 
         this.consumerConfig = {
             'client.id': hostname(),
@@ -160,6 +200,10 @@ export class KafkaConsumer {
             'client.rack': defaultConfig.KAFKA_CLIENT_RACK, // Helps with cross-AZ traffic awareness and is not unique to the consumer
             'metadata.max.age.ms': 30000, // Refresh metadata every 30s - Relevant for leader loss (MSK Security Patches)
             'socket.timeout.ms': 30000,
+            // Only enable statistics when using loop-based health check
+            ...(defaultConfig.CONSUMER_LOOP_BASED_HEALTH_CHECK
+                ? { 'statistics.interval.ms': STATISTICS_INTERVAL_MS }
+                : {}),
             // Custom settings and overrides - this is where most configuration overrides should be done
             ...getKafkaConfigFromEnv('CONSUMER'),
             // Finally any specifically given consumer config overrides
@@ -169,7 +213,7 @@ export class KafkaConsumer {
             'enable.auto.offset.store': false, // NOTE: This is always false - we handle it using a custom function
             'enable.auto.commit': this.config.autoCommit,
             'enable.partition.eof': true,
-            rebalance_cb: true,
+            rebalance_cb: rebalancecb,
             offset_commit_cb: true,
         }
 
@@ -184,14 +228,100 @@ export class KafkaConsumer {
 
     public heartbeat(): void {
         // Can be called externally to update the heartbeat time and keep the consumer alive
+        // This is maintained for backward compatibility with the legacy health check mechanism
         this.lastHeartbeatTime = Date.now()
     }
 
-    public isHealthy(): boolean {
-        // this is called as a readiness and a liveness probe
-        const isWithinInterval = Date.now() - this.lastHeartbeatTime < this.maxHealthHeartbeatIntervalMs
-        const isConnected = this.rdKafkaConsumer.isConnected()
-        return isConnected && isWithinInterval
+    public isHealthy(): HealthCheckResult {
+        // Use legacy heartbeat-based health check if feature flag is disabled
+        if (!defaultConfig.CONSUMER_LOOP_BASED_HEALTH_CHECK) {
+            // this is called as a readiness and a liveness probe
+            const isWithinInterval = Date.now() - this.lastHeartbeatTime < this.maxHealthHeartbeatIntervalMs
+            const isConnected = this.rdKafkaConsumer.isConnected()
+
+            if (isConnected && isWithinInterval) {
+                return new HealthCheckResultOk()
+            } else {
+                return new HealthCheckResultError('Consumer unhealthy', {
+                    isConnected,
+                    isWithinInterval,
+                    lastHeartbeatTime: this.lastHeartbeatTime,
+                    maxHealthHeartbeatIntervalMs: this.maxHealthHeartbeatIntervalMs,
+                })
+            }
+        }
+
+        // New loop-based health check implementation
+        const details: Record<string, any> = {
+            topic: this.config.topic,
+            groupId: this.config.groupId,
+            healthCheckMode: 'loop-based',
+        }
+
+        // 1. Basic connectivity check
+        if (!this.rdKafkaConsumer.isConnected()) {
+            return new HealthCheckResultError('Consumer not connected to Kafka broker', details)
+        }
+
+        // 2. Consumer loop liveness check (ensure loop is not stalled)
+        const timeSinceLastLoop = Date.now() - this.lastConsumerLoopTime
+        if (this.lastConsumerLoopTime > 0 && timeSinceLastLoop > this.consumerLoopStallThresholdMs) {
+            return new HealthCheckResultError(
+                `Consumer loop appears stalled (no activity for ${Math.round(timeSinceLastLoop / 1000)}s)`,
+                {
+                    ...details,
+                    lastConsumerLoopTime: this.lastConsumerLoopTime,
+                    timeSinceLastLoop,
+                    threshold: this.consumerLoopStallThresholdMs,
+                }
+            )
+        }
+
+        // Build status message with warnings
+        const warnings: string[] = []
+
+        // 3. Check librdkafka internal state if available
+        if (this.consumerState && this.consumerState !== 'up') {
+            warnings.push(`Consumer state: ${this.consumerState}`)
+            details.consumerState = this.consumerState
+        }
+
+        // 4. Check if statistics are being emitted (indicates librdkafka is responsive)
+        if (this.lastStatsEmitTime > 0) {
+            const timeSinceLastStats = Date.now() - this.lastStatsEmitTime
+            // Allow for 3x the statistics interval as buffer
+            if (timeSinceLastStats > STATISTICS_INTERVAL_MS * 3) {
+                warnings.push(`Statistics not emitted for ${Math.round(timeSinceLastStats / 1000)}s`)
+                details.lastStatsEmitTime = this.lastStatsEmitTime
+                details.timeSinceLastStats = timeSinceLastStats
+            }
+        }
+
+        // 5. Rebalancing is normal operation, note it but don't fail
+        if (this.rebalanceCoordination.isRebalancing) {
+            const duration = Date.now() - this.rebalanceCoordination.rebalanceStartTime
+            warnings.push(`Rebalancing in progress (${Math.round(duration / 1000)}s)`)
+            details.rebalancing = true
+            details.rebalanceDuration = duration
+        }
+
+        // Add assignments info (but handle errors gracefully)
+        try {
+            const assignments = this.assignments()
+            if (assignments.length > 0) {
+                details.assignments = assignments.map((a) => ({ topic: a.topic, partition: a.partition }))
+            }
+        } catch (error) {
+            // Consumer might be in an erroneous state during rebalancing
+            details.assignmentError = error.message
+        }
+
+        // Return degraded if there are warnings, otherwise healthy
+        if (warnings.length > 0) {
+            return new HealthCheckResultDegraded(`Healthy with warnings: ${warnings.join(', ')}`, details)
+        }
+
+        return new HealthCheckResultOk()
     }
 
     public assignments(): Assignment[] {
@@ -239,45 +369,111 @@ export class KafkaConsumer {
         return meta.topics.find((x) => x.name === topic)?.partitions ?? []
     }
 
+    public rebalanceCallback(err: LibrdKafkaError, assignments: Assignment[]): void {
+        logger.info('🔁', 'kafka_consumer_rebalancing', { err, assignments })
+
+        if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
+            // Mark rebalancing as complete when partitions are assigned
+            if (this.config.waitForBackgroundTasksOnRebalance) {
+                this.resetRebalanceCoordination()
+            }
+            assignments.forEach((tp) => {
+                kafkaConsumerAssignment.set(
+                    {
+                        topic_name: tp.topic,
+                        partition_id: tp.partition.toString(),
+                        pod: this.podName,
+                        group_id: this.config.groupId,
+                    },
+                    1
+                )
+            })
+            if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
+                this.rdKafkaConsumer.incrementalAssign(assignments)
+            } else {
+                this.rdKafkaConsumer.assign(assignments)
+            }
+        } else if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
+            // Mark rebalancing as starting when partitions are revoked
+            if (this.config.waitForBackgroundTasksOnRebalance) {
+                this.rebalanceCoordination.isRebalancing = true
+                this.rebalanceCoordination.rebalanceStartTime = Date.now()
+            }
+            logger.info('🔁', 'partition_revocation_starting', {
+                backgroundTaskCount: this.backgroundTask.length,
+                revokedPartitions: assignments.map((tp) => ({
+                    topic: tp.topic,
+                    partition: tp.partition,
+                })),
+            })
+
+            // Handle background task coordination asynchronously
+            if (this.config.waitForBackgroundTasksOnRebalance && this.backgroundTask.length > 0) {
+                // Don't block the rebalance callback, but coordinate in the background
+                Promise.all(this.backgroundTask)
+                    .then(() => {
+                        logger.info('🔁', 'background_tasks_completed_before_partition_revocation')
+                        if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
+                            this.rdKafkaConsumer.incrementalUnassign(assignments)
+                        } else {
+                            this.rdKafkaConsumer.unassign()
+                        }
+                        this.updateMetricsAfterRevocation(assignments)
+                        if (this.assignments().length === 0) {
+                            this.resetRebalanceCoordination()
+                        }
+                    })
+                    .catch((error) => {
+                        logger.error('🔁', 'background_task_error_during_revocation', { error })
+                        // Still proceed with revocation even if background tasks fail
+                        if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
+                            this.rdKafkaConsumer.incrementalUnassign(assignments)
+                        } else {
+                            this.rdKafkaConsumer.unassign()
+                        }
+                        this.updateMetricsAfterRevocation(assignments)
+                        if (this.assignments().length === 0) {
+                            this.resetRebalanceCoordination()
+                        }
+                    })
+            } else {
+                // No background tasks or feature disabled, proceed immediately
+                if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
+                    this.rdKafkaConsumer.incrementalUnassign(assignments)
+                } else {
+                    this.rdKafkaConsumer.unassign()
+                }
+                this.updateMetricsAfterRevocation(assignments)
+            }
+        } else {
+            // Ignore exceptions if we are not connected
+            if (this.rdKafkaConsumer.isConnected()) {
+                logger.error('🔥', 'kafka_consumer_rebalancing_error', { err })
+                captureException(err)
+            } else {
+                logger.warn('🔥', 'kafka_consumer_rebalancing_error_while_not_connected', { err })
+            }
+        }
+    }
+
+    private updateMetricsAfterRevocation(assignments: Assignment[]): void {
+        assignments.forEach((tp) => {
+            kafkaConsumerAssignment.set(
+                {
+                    topic_name: tp.topic,
+                    partition_id: tp.partition.toString(),
+                    pod: this.podName,
+                    group_id: this.config.groupId,
+                },
+                0
+            )
+        })
+    }
+
     private createConsumer(): RdKafkaConsumer {
         const consumer = new RdKafkaConsumer(this.consumerConfig, {
             // Default settings
             'auto.offset.reset': 'earliest',
-        })
-
-        // Set up rebalancing event handlers
-        consumer.on('rebalance', (err, topicPartitions) => {
-            logger.info('🔁', 'kafka_consumer_rebalancing', { err, topicPartitions })
-
-            if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
-                topicPartitions.forEach((tp) => {
-                    kafkaConsumerAssignment.set(
-                        {
-                            topic_name: tp.topic,
-                            partition_id: tp.partition.toString(),
-                            pod: this.podName,
-                            group_id: this.config.groupId,
-                        },
-                        1
-                    )
-                })
-            } else if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
-                topicPartitions.forEach((tp) => {
-                    kafkaConsumerAssignment.set(
-                        {
-                            topic_name: tp.topic,
-                            partition_id: tp.partition.toString(),
-                            pod: this.podName,
-                            group_id: this.config.groupId,
-                        },
-                        0
-                    )
-                })
-            } else {
-                // We had a "real" error
-                logger.error('🔥', 'kafka_consumer_rebalancing_error', { err })
-                captureException(err)
-            }
         })
 
         consumer.on('event.log', (log) => {
@@ -292,6 +488,28 @@ export class KafkaConsumer {
                 origin: 'event.error',
                 stack: error.stack,
             })
+        })
+
+        consumer.on('event.stats', (stats: any) => {
+            // Parse the statistics JSON
+            try {
+                const parsedStats = parseJSON(stats.message)
+
+                // Update internal health monitoring state
+                this.lastStatsEmitTime = Date.now()
+                this.consumerState = parsedStats.state
+
+                // Log key metrics for observability
+                logger.debug('📊', 'Kafka consumer statistics', {
+                    state: parsedStats.state,
+                    rebalance_state: parsedStats.rebalance_state,
+                    rx_msgs: parsedStats.rxmsgs, // Total messages received
+                    rx_bytes: parsedStats.rxbytes, // Total bytes received
+                    topics: Object.keys(parsedStats.topics || {}),
+                })
+            } catch (error) {
+                logger.error('📊', 'Failed to parse consumer statistics', { error })
+            }
         })
 
         consumer.on('subscribed', (topics) => {
@@ -354,6 +572,9 @@ export class KafkaConsumer {
 
         this.heartbeat() // Setup the heartbeat so we are healthy since connection is established
 
+        // Initialize health monitoring state for new loop-based check
+        this.lastConsumerLoopTime = Date.now()
+
         if (defaultConfig.CONSUMER_AUTO_CREATE_TOPICS) {
             // For hobby deploys we want to auto-create, but on cloud we don't
             await ensureTopicExists(this.consumerConfig, this.config.topic)
@@ -371,7 +592,27 @@ export class KafkaConsumer {
             let lastConsumeTime = 0
             try {
                 while (!this.isStopping) {
+                    // Track that the consumer loop is alive
+                    this.lastConsumerLoopTime = Date.now()
                     logger.debug('🔁', 'main_loop_consuming')
+
+                    // If we're rebalancing and feature flag is enabled, skip consuming to avoid processing messages
+                    // during rebalancing when background tasks might be running
+                    if (this.rebalanceCoordination.isRebalancing && this.config.waitForBackgroundTasksOnRebalance) {
+                        if (
+                            Date.now() - this.rebalanceCoordination.rebalanceStartTime >
+                            this.rebalanceCoordination.rebalanceTimeoutMs
+                        ) {
+                            logger.error('🔁', 'rebalancing_timeout_forcing_recovery', {
+                                rebalanceTimeoutMs: this.rebalanceCoordination.rebalanceTimeoutMs,
+                                rebalanceStartTime: this.rebalanceCoordination.rebalanceStartTime,
+                            })
+                            this.rebalanceCoordination.isRebalancing = false
+                        }
+                        logger.info('🔁', 'main_loop_paused_for_rebalancing')
+                        await new Promise((resolve) => setTimeout(resolve, 10)) // Small delay to avoid busy waiting
+                        continue
+                    }
 
                     const consumeStartTime = performance.now()
                     if (lastConsumeTime > 0) {
@@ -385,7 +626,7 @@ export class KafkaConsumer {
                         promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(this.fetchBatchSize, cb))
                     )
 
-                    // After successfully pulling a batch, we can update our heartbeat time
+                    // After successfully pulling a batch, update heartbeat for backward compatibility
                     this.heartbeat()
 
                     gaugeBatchUtilization.labels({ groupId }).set(messages.length / this.fetchBatchSize)
@@ -411,7 +652,7 @@ export class KafkaConsumer {
                         Math.round(processingTimeMs / 10) / 100
                     }s`
                     if (processingTimeMs > SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS) {
-                        logger.warn('🕒', `Slow batch: ${logSummary}`)
+                        logger.warn('🕒', `Slow batch: ${logSummary}, groupId: ${groupId}`)
                     }
 
                     // TRICKY: The commit logic needs to be aware of background work. If we were to just store offsets here,
@@ -497,6 +738,14 @@ export class KafkaConsumer {
         // Mark as stopping - this will also essentially stop the consumer loop
         this.isStopping = true
 
+        // Wait for background tasks to complete before disconnecting
+        logger.info('🔁', 'waiting_for_background_tasks_before_disconnect', {
+            backgroundTaskCount: this.backgroundTask.length,
+        })
+        await Promise.all(this.backgroundTask)
+
+        logger.info('🔁', 'background_tasks_completed_proceeding_with_disconnect')
+
         // Allow the in progress consumer loop to finish if possible
         if (this.consumerLoop) {
             await this.consumerLoop.catch((error) => {
@@ -518,6 +767,11 @@ export class KafkaConsumer {
             logger.info('📝', 'Disconnected consumer!')
         }
     }
+
+    private resetRebalanceCoordination(): void {
+        this.rebalanceCoordination.isRebalancing = false
+        this.rebalanceCoordination.rebalanceStartTime = 0
+    }
 }
 
 export const parseKafkaHeaders = (headers?: MessageHeader[]): Record<string, string> => {
@@ -529,6 +783,28 @@ export const parseKafkaHeaders = (headers?: MessageHeader[]): Record<string, str
     headers?.forEach((header) => {
         Object.keys(header).forEach((key) => {
             result[key] = header[key].toString()
+        })
+    })
+
+    return result
+}
+
+export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
+    // Kafka headers come from librdkafka as an array of objects with keys value pairs per header.
+    // We extract the specific headers we care about into a structured format.
+
+    const result: EventHeaders = {}
+
+    headers?.forEach((header) => {
+        Object.keys(header).forEach((key) => {
+            const value = header[key].toString()
+            if (key === 'token') {
+                result.token = value
+            } else if (key === 'distinct_id') {
+                result.distinct_id = value
+            } else if (key === 'timestamp') {
+                result.timestamp = value
+            }
         })
     })
 

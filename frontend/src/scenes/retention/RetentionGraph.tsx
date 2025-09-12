@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+
 import { roundToDecimal } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -33,6 +34,7 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
         incompletenessOffsetFromEnd,
         aggregationGroupTypeIndex,
         shouldShowMeanPerBreakdown,
+        showTrendLines,
     } = useValues(retentionGraphLogic(insightProps))
     const { openModal } = useActions(retentionModalLogic(insightProps))
 
@@ -90,6 +92,7 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
                 }
             }}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
+            showTrendLines={showTrendLines}
         />
     ) : (
         <InsightEmptyState />

@@ -6,22 +6,31 @@ import { OPTIONS_FOR_IMPORTANT_CURRENCIES, OPTIONS_FOR_OTHER_CURRENCIES } from '
 
 type CurrencyDropdownProps = {
     value: CurrencyCode | null
-    onChange: (currency: CurrencyCode | null) => void
+    onChange: (currency: CurrencyCode) => void
     size?: LemonSelectProps<any>['size']
     visible?: boolean // Useful for stories to display the dropdown content
+    disabledReason?: string
 }
 
-export const CurrencyDropdown = ({ value, onChange, visible, size }: CurrencyDropdownProps): JSX.Element => {
+export const CurrencyDropdown = ({
+    value,
+    onChange,
+    visible,
+    size,
+    disabledReason,
+}: CurrencyDropdownProps): JSX.Element => {
     return (
         <LemonSelect
             visible={visible}
             value={value}
-            onChange={(newValue) => onChange(newValue as CurrencyCode | null)}
+            onChange={(newValue) => onChange(newValue as CurrencyCode)}
             options={[
                 { options: OPTIONS_FOR_IMPORTANT_CURRENCIES, title: 'Most Popular' },
                 { options: OPTIONS_FOR_OTHER_CURRENCIES, title: 'Other currencies' },
             ]}
             size={size}
+            disabledReason={disabledReason}
+            placeholder="Select currency"
         />
     )
 }

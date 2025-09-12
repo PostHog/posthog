@@ -1,13 +1,15 @@
 import './PropertyFilters.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
+import React, { useEffect, useState } from 'react'
+
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import {
     ExcludedProperties,
     TaxonomicFilterGroupType,
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
-import React, { useEffect, useState } from 'react'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
@@ -93,9 +95,7 @@ export function PropertyFilters({
     }, [propertyFilters, setFilters])
 
     // do not open on initial render, only open if newly inserted
-    useEffect(() => {
-        setAllowOpenOnInsert(true)
-    }, [])
+    useOnMountEffect(() => setAllowOpenOnInsert(true))
 
     return (
         <div className="PropertyFilters">
@@ -122,6 +122,7 @@ export function PropertyFilters({
                                     showConditionBadge={showConditionBadge}
                                     disablePopover={disablePopover || orFiltering}
                                     label={buttonText}
+                                    size={buttonSize}
                                     onRemove={remove}
                                     orFiltering={orFiltering}
                                     editable={editable}

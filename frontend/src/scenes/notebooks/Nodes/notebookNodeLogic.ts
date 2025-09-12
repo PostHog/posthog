@@ -1,8 +1,8 @@
 import {
+    BuiltLogic,
     actions,
     afterMount,
     beforeUnmount,
-    BuiltLogic,
     connect,
     kea,
     key,
@@ -12,25 +12,27 @@ import {
     reducers,
     selectors,
 } from 'kea'
-import type { notebookNodeLogicType } from './notebookNodeLogicType'
+import posthog from 'posthog-js'
+
+import { JSONContent, RichContentNode } from 'lib/components/RichContentEditor/types'
+
 import { notebookLogicType } from '../Notebook/notebookLogicType'
 import {
     CustomNotebookNodeAttributes,
-    JSONContent,
-    Node,
     NotebookNodeAction,
     NotebookNodeAttributeProperties,
     NotebookNodeAttributes,
+    NotebookNodeResource,
     NotebookNodeSettings,
-} from '../Notebook/utils'
-import { NotebookNodeResource, NotebookNodeType } from '~/types'
-import posthog from 'posthog-js'
+    NotebookNodeType,
+} from '../types'
 import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
+import type { notebookNodeLogicType } from './notebookNodeLogicType'
 
 export type NotebookNodeLogicProps = {
     nodeType: NotebookNodeType
     notebookLogic: BuiltLogic<notebookLogicType>
-    getPos?: () => number
+    getPos?: () => number | undefined
     resizeable?: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
     Settings?: NotebookNodeSettings
     messageListeners?: NotebookNodeMessagesListeners
@@ -54,8 +56,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             sessionRecordingId,
         }),
         insertOrSelectNextLine: true,
-        setPreviousNode: (node: Node | null) => ({ node }),
-        setNextNode: (node: Node | null) => ({ node }),
+        setPreviousNode: (node: RichContentNode | null) => ({ node }),
+        setNextNode: (node: RichContentNode | null) => ({ node }),
         deleteNode: true,
         selectNode: true,
         toggleEditing: (visible?: boolean) => ({ visible }),
@@ -95,13 +97,13 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             },
         ],
         previousNode: [
-            null as Node | null,
+            null as RichContentNode | null,
             {
                 setPreviousNode: (_, { node }) => node,
             },
         ],
         nextNode: [
-            null as Node | null,
+            null as RichContentNode | null,
             {
                 setNextNode: (_, { node }) => node,
             },
@@ -178,58 +180,63 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 return
             }
             const editor = values.notebookLogic.values.editor
-            if (editor) {
-                const { previous, next } = editor.getAdjacentNodes(props.getPos())
+            const pos = props.getPos()
+            if (editor && pos) {
+                const { previous, next } = editor.getAdjacentNodes(pos)
                 actions.setPreviousNode(previous)
                 actions.setNextNode(next)
             }
         },
 
         insertAfter: ({ content }) => {
-            if (!props.getPos) {
+            const pos = props.getPos?.()
+            if (!pos) {
                 return
             }
             const logic = values.notebookLogic
-            logic.values.editor?.insertContentAfterNode(props.getPos(), content)
+            logic.values.editor?.insertContentAfterNode(pos, content)
         },
 
         deleteNode: () => {
-            if (!props.getPos) {
+            const pos = props.getPos?.()
+            if (!pos) {
                 // TODO: somehow make this delete from the parent
                 return
             }
 
             const logic = values.notebookLogic
-            logic.values.editor?.deleteRange({ from: props.getPos(), to: props.getPos() + 1 }).run()
+            logic.values.editor?.deleteRange({ from: pos, to: pos + 1 }).run()
             if (values.notebookLogic.values.editingNodeId === values.nodeId) {
                 values.notebookLogic.actions.setEditingNodeId(null)
             }
         },
 
         selectNode: () => {
-            if (!props.getPos) {
+            const pos = props.getPos?.()
+            if (!pos) {
                 return
             }
             const editor = values.notebookLogic.values.editor
 
             if (editor) {
-                editor.setSelection(props.getPos())
+                editor.setSelection(pos)
                 editor.scrollToSelection()
             }
         },
 
         scrollIntoView: () => {
-            if (!props.getPos) {
+            const pos = props.getPos?.()
+            if (!pos) {
                 return
             }
-            values.editor?.scrollToPosition(props.getPos())
+            values.editor?.scrollToPosition(pos)
         },
 
         insertAfterLastNodeOfType: ({ nodeType, content }) => {
-            if (!props.getPos) {
+            const insertionPosition = props.getPos?.()
+            if (!insertionPosition) {
                 return
             }
-            const insertionPosition = props.getPos()
             values.notebookLogic.actions.insertAfterLastNodeOfType(nodeType, content, insertionPosition)
         },
 
@@ -246,7 +253,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             })
         },
         insertOrSelectNextLine: () => {
-            if (!props.getPos || !values.isEditable) {
+            const pos = props.getPos?.()
+            if (!pos || !values.isEditable) {
                 return
             }
 
@@ -255,7 +263,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                     type: 'paragraph',
                 })
             } else {
-                actions.setTextSelection(props.getPos() + 1)
+                actions.setTextSelection(pos + 1)
             }
         },
 
@@ -318,12 +326,13 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             await window.navigator.clipboard.write(data)
         },
         convertToBacklink: ({ href }) => {
+            const pos = props.getPos?.()
             const editor = values.notebookLogic.values.editor
-            if (!props.getPos || !editor) {
+            if (!pos || !editor) {
                 return
             }
 
-            editor.insertContentAfterNode(props.getPos(), {
+            editor.insertContentAfterNode(pos, {
                 type: NotebookNodeType.Backlink,
                 attrs: {
                     href,
@@ -342,7 +351,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         })
 
         const isResizeable =
-            typeof props.resizeable === 'function' ? props.resizeable(props.attributes) : props.resizeable ?? true
+            typeof props.resizeable === 'function' ? props.resizeable(props.attributes) : (props.resizeable ?? true)
 
         actions.setResizeable(isResizeable)
         actions.initializeNode()

@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { useInterval } from 'lib/hooks/useInterval'
 import { useEffect, useState } from 'react'
+
+import { useInterval } from 'lib/hooks/useInterval'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { TeamType } from '~/types'

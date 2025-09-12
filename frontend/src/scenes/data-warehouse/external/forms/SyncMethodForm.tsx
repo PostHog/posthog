@@ -1,6 +1,8 @@
-import { LemonButton, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
-import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { useEffect, useState } from 'react'
+
+import { LemonButton, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
+
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
 import { ExternalDataSourceSyncSchema } from '~/types'
 
@@ -91,7 +93,7 @@ export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }:
         setRadioValue(schema.sync_type ?? (incrementalSyncSupported.disabled ? 'append' : 'incremental'))
         setIncrementalFieldValue(schema.incremental_field ?? null)
         setAppendFieldValue(schema.incremental_field ?? null)
-    }, [schema.table])
+    }, [schema.table]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <>

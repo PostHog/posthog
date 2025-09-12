@@ -1,24 +1,26 @@
+import { useValues } from 'kea'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+
 import { StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
+import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { MultipleChoiceQuestionViz } from 'scenes/surveys/components/question-visualizations/MultipleChoiceQuestionViz'
 import { ResponseSummariesButton } from 'scenes/surveys/components/question-visualizations/OpenQuestionSummarizer'
 import { OpenQuestionViz } from 'scenes/surveys/components/question-visualizations/OpenQuestionViz'
 import { SurveyQuestionLabel } from 'scenes/surveys/constants'
-import { QuestionProcessedResponses, surveyLogic } from 'scenes/surveys/surveyLogic'
-import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { SurveyQuestion, SurveyQuestionType } from '~/types'
+import { QuestionProcessedResponses, SurveyQuestion, SurveyQuestionType } from '~/types'
 
 import { SCALE_LABELS } from '../../constants'
 import { NPSBreakdownSkeleton, RatingQuestionViz } from './RatingQuestionViz'
-import { SingleChoiceQuestionViz } from './SingleChoiceQuestionViz'
 
 interface Props {
     question: SurveyQuestion
     questionIndex: number
+    demoData?: QuestionProcessedResponses // For demo mode
 }
 
 function QuestionTitle({
@@ -71,17 +73,21 @@ function QuestionLoadingSkeleton({ question }: { question: SurveyQuestion }): JS
                     <div className="flex flex-col gap-1">
                         <div className="h-50 border rounded p-4 flex flex-col gap-2">
                             <div className="flex justify-between items-end h-full">
-                                {Array.from({ length: question.scale || 5 }).map((_, i) => {
-                                    // Use predefined height classes for variety
-                                    const heights = ['h-4', 'h-8', 'h-12', 'h-16', 'h-20', 'h-24', 'h-28', 'h-32']
-                                    const randomHeight = heights[Math.floor(Math.random() * heights.length)]
-                                    return (
-                                        <div key={i} className="flex flex-col items-center gap-1 flex-1">
-                                            <LemonSkeleton className={`w-8 sm:w-12 ${randomHeight}`} />
-                                            <span className="text-sm text-secondary font-semibold">{i + 1}</span>
-                                        </div>
-                                    )
-                                })}
+                                {Array.from({ length: question.scale === 10 ? 11 : question.scale || 5 }).map(
+                                    (_, i) => {
+                                        // Use predefined height classes for variety
+                                        const heights = ['h-4', 'h-8', 'h-12', 'h-16', 'h-20', 'h-24', 'h-28', 'h-32']
+                                        const randomHeight = heights[Math.floor(Math.random() * heights.length)]
+                                        return (
+                                            <div key={i} className="flex flex-col items-center gap-1 flex-1">
+                                                <LemonSkeleton className={`w-8 sm:w-12 ${randomHeight}`} />
+                                                <span className="text-sm text-secondary font-semibold">
+                                                    {question.scale === 10 ? i : i + 1}
+                                                </span>
+                                            </div>
+                                        )
+                                    }
+                                )}
                             </div>
                         </div>
                         <div className="flex flex-row justify-between">
@@ -94,38 +100,22 @@ function QuestionLoadingSkeleton({ question }: { question: SurveyQuestion }): JS
                 </>
             )
         case SurveyQuestionType.SingleChoice:
-            return (
-                <div className="h-80 overflow-y-auto border rounded pt-4 pb-2 flex">
-                    <div className="relative h-full w-80 flex items-center justify-center">
-                        <LemonSkeleton className="w-64 h-64 rounded-full" />
-                    </div>
-                    <div className="flex-1 flex flex-col justify-center space-y-3 px-6">
-                        {question.choices.map((choice, i) => (
-                            <div key={i} className="flex items-center gap-2">
-                                <LemonSkeleton className="w-3 h-3 rounded-full flex-shrink-0" />
-                                <span className="text-sm text-secondary font-semibold">{choice}</span>
-                                <LemonSkeleton className="w-8 h-4 flex-shrink-0" />
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )
         case SurveyQuestionType.MultipleChoice:
             return (
                 <div className="border rounded py-4 max-h-[600px] overflow-y-auto">
-                    <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-3">
                         {question.choices.map((choice, i) => {
                             // Use decreasing widths to match typical survey result ordering
                             const barWidths = ['w-11/12', 'w-3/4', 'w-3/5', 'w-1/2', 'w-2/5']
                             const width = barWidths[i] || 'w-1/4'
                             return (
-                                <div key={i} className="flex items-center gap-4">
-                                    <div className="w-48 text-right text-xs text-secondary flex-shrink-0 truncate">
+                                <div key={i} className="flex items-center gap-6">
+                                    <div className="w-48 text-right text-sm text-secondary flex-shrink-0 truncate">
                                         {choice}
                                     </div>
                                     <div className="flex-1 flex items-center gap-2">
-                                        <LemonSkeleton className={`h-4 ${width}`} />
-                                        <LemonSkeleton className="w-6 h-4 flex-shrink-0" />
+                                        <LemonSkeleton className={`h-6 ${width}`} />
+                                        <LemonSkeleton className="w-6 h-6 flex-shrink-0" />
                                     </div>
                                 </div>
                             )
@@ -162,9 +152,35 @@ function QuestionLoadingSkeleton({ question }: { question: SurveyQuestion }): JS
     }
 }
 
-export function SurveyQuestionVisualization({ question, questionIndex }: Props): JSX.Element | null {
+export function SurveyQuestionVisualization({ question, questionIndex, demoData }: Props): JSX.Element | null {
     const { consolidatedSurveyResults, consolidatedSurveyResultsLoading, surveyBaseStatsLoading } =
         useValues(surveyLogic)
+
+    if (demoData) {
+        return (
+            <div className="flex flex-col gap-2">
+                <QuestionTitle
+                    question={question}
+                    questionIndex={questionIndex}
+                    totalResponses={demoData.totalResponses}
+                />
+                <div className="flex flex-col gap-4">
+                    {question.type === SurveyQuestionType.Rating && demoData.type === SurveyQuestionType.Rating && (
+                        <RatingQuestionViz question={question} questionIndex={questionIndex} processedData={demoData} />
+                    )}
+                    {(question.type === SurveyQuestionType.SingleChoice ||
+                        question.type === SurveyQuestionType.MultipleChoice) &&
+                        (demoData.type === SurveyQuestionType.SingleChoice ||
+                            demoData.type === SurveyQuestionType.MultipleChoice) && (
+                            <MultipleChoiceQuestionViz responseData={demoData.data} />
+                        )}
+                    {question.type === SurveyQuestionType.Open && demoData.type === SurveyQuestionType.Open && (
+                        <OpenQuestionViz question={question} responseData={demoData.data} />
+                    )}
+                </div>
+            </div>
+        )
+    }
 
     if (!question.id || question.type === SurveyQuestionType.Link) {
         return null
@@ -210,12 +226,10 @@ export function SurveyQuestionVisualization({ question, questionIndex }: Props):
                                 processedData={processedData}
                             />
                         )}
-                    {question.type === SurveyQuestionType.SingleChoice &&
-                        processedData.type === SurveyQuestionType.SingleChoice && (
-                            <SingleChoiceQuestionViz question={question} processedData={processedData} />
-                        )}
-                    {question.type === SurveyQuestionType.MultipleChoice &&
-                        processedData.type === SurveyQuestionType.MultipleChoice && (
+                    {(question.type === SurveyQuestionType.SingleChoice ||
+                        question.type === SurveyQuestionType.MultipleChoice) &&
+                        (processedData.type === SurveyQuestionType.SingleChoice ||
+                            processedData.type === SurveyQuestionType.MultipleChoice) && (
                             <MultipleChoiceQuestionViz responseData={processedData.data} />
                         )}
                     {question.type === SurveyQuestionType.Open && processedData.type === SurveyQuestionType.Open && (

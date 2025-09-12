@@ -1,4 +1,5 @@
 import { kea, key, path, props, selectors } from 'kea'
+
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -18,11 +19,6 @@ export const cohortSceneLogic = kea<cohortSceneLogicType>([
             () => [cohortsModel.selectors.cohortsById, (_, props) => props.id as CohortLogicProps['id']],
             (cohortsById, cohortId): Breadcrumb[] => {
                 return [
-                    {
-                        key: Scene.PersonsManagement,
-                        name: 'People',
-                        path: urls.persons(),
-                    },
                     {
                         key: 'cohorts',
                         name: 'Cohorts',

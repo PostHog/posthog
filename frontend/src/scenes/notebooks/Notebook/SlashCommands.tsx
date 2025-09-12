@@ -1,3 +1,10 @@
+import { Extension } from '@tiptap/core'
+import { ReactRenderer } from '@tiptap/react'
+import Suggestion from '@tiptap/suggestion'
+import Fuse from 'fuse.js'
+import { useValues } from 'kea'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
+
 import {
     IconCursor,
     IconFunnels,
@@ -5,7 +12,6 @@ import {
     IconLifecycle,
     IconPeople,
     IconRetention,
-    IconRetentionHeatmap,
     IconRewindPlay,
     IconSquareRoot,
     IconStickiness,
@@ -15,28 +21,22 @@ import {
 } from '@posthog/icons'
 import { IconCode } from '@posthog/icons'
 import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
-import { Extension } from '@tiptap/core'
-import { ReactRenderer } from '@tiptap/react'
-import Suggestion from '@tiptap/suggestion'
-import Fuse from 'fuse.js'
-import { useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
+
+import { EditorCommands, EditorRange } from 'lib/components/RichContentEditor/types'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
 import { selectFiles } from 'lib/utils/file-utils'
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, FunnelVizType, NotebookNodeType, PathType, RetentionPeriod } from '~/types'
+import { BaseMathType, ChartDisplayType, FunnelVizType, PathType, RetentionPeriod } from '~/types'
 
 import { buildNodeEmbed } from '../Nodes/NotebookNodeEmbed'
 import { buildInsightVizQueryContent, buildNodeQueryContent } from '../Nodes/NotebookNodeQuery'
+import { NotebookNodeType } from '../types'
 import NotebookIconHeading from './NotebookIconHeading'
 import { notebookLogic } from './notebookLogic'
-import { EditorCommands, EditorRange } from './utils'
 
 type SlashCommandConditionalProps =
     | {
@@ -269,25 +269,6 @@ order by count() desc
             ),
     },
     {
-        title: 'Calendar heatmap (BETA)',
-        search: 'calendar heatmap insight',
-        icon: <IconRetentionHeatmap />,
-        command: (chain, pos) =>
-            chain.insertContentAt(
-                pos,
-                buildInsightVizQueryContent({
-                    kind: NodeKind.CalendarHeatmapQuery,
-                    series: [
-                        {
-                            kind: NodeKind.EventsNode,
-                            name: '$pageview',
-                            event: '$pageview',
-                        },
-                    ],
-                })
-            ),
-    },
-    {
         title: 'Events',
         search: 'data explore',
         icon: <IconCursor />,
@@ -373,23 +354,18 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     ref
 ): JSX.Element | null {
     const { editor } = useValues(notebookLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     // We start with 1 because the first item is the text controls
     const [selectedIndex, setSelectedIndex] = useState(0)
     const [selectedHorizontalIndex, setSelectedHorizontalIndex] = useState(0)
 
-    const calendarHeatmapInsightEnabled = featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]
-    const slashCommands = SLASH_COMMANDS.filter(
-        (command) => calendarHeatmapInsightEnabled || command.title !== 'Calendar heatmap (BETA)'
-    )
-
-    const allCommmands = [...TEXT_CONTROLS, ...slashCommands]
+    const allCommmands = [...TEXT_CONTROLS, ...SLASH_COMMANDS]
 
     const fuse = useMemo(() => {
         return new Fuse(allCommmands, {
             keys: ['title', 'search'],
             threshold: 0.3,
         })
+        // oxlint-disable-next-line exhaustive-deps
     }, [allCommmands])
 
     const filteredCommands = useMemo(() => {
@@ -397,11 +373,12 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
             return allCommmands
         }
         return fuse.search(query).map((result) => result.item)
+        // oxlint-disable-next-line exhaustive-deps
     }, [query, fuse])
 
     const filteredSlashCommands = useMemo(
-        () => filteredCommands.filter((item) => slashCommands.includes(item)),
-        [filteredCommands, slashCommands]
+        () => filteredCommands.filter((item) => SLASH_COMMANDS.includes(item)),
+        [filteredCommands]
     )
 
     useEffect(() => {
@@ -439,7 +416,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
         setSelectedIndex(Math.max(selectedIndex - 1, -1))
     }
     const onPressDown = (): void => {
-        setSelectedIndex(Math.min(selectedIndex + 1, slashCommands.length - 1))
+        setSelectedIndex(Math.min(selectedIndex + 1, SLASH_COMMANDS.length - 1))
     }
 
     const onPressLeft = (): void => {
@@ -466,6 +443,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
 
             return false
         },
+        // oxlint-disable-next-line exhaustive-deps
         [selectedIndex, selectedHorizontalIndex, filteredCommands]
     )
 

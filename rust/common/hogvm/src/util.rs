@@ -43,7 +43,7 @@ fn like_to_regex(pattern: &str) -> String {
                 }
                 _ => {
                     // Backslash loses special meaning if not escaping a metacharacter
-                    result.push_str(&regex::escape(&format!("\\{}", c)));
+                    result.push_str(&regex::escape(&format!("\\{c}")));
                 }
             }
             escape = false;

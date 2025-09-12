@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -9,9 +10,9 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/t
 import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import { playlistLogic } from './playlistLogic'
 import {
+    DEFAULT_RECORDING_FILTERS,
     convertLegacyFiltersToUniversalFilters,
     convertUniversalFiltersToRecordingsQuery,
-    DEFAULT_RECORDING_FILTERS,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
 
@@ -406,6 +407,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     .toMatchValues({
                         sessionRecordingsResponse: {
                             order: 'start_time',
+                            order_direction: 'DESC',
                             has_next: undefined,
                             results: listOfSessionRecordings,
                         },
@@ -420,6 +422,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         sessionRecordingsResponse: {
                             has_next: undefined,
                             order: 'start_time',
+                            order_direction: 'DESC',
                             results: [
                                 {
                                     ...aRecording,
@@ -503,6 +506,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         },
                         filter_test_accounts: false,
                         order: 'start_time',
+                        order_direction: 'DESC',
                     },
                 })
         })
@@ -540,6 +544,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         },
                         filter_test_accounts: false,
                         order: 'start_time',
+                        order_direction: 'DESC',
                     },
                 })
         })
@@ -770,6 +775,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     ],
                 },
                 order: 'console_error_count',
+                order_direction: 'DESC',
             })
 
             expect(result).toEqual({
@@ -804,6 +810,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 kind: 'RecordingsQuery',
                 operand: 'AND',
                 order: 'console_error_count',
+                order_direction: 'DESC',
                 properties: [],
             })
         })
@@ -834,6 +841,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 },
                 filter_test_accounts: false,
                 order: 'start_time',
+                order_direction: 'DESC',
             })
         })
         it('should parse even the most complex queries', () => {
@@ -893,6 +901,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 },
                 filter_test_accounts: true,
                 order: 'start_time',
+                order_direction: 'DESC',
             })
         })
     })

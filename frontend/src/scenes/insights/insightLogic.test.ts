@@ -1,7 +1,9 @@
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
+
 import api from 'lib/api'
-import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -242,6 +244,7 @@ describe('insightLogic', () => {
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
         teamLogic.mount()
         sceneLogic.mount()
+        sceneLogic.actions.setTabs([{ id: '1', title: '...', pathname: '/', search: '', hash: '', active: true }])
         await expectLogic(teamLogic)
             .toFinishAllListeners()
             .toMatchValues({ currentTeam: partial({ test_account_filters_default_checked: true }) })
@@ -425,10 +428,13 @@ describe('insightLogic', () => {
         it('does not load from the savedInsightLogic when in a dashboard context', async () => {
             // 1. open saved insights
             router.actions.push(urls.savedInsights(), {}, {})
-            savedInsightsLogic.mount()
+            savedInsightsLogic({ tabId: '1' }).mount()
 
             // 2. the insights are loaded
-            await expectLogic(savedInsightsLogic).toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+            await expectLogic(savedInsightsLogic({ tabId: '1' })).toDispatchActions([
+                'loadInsights',
+                'loadInsightsSuccess',
+            ])
 
             // 3. mount the insight
             logic = insightLogic({ dashboardItemId: Insight42, dashboardId: 33 })
@@ -505,7 +511,7 @@ describe('insightLogic', () => {
     })
 
     test('saveInsight and updateInsight update the saved insights list', async () => {
-        savedInsightsLogic.mount()
+        savedInsightsLogic({ tabId: '1' }).mount()
 
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight42,
@@ -522,10 +528,10 @@ describe('insightLogic', () => {
         insightDataLogic(insightProps).mount()
 
         logic.actions.saveInsight()
-        await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.addInsight])
+        await expectLogic(logic).toDispatchActions([savedInsightsLogic({ tabId: '1' }).actionTypes.addInsight])
 
         logic.actions.updateInsight({ name: 'my new name' })
-        await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.updateInsight])
+        await expectLogic(logic).toDispatchActions([savedInsightsLogic({ tabId: '1' }).actionTypes.updateInsight])
     })
 
     test('saveInsight updates dashboards', async () => {
@@ -533,7 +539,7 @@ describe('insightLogic', () => {
         dashLogic.mount()
         await expectLogic(dashLogic).toDispatchActions(['loadDashboard'])
 
-        savedInsightsLogic.mount()
+        savedInsightsLogic({ tabId: '1' }).mount()
 
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight43,
@@ -549,7 +555,7 @@ describe('insightLogic', () => {
     })
 
     test('updateInsight updates dashboards', async () => {
-        savedInsightsLogic.mount()
+        savedInsightsLogic({ tabId: '1' }).mount()
         logic = insightLogic({
             dashboardItemId: Insight43,
             cachedInsight: {
@@ -563,7 +569,7 @@ describe('insightLogic', () => {
     })
 
     test('save as new insight', async () => {
-        savedInsightsLogic.mount()
+        savedInsightsLogic({ tabId: '1' }).mount()
 
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight42,
@@ -581,7 +587,7 @@ describe('insightLogic', () => {
             logic.actions.saveAsConfirmation('New Insight (copy)')
         })
             .toDispatchActions(['setInsight'])
-            .toDispatchActions(savedInsightsLogic, ['loadInsights'])
+            .toDispatchActions(savedInsightsLogic({ tabId: '1' }), ['loadInsights'])
             .toMatchValues({
                 savedInsight: partial({ query: partial({ source: partial({ kind: NodeKind.FunnelsQuery }) }) }),
                 insight: partial({
@@ -596,7 +602,7 @@ describe('insightLogic', () => {
         await expectLogic(router)
             .toDispatchActions(['push', 'locationChanged'])
             .toMatchValues({
-                location: partial({ pathname: '/insights/12/edit' }),
+                location: partial({ pathname: '/project/997/insights/12/edit' }),
             })
     })
 

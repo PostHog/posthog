@@ -1,5 +1,7 @@
-import { expectLogic, partial } from 'kea-test-utils'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
+
+import { expectLogic, partial } from 'kea-test-utils'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { useMocks } from '~/mocks/jest'

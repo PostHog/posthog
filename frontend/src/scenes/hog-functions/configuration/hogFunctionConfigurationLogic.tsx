@@ -1,20 +1,22 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { forms } from 'kea-forms'
+import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
+import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { LiquidRenderer } from 'lib/utils/liquid'
-import posthog from 'posthog-js'
 import { asDisplay } from 'scenes/persons/person-utils'
-import { pipelineNodeLogic } from 'scenes/pipeline/pipelineNodeLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -44,21 +46,20 @@ import {
     HogFunctionTemplateType,
     HogFunctionType,
     HogFunctionTypeType,
+    HogWatcherState,
     PersonType,
-    PipelineNodeTab,
-    PipelineStage,
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
 } from '~/types'
 
-import { EmailTemplate } from '../email-templater/emailTemplaterLogic'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
 import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurationLogicType'
 
 export interface HogFunctionConfigurationLogicProps {
     logicKey?: string
     templateId?: string | null
+    subTemplateId?: string | null
     id?: string | null
 }
 
@@ -85,12 +86,12 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     description: '',
     inputs_schema: [],
     code_language: 'hog',
-    hog: "print('Hello, world!');",
+    code: "print('Hello, world!');",
     status: 'stable',
 }
 
 export const TYPES_WITH_GLOBALS: HogFunctionTypeType[] = ['transformation', 'destination']
-export const TYPES_WITH_SPARKLINE: HogFunctionTypeType[] = ['destination', 'site_destination', 'transformation']
+export const TYPES_WITH_REAL_EVENTS: HogFunctionTypeType[] = ['destination', 'site_destination', 'transformation']
 export const TYPES_WITH_VOLUME_WARNING: HogFunctionTypeType[] = ['destination', 'site_destination']
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
@@ -121,11 +122,20 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
 
             sanitizedInputs[inputSchema.key] = {
                 value: value,
-                templating: templatingEnabled ? input?.templating ?? 'hog' : undefined,
+                templating: templatingEnabled ? (input?.templating ?? 'hog') : undefined,
             }
         })
 
         return sanitizedInputs
+    }
+
+    const filters = data.filters ?? {}
+    filters.source = filters.source ?? 'events'
+
+    if (filters.source === 'person-updates' || Array.isArray(data?.mappings)) {
+        // Ensure we aren't passing in values that aren't supported
+        delete filters.actions
+        delete filters.events
     }
 
     const payload: HogFunctionConfigurationType = {
@@ -154,16 +164,21 @@ export const templateToConfiguration = (template: HogFunctionTemplateType): HogF
         return inputs
     }
 
-    function getMappingInputs(
-        inputs_schema?: CyclotronJobInputSchemaType[] | null
-    ): Record<string, CyclotronJobInputType> {
-        const inputs: Record<string, CyclotronJobInputType> = {}
-        inputs_schema?.forEach((schema) => {
-            if (schema.default !== undefined) {
-                inputs[schema.key] = { value: schema.default }
-            }
-        })
-        return inputs
+    let mappings: HogFunctionMappingType[] | undefined
+
+    if (template?.mapping_templates) {
+        mappings = template.mapping_templates
+            .filter((t) => t.include_by_default)
+            .map((template) => ({
+                ...template,
+                inputs: template.inputs_schema?.reduce(
+                    (acc, input) => {
+                        acc[input.key] = { value: input.default }
+                        return acc
+                    },
+                    {} as Record<string, CyclotronJobInputType>
+                ),
+            }))
     }
 
     return {
@@ -172,13 +187,8 @@ export const templateToConfiguration = (template: HogFunctionTemplateType): HogF
         description: typeof template.description === 'string' ? template.description : '',
         inputs_schema: template.inputs_schema,
         filters: template.filters,
-        mappings: template.mappings?.map(
-            (mapping): HogFunctionMappingType => ({
-                ...mapping,
-                inputs: getMappingInputs(mapping.inputs_schema),
-            })
-        ),
-        hog: template.hog,
+        mappings: mappings,
+        hog: template.code,
         icon_url: template.icon_url,
         inputs: getInputs(template.inputs_schema),
         enabled: true,
@@ -271,11 +281,14 @@ export function mightDropEvents(code: string): boolean {
 export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicType>([
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
     props({} as HogFunctionConfigurationLogicProps),
-    key(({ id, templateId, logicKey }: HogFunctionConfigurationLogicProps) => {
-        const baseKey = id ?? templateId ?? 'new'
+    key(({ id, templateId, subTemplateId, logicKey }: HogFunctionConfigurationLogicProps) => {
+        let baseKey = id ?? templateId ?? 'new'
+        if (subTemplateId) {
+            baseKey = `${subTemplateId}_${baseKey}`
+        }
         return logicKey ? `${logicKey}_${baseKey}` : baseKey
     }),
-    connect(({ id }: HogFunctionConfigurationLogicProps) => ({
+    connect(() => ({
         values: [
             projectLogic,
             ['currentProjectId', 'currentProject'],
@@ -286,7 +299,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             featureFlagLogic,
             ['featureFlags'],
         ],
-        actions: [pipelineNodeLogic({ id: `hog-${id}`, stage: PipelineStage.Destination }), ['setBreadcrumbTitle']],
     })),
     actions({
         setShowSource: (showSource: boolean) => ({ showSource }),
@@ -296,7 +308,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         duplicateFromTemplate: true,
         resetToTemplate: true,
         deleteHogFunction: true,
-        sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery } as { sparklineQuery: TrendsQuery }),
+        sparklineQueryChanged: (sparklineQuery: TrendsQuery) =>
+            ({
+                sparklineQuery,
+            }) as { sparklineQuery: TrendsQuery },
         loadSampleGlobals: (payload?: { eventId?: string }) => ({ eventId: payload?.eventId }),
         setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
         persistForUnload: true,
@@ -474,7 +489,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             null as null | SparklineData,
             {
                 sparklineQueryChanged: async ({ sparklineQuery }, breakpoint) => {
-                    if (!TYPES_WITH_SPARKLINE.includes(values.type)) {
+                    if (!TYPES_WITH_REAL_EVENTS.includes(values.type)) {
                         return null
                     }
                     if (values.sparkline === null) {
@@ -614,9 +629,18 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             errors: (data) => {
                 return {
                     name: !data.name ? 'Name is required' : undefined,
-                    mappings: VALIDATION_RULES.SITE_DESTINATION_REQUIRES_MAPPINGS(data),
-                    filters: VALIDATION_RULES.INTERNAL_DESTINATION_REQUIRES_FILTERS(data),
-                    ...(values.inputFormErrors as any),
+                    mappings: VALIDATION_RULES.SITE_DESTINATION_REQUIRES_MAPPINGS(data) as unknown as DeepPartialMap<
+                        HogFunctionMappingType[],
+                        ValidationErrorType
+                    >,
+                    filters: VALIDATION_RULES.INTERNAL_DESTINATION_REQUIRES_FILTERS(data) as unknown as DeepPartialMap<
+                        HogFunctionConfigurationType['filters'],
+                        ValidationErrorType
+                    >,
+                    inputs: (values.inputFormErrors ?? {}) as DeepPartialMap<
+                        HogFunctionConfigurationType['inputs'],
+                        ValidationErrorType
+                    >,
                 }
             },
             submit: async (data) => {
@@ -648,10 +672,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         type === 'site_app'
                             ? 'Site apps'
                             : type === 'transformation'
-                            ? 'Transformations'
-                            : type === 'source_webhook'
-                            ? 'Sources'
-                            : 'Destinations'
+                              ? 'Transformations'
+                              : type === 'source_webhook'
+                                ? 'Sources'
+                                : 'Destinations'
                     payload._create_in_folder = `Unfiled/${typeFolder}`
                 }
                 await asyncActions.upsertHogFunction(payload as HogFunctionConfigurationType)
@@ -659,15 +683,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
     })),
     selectors(() => ({
-        logicProps: [() => [(_, props) => props], (props): HogFunctionConfigurationLogicProps => props],
+        logicProps: [() => [(_, props) => props], (props: HogFunctionConfigurationLogicProps) => props],
         type: [
             (s) => [s.configuration, s.hogFunction],
             (configuration, hogFunction) => configuration?.type ?? hogFunction?.type ?? 'loading',
         ],
         hasAddon: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature) => {
-                return hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
+            (s) => [s.hasAvailableFeature, s.featureFlags],
+            (hasAvailableFeature, featureFlags) => {
+                // Simple hack - we always turn the addon on if the new pricing is enabled
+                // Once we have fully rolled it out we can just completely remove all addon related code
+                return (
+                    hasAvailableFeature(AvailableFeature.DATA_PIPELINES) ||
+                    !!featureFlags[FEATURE_FLAGS.CDP_NEW_PRICING]
+                )
             },
         ],
         hasGroupsAddon: [
@@ -717,94 +746,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
         inputFormErrors: [
             (s) => [s.configuration],
-            (configuration) => {
-                const inputs = configuration.inputs ?? {}
-                const inputErrors: Record<string, string> = {}
+            (configuration): Record<string, string> | null => {
+                const result = CyclotronJobInputsValidation.validate(
+                    configuration.inputs ?? {},
+                    configuration.inputs_schema ?? []
+                )
 
-                configuration.inputs_schema?.forEach((inputSchema) => {
-                    const key = inputSchema.key
-                    const input = inputs[key]
-                    const language = input?.templating ?? 'hog'
-                    const value = input?.value
-                    if (input?.secret) {
-                        // We leave unmodified secret values alone
-                        return
-                    }
-
-                    const getTemplatingError = (value: string): string | undefined => {
-                        if (language === 'liquid' && typeof value === 'string') {
-                            try {
-                                LiquidRenderer.parse(value)
-                            } catch (e: any) {
-                                return `Liquid template error: ${e.message}`
-                            }
-                        }
-                    }
-
-                    const addTemplatingError = (value: string): void => {
-                        const templatingError = getTemplatingError(value)
-                        if (templatingError) {
-                            inputErrors[key] = templatingError
-                        }
-                    }
-
-                    const missing = value === undefined || value === null || value === ''
-                    if (inputSchema.required && missing) {
-                        inputErrors[key] = 'This field is required'
-                    }
-
-                    if (inputSchema.type === 'json' && typeof value === 'string') {
-                        try {
-                            JSON.parse(value)
-                        } catch {
-                            inputErrors[key] = 'Invalid JSON'
-                        }
-
-                        addTemplatingError(value)
-                    }
-
-                    if (inputSchema.type === 'email' && value) {
-                        const emailTemplateErrors: Partial<EmailTemplate> = {
-                            html: !value.html ? 'HTML is required' : getTemplatingError(value.html),
-                            subject: !value.subject ? 'Subject is required' : getTemplatingError(value.subject),
-                            // text: !value.text ? 'Text is required' : getTemplatingError(value.text),
-                            from: !value.from ? 'From is required' : getTemplatingError(value.from),
-                            to: !value.to ? 'To is required' : getTemplatingError(value.to),
-                        }
-
-                        const combinedErrors = Object.values(emailTemplateErrors)
-                            .filter((v) => !!v)
-                            .join(', ')
-
-                        if (combinedErrors) {
-                            inputErrors[key] = combinedErrors
-                        }
-                    }
-
-                    if (inputSchema.type === 'string' && typeof value === 'string') {
-                        addTemplatingError(value)
-                    }
-
-                    if (inputSchema.type === 'dictionary') {
-                        for (const val of Object.values(value ?? {})) {
-                            if (typeof val === 'string') {
-                                addTemplatingError(val)
-                            }
-                        }
-                    }
-                })
-
-                return Object.keys(inputErrors).length > 0
-                    ? {
-                          inputs: inputErrors,
-                      }
-                    : null
+                return result.valid ? null : result.errors
             },
         ],
         willReEnableOnSave: [
             (s) => [s.configuration, s.hogFunction],
             (configuration, hogFunction) => {
-                return configuration?.enabled && (hogFunction?.status?.state ?? 0) >= 3
+                const hogState = hogFunction?.status?.state ?? 0
+                return configuration?.enabled && hogState === HogWatcherState.disabled
             },
         ],
 
@@ -835,22 +790,23 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                               },
                           }
                         : contextId === 'activity-log'
-                        ? {
-                              event: '$activity_log_entry_created',
-                              properties: {
-                                  activity: 'created',
-                                  scope: 'Insight',
-                                  item_id: 'abcdef',
-                              },
-                          }
-                        : {
-                              event: '$pageview',
-                              properties: {
-                                  $current_url: currentUrl,
-                                  $browser: 'Chrome',
-                                  this_is_an_example_event: true,
-                              },
-                          }),
+                          ? {
+                                event: '$activity_log_entry_created',
+                                properties: {
+                                    activity: 'created',
+                                    scope: 'Insight',
+                                    item_id: 'abcdef',
+                                },
+                            }
+                          : {
+                                event: '$pageview',
+                                properties: {
+                                    $current_url: currentUrl,
+                                    $browser: 'Chrome',
+                                    $ip: '89.160.20.129',
+                                    this_is_an_example_event: true,
+                                },
+                            }),
                 }
                 const globals: CyclotronJobInvocationGlobals = {
                     event,
@@ -1032,10 +988,17 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
 
+        sourceUsesEvents: [
+            (s) => [s.configuration, s.type],
+            (configuration, type) => {
+                return TYPES_WITH_REAL_EVENTS.includes(type) && (configuration.filters?.source ?? 'events') === 'events'
+            },
+        ],
+
         sparklineQuery: [
-            (s) => [s.configuration, s.matchingFilters, s.type],
-            (configuration, matchingFilters, type): TrendsQuery | null => {
-                if (!TYPES_WITH_SPARKLINE.includes(type)) {
+            (s) => [s.configuration, s.matchingFilters, s.sourceUsesEvents],
+            (configuration, matchingFilters, sourceUsesEvents): TrendsQuery | null => {
+                if (!sourceUsesEvents) {
                     return null
                 }
                 return setLatestVersionsOnQuery({
@@ -1066,9 +1029,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
 
         baseEventsQuery: [
-            (s) => [s.configuration, s.matchingFilters, s.groupTypes, s.type],
-            (configuration, matchingFilters, groupTypes, type): EventsQuery | null => {
-                if (!TYPES_WITH_GLOBALS.includes(type)) {
+            (s) => [s.configuration, s.matchingFilters, s.groupTypes, s.sourceUsesEvents],
+            (configuration, matchingFilters, groupTypes, sourceUsesEvents): EventsQuery | null => {
+                if (!sourceUsesEvents) {
                     return null
                 }
                 const query: EventsQuery = {
@@ -1126,7 +1089,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         templateHasChanged: [
             (s) => [s.hogFunction, s.configuration],
             (hogFunction, configuration) => {
-                return hogFunction?.template?.hog && hogFunction.template.hog !== configuration.hog
+                return hogFunction?.template?.code && hogFunction.template.code !== configuration.hog
             },
         ],
         mappingTemplates: [
@@ -1184,6 +1147,45 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return !!lastEventQuery
             },
         ],
+
+        showFilters: [
+            (s) => [s.type],
+            (type) => {
+                return ['destination', 'internal_destination', 'site_destination', 'transformation'].includes(type)
+            },
+        ],
+
+        showExpectedVolume: [
+            (s) => [s.type, s.sourceUsesEvents],
+            (type, sourceUsesEvents) => {
+                return sourceUsesEvents && ['destination', 'site_destination', 'transformation'].includes(type)
+            },
+        ],
+
+        canEditSource: [
+            (s) => [s.type, s.template, s.hogFunction],
+            (type, template, hogFunction) => {
+                return (
+                    ['site_destination', 'site_app', 'source_webhook', 'transformation'].includes(type) ||
+                    (type === 'destination' &&
+                        (template?.code_language || hogFunction?.template?.code_language) === 'hog')
+                )
+            },
+        ],
+
+        showTesting: [
+            (s) => [s.type],
+            (type) => {
+                return ['destination', 'internal_destination', 'transformation'].includes(type)
+            },
+        ],
+
+        isLegacyPlugin: [
+            (s) => [s.template, s.hogFunction],
+            (template, hogFunction) => {
+                return (template?.id || hogFunction?.template?.id)?.startsWith('plugin-')
+            },
+        ],
     })),
 
     listeners(({ actions, values, cache }) => ({
@@ -1226,11 +1228,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         loadTemplateSuccess: () => actions.resetForm(),
         loadHogFunctionSuccess: () => {
             actions.resetForm()
-            actions.setBreadcrumbTitle(values.hogFunction?.name ?? 'Unnamed')
         },
         upsertHogFunctionSuccess: () => {
             actions.resetForm()
-            actions.setBreadcrumbTitle(values.hogFunction?.name ?? 'Unnamed')
         },
 
         upsertHogFunctionFailure: ({ errorObject }) => {
@@ -1268,20 +1268,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 ...cache.configFromUrl,
             }
 
-            if (values.template?.mapping_templates) {
-                config.mappings = [
-                    ...(config.mappings ?? []),
-                    ...values.template.mapping_templates
-                        .filter((t) => t.include_by_default)
-                        .map((template) => ({
-                            ...template,
-                            inputs: template.inputs_schema?.reduce((acc, input) => {
-                                acc[input.key] = { value: input.default }
-                                return acc
-                            }, {} as Record<string, CyclotronJobInputType>),
-                        })),
-                ]
-            }
             const paramsFromUrl = cache.paramsFromUrl ?? {}
             const unsavedConfigurationToApply =
                 (values.unsavedConfiguration?.timestamp ?? 0) > Date.now() - UNSAVED_CONFIGURATION_TTL
@@ -1345,7 +1331,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
                 actions.setConfigurationValues({
                     ...config,
+                    enabled: values.configuration.enabled,
                     filters: config.filters ?? values.configuration.filters,
+                    // NOTE: Technically mapping should also be sanitized against the template mappings but this is a bit of a pain
+                    mappings: values.configuration.mappings?.length ? values.configuration.mappings : config.mappings,
                     // Keep some existing things when manually resetting the template
                     name: values.configuration.name,
                     description: values.configuration.description,
@@ -1447,15 +1436,16 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
             }
 
-            const possibleMenuIds: string[] = [PipelineNodeTab.Configuration, PipelineNodeTab.Testing]
-            if (
-                !(
-                    possibleMenuIds.includes(newRoute[newRoute.length - 1]) &&
-                    possibleMenuIds.includes(oldRoute[newRoute.length - 1])
-                )
-            ) {
-                return true
-            }
+            // TODO: Fix this!!
+            // const possibleMenuIds: string[] = [PipelineNodeTab.Configuration, PipelineNodeTab.Testing]
+            // if (
+            //     !(
+            //         possibleMenuIds.includes(newRoute[newRoute.length - 1]) &&
+            //         possibleMenuIds.includes(oldRoute[newRoute.length - 1])
+            //     )
+            // ) {
+            //     return true
+            // }
 
             return false
         },

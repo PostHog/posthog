@@ -1,10 +1,12 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { useEffect, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function PersonDisplayNameProperties(): JSX.Element {

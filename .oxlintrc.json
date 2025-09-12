@@ -73,12 +73,6 @@
                 "allowExpressions": true
             }
         ],
-        "@typescript-eslint/explicit-module-boundary-types": [
-            "error",
-            {
-                "allowArgumentsExplicitlyTypedAsAny": true
-            }
-        ],
         "curly": "error",
         "no-restricted-imports": [
             "error",

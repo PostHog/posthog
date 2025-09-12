@@ -76,17 +76,17 @@ function extractDeduplicationKeysWithMapping(messages: IncomingEvent[]): {
     messages.forEach(({ event }) => {
         // Create a robust deduplication key using (event_name, distinct_id, timestamp, uuid)
         // This prevents gaming the system when SDKs have bugs or apply naive retry strategies
-        const { token, event: eventName, distinct_id, timestamp, properties } = event
+        const { token, event: eventName, distinct_id, timestamp, properties, uuid } = event
         const source = properties?.$lib ?? 'unknown'
 
         // Only create a key if we have all required fields
-        if (!token || !eventName || !distinct_id || !timestamp) {
+        if (!token || !eventName || !distinct_id || !timestamp || !uuid) {
             return null
         }
 
         // Create a composite key that matches ClickHouse deduplication logic
-        // Format: token:event_name:distinct_id:timestamp
-        const key = `${token}:${eventName}:${distinct_id}:${timestamp}`
+        // Format: token:timestamp:event_name:distinct_id:uuid
+        const key = `${token}:${timestamp}:${eventName}:${distinct_id}:${uuid}`
         // Hash the key to prevent it from being too long
         const hashedKey = crypto.createHash('sha256').update(key).digest('hex')
         keys.add(hashedKey)

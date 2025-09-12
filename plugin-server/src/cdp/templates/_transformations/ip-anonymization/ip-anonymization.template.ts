@@ -11,7 +11,7 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/hedgehog/builder-hog-01.png',
     category: ['Custom'],
     code_language: 'hog',
-    hog: `
+    code: `
 // Check if the event has an IP address
 if (empty(event.properties?.$ip)) {
     print('No IP address found in event')

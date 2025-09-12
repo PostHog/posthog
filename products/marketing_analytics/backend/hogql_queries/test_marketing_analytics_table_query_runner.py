@@ -1,6 +1,6 @@
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import Mock, patch
 
-from posthog.hogql import ast
 from posthog.schema import (
     BaseMathType,
     ConversionGoalFilter1,
@@ -9,17 +9,16 @@ from posthog.schema import (
     MarketingAnalyticsTableQueryResponse,
     NodeKind,
 )
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+
+from posthog.hogql import ast
+
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
+from products.marketing_analytics.backend.hogql_queries.adapters.base import MarketingSourceAdapter
+from products.marketing_analytics.backend.hogql_queries.constants import DEFAULT_LIMIT
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
-from products.marketing_analytics.backend.hogql_queries.constants import (
-    DEFAULT_LIMIT,
-    DEFAULT_MARKETING_ANALYTICS_COLUMNS,
-)
-from products.marketing_analytics.backend.hogql_queries.adapters.base import MarketingSourceAdapter
 
 
 class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
@@ -97,35 +96,6 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert date_range.date_from_str.startswith("2023-01-01")
         assert date_range.date_to_str.startswith("2023-01-31")
 
-    def test_select_input_raw_default(self):
-        runner = self._create_query_runner()
-        columns = runner.select_input_raw()
-
-        assert columns == DEFAULT_MARKETING_ANALYTICS_COLUMNS
-
-    def test_select_input_raw_custom(self):
-        custom_columns = ["campaign_name", "source_name", "total_cost"]
-        custom_query = MarketingAnalyticsTableQuery(
-            dateRange=self.default_date_range,
-            select=custom_columns,
-            properties=[],
-        )
-        runner = self._create_query_runner(custom_query)
-        columns = runner.select_input_raw()
-
-        assert columns == custom_columns
-
-    def test_select_input_raw_empty_list(self):
-        custom_query = MarketingAnalyticsTableQuery(
-            dateRange=self.default_date_range,
-            select=[],
-            properties=[],
-        )
-        runner = self._create_query_runner(custom_query)
-        columns = runner.select_input_raw()
-
-        assert columns == DEFAULT_MARKETING_ANALYTICS_COLUMNS
-
     @patch(
         "products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner.MarketingSourceFactory"
     )
@@ -140,7 +110,7 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         mock_factory.get_valid_adapters.return_value = [mock_adapter1, mock_adapter2]
 
         runner = self._create_query_runner()
-        adapters = runner._get_marketing_source_adapters()
+        adapters = runner._get_marketing_source_adapters(runner.query_date_range)
 
         assert len(adapters) == 2
         assert adapters[0] == mock_adapter1
@@ -155,7 +125,7 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         mock_factory.create_adapters.side_effect = Exception("Factory error")
 
         runner = self._create_query_runner()
-        adapters = runner._get_marketing_source_adapters()
+        adapters = runner._get_marketing_source_adapters(runner.query_date_range)
 
         assert adapters == []
 
@@ -192,17 +162,29 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
     def test_calculate_basic(self):
         with patch.object(MarketingAnalyticsTableQueryRunner, "to_query") as mock_to_query:
             mock_to_query.return_value = ast.SelectQuery(
-                select=[ast.Field(chain=["test"])], select_from=ast.JoinExpr(table=ast.Field(chain=["test_table"]))
+                select=[ast.Alias(alias="Campaign", expr=ast.Field(chain=["campaign"]))],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["test_table"])),
             )
 
             with patch("posthog.hogql.query.execute_hogql_query") as mock_execute:
-                mock_execute.return_value = Mock(results=[["test_result"]], types=[], hogql="SELECT test", timings=[])
+                mock_execute.return_value = Mock(
+                    results=[["test_campaign"]], types=[], hogql="SELECT campaign", timings=[]
+                )
 
                 runner = self._create_query_runner()
                 result = runner.calculate()
 
                 assert isinstance(result, MarketingAnalyticsTableQueryResponse)
-                assert result.results == [["test_result"]]
+                # Results are now transformed to WebAnalyticsItemBase objects
+                assert len(result.results) == 1
+                assert len(result.results[0]) == 1
+                # Check the transformed item structure (should be WebAnalyticsItemBase)
+                transformed_item = result.results[0][0]
+                assert transformed_item.key == "Campaign"
+                assert transformed_item.value == "test_campaign"
+                assert transformed_item.previous is None
+                assert transformed_item.kind == "unit"
+                assert transformed_item.isIncreaseBad is False
                 assert result.hasMore is False
                 assert result.limit == DEFAULT_LIMIT
                 assert result.offset == 0

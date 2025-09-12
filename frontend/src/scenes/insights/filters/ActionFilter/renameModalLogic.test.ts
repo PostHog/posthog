@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { renameModalLogic } from 'scenes/insights/filters/ActionFilter/renameModalLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'

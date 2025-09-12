@@ -6,6 +6,9 @@ import {
     ExperimentTrendsQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
+import { SignificanceText, WinningVariantText } from '~/scenes/experiments/ExperimentView/Overview'
+import { SummaryTable } from '~/scenes/experiments/ExperimentView/SummaryTable'
+import { LegacyExploreButton, LegacyResultsQuery } from '~/scenes/experiments/ExperimentView/components'
 import {
     ExploreAsInsightButton,
     ResultsBreakdown,
@@ -13,16 +16,13 @@ import {
     ResultsInsightInfoBanner,
     ResultsQuery,
 } from '~/scenes/experiments/components/ResultsBreakdown'
-import { LegacyExploreButton, LegacyResultsQuery } from '~/scenes/experiments/ExperimentView/components'
-import { SignificanceText, WinningVariantText } from '~/scenes/experiments/ExperimentView/Overview'
-import { SummaryTable } from '~/scenes/experiments/ExperimentView/SummaryTable'
 import type { Experiment, ExperimentIdType } from '~/types'
 
 interface ChartModalProps {
     isOpen: boolean
     onClose: () => void
     metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
-    metricIndex: number
+    displayOrder: number
     isSecondary: boolean
     result: any
     experimentId: ExperimentIdType
@@ -33,7 +33,7 @@ export function ChartModal({
     isOpen,
     onClose,
     metric,
-    metricIndex,
+    displayOrder,
     isSecondary,
     result,
     experimentId,
@@ -62,20 +62,26 @@ export function ChartModal({
                     <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
                         <div className="items-center inline-flex flex-wrap">
                             <WinningVariantText result={result} experimentId={experimentId} />
-                            <SignificanceText metricIndex={metricIndex} isSecondary={isSecondary} />
+                            <SignificanceText metricUuid={metric.uuid || ''} isSecondary={isSecondary} />
                         </div>
                     </LemonBanner>
-                    <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
+                    <SummaryTable metric={metric} displayOrder={displayOrder} isSecondary={isSecondary} />
                     <LegacyResultsQuery result={result} showTable={true} />
                 </>
             ) : (
                 <ResultsBreakdown
                     result={result}
                     experiment={experiment}
-                    metricIndex={metricIndex}
+                    metricUuid={metric.uuid || ''}
                     isPrimary={!isSecondary}
                 >
-                    {({ query, breakdownResults, breakdownResultsLoading, exposureDifference }) => (
+                    {({
+                        query,
+                        breakdownResults,
+                        breakdownResultsLoading,
+                        exposureDifference,
+                        breakdownLastRefresh,
+                    }) => (
                         <>
                             {query && (
                                 <div className="flex justify-end">
@@ -85,15 +91,19 @@ export function ChartModal({
                             <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
                                 <div className="items-center inline-flex flex-wrap">
                                     <WinningVariantText result={result} experimentId={experimentId} />
-                                    <SignificanceText metricIndex={metricIndex} isSecondary={isSecondary} />
+                                    <SignificanceText metricUuid={metric.uuid || ''} isSecondary={isSecondary} />
                                 </div>
                             </LemonBanner>
-                            <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
+                            <SummaryTable metric={metric} displayOrder={displayOrder} isSecondary={isSecondary} />
                             {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
                             {query && breakdownResults && (
                                 <>
                                     <ResultsInsightInfoBanner exposureDifference={exposureDifference} />
-                                    <ResultsQuery query={query} breakdownResults={breakdownResults} />
+                                    <ResultsQuery
+                                        query={query}
+                                        breakdownResults={breakdownResults}
+                                        breakdownLastRefresh={breakdownLastRefresh}
+                                    />
                                 </>
                             )}
                         </>

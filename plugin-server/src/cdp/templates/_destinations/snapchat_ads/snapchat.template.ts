@@ -96,7 +96,7 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/services/snapchat.png',
     category: ['Advertisement'],
     code_language: 'hog',
-    hog: `
+    code: `
 if (empty(inputs.pixelId) or empty(inputs.oauth.access_token)) {
     throw Error('Pixel ID and access token are required')
 }

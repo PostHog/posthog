@@ -1,5 +1,7 @@
-import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
+
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'

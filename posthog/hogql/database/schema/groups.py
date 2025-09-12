@@ -1,17 +1,21 @@
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
-
 from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
-    LazyTable,
-    IntegerDatabaseField,
-    StringDatabaseField,
     DateTimeDatabaseField,
+    FieldOrTable,
+    IntegerDatabaseField,
+    LazyJoin,
+    LazyJoinToAdd,
+    LazyTable,
+    LazyTableToAdd,
+    StringDatabaseField,
     StringJSONDatabaseField,
     Table,
-    FieldOrTable,
-    LazyTableToAdd,
-    LazyJoinToAdd,
+)
+from posthog.hogql.database.schema.groups_revenue_analytics import (
+    GroupsRevenueAnalyticsTable,
+    join_with_groups_revenue_analytics_table,
 )
 from posthog.hogql.errors import ResolutionError
 
@@ -22,6 +26,11 @@ GROUPS_TABLE_FIELDS: dict[str, FieldOrTable] = {
     "created_at": DateTimeDatabaseField(name="created_at", nullable=False),
     "updated_at": DateTimeDatabaseField(name="_timestamp", nullable=False),
     "properties": StringJSONDatabaseField(name="group_properties", nullable=False),
+    "revenue_analytics": LazyJoin(
+        from_field=["key"],
+        join_table=GroupsRevenueAnalyticsTable(),
+        join_function=join_with_groups_revenue_analytics_table,
+    ),
 }
 
 

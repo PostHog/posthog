@@ -1,21 +1,25 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import difference from 'lodash.difference'
+import sortBy from 'lodash.sortby'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import difference from 'lodash.difference'
-import sortBy from 'lodash.sortby'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { Params } from 'scenes/sceneTypes'
 
-import { BillingType, DateMappingOption, OrganizationType } from '~/types'
+import { DateMappingOption, OrganizationType } from '~/types'
 
+import type { BillingPeriodMarker } from './BillingLineGraph'
 import {
     buildTrackingProperties,
+    calculateBillingPeriodMarkers,
     canAccessBilling,
     syncBillingSearchParams,
     updateBillingSearchParams,
@@ -23,6 +27,12 @@ import {
 import { billingLogic } from './billingLogic'
 import type { billingSpendLogicType } from './billingSpendLogicType'
 import type { BillingFilters } from './types'
+
+export enum BillingSpendResponseBreakdownType {
+    TYPE = 'type',
+    TEAM = 'team',
+    MULTIPLE = 'multiple',
+}
 
 export interface BillingSpendResponse {
     status: 'ok'
@@ -33,7 +43,7 @@ export interface BillingSpendResponse {
         label: string
         data: number[]
         dates: string[]
-        breakdown_type: 'type' | 'team' | 'multiple' | null
+        breakdown_type: BillingSpendResponseBreakdownType | null
         breakdown_value: string | string[] | null
     }>
     team_id_options?: number[]
@@ -47,8 +57,15 @@ export const DEFAULT_BILLING_SPEND_FILTERS: BillingFilters = {
     interval: 'day',
 }
 
+export const DEFAULT_BILLING_SPEND_DATE_FROM = dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD')
+export const DEFAULT_BILLING_SPEND_DATE_TO = dayjs().subtract(1, 'day').format('YYYY-MM-DD')
+
 export interface BillingSpendLogicProps {
     dashboardItemId?: string
+    initialFilters?: BillingFilters
+    dateFrom?: string
+    dateTo?: string
+    syncWithUrl?: boolean // Default false - only intended on usage and spend pages
 }
 
 export const billingSpendLogic = kea<billingSpendLogicType>([
@@ -56,7 +73,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
     props({} as BillingSpendLogicProps),
     key(({ dashboardItemId }) => dashboardItemId || 'global_spend'),
     connect({
-        values: [organizationLogic, ['currentOrganization'], billingLogic, ['billing']],
+        values: [organizationLogic, ['currentOrganization'], billingLogic, ['billing', 'billingPeriodUTC']],
         actions: [eventUsageLogic, ['reportBillingSpendInteraction']],
     }),
     actions({
@@ -104,9 +121,9 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(({ props }) => ({
         filters: [
-            { ...DEFAULT_BILLING_SPEND_FILTERS } as BillingFilters,
+            { ...(props.initialFilters || DEFAULT_BILLING_SPEND_FILTERS) },
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
                 toggleBreakdown: (state: BillingFilters, { dimension }: { dimension: 'type' | 'team' }) => {
@@ -116,22 +133,21 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                         : [...current, dimension]
                     return { ...state, breakdowns: next }
                 },
-                resetFilters: () => ({ ...DEFAULT_BILLING_SPEND_FILTERS }),
+                resetFilters: () => ({ ...(props.initialFilters || DEFAULT_BILLING_SPEND_FILTERS) }),
             },
         ],
         dateFrom: [
-            dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD'),
+            props.dateFrom || DEFAULT_BILLING_SPEND_DATE_FROM,
             {
-                setDateRange: (_, { dateFrom }) =>
-                    dateFrom || dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD'),
-                resetFilters: () => dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD'),
+                setDateRange: (_, { dateFrom }) => dateFrom || props.dateFrom || DEFAULT_BILLING_SPEND_DATE_FROM,
+                resetFilters: () => props.dateFrom || DEFAULT_BILLING_SPEND_DATE_FROM,
             },
         ],
         dateTo: [
-            dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
+            props.dateTo || DEFAULT_BILLING_SPEND_DATE_TO,
             {
-                setDateRange: (_, { dateTo }) => dateTo || dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
-                resetFilters: () => dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
+                setDateRange: (_, { dateTo }) => dateTo || props.dateTo || DEFAULT_BILLING_SPEND_DATE_TO,
+                resetFilters: () => props.dateTo || DEFAULT_BILLING_SPEND_DATE_TO,
             },
         ],
         userHiddenSeries: [
@@ -148,7 +164,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                 resetFilters: () => false,
             },
         ],
-    }),
+    })),
     selectors({
         series: [
             (s) => [s.billingSpendResponse],
@@ -165,10 +181,10 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             (response: BillingSpendResponse | null) => response?.results?.[0]?.dates || [],
         ],
         dateOptions: [
-            (s) => [s.billing],
-            (billing: BillingType | null): DateMappingOption[] => {
-                const currentBillingPeriodStart = billing?.billing_period?.current_period_start
-                const currentBillingPeriodEnd = billing?.billing_period?.current_period_end
+            (s) => [s.billingPeriodUTC],
+            (currentPeriod): DateMappingOption[] => {
+                const currentBillingPeriodStart = currentPeriod.start
+                const currentBillingPeriodEnd = currentPeriod.end
                 const currentBillingPeriodOption: DateMappingOption = {
                     key: 'Current billing period',
                     values: [
@@ -186,6 +202,12 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                 }
                 const dayAndMonthOptions = dateMapping.filter((o) => o.defaultInterval !== 'hour')
                 return [currentBillingPeriodOption, previousBillingPeriodOption, ...dayAndMonthOptions]
+            },
+        ],
+        billingPeriodMarkers: [
+            (s) => [s.billingPeriodUTC, s.dateFrom, s.dateTo],
+            (currentPeriod, dateFrom: string, dateTo: string): BillingPeriodMarker[] => {
+                return calculateBillingPeriodMarkers(currentPeriod, dateFrom, dateTo)
             },
         ],
         emptySeriesIDs: [
@@ -270,8 +292,19 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         ],
     }),
 
-    actionToUrl(({ values }) => {
+    actionToUrl(({ values, props }) => {
         const buildURL = (): [string, Params, Record<string, any>, { replace: boolean }] => {
+            const keepCurrentUrl: [string, Params, Record<string, any>, { replace: boolean }] = [
+                router.values.location.pathname,
+                router.values.searchParams,
+                router.values.hashParams,
+                { replace: false },
+            ]
+
+            if (props.syncWithUrl !== true) {
+                return keepCurrentUrl
+            }
+
             return syncBillingSearchParams(router, (params: Params) => {
                 updateBillingSearchParams(
                     params,
@@ -323,8 +356,12 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         }
     }),
 
-    urlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values, props }) => {
         const urlToAction = (_: any, params: Params): void => {
+            if (props.syncWithUrl !== true) {
+                return
+            }
+
             const filtersFromUrl: Partial<BillingFilters> = {}
 
             if (params.usage_types && !equal(params.usage_types, values.filters.usage_types)) {

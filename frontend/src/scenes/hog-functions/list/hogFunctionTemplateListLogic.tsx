@@ -1,18 +1,19 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import FuseClass from 'fuse.js'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
-import posthog from 'posthog-js'
-import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
+    AvailableFeature,
     HogFunctionSubTemplateIdType,
     HogFunctionTemplateType,
     HogFunctionTemplateWithSubTemplateType,
@@ -36,11 +37,13 @@ export type HogFunctionTemplateListLogicProps = {
     /** Additional types to list */
     additionalTypes?: HogFunctionTypeType[]
     /** If provided, only those templates will be shown */
-    subTemplateIds?: HogFunctionSubTemplateIdType[]
+    subTemplateIds?: HogFunctionSubTemplateIdType[] | null
     /** Overrides to be used when creating a new hog function */
     configurationOverrides?: Pick<HogFunctionTemplateType, 'filters'>
     syncFiltersWithUrl?: boolean
-    manualTemplates?: HogFunctionTemplateType[]
+    manualTemplates?: HogFunctionTemplateType[] | null
+    manualTemplatesLoading?: boolean
+    hideComingSoonByDefault?: boolean
 }
 
 export const shouldShowHogFunctionTemplate = (
@@ -57,7 +60,10 @@ export const shouldShowHogFunctionTemplate = (
 }
 
 export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType>([
-    props({} as HogFunctionTemplateListLogicProps),
+    props({
+        manualTemplates: null,
+        subTemplateIds: null,
+    } as HogFunctionTemplateListLogicProps),
     key(
         (props) =>
             `${props.syncFiltersWithUrl ? 'scene' : 'default'}/${props.type ?? 'destination'}/${
@@ -66,14 +72,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
     ),
     path((id) => ['scenes', 'pipeline', 'destinationsLogic', id]),
     connect(() => ({
-        values: [
-            pipelineAccessLogic,
-            ['canEnableNewDestinations'],
-            featureFlagLogic,
-            ['featureFlags'],
-            userLogic,
-            ['user'],
-        ],
+        values: [featureFlagLogic, ['featureFlags'], userLogic, ['user', 'hasAvailableFeature']],
     })),
     actions({
         setFilters: (filters: Partial<HogFunctionTemplateListFilters>) => ({ filters }),
@@ -110,40 +109,46 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         loading: [(s) => [s.rawTemplatesLoading], (x) => x],
 
         templates: [
-            (s) => [s.rawTemplates, (_, props) => props],
-            (
-                rawTemplates,
-                { subTemplateIds, manualTemplates }: HogFunctionTemplateListLogicProps
-            ): HogFunctionTemplateWithSubTemplateType[] => {
-                if (!subTemplateIds) {
-                    return [...rawTemplates, ...(manualTemplates || [])] as HogFunctionTemplateWithSubTemplateType[]
-                }
+            (s) => [
+                s.rawTemplates,
+                s.user,
+                (_, p: HogFunctionTemplateListLogicProps) => p.manualTemplates ?? [],
+                (_, p: HogFunctionTemplateListLogicProps) => p.subTemplateIds ?? [],
+            ],
+            (rawTemplates, user, manualTemplates, subTemplateIds): HogFunctionTemplateWithSubTemplateType[] => {
+                let templates: HogFunctionTemplateWithSubTemplateType[] = []
 
-                const final: HogFunctionTemplateWithSubTemplateType[] = []
+                if (!subTemplateIds?.length) {
+                    templates = [
+                        ...rawTemplates,
+                        ...(manualTemplates || []),
+                    ] as HogFunctionTemplateWithSubTemplateType[]
+                } else {
+                    // Special case for listing sub templates - we
+                    for (const template of rawTemplates) {
+                        for (const subTemplateId of subTemplateIds ?? []) {
+                            const subTemplate = getSubTemplate(template, subTemplateId)
 
-                // Special case for listing sub templates - we
-                for (const template of rawTemplates) {
-                    for (const subTemplateId of subTemplateIds ?? []) {
-                        const subTemplate = getSubTemplate(template, subTemplateId)
-
-                        if (subTemplate) {
-                            // Store it with the overrides applied
-                            final.push({
-                                ...template,
-                                ...subTemplate,
-                            })
+                            if (subTemplate) {
+                                // Store it with the overrides applied
+                                templates.push({
+                                    ...template,
+                                    ...subTemplate,
+                                })
+                            }
                         }
                     }
                 }
-
-                return final
+                return templates
+                    .filter((x) => shouldShowHogFunctionTemplate(x, user))
+                    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
             },
         ],
 
         templatesFuse: [
             (s) => [s.templates],
-            (hogFunctionTemplates): Fuse => {
-                return new FuseClass(hogFunctionTemplates || [], {
+            (templates): Fuse => {
+                return new FuseClass(templates || [], {
                     keys: ['name', 'description'],
                     threshold: 0.3,
                 })
@@ -151,25 +156,37 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         ],
 
         filteredTemplates: [
-            (s) => [s.filters, s.templates, s.templatesFuse, s.user, s.featureFlags],
-            (filters, templates, templatesFuse, user, featureFlags): HogFunctionTemplateType[] => {
+            (s) => [s.filters, s.templates, s.templatesFuse, (_, props) => props.hideComingSoonByDefault ?? false],
+            (filters, templates, templatesFuse, hideComingSoonByDefault): HogFunctionTemplateType[] => {
                 const { search } = filters
 
-                const flagComingSoon = !!featureFlags[FEATURE_FLAGS.SHOW_COMING_SOON_DESTINATIONS]
+                if (search) {
+                    return templatesFuse.search(search).map((x) => x.item)
+                }
 
-                return (search ? templatesFuse.search(search).map((x) => x.item) : templates).filter(
-                    (x) =>
-                        shouldShowHogFunctionTemplate(x, user) &&
-                        (x.status === 'coming_soon' ? search && flagComingSoon : true)
+                const [available, comingSoon] = templates.reduce(
+                    ([available, comingSoon], template) => {
+                        if (template.status === 'coming_soon') {
+                            if (!hideComingSoonByDefault) {
+                                comingSoon.push(template)
+                            }
+                        } else {
+                            available.push(template)
+                        }
+                        return [available, comingSoon]
+                    },
+                    [[], []] as HogFunctionTemplateType[][]
                 )
+
+                return [...available, ...comingSoon]
             },
         ],
 
         canEnableHogFunction: [
-            (s) => [s.canEnableNewDestinations],
-            (canEnableNewDestinations): ((template: HogFunctionTemplateType) => boolean) => {
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature): ((template: HogFunctionTemplateType) => boolean) => {
                 return (template: HogFunctionTemplateType) => {
-                    return template?.free || canEnableNewDestinations
+                    return template?.free || hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
                 }
             },
         ],
@@ -185,9 +202,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                     // TRICKY: Hacky place but this is where we handle "nonHogFunctionTemplates" to modify the linked url
 
                     if (template.id.startsWith('managed-') || template.id.startsWith('self-managed-')) {
-                        return (
-                            urls.dataWarehouseSourceNew() +
-                            '?kind=' +
+                        return urls.dataWarehouseSourceNew(
                             template.id.replace('self-managed-', '').replace('managed-', '')
                         )
                     }
@@ -239,7 +254,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             Record<string, any>,
             {
                 replace: boolean
-            }
+            },
         ] => [
             router.values.location.pathname,
 

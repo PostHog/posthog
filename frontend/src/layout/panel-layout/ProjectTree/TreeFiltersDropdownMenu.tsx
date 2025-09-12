@@ -1,5 +1,7 @@
-import { IconCheck, IconFilter } from '@posthog/icons'
 import { useValues } from 'kea'
+
+import { IconCheck, IconFilter } from '@posthog/icons'
+
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'

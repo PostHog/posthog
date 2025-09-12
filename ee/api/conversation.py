@@ -1,31 +1,35 @@
 from collections.abc import AsyncGenerator
-import pydantic
-import structlog
+from typing import cast
+
 from django.conf import settings
 from django.http import StreamingHttpResponse
+
+import pydantic
+import structlog
+from asgiref.sync import async_to_sync as asgi_async_to_sync
 from rest_framework import serializers, status
 from rest_framework.decorators import action
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
-from typing import cast
+
+from posthog.schema import HumanMessage, MaxBillingContext
+
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.exceptions import Conflict
+from posthog.exceptions_capture import capture_exception
+from posthog.models.user import User
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
+from posthog.temporal.ai.conversation import AssistantConversationRunnerWorkflowInputs
+from posthog.utils import get_instance_region
 
 from ee.hogai.api.serializers import ConversationSerializer
 from ee.hogai.stream.conversation_stream import ConversationStreamManager
-from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.aio import async_to_sync
-from asgiref.sync import async_to_sync as asgi_async_to_sync
 from ee.hogai.utils.sse import AssistantSSESerializer
-from ee.hogai.utils.types import AssistantMode
+from ee.hogai.utils.types.base import AssistantMode
 from ee.models.assistant import Conversation
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models.user import User
-from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.schema import HumanMessage
-from posthog.temporal.ai.conversation import AssistantConversationRunnerWorkflowInputs
-from posthog.utils import get_instance_region
-from posthog.exceptions import Conflict
 
 logger = structlog.get_logger(__name__)
 
@@ -41,8 +45,10 @@ class MessageSerializer(serializers.Serializer):
     )  # this either retrieves an existing conversation or creates a new one
     contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
     ui_context = serializers.JSONField(required=False)
+    billing_context = serializers.JSONField(required=False)
     trace_id = serializers.UUIDField(required=True)
     session_id = serializers.CharField(required=False)
+    deep_research_mode = serializers.BooleanField(required=False, default=False)
 
     def validate(self, data):
         if data["content"] is not None:
@@ -57,6 +63,15 @@ class MessageSerializer(serializers.Serializer):
             # NOTE: If content is empty, it means we're resuming streaming or continuing generation with only the contextual_tools potentially different
             # Because we intentionally don't add a HumanMessage, we are NOT updating ui_context here
             data["message"] = None
+        billing_context = data.get("billing_context")
+        if billing_context:
+            try:
+                billing_context = MaxBillingContext.model_validate(billing_context)
+                data["billing_context"] = billing_context
+            except pydantic.ValidationError as e:
+                capture_exception(e)
+                # billing data relies on a lot of legacy code, this might break and we don't want to block the conversation
+                data["billing_context"] = None
         return data
 
 
@@ -75,7 +90,9 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             return qs
 
         # But retrieval must only return conversations from the assistant and with a title.
-        return qs.filter(title__isnull=False, type=Conversation.Type.ASSISTANT).order_by("-updated_at")
+        return qs.filter(
+            title__isnull=False, type__in=[Conversation.Type.DEEP_RESEARCH, Conversation.Type.ASSISTANT]
+        ).order_by("-updated_at")
 
     def get_throttles(self):
         if (
@@ -97,7 +114,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
-        context["assistant_graph"] = AssistantGraph(self.team, cast(User, self.request.user)).compile_full_graph()
+        context["team"] = self.team
+        context["user"] = cast(User, self.request.user)
         return context
 
     def create(self, request: Request, *args, **kwargs):
@@ -112,6 +130,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         conversation_id = serializer.validated_data["conversation"]
 
         has_message = serializer.validated_data.get("content") is not None
+        is_deep_research = serializer.validated_data.get("deep_research_mode", False)
+        mode = AssistantMode.DEEP_RESEARCH if is_deep_research else AssistantMode.ASSISTANT
 
         is_new_conversation = False
         # Safely set the lookup kwarg for potential error handling
@@ -130,8 +150,9 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                     {"error": "Cannot stream from non-existent conversation"}, status=status.HTTP_400_BAD_REQUEST
                 )
             # Use frontend-provided conversation ID
+            conversation_type = Conversation.Type.DEEP_RESEARCH if is_deep_research else Conversation.Type.ASSISTANT
             conversation = Conversation.objects.create(
-                user=cast(User, request.user), team=self.team, id=conversation_id
+                user=cast(User, request.user), team=self.team, id=conversation_id, type=conversation_type
             )
             is_new_conversation = True
 
@@ -150,7 +171,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             is_new_conversation=is_new_conversation,
             trace_id=serializer.validated_data["trace_id"],
             session_id=request.headers.get("X-POSTHOG-SESSION-ID"),  # Relies on posthog-js __add_tracing_headers
-            mode=AssistantMode.ASSISTANT,
+            billing_context=serializer.validated_data.get("billing_context"),
+            mode=mode,
         )
 
         async def async_stream(

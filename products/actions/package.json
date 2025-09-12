@@ -1,13 +1,18 @@
 {
     "name": "@posthog/products-actions",
+    "dependencies": {
+        "kea": "^3.1.7",
+        "kea-forms": "^3.2.0",
+        "kea-loaders": "^3.1.1",
+        "kea-router": "^3.4.1",
+        "kea-subscriptions": "^3.0.1"
+    },
     "peerDependencies": {
         "@posthog/icons": "*",
+        "@storybook/react": "*",
         "@types/react": "*",
         "clsx": "*",
         "fuse.js": "*",
-        "kea": "*",
-        "kea-loaders": "*",
-        "kea-router": "*",
         "react": "*"
     }
 }

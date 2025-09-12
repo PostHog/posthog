@@ -1,5 +1,6 @@
-import { LegacyTransformationPlugin } from '../../types'
 import { processEvent, setupPlugin } from '.'
+
+import { LegacyTransformationPlugin } from '../../types'
 
 export const userAgentPlugin: LegacyTransformationPlugin = {
     processEvent,
@@ -15,7 +16,7 @@ export const userAgentPlugin: LegacyTransformationPlugin = {
         icon_url: '/static/transformations/user-agent.png',
         category: ['Transformation'],
         code_language: 'javascript',
-        hog: `return event`,
+        code: `return event`,
         inputs_schema: [
             {
                 key: 'overrideUserAgentDetails',

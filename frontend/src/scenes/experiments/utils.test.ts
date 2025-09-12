@@ -16,6 +16,7 @@ import {
     AccessControlLevel,
     Experiment,
     ExperimentMetricMathType,
+    FeatureFlagEvaluationRuntime,
     FeatureFlagFilters,
     FeatureFlagType,
     PropertyFilterType,
@@ -23,11 +24,11 @@ import {
 } from '~/types'
 
 import { getNiceTickValues } from './MetricsView/shared/utils'
+import { filterToMetricConfig } from './metricQueryUtils'
 import {
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
     filterToExposureConfig,
-    filterToMetricConfig,
     getViewRecordingFilters,
     getViewRecordingFiltersLegacy,
     isLegacyExperiment,
@@ -213,6 +214,8 @@ describe('getViewRecordingFilters', () => {
         filters: {},
         metrics: [],
         metrics_secondary: [],
+        primary_metrics_ordered_uuids: null,
+        secondary_metrics_ordered_uuids: null,
         saved_metrics_ids: [],
         saved_metrics: [],
         parameters: {
@@ -641,6 +644,7 @@ describe('checkFeatureFlagEligibility', () => {
         has_encrypted_payloads: false,
         version: 0,
         last_modified_by: null,
+        evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
     }
     it('throws an error for a remote configuration feature flag', () => {
         const featureFlag = { ...baseFeatureFlag, is_remote_configuration: true }

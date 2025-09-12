@@ -1,13 +1,15 @@
 from freezegun import freeze_time
+from posthog.test.base import _create_event, _create_person, flush_persons_and_events
+
+from posthog.schema import DateRange, HogQLQueryModifiers, SessionPropertyFilter, WebStatsBreakdown, WebStatsTableQuery
+
+from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
 
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
+from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import WebAnalyticsPreAggregatedTestBase
 from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import WEB_STATS_INSERT_SQL
-from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import WebAnalyticsPreAggregatedTestBase
-from posthog.test.base import _create_event, _create_person, flush_persons_and_events
-from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
-from posthog.schema import WebStatsTableQuery, DateRange, HogQLQueryModifiers, WebStatsBreakdown, SessionPropertyFilter
-from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
 
 
 class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
@@ -325,10 +327,11 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
             date_start="2024-01-01",
             date_end="2024-01-02",
             team_ids=[self.team.pk],
-            table_name="web_stats_daily",
+            table_name="web_pre_aggregated_stats",
+            granularity="hourly",
             select_only=True,
         )
-        insert_sql = f"INSERT INTO web_stats_daily\n{select_sql}"
+        insert_sql = f"INSERT INTO web_pre_aggregated_stats\n{select_sql}"
         sync_execute(insert_sql)
 
     def _calculate_channel_type_query(
@@ -355,24 +358,24 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
 
         # Assert direct expected results - format: [channel_name, (sessions, persons), (pageviews, views), '']
         expected_results = [
-            ["Affiliate", (1.0, None), (1.0, None), ""],
-            ["Audio", (1.0, None), (1.0, None), ""],
-            ["Cross Network", (1.0, None), (1.0, None), ""],
-            ["Direct", (2.0, None), (2.0, None), ""],  # Now 2 Direct sessions
-            ["Email", (1.0, None), (1.0, None), ""],
-            ["Organic Search", (1.0, None), (1.0, None), ""],
-            ["Organic Shopping", (1.0, None), (1.0, None), ""],
-            ["Organic Social", (1.0, None), (1.0, None), ""],
-            ["Organic Video", (1.0, None), (1.0, None), ""],
-            ["Paid Search", (1.0, None), (1.0, None), ""],  # gad_source=1
-            ["Paid Shopping", (1.0, None), (1.0, None), ""],  # shopping source with cpc medium
-            ["Paid Social", (1.0, None), (1.0, None), ""],  # facebook cpc
-            ["Paid Unknown", (2.0, None), (2.0, None), ""],  # gclid + unknown_source cpc
-            ["Paid Video", (1.0, None), (1.0, None), ""],
-            ["Push", (1.0, None), (1.0, None), ""],
-            ["Referral", (1.0, None), (1.0, None), ""],
-            ["SMS", (1.0, None), (1.0, None), ""],
-            ["Unknown", (1.0, None), (1.0, None), ""],
+            ["Affiliate", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["Audio", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["Cross Network", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["Direct", (2.0, None), (2.0, None), 2 / 20, ""],  # Now 2 Direct sessions
+            ["Email", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["Organic Search", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["Organic Shopping", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["Organic Social", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["Organic Video", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["Paid Search", (1.0, None), (1.0, None), 1 / 20, ""],  # gad_source=1
+            ["Paid Shopping", (1.0, None), (1.0, None), 1 / 20, ""],  # shopping source with cpc medium
+            ["Paid Social", (1.0, None), (1.0, None), 1 / 20, ""],  # facebook cpc
+            ["Paid Unknown", (2.0, None), (2.0, None), 2 / 20, ""],  # gclid + unknown_source cpc
+            ["Paid Video", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["Push", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["Referral", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["SMS", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["Unknown", (1.0, None), (1.0, None), 1 / 20, ""],
         ]
 
         actual_sorted = sorted(response.results, key=lambda x: str(x[0]))

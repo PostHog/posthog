@@ -9,6 +9,7 @@ import {
     IconUser,
     IconVideoCamera,
 } from '@posthog/icons'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { PropertyFilterType, PropertyOperator, ReplayTemplateType } from '~/types'

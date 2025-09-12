@@ -30,6 +30,15 @@ impl rdkafka::ClientContext for KafkaContext {
             self.liveness.report_healthy_blocking();
         }
 
+        let total_brokers = stats.brokers.len();
+        let up_brokers = stats
+            .brokers
+            .values()
+            .filter(|broker| broker.state == "UP")
+            .count();
+        let down_brokers = total_brokers.saturating_sub(up_brokers);
+        gauge!("capture_kafka_any_brokers_down").set(if down_brokers > 0 { 1.0 } else { 0.0 });
+
         // Update exported metrics
         gauge!("capture_kafka_callback_queue_depth",).set(stats.replyq as f64);
         gauge!("capture_kafka_producer_queue_depth",).set(stats.msg_cnt as f64);
@@ -52,6 +61,13 @@ impl rdkafka::ClientContext for KafkaContext {
 
         for (_, stats) in stats.brokers {
             let id_string = format!("{}", stats.nodeid);
+
+            // Per-broker connectivity (1 = connected/UP, 0 = not connected)
+            gauge!(
+                "capture_kafka_broker_connected",
+                "broker" => id_string.clone()
+            )
+            .set(if stats.state == "UP" { 1.0 } else { 0.0 });
             if let Some(rtt) = stats.rtt {
                 gauge!(
                     "capture_kafka_produce_rtt_latency_us",
@@ -282,6 +298,9 @@ impl KafkaSink {
             }
         };
 
+        // Use the computed event timestamp for Kafka timestamp header
+        let computed_timestamp = metadata.computed_timestamp.map(|ts| ts.timestamp_millis());
+
         match self.producer.send_result(FutureRecord {
             topic,
             payload: Some(&payload),
@@ -297,6 +316,10 @@ impl KafkaSink {
                     .insert(Header {
                         key: "distinct_id",
                         value: Some(&distinct_id),
+                    })
+                    .insert(Header {
+                        key: "timestamp",
+                        value: computed_timestamp.map(|ts| ts.to_string()).as_deref(),
                     }),
             ),
         }) {
@@ -477,6 +500,7 @@ mod tests {
         let metadata = ProcessedEventMetadata {
             data_type: DataType::AnalyticsMain,
             session_id: None,
+            computed_timestamp: None,
         };
 
         let event = ProcessedEvent {
@@ -548,7 +572,7 @@ mod tests {
 
         match sink.send(big_event).await {
             Err(CaptureError::EventTooBig(_)) => {} // Expected
-            Err(err) => panic!("wrong error code {}", err),
+            Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
         };
 
@@ -558,7 +582,7 @@ mod tests {
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
         match sink.send(event.clone()).await {
             Err(CaptureError::EventTooBig(_)) => {} // Expected
-            Err(err) => panic!("wrong error code {}", err),
+            Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
         };
         cluster.clear_request_errors(RDKafkaApiKey::Produce);
@@ -566,7 +590,7 @@ mod tests {
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
         match sink.send_batch(vec![event.clone(), event.clone()]).await {
             Err(CaptureError::RetryableSinkError) => {} // Expected
-            Err(err) => panic!("wrong error code {}", err),
+            Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
         };
 
@@ -590,12 +614,12 @@ mod tests {
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
         match sink.send(event.clone()).await {
             Err(CaptureError::RetryableSinkError) => {} // Expected
-            Err(err) => panic!("wrong error code {}", err),
+            Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
         };
         match sink.send_batch(vec![event.clone(), event.clone()]).await {
             Err(CaptureError::RetryableSinkError) => {} // Expected
-            Err(err) => panic!("wrong error code {}", err),
+            Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
         };
     }

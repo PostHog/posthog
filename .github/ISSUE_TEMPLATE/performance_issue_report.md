@@ -6,7 +6,7 @@ labels: performance
 
 ## In what situation are you experiencing subpar performance?
 
-*Please describe.*
+_Please describe._
 
 ## How to reproduce
 
@@ -21,6 +21,4 @@ labels: performance
 
 ## Additional context
 
-
-
-#### *Thank you* for your performance issue report – we want PostHog to go supersonic!
+#### _Thank you_ for your performance issue report – we want PostHog to go supersonic!

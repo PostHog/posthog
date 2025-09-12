@@ -1,18 +1,22 @@
 import random
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
 from django.core import mail
-from freezegun import freeze_time
+
 from rest_framework import status
 
-from ee.models.explicit_team_membership import ExplicitTeamMembership
+from posthog.constants import AvailableFeature
+from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team.team import Team
-from posthog.test.base import APIBaseTest
-from posthog.constants import AvailableFeature
-from posthog.models import User
+
+from ee.models import Role, RoleMembership
+from ee.models.explicit_team_membership import ExplicitTeamMembership
 
 NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
 
@@ -1195,3 +1199,28 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(OrganizationInvite.objects.count(), 0)
+
+    def test_user_join_with_default_role(self):
+        """Test that new users get assigned the default role when joining an organization"""
+        # Create a role
+        role = Role.objects.create(name="Test Role", organization=self.organization)
+
+        # Set it as the default role
+        self.organization.default_role = role
+        self.organization.save()
+
+        # Create a new user and have them join the organization
+        new_user = User.objects.create(email="test@example.com", first_name="Test")
+        membership = new_user.join(organization=self.organization)
+
+        # Check that the user was assigned to the default role
+        assert RoleMembership.objects.filter(role=role, user=new_user, organization_member=membership).exists()
+
+    def test_user_join_without_default_role(self):
+        """Test that new users don't get assigned any role when no default is set"""
+        # Create a new user and have them join the organization
+        new_user = User.objects.create(email="test@example.com", first_name="Test")
+        new_user.join(organization=self.organization)
+
+        # Check that the user was not assigned to any roles
+        assert RoleMembership.objects.filter(user=new_user).count() == 0

@@ -26,6 +26,11 @@
             "description": "The current assignee of an issue.",
             "label": "Issue assignee"
         },
+        "first_seen": {
+            "description": "The first time the issue was seen.",
+            "label": "Issue first seen",
+            "type": "DateTime"
+        },
         "issue_description": {
             "description": "The description of an issue.",
             "label": "Issue description"
@@ -327,13 +332,15 @@
         "$config_defaults": {
             "description": "The version of the PostHog config defaults that were used when capturing the event.",
             "label": "Config defaults",
-            "type": "String"
+            "type": "String",
+            "used_for_debug": true
         },
         "$configured_session_timeout_ms": {
             "description": "Configured session timeout in milliseconds.",
             "examples": ["1800000"],
             "label": "Configured session timeout",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$console_log_recording_enabled_server_side": {
             "description": "If console log recording has been enabled server-side.",
@@ -830,6 +837,12 @@
             "examples": ["Google", "Bing", "Twitter", "Facebook"],
             "label": "Initial UTM source"
         },
+        "$initialization_time": {
+            "description": "The iso formatted timestamp of SDK initialization.",
+            "label": "initialization time",
+            "type": "String",
+            "used_for_debug": true
+        },
         "$insert_id": {
             "description": "Unique insert ID for the event.",
             "label": "Insert ID",
@@ -863,7 +876,8 @@
             "description": "The timestamp of the last call to `Reset` in the web SDK. This can be useful for debugging.",
             "ignored_in_assistant": true,
             "label": "Timestamp of last call to `Reset` in the web sdk",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$lib": {
             "description": "What library was used to send the event.",
@@ -879,7 +893,8 @@
             "description": "Remaining rate limit tokens for the posthog-js library client-side rate limiting implementation.",
             "examples": ["100"],
             "ignored_in_assistant": true,
-            "label": "Clientside rate limit remaining tokens"
+            "label": "Clientside rate limit remaining tokens",
+            "used_for_debug": true
         },
         "$lib_version": {
             "description": "Version of the library used to send the event. Used in combination with Library.",
@@ -958,7 +973,7 @@
         },
         "$performance_raw": {
             "description": "The browser performance entries for navigation (the page), paint, and resources. That were available when the page view event fired",
-            "label": "Browser performance",
+            "label": "Browser performance (deprecated)",
             "system": true
         },
         "$plugins_deferred": {
@@ -1056,7 +1071,8 @@
         "$recording_status": {
             "description": "The status of session recording at the time the event was captured",
             "label": "Session recording status",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$referrer": {
             "description": "URL of where the user came from.",
@@ -1072,19 +1088,22 @@
             "description": "Config for minimum duration before emitting a session recording.",
             "examples": ["1000"],
             "label": "Replay config - minimum duration",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$replay_sample_rate": {
             "description": "Config for sampling rate of session recordings.",
             "examples": ["0.1"],
             "label": "Replay config - sample rate",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$replay_script_config": {
             "description": "Sets an alternative recorder script for the web sdk.",
             "examples": ["{\"script\": \"recorder-next\"}"],
             "label": "Replay script config",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$screen_density": {
             "description": "The logical density of the display. This is a scaling factor for the Density Independent Pixel unit, where one DIP is one pixel on an approximately 160 dpi screen (for example a 240x320, 1.5\"x2\" screen), providing the baseline of the system's display. Thus on a 160dpi screen this density value will be 1; on a 120 dpi screen it would be .75; etc.",
@@ -1105,26 +1124,69 @@
             "examples": ["1440", "1920"],
             "label": "Screen width"
         },
+        "$sdk_debug_current_session_duration": {
+            "description": "The current session duration in milliseconds.",
+            "label": "Current session duration",
+            "type": "Numeric",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_event_trigger_status": {
+            "description": "The status of the recording event trigger.",
+            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "label": "event trigger status",
+            "type": "String",
+            "used_for_debug": true
+        },
         "$sdk_debug_replay_internal_buffer_length": {
             "description": "Useful for debugging. The internal buffer length for replay.",
             "examples": ["100"],
             "ignored_in_assistant": true,
             "label": "Replay internal buffer length",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$sdk_debug_replay_internal_buffer_size": {
             "description": "Useful for debugging. The internal buffer size for replay.",
             "examples": ["100"],
             "ignored_in_assistant": true,
             "label": "Replay internal buffer size",
-            "system": true
+            "system": true,
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_linked_flag_trigger_status": {
+            "description": "The status of the linked flag trigger.",
+            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "label": "linked flag trigger status",
+            "type": "String",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_remote_trigger_matching_config": {
+            "description": "Whether to match on all or any triggers.",
+            "examples": ["all", "any"],
+            "label": "remote trigger matching config",
+            "type": "String",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_url_trigger_status": {
+            "description": "The status of the recording url trigger.",
+            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "label": "URL trigger status",
+            "type": "String",
+            "used_for_debug": true
         },
         "$sdk_debug_retry_queue_size": {
             "description": "Useful for debugging. The size of the retry queue.",
             "examples": ["100"],
             "ignored_in_assistant": true,
             "label": "Retry queue size",
-            "system": true
+            "system": true,
+            "used_for_debug": true
+        },
+        "$sdk_debug_session_start": {
+            "description": "The timestamp of the session start for the current session id. Not necessarily the same as SDK init time.",
+            "label": "Session start",
+            "type": "Numeric",
+            "used_for_debug": true
         },
         "$search_engine": {
             "description": "The search engine the user came in from (if any).",
@@ -1317,42 +1379,55 @@
             "examples": ["true", "false"],
             "ignored_in_assistant": true,
             "label": "Whether the session is sampled",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$session_recording_canvas_recording": {
             "description": "Session recording canvas capture config.",
             "examples": ["{\"enabled\": false}"],
             "label": "Session recording canvas recording",
-            "system": true
+            "system": true,
+            "used_for_debug": true
+        },
+        "$session_recording_masking": {
+            "description": "The masking configuration for the session recording.",
+            "label": "Replay config - masking",
+            "type": "String",
+            "used_for_debug": true
         },
         "$session_recording_network_payload_capture": {
             "description": "Session recording network payload capture config.",
             "examples": ["{\"recordHeaders\": false}"],
             "label": "Session recording network payload capture",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$session_recording_recorder_version_server_side": {
             "description": "The version of the session recording recorder that is enabled server-side.",
             "examples": ["v2"],
             "ignored_in_assistant": true,
             "label": "Session recording recorder version server-side",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$session_recording_start_reason": {
             "description": "Reason for starting the session recording. Useful for e.g. if you have sampling enabled and want to see on batch exported events which sessions have recordings available.",
             "examples": ["sampling_override", "recording_initialized", "linked_flag_match"],
             "label": "Session recording start reason",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$session_recording_url_trigger_activated_session": {
             "description": "Session recording URL trigger activated session config. Used by posthog-js to track URL activation of session replay.",
             "label": "Session recording URL trigger activated session",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$session_recording_url_trigger_status": {
             "description": "Session recording URL trigger status. Used by posthog-js to track URL activation of session replay.",
             "label": "Session recording URL trigger status",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$set": {
             "description": "Person properties to be set. Sent as `$set`.",
@@ -1434,6 +1509,16 @@
         "$touch_y": {
             "description": "The location of a Touch event on the Y axis",
             "label": "Touch Y"
+        },
+        "$transformations_skipped": {
+            "description": "Array of transformations skipped during ingestion.",
+            "label": "Transformations skipped",
+            "used_for_debug": true
+        },
+        "$transformations_succeeded": {
+            "description": "Array of transformations that succeeded during ingestion.",
+            "label": "Transformations succeeded",
+            "used_for_debug": true
         },
         "$user_agent": {
             "description": "Some SDKs (like Android) send the raw user agent as $user_agent.",
@@ -1820,6 +1905,18 @@
         "$group_key": {
             "description": "Specified group key",
             "label": "Group key"
+        },
+        "$virt_revenue": {
+            "description": "The total revenue for this group. This will always be the current total revenue even when referring to a group via events.",
+            "label": "Total revenue",
+            "type": "Numeric",
+            "virtual": true
+        },
+        "$virt_revenue_last_30_days": {
+            "description": "The total revenue for this group in the last 30 days.",
+            "label": "Total revenue in the last 30 days",
+            "type": "Numeric",
+            "virtual": true
         }
     },
     "log_entries": {
@@ -2126,13 +2223,15 @@
         "$config_defaults": {
             "description": "The version of the PostHog config defaults that were used when capturing the event.",
             "label": "Config defaults",
-            "type": "String"
+            "type": "String",
+            "used_for_debug": true
         },
         "$configured_session_timeout_ms": {
             "description": "Configured session timeout in milliseconds.",
             "examples": ["1800000"],
             "label": "Configured session timeout",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$console_log_recording_enabled_server_side": {
             "description": "If console log recording has been enabled server-side.",
@@ -2921,6 +3020,12 @@
             "description": "Google Ads, app to web Data from the first time this user was seen.",
             "label": "Initial wbraid"
         },
+        "$initialization_time": {
+            "description": "The iso formatted timestamp of SDK initialization.",
+            "label": "initialization time",
+            "type": "String",
+            "used_for_debug": true
+        },
         "$insert_id": {
             "description": "Unique insert ID for the event.",
             "label": "Insert ID",
@@ -2954,7 +3059,8 @@
             "description": "The timestamp of the last call to `Reset` in the web SDK. This can be useful for debugging.",
             "ignored_in_assistant": true,
             "label": "Timestamp of last call to `Reset` in the web sdk",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$lib": {
             "description": "What library was used to send the event.",
@@ -2970,7 +3076,8 @@
             "description": "Remaining rate limit tokens for the posthog-js library client-side rate limiting implementation.",
             "examples": ["100"],
             "ignored_in_assistant": true,
-            "label": "Clientside rate limit remaining tokens"
+            "label": "Clientside rate limit remaining tokens",
+            "used_for_debug": true
         },
         "$lib_version": {
             "description": "Version of the library used to send the event. Used in combination with Library.",
@@ -3049,7 +3156,7 @@
         },
         "$performance_raw": {
             "description": "The browser performance entries for navigation (the page), paint, and resources. That were available when the page view event fired",
-            "label": "Browser performance",
+            "label": "Browser performance (deprecated)",
             "system": true
         },
         "$plugins_deferred": {
@@ -3147,7 +3254,8 @@
         "$recording_status": {
             "description": "The status of session recording at the time the event was captured",
             "label": "Session recording status",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$referrer": {
             "description": "URL of where the user came from. Data from the last time this user was seen.",
@@ -3163,19 +3271,22 @@
             "description": "Config for minimum duration before emitting a session recording.",
             "examples": ["1000"],
             "label": "Replay config - minimum duration",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$replay_sample_rate": {
             "description": "Config for sampling rate of session recordings.",
             "examples": ["0.1"],
             "label": "Replay config - sample rate",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$replay_script_config": {
             "description": "Sets an alternative recorder script for the web sdk.",
             "examples": ["{\"script\": \"recorder-next\"}"],
             "label": "Replay script config",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$screen_density": {
             "description": "The logical density of the display. This is a scaling factor for the Density Independent Pixel unit, where one DIP is one pixel on an approximately 160 dpi screen (for example a 240x320, 1.5\"x2\" screen), providing the baseline of the system's display. Thus on a 160dpi screen this density value will be 1; on a 120 dpi screen it would be .75; etc.",
@@ -3196,26 +3307,69 @@
             "examples": ["1440", "1920"],
             "label": "Latest screen width"
         },
+        "$sdk_debug_current_session_duration": {
+            "description": "The current session duration in milliseconds.",
+            "label": "Current session duration",
+            "type": "Numeric",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_event_trigger_status": {
+            "description": "The status of the recording event trigger.",
+            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "label": "event trigger status",
+            "type": "String",
+            "used_for_debug": true
+        },
         "$sdk_debug_replay_internal_buffer_length": {
             "description": "Useful for debugging. The internal buffer length for replay.",
             "examples": ["100"],
             "ignored_in_assistant": true,
             "label": "Replay internal buffer length",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$sdk_debug_replay_internal_buffer_size": {
             "description": "Useful for debugging. The internal buffer size for replay.",
             "examples": ["100"],
             "ignored_in_assistant": true,
             "label": "Replay internal buffer size",
-            "system": true
+            "system": true,
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_linked_flag_trigger_status": {
+            "description": "The status of the linked flag trigger.",
+            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "label": "linked flag trigger status",
+            "type": "String",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_remote_trigger_matching_config": {
+            "description": "Whether to match on all or any triggers.",
+            "examples": ["all", "any"],
+            "label": "remote trigger matching config",
+            "type": "String",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_url_trigger_status": {
+            "description": "The status of the recording url trigger.",
+            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "label": "URL trigger status",
+            "type": "String",
+            "used_for_debug": true
         },
         "$sdk_debug_retry_queue_size": {
             "description": "Useful for debugging. The size of the retry queue.",
             "examples": ["100"],
             "ignored_in_assistant": true,
             "label": "Retry queue size",
-            "system": true
+            "system": true,
+            "used_for_debug": true
+        },
+        "$sdk_debug_session_start": {
+            "description": "The timestamp of the session start for the current session id. Not necessarily the same as SDK init time.",
+            "label": "Session start",
+            "type": "Numeric",
+            "used_for_debug": true
         },
         "$search_engine": {
             "description": "The search engine the user came in from (if any).",
@@ -3408,42 +3562,55 @@
             "examples": ["true", "false"],
             "ignored_in_assistant": true,
             "label": "Whether the session is sampled",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$session_recording_canvas_recording": {
             "description": "Session recording canvas capture config.",
             "examples": ["{\"enabled\": false}"],
             "label": "Session recording canvas recording",
-            "system": true
+            "system": true,
+            "used_for_debug": true
+        },
+        "$session_recording_masking": {
+            "description": "The masking configuration for the session recording.",
+            "label": "Replay config - masking",
+            "type": "String",
+            "used_for_debug": true
         },
         "$session_recording_network_payload_capture": {
             "description": "Session recording network payload capture config.",
             "examples": ["{\"recordHeaders\": false}"],
             "label": "Session recording network payload capture",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$session_recording_recorder_version_server_side": {
             "description": "The version of the session recording recorder that is enabled server-side.",
             "examples": ["v2"],
             "ignored_in_assistant": true,
             "label": "Session recording recorder version server-side",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$session_recording_start_reason": {
             "description": "Reason for starting the session recording. Useful for e.g. if you have sampling enabled and want to see on batch exported events which sessions have recordings available.",
             "examples": ["sampling_override", "recording_initialized", "linked_flag_match"],
             "label": "Session recording start reason",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$session_recording_url_trigger_activated_session": {
             "description": "Session recording URL trigger activated session config. Used by posthog-js to track URL activation of session replay.",
             "label": "Session recording URL trigger activated session",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$session_recording_url_trigger_status": {
             "description": "Session recording URL trigger status. Used by posthog-js to track URL activation of session replay.",
             "label": "Session recording URL trigger status",
-            "system": true
+            "system": true,
+            "used_for_debug": true
         },
         "$set": {
             "description": "Person properties to be set. Sent as `$set`.",
@@ -3526,6 +3693,16 @@
             "description": "The location of a Touch event on the Y axis",
             "label": "Touch Y"
         },
+        "$transformations_skipped": {
+            "description": "Array of transformations skipped during ingestion.",
+            "label": "Transformations skipped",
+            "used_for_debug": true
+        },
+        "$transformations_succeeded": {
+            "description": "Array of transformations that succeeded during ingestion.",
+            "label": "Transformations succeeded",
+            "used_for_debug": true
+        },
         "$user_agent": {
             "description": "Some SDKs (like Android) send the raw user agent as $user_agent.",
             "examples": ["Dalvik/2.1.0 (Linux; U; Android 11; Pixel 3 Build/RQ2A.210505.002)"],
@@ -3557,6 +3734,18 @@
             "examples": ["Search", "Video", "Direct"],
             "label": "Initial referring domain type",
             "type": "String",
+            "virtual": true
+        },
+        "$virt_revenue": {
+            "description": "The total revenue for this person. This will always be the current total revenue even when referring to a person via events.",
+            "label": "Total revenue",
+            "type": "Numeric",
+            "virtual": true
+        },
+        "$virt_revenue_last_30_days": {
+            "description": "The total revenue for this person in the last 30 days.",
+            "label": "Total revenue in the last 30 days",
+            "type": "Numeric",
             "virtual": true
         },
         "$web_vitals_CLS_event": {
@@ -3772,6 +3961,10 @@
             "description": "Number of clicks during the session",
             "label": "Clicks"
         },
+        "comment_text": {
+            "description": "Search for text within comments on the recording",
+            "label": "Comment text"
+        },
         "console_error_count": {
             "description": "Number of console errors during the session",
             "label": "Errors"
@@ -3800,55 +3993,109 @@
         }
     },
     "revenue_analytics_properties": {
-        "amount": {
+        "revenue_analytics_customer.address": {
+            "description": "The address of the customer connected to the revenue event.",
+            "label": "Customer Address",
+            "type": "String",
+            "virtual": true
+        },
+        "revenue_analytics_customer.cohort": {
+            "description": "The cohort of the customer connected to the revenue event.",
+            "label": "Customer Cohort",
+            "type": "String",
+            "virtual": true
+        },
+        "revenue_analytics_customer.country": {
+            "description": "The country of the customer connected to the revenue event.",
+            "label": "Customer Country",
+            "type": "String",
+            "virtual": true
+        },
+        "revenue_analytics_customer.email": {
+            "description": "The email of the customer connected to the revenue event.",
+            "label": "Customer Email",
+            "type": "String",
+            "virtual": true
+        },
+        "revenue_analytics_customer.id": {
+            "description": "The ID of the customer connected to the revenue event.",
+            "label": "Customer ID",
+            "type": "String",
+            "virtual": true
+        },
+        "revenue_analytics_customer.initial_coupon": {
+            "description": "The name of the coupon on the initial revenue event for the customer.",
+            "label": "Customer Initial Coupon",
+            "type": "String",
+            "virtual": true
+        },
+        "revenue_analytics_customer.initial_coupon_id": {
+            "description": "The ID of the coupon on the initial revenue event for the customer.",
+            "label": "Customer Initial Coupon ID",
+            "type": "String",
+            "virtual": true
+        },
+        "revenue_analytics_customer.name": {
+            "description": "The name of the customer connected to the revenue event.",
+            "label": "Customer Name",
+            "type": "String",
+            "virtual": true
+        },
+        "revenue_analytics_customer.phone": {
+            "description": "The phone of the customer connected to the revenue event.",
+            "label": "Customer Phone",
+            "type": "String",
+            "virtual": true
+        },
+        "revenue_analytics_invoice_item.amount": {
             "description": "The amount of the revenue event.",
             "label": "Amount",
             "type": "Numeric",
             "virtual": true
         },
-        "cohort": {
-            "description": "The cohort of the customer connected to the revenue event.",
-            "label": "Cohort",
-            "type": "String",
-            "virtual": true
-        },
-        "country": {
-            "description": "The country of the customer connected to the revenue event.",
-            "label": "Country",
-            "type": "String",
-            "virtual": true
-        },
-        "coupon": {
-            "description": "The name of the coupon on the revenue event.",
+        "revenue_analytics_invoice_item.coupon": {
+            "description": "The name of the coupon connected to the revenue event.",
             "label": "Coupon",
             "type": "String",
             "virtual": true
         },
-        "coupon_id": {
-            "description": "The ID of the coupon on the revenue event.",
+        "revenue_analytics_invoice_item.coupon_id": {
+            "description": "The ID of the coupon connected to the revenue event.",
             "label": "Coupon ID",
             "type": "String",
             "virtual": true
         },
-        "initial_coupon": {
-            "description": "The name of the coupon on the initial revenue event for the customer.",
-            "label": "Initial coupon",
+        "revenue_analytics_invoice_item.created_at": {
+            "description": "When the revenue event was created.",
+            "label": "Created At",
+            "type": "DateTime",
+            "virtual": true
+        },
+        "revenue_analytics_invoice_item.timestamp": {
+            "description": "When the revenue event was executed.",
+            "label": "Timestamp",
+            "type": "DateTime",
+            "virtual": true
+        },
+        "revenue_analytics_product.name": {
+            "description": "The name of the product connected to the revenue event.",
+            "label": "Product Name",
             "type": "String",
             "virtual": true
         },
-        "initial_coupon_id": {
-            "description": "The ID of the coupon on the initial revenue event for the customer.",
-            "label": "Initial coupon ID",
-            "type": "String",
+        "revenue_analytics_subscription.ended_at": {
+            "description": "The ended at date of the subscription connected to the revenue event.",
+            "label": "Subscription Ended At",
+            "type": "DateTime",
             "virtual": true
         },
-        "product": {
-            "description": "The product of the revenue event.",
-            "label": "Product",
-            "type": "String",
+        "revenue_analytics_subscription.started_at": {
+            "description": "The started at date of the subscription connected to the revenue event.",
+            "label": "Subscription Started At",
+            "type": "DateTime",
             "virtual": true
         },
-        "source": {
+        "source_label": {
             "description": "The source of the revenue event - either an event or a Data Warehouse integration.",
             "label": "Source",
             "type": "String",

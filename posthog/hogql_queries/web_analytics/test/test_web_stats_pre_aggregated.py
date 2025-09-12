@@ -1,28 +1,24 @@
 from freezegun import freeze_time
+from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.hogql_queries.web_analytics.stats_table_pre_aggregated import (
-    WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS,
-)
-from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
-from posthog.models.utils import uuid7
-from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
-from posthog.hogql_queries.web_analytics.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
-from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import WebAnalyticsPreAggregatedTestBase
 from posthog.schema import (
     DateRange,
-    WebStatsTableQuery,
-    WebStatsBreakdown,
     EventPropertyFilter,
-    PropertyOperator,
     HogQLQueryModifiers,
+    PropertyOperator,
+    WebStatsBreakdown,
+    WebStatsTableQuery,
 )
-from posthog.test.base import (
-    _create_event,
-    _create_person,
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
+
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
+from posthog.hogql_queries.web_analytics.stats_table_pre_aggregated import (
+    WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS,
+    StatsTablePreAggregatedQueryBuilder,
 )
+from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import WebAnalyticsPreAggregatedTestBase
+from posthog.models.utils import uuid7
+from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
 
 
 @snapshot_clickhouse_queries
@@ -200,11 +196,15 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
             date_start=date_start,
             date_end=date_end,
             team_ids=[self.team.pk],
+            table_name="web_pre_aggregated_bounces",
+            granularity="hourly",
         )
         stats_insert = WEB_STATS_INSERT_SQL(
             date_start=date_start,
             date_end=date_end,
             team_ids=[self.team.pk],
+            table_name="web_pre_aggregated_stats",
+            granularity="hourly",
         )
         sync_execute(stats_insert)
         sync_execute(bounces_insert)
@@ -294,8 +294,8 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
 
         # Assert direct expected results - format: [breakdown_value, (visitors, prev_visitors), (views, prev_views), '']
         expected_results = [
-            ["Desktop", (4.0, None), (5.0, None), ""],  # user_0, user_1, user_2, user_5 (4 users)
-            ["Mobile", (2.0, None), (2.0, None), ""],  # user_3, user_4 (2 users)
+            ["Desktop", (4.0, None), (5.0, None), 4 / 6, ""],  # user_0, user_1, user_2, user_5 (4 users)
+            ["Mobile", (2.0, None), (2.0, None), 2 / 6, ""],  # user_3, user_4 (2 users)
         ]
 
         assert self._sort_results(response.results) == self._sort_results(expected_results)
@@ -304,9 +304,9 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
         response = self._calculate_breakdown_query(WebStatsBreakdown.BROWSER, use_preagg=True)
 
         expected_results = [
-            ["Chrome", (4.0, None), (5.0, None), ""],  # user_0, user_1, user_4, user_5 (4 users, 5 views)
-            ["Firefox", (1.0, None), (1.0, None), ""],  # user_2
-            ["Safari", (1.0, None), (1.0, None), ""],  # user_3
+            ["Chrome", (4.0, None), (5.0, None), 4 / 6, ""],  # user_0, user_1, user_4, user_5 (4 users, 5 views)
+            ["Firefox", (1.0, None), (1.0, None), 1 / 6, ""],  # user_2
+            ["Safari", (1.0, None), (1.0, None), 1 / 6, ""],  # user_3
         ]
 
         assert self._sort_results(response.results) == self._sort_results(expected_results)
@@ -315,10 +315,10 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
         response = self._calculate_breakdown_query(WebStatsBreakdown.COUNTRY, use_preagg=True)
 
         expected_results = [
-            ["AU", (1.0, None), (1.0, None), ""],  # user_4
-            ["CA", (1.0, None), (1.0, None), ""],  # user_3
-            ["GB", (1.0, None), (1.0, None), ""],  # user_2
-            ["US", (3.0, None), (4.0, None), ""],  # user_0, user_1, user_5 (3 users, 4 views)
+            ["AU", (1.0, None), (1.0, None), 1 / 6, ""],  # user_4
+            ["CA", (1.0, None), (1.0, None), 1 / 6, ""],  # user_3
+            ["GB", (1.0, None), (1.0, None), 1 / 6, ""],  # user_2
+            ["US", (3.0, None), (4.0, None), 3 / 6, ""],  # user_0, user_1, user_5 (3 users, 4 views)
         ]
 
         assert self._sort_results(response.results) == self._sort_results(expected_results)
@@ -327,10 +327,10 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
         response = self._calculate_breakdown_query(WebStatsBreakdown.INITIAL_UTM_SOURCE, use_preagg=True)
 
         expected_results = [
-            [None, (2.0, None), (2.0, None), ""],  # user_1, user_3 (no utm_source)
-            ["facebook", (1.0, None), (1.0, None), ""],  # user_2
-            ["google", (2.0, None), (3.0, None), ""],  # user_0 (1 view), user_5 (2 views)
-            ["twitter", (1.0, None), (1.0, None), ""],  # user_4
+            [None, (2.0, None), (2.0, None), 2 / 6, ""],  # user_1, user_3 (no utm_source)
+            ["facebook", (1.0, None), (1.0, None), 1 / 6, ""],  # user_2
+            ["google", (2.0, None), (3.0, None), 2 / 6, ""],  # user_0 (1 view), user_5 (2 views)
+            ["twitter", (1.0, None), (1.0, None), 1 / 6, ""],  # user_4
         ]
 
         assert self._sort_results(response.results) == self._sort_results(expected_results)
@@ -340,10 +340,10 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
 
         # Pre-aggregated PAGE breakdown includes bounce rate data
         expected_results = [
-            ["/contact", (1.0, None), (2.0, None), (0.0, None), ""],  # user_5 (2 views: /contact + /about)
-            ["/features", (1.0, None), (1.0, None), (1.0, None), ""],  # user_1
-            ["/landing", (2.0, None), (2.0, None), (1.0, None), ""],  # user_0, user_2
-            ["/pricing", (2.0, None), (2.0, None), (1.0, None), ""],  # user_3, user_4
+            ["/contact", (1.0, None), (2.0, None), (0.0, None), 1 / 6, ""],  # user_5 (2 views: /contact + /about)
+            ["/features", (1.0, None), (1.0, None), (1.0, None), 1 / 6, ""],  # user_1
+            ["/landing", (2.0, None), (2.0, None), (1.0, None), 2 / 6, ""],  # user_0, user_2
+            ["/pricing", (2.0, None), (2.0, None), (1.0, None), 2 / 6, ""],  # user_3, user_4
         ]
 
         assert self._sort_results(response.results) == self._sort_results(expected_results)
@@ -352,10 +352,10 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
         response = self._calculate_breakdown_query(WebStatsBreakdown.VIEWPORT, use_preagg=True)
 
         expected_results = [
-            ["1440x900", (1.0, None), (1.0, None), ""],  # user_2
-            ["1920x1080", (3.0, None), (4.0, None), ""],  # user_0, user_1, user_5 (4 views total)
-            ["375x812", (1.0, None), (1.0, None), ""],  # user_3
-            ["414x896", (1.0, None), (1.0, None), ""],  # user_4
+            ["1440x900", (1.0, None), (1.0, None), 1 / 6, ""],  # user_2
+            ["1920x1080", (3.0, None), (4.0, None), 3 / 6, ""],  # user_0, user_1, user_5 (4 views total)
+            ["375x812", (1.0, None), (1.0, None), 1 / 6, ""],  # user_3
+            ["414x896", (1.0, None), (1.0, None), 1 / 6, ""],  # user_4
         ]
 
         assert self._sort_results(response.results) == self._sort_results(expected_results)
@@ -368,7 +368,7 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
 
         # Only Desktop users (user_0, user_2) viewed /landing
         expected_results = [
-            ["Desktop", (2.0, None), (2.0, None), ""],
+            ["Desktop", (2.0, None), (2.0, None), 1, ""],
         ]
 
         assert response.results == expected_results
@@ -379,7 +379,7 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
 
         # Only /landing should be returned since we're filtering by pathname
         expected_results = [
-            ["/landing", (2.0, None), (2.0, None), (1.0, None), ""],  # user_0, user_2
+            ["/landing", (2.0, None), (2.0, None), (1.0, None), 1, ""],  # user_0, user_2
         ]
 
         assert response.results == expected_results

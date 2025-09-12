@@ -1,9 +1,12 @@
 import { useValues } from 'kea'
+
+import { teamLogic } from 'scenes/teamLogic'
 import { CalendarHeatMap } from 'scenes/web-analytics/CalendarHeatMap/CalendarHeatMap'
 
 import { getOnClickTooltip, onCellClick, replayActiveHoursHeatMapLogic } from './replayActiveHoursHeatMapLogic'
 
 export const ReplayActiveHoursHeatMap = (): JSX.Element => {
+    const { timezone } = useValues(teamLogic)
     const { calendarHeatmapProps, recordingsPerHourLoading, isClickable } = useValues(
         replayActiveHoursHeatMapLogic({ scene: 'templates' })
     )
@@ -21,7 +24,7 @@ export const ReplayActiveHoursHeatMap = (): JSX.Element => {
                 getRowAggregationTooltip={() => ''}
                 getOverallAggregationTooltip={() => ''}
                 getOnClickTooltip={getOnClickTooltip}
-                onClick={onCellClick}
+                onClick={(colIndex, rowIndex) => onCellClick(colIndex, rowIndex, timezone)}
                 isClickable={isClickable}
                 showColumnAggregations={false}
                 showRowAggregations={false}

@@ -10,7 +10,7 @@
     text-overflow: ellipsis;
     cursor: text;
     background: none;
-    background-color: var(--bg-fill-input);
+    background-color: var(--color-bg-fill-input);
     outline: none;
 
     &:not(:disabled):hover,

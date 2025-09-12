@@ -95,6 +95,7 @@ export interface LemonMenuProps
             | 'className'
             | 'onClickOutside'
             | 'middleware'
+            | 'startVisible'
         >,
         LemonMenuOverlayProps {
     /** Must support `ref` and `onKeyDown` for keyboard navigation. */
@@ -331,6 +332,7 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                     placement={placement || 'right-start'}
                     closeOnClickInside={!custom}
                     closeParentPopoverOnClickInside={!custom}
+                    buttonSize={size}
                 >
                     {button}
                 </LemonMenu>

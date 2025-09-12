@@ -125,11 +125,11 @@ impl TryFrom<String> for ErrorType {
                 let status = &s["Bad HTTP Status:".len()..].trim();
                 let parsed_status = status
                     .parse::<u16>()
-                    .map_err(|e| format!("Failed to parse HTTP status: {}", e))?;
+                    .map_err(|e| format!("Failed to parse HTTP status: {e}"))?;
                 Ok(ErrorType::BadHttpStatus(parsed_status))
             }
             "Parse Error" | "ParseError" => Ok(ErrorType::ParseError),
-            _ => Err(format!("Unknown ErrorType: {}", s)),
+            _ => Err(format!("Unknown ErrorType: {s}")),
         }
     }
 }
@@ -139,7 +139,7 @@ impl From<ErrorType> for String {
         match error {
             ErrorType::ConnectionError => "Connection Error".to_string(),
             ErrorType::TimeoutError => "Timeout Error".to_string(),
-            ErrorType::BadHttpStatus(s) => format!("Bad HTTP Status: {}", s),
+            ErrorType::BadHttpStatus(s) => format!("Bad HTTP Status: {s}"),
             ErrorType::ParseError => "Parse Error".to_string(),
         }
     }

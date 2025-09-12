@@ -1,5 +1,7 @@
-import { Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { Link } from '@posthog/lemon-ui'
+
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'

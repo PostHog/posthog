@@ -10,19 +10,18 @@ import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { variableModalLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableModalLogic'
 import {
-    variablesLogic,
     VariablesLogicProps,
+    variablesLogic,
 } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
 import { DataVisualizationLogicProps } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
-import { ItemMode } from '~/types'
 
 import { ViewLinkModal } from '../ViewLinkModal'
+import { QueryWindow } from './QueryWindow'
 import { editorSizingLogic } from './editorSizingLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { outputPaneLogic } from './outputPaneLogic'
-import { QueryWindow } from './QueryWindow'
 
 export function EditorScene(): JSX.Element {
     const ref = useRef(null)
@@ -64,14 +63,14 @@ export function EditorScene(): JSX.Element {
     })
 
     const { queryInput, sourceQuery, dataLogicKey } = useValues(logic)
-    const { setSourceQuery, setResponse, setDataError } = useActions(logic)
+    const { setSourceQuery } = useActions(logic)
 
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
         key: dataLogicKey,
         query: sourceQuery,
         dashboardId: undefined,
         dataNodeCollectionId: dataLogicKey,
-        insightMode: ItemMode.Edit,
+        editMode: true,
         loadPriority: undefined,
         cachedResults: undefined,
         variablesOverride: undefined,
@@ -87,10 +86,26 @@ export function EditorScene(): JSX.Element {
         variablesOverride: undefined,
         autoLoad: false,
         onData: (data) => {
-            setResponse(data ?? null)
+            const mountedLogic = multitabEditorLogic.findMounted({
+                key: codeEditorKey,
+                monaco,
+                editor,
+            })
+
+            if (mountedLogic) {
+                mountedLogic.actions.setResponse(data ?? null)
+            }
         },
         onError: (error) => {
-            setDataError(error)
+            const mountedLogic = multitabEditorLogic.findMounted({
+                key: codeEditorKey,
+                monaco,
+                editor,
+            })
+
+            if (mountedLogic) {
+                mountedLogic.actions.setDataError(error)
+            }
         },
     }
 
@@ -121,7 +136,7 @@ export function EditorScene(): JSX.Element {
                                     >
                                         <div
                                             data-attr="editor-scene"
-                                            className="EditorScene w-full h-full flex flex-row overflow-hidden"
+                                            className="EditorScene w-full h-[calc(var(--scene-layout-rect-height)-var(--scene-layout-header-height))] flex flex-row overflow-hidden"
                                             ref={ref}
                                         >
                                             <QueryWindow

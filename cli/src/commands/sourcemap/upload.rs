@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use tracing::{info, warn};
 
+use crate::commands::UploadArgs;
 use crate::utils::auth::load_token;
 use crate::utils::posthog::capture_command_invoked;
 use crate::utils::release::{create_release, CreateReleaseResponse};
@@ -44,13 +45,17 @@ struct BulkUploadFinishRequest {
     content_hashes: HashMap<String, String>,
 }
 
-pub fn upload(
-    host: Option<String>,
-    directory: &PathBuf,
-    project: Option<String>,
-    version: Option<String>,
-    delete_after: bool,
-) -> Result<()> {
+pub fn upload(host: Option<String>, args: UploadArgs) -> Result<()> {
+    let UploadArgs {
+        directory,
+        project,
+        ignore,
+        version,
+        delete_after,
+        skip_ssl_verification,
+        batch_size,
+    } = args;
+
     let token = load_token().context("While starting upload command")?;
     let host = token.get_host(host.as_deref());
 
@@ -61,20 +66,14 @@ pub fn upload(
         host, token.env_id
     );
 
-    let pairs = read_pairs(directory)?;
+    let pairs = read_pairs(&directory, &ignore)?;
     let sourcemap_paths = pairs
         .iter()
         .map(|pair| pair.sourcemap.path.clone())
         .collect::<Vec<_>>();
+    info!("Found {} chunks to upload", pairs.len());
 
     let uploads = collect_uploads(pairs).context("While preparing files for upload")?;
-    info!("Found {} chunks to upload", uploads.len());
-
-    // See if we have enough information to create a release object
-    // TODO - The use of a hash_id here means repeated attempts to upload the same data will fail.
-    //        We could relax this, such that we instead replace the existing release with the new one,
-    //        or we could even just allow adding new chunks to an existing release, but for now I'm
-    //        leaving it like this... Reviewers, lets chat about the right approach here
     let release = create_release(
         &host,
         &token,
@@ -82,10 +81,26 @@ pub fn upload(
         Some(content_hash(uploads.iter().map(|upload| &upload.data))),
         project,
         version,
+        skip_ssl_verification,
     )
     .context("While creating release")?;
 
-    upload_chunks(&base_url, &token.token, uploads, release.as_ref())?;
+    let batched_uploads = into_batches(uploads, batch_size);
+
+    for batch_upload in batched_uploads {
+        // See if we have enough information to create a release object
+        // TODO - The use of a hash_id here means repeated attempts to upload the same data will fail.
+        //        We could relax this, such that we instead replace the existing release with the new one,
+        //        or we could even just allow adding new chunks to an existing release, but for now I'm
+        //        leaving it like this... Reviewers, lets chat about the right approach here
+        upload_chunks(
+            &base_url,
+            &token.token,
+            batch_upload,
+            release.as_ref(),
+            skip_ssl_verification,
+        )?;
+    }
 
     if delete_after {
         delete_files(sourcemap_paths).context("While deleting sourcemaps")?;
@@ -94,6 +109,16 @@ pub fn upload(
     let _ = capture_handle.join();
 
     Ok(())
+}
+
+fn into_batches<T>(mut array: Vec<T>, batch_size: usize) -> Vec<Vec<T>> {
+    let mut batches = Vec::new();
+    while !array.is_empty() {
+        let take = array.len().min(batch_size);
+        let chunk: Vec<_> = array.drain(..take).collect();
+        batches.push(chunk);
+    }
+    batches
 }
 
 fn collect_uploads(pairs: Vec<SourcePair>) -> Result<Vec<ChunkUpload>> {
@@ -109,8 +134,12 @@ fn upload_chunks(
     token: &str,
     uploads: Vec<ChunkUpload>,
     release: Option<&CreateReleaseResponse>,
+    skip_ssl_verification: bool,
 ) -> Result<()> {
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::blocking::Client::builder()
+        .danger_accept_invalid_certs(skip_ssl_verification)
+        .build()?;
+
     let release_id = release.map(|r| r.id.to_string());
     let chunk_ids = uploads
         .iter()
@@ -145,9 +174,7 @@ fn upload_chunks(
         ))?;
 
         let content_hash = content_hash([&upload.data]);
-
         upload_to_s3(&client, data.presigned_url.clone(), upload.data)?;
-
         content_hashes.insert(data.symbol_set_id.clone(), content_hash);
     }
 
@@ -172,10 +199,10 @@ fn start_upload(
 
     let res = client
         .post(&start_upload_url)
-        .header("Authorization", format!("Bearer {}", auth_token))
+        .header("Authorization", format!("Bearer {auth_token}"))
         .json(&request)
         .send()
-        .context(format!("While starting upload to {}", start_upload_url))?;
+        .context(format!("While starting upload to {start_upload_url}"))?;
 
     if !res.status().is_success() {
         bail!("Failed to start upload: {:?}", res);
@@ -195,10 +222,7 @@ fn upload_to_s3(client: &Client, presigned_url: PresignedUrl, data: Vec<u8>) -> 
         let part = Part::bytes(data.clone());
         form = form.part("file", part);
 
-        let res = client
-            .post(&presigned_url.url)
-            .multipart(form)
-            .send();
+        let res = client.post(&presigned_url.url).multipart(form).send();
 
         match res {
             Result::Ok(resp) if resp.status().is_success() => {
@@ -212,7 +236,10 @@ fn upload_to_s3(client: &Client, presigned_url: PresignedUrl, data: Vec<u8>) -> 
             }
         }
         if attempt < 3 {
-            warn!("Upload attempt {} failed, retrying in {:?}...", attempt, delay);
+            warn!(
+                "Upload attempt {} failed, retrying in {:?}...",
+                attempt, delay
+            );
             std::thread::sleep(delay);
             delay *= 2;
         }
@@ -231,11 +258,11 @@ fn finish_upload(
 
     let res = client
         .post(finish_upload_url)
-        .header("Authorization", format!("Bearer {}", auth_token))
+        .header("Authorization", format!("Bearer {auth_token}"))
         .header("Content-Type", "application/json")
         .json(&request)
         .send()
-        .context(format!("While finishing upload to {}", base_url))?;
+        .context(format!("While finishing upload to {base_url}"))?;
 
     if !res.status().is_success() {
         bail!("Failed to finish upload: {:?}", res);

@@ -1,8 +1,12 @@
-import { LemonInputSelect, LemonInputSelectOption, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { useEffect, useMemo } from 'react'
+
+import { LemonInputSelect, LemonInputSelectOption, Link } from '@posthog/lemon-ui'
+
+import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
+
 import { IntegrationType, TwilioPhoneNumberType } from '~/types'
+
 import { twilioIntegrationLogic } from './twilioIntegrationLogic'
 
 const getTwilioPhoneNumberOptions = (

@@ -1,7 +1,9 @@
-from unittest.mock import patch, MagicMock
-import snappy
+from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
+
 from django.test import override_settings
 
+import snappy
 from botocore.client import Config
 
 from posthog.settings.session_replay_v2 import (
@@ -12,11 +14,11 @@ from posthog.settings.session_replay_v2 import (
     SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY,
 )
 from posthog.storage.session_recording_v2_object_storage import (
-    client,
-    SessionRecordingV2ObjectStorage,
     BlockFetchError,
+    SessionRecordingV2ObjectStorage,
+    UnavailableSessionRecordingV2ObjectStorage,
+    client,
 )
-from posthog.test.base import APIBaseTest
 
 TEST_BUCKET = "test_session_recording_v2_bucket"
 
@@ -27,6 +29,11 @@ class TestSessionRecordingV2Storage(APIBaseTest):
 
     @patch("posthog.storage.session_recording_v2_object_storage.boto3_client")
     def test_client_constructor_uses_correct_settings(self, patched_boto3_client) -> None:
+        # Reset the global client to ensure we test client creation
+        import posthog.storage.session_recording_v2_object_storage as storage_module
+
+        storage_module._client = UnavailableSessionRecordingV2ObjectStorage()
+
         storage_client = client()
 
         # Check that boto3_client was called once

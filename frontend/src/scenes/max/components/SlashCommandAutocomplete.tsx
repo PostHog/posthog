@@ -1,34 +1,19 @@
 import { offset } from '@floating-ui/react'
-import { IconRocket } from '@posthog/icons'
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
-import { useEffect, useMemo, useState } from 'react'
 
-export interface SlashCommand {
-    name: `/${string}`
-    description: string
-    icon?: JSX.Element
-}
-
-export const MAX_SLASH_COMMANDS: SlashCommand[] = [
-    {
-        name: '/init',
-        description: 'Set up knowledge about your product & business',
-        icon: <IconRocket />,
-    },
-]
+import { maxThreadLogic } from '../maxThreadLogic'
+import { MAX_SLASH_COMMANDS, SlashCommand } from '../slash-commands'
 
 interface SlashCommandAutocompleteProps {
-    /** Enter click - activate the command. */
-    onActivate: (command: SlashCommand) => void
-    /** Right arrow click - set input value without activating the command. */
-    onSelect: (command: SlashCommand) => void
     onClose: () => void
     visible: boolean
-    searchText: string
     children: React.ReactElement
 }
-// Convert Command to LemonMenuItem
-const slashCommandToMenuItem = (
+
+const convertSlashCommandToMenuItem = (
     command: SlashCommand,
     onActivate: (command: SlashCommand) => void,
     active: boolean
@@ -36,7 +21,10 @@ const slashCommandToMenuItem = (
     key: command.name,
     label: (
         <div>
-            <div className="font-mono mt-0.5">{command.name}</div>
+            <div className="font-mono mt-0.5">
+                {command.name}
+                {command.arg && ` ${command.arg}`}
+            </div>
             <div className="text-muted text-xs">{command.description}</div>
         </div>
     ),
@@ -45,23 +33,15 @@ const slashCommandToMenuItem = (
     active,
 })
 
-export function SlashCommandAutocomplete({
-    onActivate,
-    onSelect,
-    onClose,
-    visible,
-    searchText,
-    children,
-}: SlashCommandAutocompleteProps): JSX.Element {
-    const filteredCommands = useMemo(() => {
-        return MAX_SLASH_COMMANDS.filter((command) => command.name.toLowerCase().startsWith(searchText.toLowerCase()))
-    }, [searchText])
+export function SlashCommandAutocomplete({ onClose, visible, children }: SlashCommandAutocompleteProps): JSX.Element {
+    const { filteredCommands } = useValues(maxThreadLogic)
+    const { selectCommand, activateCommand } = useActions(maxThreadLogic)
 
-    const [activeItemIndex, setActiveItemIndex] = useState(0) // Highlight first command by default
+    const [activeItemIndex, setActiveItemIndex] = useState(filteredCommands.length - 1) // Highlight bottom-most command by default
 
     // Reset highlighted key when visibility changes or commands change
     useEffect(() => {
-        setActiveItemIndex(0)
+        setActiveItemIndex(filteredCommands.length - 1)
     }, [visible, filteredCommands])
 
     // Handle keyboard navigation
@@ -77,27 +57,32 @@ export function SlashCommandAutocomplete({
                 e.preventDefault()
                 setActiveItemIndex(activeItemIndex > 0 ? activeItemIndex - 1 : filteredCommands.length - 1)
             } else if (e.key === 'ArrowRight') {
-                onSelect(filteredCommands[activeItemIndex]) // And do NOT prevent default
+                selectCommand(filteredCommands[activeItemIndex]) // And do NOT prevent default
             } else if (e.key === 'Escape') {
                 e.preventDefault()
                 onClose()
             } else if (e.key === 'Enter') {
                 e.preventDefault()
-                onActivate(filteredCommands[activeItemIndex])
+                e.stopPropagation()
+                activateCommand(filteredCommands[activeItemIndex])
             }
         }
         document.addEventListener('keydown', handleKeyDown, { capture: true }) // Capture phase to run this before LemonTextArea's onEnter
         return () => document.removeEventListener('keydown', handleKeyDown, { capture: true })
-    }, [visible, filteredCommands, activeItemIndex, onActivate, onSelect, onClose])
+    }, [visible, filteredCommands, activeItemIndex, activateCommand, selectCommand, onClose])
 
     return (
         <LemonMenu
             items={filteredCommands
-                .map((command, index) => slashCommandToMenuItem(command, onActivate, index === activeItemIndex))
+                .map((command: SlashCommand, index: number) =>
+                    convertSlashCommandToMenuItem(command, activateCommand, index === activeItemIndex)
+                )
                 .concat([
                     {
                         key: 'navigation-hint',
-                        label: NavigationHint,
+                        label: function NavigationHintLabel() {
+                            return <NavigationHint isArgRequired={!!filteredCommands[activeItemIndex]?.arg} />
+                        },
                     },
                 ])}
             visible={visible && filteredCommands.length > 0}
@@ -124,10 +109,11 @@ export function SlashCommandAutocomplete({
     )
 }
 
-function NavigationHint(): JSX.Element {
+function NavigationHint({ isArgRequired }: { isArgRequired: boolean }): JSX.Element {
     return (
         <div className="border-t px-1 pt-1.5 pb-0.5 mt-1 text-xxs text-muted-alt font-medium select-none">
-            {MAX_SLASH_COMMANDS.length > 1 && '↑↓ to navigate • '}⏎ to activate • → to select • Esc to close
+            {MAX_SLASH_COMMANDS.length > 1 && '↑↓ to navigate • '}
+            {!isArgRequired ? '⏎ to activate • → to select • Esc to close' : '⏎ or → to select • Esc to close'}
         </div>
     )
 }

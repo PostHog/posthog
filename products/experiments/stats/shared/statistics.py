@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+
 import numpy as np
 
 
@@ -92,5 +93,62 @@ class ProportionStatistic:
         return np.sqrt(self.variance / self.n)
 
 
+@dataclass
+class RatioStatistic:
+    """
+    Statistics for ratio metrics (e.g., revenue per order, clicks per session).
+
+    Uses the delta method for variance approximation of ratios.
+    """
+
+    n: int  # Sample size
+    m_statistic: SampleMeanStatistic | ProportionStatistic  # Numerator statistic
+    d_statistic: SampleMeanStatistic | ProportionStatistic  # Denominator statistic
+    m_d_sum_of_products: float  # Sum of products between numerator and denominator
+
+    def __post_init__(self):
+        """Validate inputs."""
+        if self.n <= 0:
+            raise InvalidStatisticError("Sample size must be positive")
+        if self.m_statistic.n != self.n or self.d_statistic.n != self.n:
+            raise InvalidStatisticError("All statistics must have same sample size")
+        d_mean = self.d_statistic.mean if hasattr(self.d_statistic, "mean") else self.d_statistic.proportion
+        if abs(d_mean) < 1e-10:
+            raise InvalidStatisticError("Denominator mean cannot be zero for ratio calculation")
+
+    @property
+    def ratio(self) -> float:
+        """Ratio estimate: R = Σm / Σd"""
+        m_sum = self.m_statistic.sum
+        d_sum = self.d_statistic.sum
+        return m_sum / d_sum
+
+    @property
+    def covariance(self) -> float:
+        """Sample covariance: Cov(M,D) = (sum_products - sum_m × sum_d / n) / (n-1)"""
+        if self.n == 1:
+            return 0.0
+        m_sum = self.m_statistic.sum
+        d_sum = self.d_statistic.sum
+        return (self.m_d_sum_of_products - m_sum * d_sum / self.n) / (self.n - 1)
+
+    @property
+    def variance(self) -> float:
+        """Delta method variance for ratio R = M/D"""
+        m_mean = self.m_statistic.mean if hasattr(self.m_statistic, "mean") else self.m_statistic.proportion
+        d_mean = self.d_statistic.mean if hasattr(self.d_statistic, "mean") else self.d_statistic.proportion
+        m_var = self.m_statistic.variance
+        d_var = self.d_statistic.variance
+        cov = self.covariance
+
+        # Delta method: Var(R) ≈ Var(M)/D² + M²Var(D)/D⁴ - 2M*Cov(M,D)/D³
+        return m_var / d_mean**2 + m_mean**2 * d_var / d_mean**4 - 2 * m_mean * cov / d_mean**3
+
+    @property
+    def standard_error(self) -> float:
+        """Standard error of the ratio: SE = √(Var(R)/n)"""
+        return np.sqrt(self.variance / self.n)
+
+
 # Type alias for any statistic type
-AnyStatistic = SampleMeanStatistic | ProportionStatistic
+AnyStatistic = SampleMeanStatistic | ProportionStatistic | RatioStatistic

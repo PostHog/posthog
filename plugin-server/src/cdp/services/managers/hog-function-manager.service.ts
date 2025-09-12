@@ -4,7 +4,6 @@ import { parseJSON } from '../../../utils/json-parse'
 import { LazyLoader } from '../../../utils/lazy-loader'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
-import { HOG_FUNCTION_TEMPLATES } from '../../templates'
 import { HogFunctionType, HogFunctionTypeType } from '../../types'
 
 const HOG_FUNCTION_FIELDS = [
@@ -60,23 +59,6 @@ const sortHogFunctions = (functions: HogFunctionType[]): HogFunctionType[] => {
     })
 }
 
-const isAddonRequired = (hogFunction: HogFunctionType): boolean => {
-    if (typeof hogFunction.is_addon_required === 'boolean') {
-        // Don't double check
-        return hogFunction.is_addon_required
-    }
-
-    if (hogFunction.type !== 'destination') {
-        // Only destinations are part of the paid plan
-        return false
-    }
-
-    // TODO: ensure all free-templates are moved to the templates here
-    // FUTURE: When we move templates fully to the DB we should be loading it from there
-    const template = HOG_FUNCTION_TEMPLATES.find((t) => t.id === hogFunction.template_id)
-    return template?.free !== true
-}
-
 export class HogFunctionManagerService {
     private lazyLoader: LazyLoader<HogFunctionType>
     private lazyLoaderByTeam: LazyLoader<HogFunctionTeamInfo[]>
@@ -103,7 +85,9 @@ export class HogFunctionManagerService {
 
     public async getHogFunctionsForTeams(
         teamIds: Team['id'][],
-        types: HogFunctionTypeType[]
+        types: HogFunctionTypeType[],
+        /** Optional way to pre-filter hog functions before returning them */
+        filterFn?: (hogFunction: HogFunctionType) => boolean
     ): Promise<Record<Team['id'], HogFunctionType[]>> {
         const result = teamIds.reduce<Record<Team['id'], HogFunctionType[]>>((acc, teamId) => {
             acc[teamId] = []
@@ -116,6 +100,9 @@ export class HogFunctionManagerService {
 
         for (const fn of Object.values(hogFunctions)) {
             if (!fn) {
+                continue
+            }
+            if (filterFn && !filterFn(fn)) {
                 continue
             }
             result[fn.team_id] = result[fn.team_id] ?? []
@@ -233,8 +220,6 @@ export class HogFunctionManagerService {
 
     public sanitize(items: HogFunctionType[]): void {
         items.forEach((item) => {
-            item.is_addon_required = isAddonRequired(item)
-
             // Decrypt inputs
             const encryptedInputs = item.encrypted_inputs
 

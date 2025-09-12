@@ -1,15 +1,15 @@
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 from typing import Optional
 
 from clickhouse_driver.errors import ServerException
 
 from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
     EstimatedQueryExecutionTimeTooLong,
     QuerySizeExceeded,
-    ClickHouseAtCapacity,
-    ClickHouseQueryTimeOut,
-    ClickHouseQueryMemoryLimitExceeded,
 )
 
 
@@ -72,13 +72,12 @@ def wrap_query_error(err: Exception) -> Exception:
         err.code == 62 and "query size exceeded" in err.message
     ):  # Handle syntax error when "max query size exceeded" in the message
         return QuerySizeExceeded()
-
-    # Return a 512 error for queries which would time out
-    match = re.search(r"Estimated query execution time \(.* seconds\) is too long.", err.message)
-    if match:
-        return EstimatedQueryExecutionTimeTooLong(
-            detail=f"{match.group(0)} Try reducing its scope by changing the time range."
-        )
+    elif err.code == 160:
+        # Return a 512 error for queries which would time out
+        detail = "Estimated query execution time is too long"
+        if match := re.search(r"Estimated query execution time \(.* seconds\) is too long.", err.message):
+            detail = match.group(0)
+        return EstimatedQueryExecutionTimeTooLong(detail=f"{detail} Try reducing its scope by changing the time range.")
 
     meta = look_up_error_code_meta(err)
 

@@ -4,7 +4,13 @@ import { randomBytes } from 'crypto'
 import { PassThrough } from 'stream'
 
 import { logger } from '../../../../utils/logger'
-import { SessionBatchFileStorage, SessionBatchFileWriter, WriteSessionResult } from './session-batch-file-storage'
+import { SessionBatchMetrics } from './metrics'
+import {
+    SessionBatchFileStorage,
+    SessionBatchFileWriter,
+    WriteSessionData,
+    WriteSessionResult,
+} from './session-batch-file-storage'
 
 class S3SessionBatchFileWriter implements SessionBatchFileWriter {
     private stream: PassThrough
@@ -14,6 +20,7 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
     private timeoutId: NodeJS.Timeout | null = null
     private error: Error | null = null
     private rejectCallbacks: ((error: Error) => void)[] = []
+    private uploadStartTime: number
 
     constructor(
         private readonly s3: S3Client,
@@ -23,8 +30,11 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
     ) {
         this.stream = new PassThrough()
         this.key = this.generateKey()
+        this.uploadStartTime = Date.now()
 
         logger.debug('🔄', 's3_session_batch_writer_opening_stream', { key: this.key })
+
+        SessionBatchMetrics.incrementS3BatchesStarted()
 
         const upload = new Upload({
             client: this.s3,
@@ -37,16 +47,20 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
         })
 
         this.stream.on('error', (error) => {
+            logger.error('🔄', 's3_session_batch_writer_stream_error', { key: this.key, error })
+            SessionBatchMetrics.incrementS3UploadErrors()
             this.handleError(error)
         })
 
         this.timeoutId = setTimeout(() => {
             this.handleError(new Error(`S3 upload timed out after ${this.timeout}ms`))
+            SessionBatchMetrics.incrementS3UploadTimeouts()
             this.stream.destroy()
         }, this.timeout)
 
         this.uploadPromise = upload.done().catch((error) => {
             logger.error('🔄', 's3_session_batch_writer_upload_error', { key: this.key, error })
+            SessionBatchMetrics.incrementS3UploadErrors()
             this.handleError(error)
             throw error
         })
@@ -86,13 +100,16 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
                 })
                 .catch((error) => {
                     // Defer to the common error handling code, it will call reject if necessary.
+                    logger.error('🔄', 's3_session_batch_writer_operation_error', { key: this.key, error })
+                    SessionBatchMetrics.incrementS3UploadErrors()
                     this.handleError(error)
                 })
         })
     }
 
-    public async writeSession(buffer: Buffer): Promise<WriteSessionResult> {
+    public async writeSession(sessionData: WriteSessionData): Promise<WriteSessionResult> {
         return await this.withErrorBarrier(async () => {
+            const buffer = sessionData.buffer
             const startOffset = this.currentOffset
 
             // Write and handle backpressure
@@ -108,6 +125,7 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
             return {
                 bytesWritten: buffer.length,
                 url: `s3://${this.bucket}/${this.key}?range=bytes=${startOffset}-${this.currentOffset - 1}`,
+                retentionPeriodDays: null,
             }
         })
     }
@@ -121,8 +139,15 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
                     clearTimeout(this.timeoutId)
                     this.timeoutId = null
                 }
+
+                // Record successful upload metrics
+                const uploadDuration = (Date.now() - this.uploadStartTime) / 1000
+                SessionBatchMetrics.incrementS3BatchesUploaded()
+                SessionBatchMetrics.observeS3UploadLatency(uploadDuration)
+                SessionBatchMetrics.incrementS3BytesWritten(this.currentOffset)
             } catch (error) {
                 logger.error('🔄', 's3_session_batch_writer_upload_error', { key: this.key, error })
+                SessionBatchMetrics.incrementS3UploadErrors()
                 throw error
             }
         })
@@ -131,6 +156,7 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
     private generateKey(): string {
         const timestamp = Date.now()
         const suffix = randomBytes(8).toString('hex')
+
         return `${this.prefix}/${timestamp}-${suffix}`
     }
 }

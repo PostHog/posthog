@@ -11,7 +11,7 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/hedgehog/builder-hog-01.png',
     category: ['Custom'],
     code_language: 'hog',
-    hog: `
+    code: `
 // List of known bot user agents
 let known_bot_filter_list := ['bot', 'crawler', 'spider', 'feedfetcher-google',
 'mediapartners-google', 'apis-google', 'slurp', 'python-urllib',

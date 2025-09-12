@@ -1,7 +1,7 @@
-// PasswordReset.stories.tsx
 import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
+
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { passwordResetLogic } from 'scenes/authentication/passwordResetLogic'
 import { urls } from 'scenes/urls'
 
@@ -32,6 +32,7 @@ export const NoSMTP = (): JSX.Element => {
             },
         },
     })
+
     return <PasswordReset />
 }
 export const Initial = (): JSX.Element => {
@@ -49,6 +50,7 @@ export const Initial = (): JSX.Element => {
             '/api/reset': {},
         },
     })
+
     return <PasswordReset />
 }
 export const Success = (): JSX.Element => {
@@ -66,10 +68,12 @@ export const Success = (): JSX.Element => {
             '/api/reset': {},
         },
     })
-    useEffect(() => {
+
+    useDelayedOnMountEffect(() => {
         passwordResetLogic.actions.setRequestPasswordResetValues({ email: 'test@posthog.com' })
         passwordResetLogic.actions.submitRequestPasswordResetSuccess({ email: 'test@posthog.com' })
-    }, [])
+    })
+
     return <PasswordReset />
 }
 export const Throttled = (): JSX.Element => {
@@ -87,10 +91,12 @@ export const Throttled = (): JSX.Element => {
             '/api/reset': {},
         },
     })
-    useEffect(() => {
+
+    useDelayedOnMountEffect(() => {
         passwordResetLogic.actions.setRequestPasswordResetValues({ email: 'test@posthog.com' })
         passwordResetLogic.actions.setRequestPasswordResetManualErrors({ code: 'throttled' })
-    }, [])
+    })
+
     return <PasswordReset />
 }
 
@@ -109,8 +115,8 @@ export const WithEmailFromQuery = (): JSX.Element => {
             '/api/reset': {},
         },
     })
-    useEffect(() => {
-        router.actions.push(urls.passwordReset(), { email: 'user@example.com' })
-    }, [])
+
+    useDelayedOnMountEffect(() => router.actions.push(urls.passwordReset(), { email: 'user@example.com' }))
+
     return <PasswordReset />
 }

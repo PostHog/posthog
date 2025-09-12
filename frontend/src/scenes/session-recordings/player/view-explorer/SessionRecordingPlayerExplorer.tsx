@@ -1,8 +1,11 @@
+import { useState } from 'react'
+
 import { IconRevert, IconX } from '@posthog/icons'
+
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { useState } from 'react'
 import { SettingsBar, SettingsButton } from 'scenes/session-recordings/components/PanelSettings'
+import { Timestamp } from 'scenes/session-recordings/player/controller/PlayerControllerTime'
 
 export type SessionRecordingPlayerExplorerProps = {
     html: string
@@ -26,6 +29,9 @@ function PlayerExplorerSettings({ iframeKey, setIframeKey, onClose }: PlayerExpl
                 label="Reset"
                 title="Reset any changes you've made to the DOM with your developer tools"
             />
+            <div className="font-medium">
+                Snapshot of DOM as it was at <Timestamp size="small" noPadding />
+            </div>
             <SettingsButton onClick={onClose} label="Close" icon={<IconX />} />
         </SettingsBar>
     )

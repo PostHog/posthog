@@ -1,11 +1,13 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
+import { useCallback } from 'react'
+
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
 import { FingerprintRecordPartDisplay } from 'lib/components/Errors/FingerprintRecordPartDisplay'
 import { ChainedStackTraces, ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
+import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
-import { useCallback } from 'react'
 
 import { cancelEvent } from '../../../utils'
 import { RuntimeIcon } from '../../RuntimeIcon'
@@ -69,14 +71,14 @@ export function StacktraceGenericExceptionHeader({
                     <LemonSkeleton className="w-[25%] h-2" />
                 ) : (
                     <>
-                        {runtime && <RuntimeIcon runtime={runtime} />}
-                        <div className="font-bold text-lg">{type || 'Unknown type'}</div>
+                        {runtime && <RuntimeIcon runtime={runtime} fontSize="0.9rem" className="ml-1" />}
+                        <div className="font-semibold text-[1rem]">{type || 'Unknown type'}</div>
                         {part && <FingerprintRecordPartDisplay part={part} />}
                     </>
                 )}
             </div>
             <div
-                className={cn('text-tertiary leading-6', {
+                className={cn('font-medium text-[var(--gray-8)] leading-6', {
                     'line-clamp-1': truncate,
                 })}
             >

@@ -1,29 +1,30 @@
 import os
-from contextlib import contextmanager
-from datetime import datetime, timedelta, UTC
 import re
-from typing import Any, cast, TypedDict
+from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
+from typing import Any, TypedDict, cast
 from urllib.parse import urlparse
-import json
 
-import nh3
-import posthoganalytics
-from posthoganalytics import capture_exception
 from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Min
 from django.http import HttpResponse, JsonResponse
+from django.shortcuts import render
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
+
+import nh3
+import orjson
+import structlog
+import posthoganalytics
 from axes.decorators import axes_dispatch
 from loginas.utils import is_impersonated_session
 from nanoid import generate
-from rest_framework import request, serializers, status, viewsets, exceptions, filters
+from posthoganalytics import capture_exception
+from rest_framework import exceptions, filters, request, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
-from django.shortcuts import render
 
-from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
 from posthog.api.action import ActionSerializer, ActionStepJSONSerializer
 from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
@@ -39,30 +40,45 @@ from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.exceptions import generate_exception_response
 from posthog.models import Action
-from posthog.models.activity_logging.activity_log import (
-    Change,
-    Detail,
-    changes_between,
-    load_activity,
-    log_activity,
-)
+from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag import FeatureFlag
-from posthog.models.surveys.survey import Survey, MAX_ITERATION_COUNT
-from posthog.models.team.team import Team
-from posthog.models.user import User
-from posthog.utils_cors import cors_response
+from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey
 from posthog.models.surveys.util import (
-    get_unique_survey_event_uuids_sql_subquery,
     SurveyEventName,
     SurveyEventProperties,
+    get_unique_survey_event_uuids_sql_subquery,
 )
-import structlog
+from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.utils import UUIDT
+from posthog.utils_cors import cors_response
 
+from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
 
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
+    "linked_flag_id",
+    "targeting_flag_filters",
+]
+
+# Does not include actions or events, as those are objects and thus are evaluated differently
+CONDITION_FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
+    "url",
+    "urlMatchType",
+    "selector",
+    "seenSurveyWaitPeriodInDays",
+    "linkedFlagVariant",
+    "deviceTypes",
+    "deviceTypesMatchType",
+]
+
+
+if "replica" in settings.DATABASES:
+    READ_DB_FOR_SURVEYS = "replica"
+else:
+    READ_DB_FOR_SURVEYS = "default"
 
 
 class EventStats(TypedDict):
@@ -361,11 +377,30 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
     def validate(self, data):
         linked_flag_id = data.get("linked_flag_id")
+        linked_flag = None
         if linked_flag_id:
             try:
-                FeatureFlag.objects.get(pk=linked_flag_id)
+                linked_flag = FeatureFlag.objects.get(pk=linked_flag_id)
             except FeatureFlag.DoesNotExist:
                 raise serializers.ValidationError("Feature Flag with this ID does not exist")
+
+        # Validate linkedFlagVariant if provided
+        conditions = data.get("conditions") or {}
+        linked_flag_variant = conditions.get("linkedFlagVariant")
+        if linked_flag_variant and linked_flag and linked_flag_variant != "any":
+            # Get available variants from the linked feature flag
+            available_variants = [variant["key"] for variant in linked_flag.variants]
+            if linked_flag_variant not in available_variants:
+                if available_variants:
+                    raise serializers.ValidationError(
+                        f"Feature flag variant '{linked_flag_variant}' does not exist. Available variants: {', '.join(available_variants)}"
+                    )
+                else:
+                    raise serializers.ValidationError(
+                        f"Feature flag variant '{linked_flag_variant}' specified but the linked feature flag has no variants"
+                    )
+        elif linked_flag_variant and not linked_flag_id:
+            raise serializers.ValidationError("linkedFlagVariant can only be used when a linked_flag_id is specified")
 
         if (
             self.context["request"].method == "POST"
@@ -426,6 +461,45 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 }
             )
 
+        # Validate external survey constraints
+        if data.get("type") == Survey.SurveyType.EXTERNAL_SURVEY:
+            errors = {}
+
+            # Check prohibited fields
+            for field in FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS:
+                if data.get(field) is not None:
+                    errors[field] = f"{field} is not allowed for external surveys"
+
+            # Check prohibited condition fields
+            if data.get("conditions"):
+                condition_errors = []
+                conditions = data["conditions"]
+
+                # Check individual condition fields
+                for field in CONDITION_FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS:
+                    if field in conditions and conditions[field] is not None:
+                        condition_errors.append(field)
+
+                # Check actions/events if they have values
+                for field in ["actions", "events"]:
+                    if field in conditions and isinstance(conditions[field], dict):
+                        values = conditions[field].get("values", [])
+                        if values:
+                            condition_errors.append(field)
+
+                if condition_errors:
+                    errors["conditions"] = (
+                        f"The following condition fields are not allowed for external surveys: {', '.join(condition_errors)}"
+                    )
+
+            # Check prohibited appearance fields
+            if "appearance" in data and data["appearance"] and "surveyPopupDelaySeconds" in data["appearance"]:
+                if data["appearance"]["surveyPopupDelaySeconds"] is not None:
+                    errors["appearance"] = "surveyPopupDelaySeconds is not allowed for external surveys"
+
+            if errors:
+                raise serializers.ValidationError(errors)
+
         return data
 
     def create(self, validated_data):
@@ -467,6 +541,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         before_update = Survey.objects.get(pk=instance.pk)
         user = self.context["request"].user
         changes = []
+
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:
                 # Manually delete the flag and log the change
@@ -1197,9 +1272,6 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not environment_is_allowed or not has_openai_api_key:
             raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
 
-        if not posthoganalytics.feature_enabled("ai-survey-response-summary", str(user.distinct_id)):
-            raise exceptions.ValidationError("survey response summary is not enabled for this user")
-
         end_date: datetime = (survey.end_date or datetime.now()).replace(
             hour=0, minute=0, second=0, microsecond=0
         ) + timedelta(days=1)
@@ -1315,12 +1387,18 @@ def get_surveys_opt_in(team: Team) -> bool:
 
 
 def get_surveys_count(team: Team) -> int:
-    return Survey.objects.filter(team__project_id=team.project_id).exclude(archived=True).count()
+    return (
+        Survey.objects.db_manager(READ_DB_FOR_SURVEYS)
+        .filter(team__project_id=team.project_id)
+        .exclude(archived=True)
+        .count()
+    )
 
 
 def get_surveys_response(team: Team):
     surveys = SurveyAPISerializer(
-        Survey.objects.filter(team__project_id=team.project_id)
+        Survey.objects.db_manager(READ_DB_FOR_SURVEYS)
+        .filter(team__project_id=team.project_id)
         .exclude(archived=True)
         .select_related("linked_flag", "targeting_flag", "internal_targeting_flag")
         .prefetch_related("actions"),
@@ -1400,11 +1478,7 @@ def public_survey_page(request, survey_id: str):
 
     # Database query with minimal fields and timeout protection
     try:
-        survey = (
-            Survey.objects.select_related("team")
-            .only("id", "name", "appearance", "archived", "type", "team__id", "team__api_token")
-            .get(id=survey_id)
-        )
+        survey = Survey.objects.select_related("team").get(id=survey_id)
     except Survey.DoesNotExist:
         logger.info("survey_page_not_found", survey_id=survey_id)
         # Use generic error message to prevent survey ID enumeration
@@ -1461,11 +1535,12 @@ def public_survey_page(request, survey_id: str):
     if hasattr(survey.team, "ui_host") and survey.team.ui_host:
         project_config["ui_host"] = survey.team.ui_host
 
+    serializer = SurveyAPISerializer(survey)
+    survey_data = serializer.data
     context = {
         "name": survey.name,
-        "id": survey.id,
-        "appearance": json.dumps(survey.appearance),
-        "project_config_json": json.dumps(project_config),
+        "survey_data": orjson.dumps(survey_data).decode("utf-8"),
+        "project_config_json": orjson.dumps(project_config).decode("utf-8"),
         "debug": settings.DEBUG,
     }
 

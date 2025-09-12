@@ -10,7 +10,7 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/hedgehog/builder-hog-01.png',
     category: ['Custom'],
     code_language: 'hog',
-    hog: `
+    code: `
 // This is a blank template for custom transformations
 // The function receives 'event' as a global object and expects it to be returned
 // If you return null the event will be dropped and not ingested into your posthog instance

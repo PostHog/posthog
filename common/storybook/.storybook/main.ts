@@ -1,5 +1,6 @@
-import { createEntry } from '../webpack.config'
-import { StorybookConfig } from '@storybook/react-webpack5'
+import type { StorybookConfig } from '@storybook/types'
+
+import { createEntry } from '../webpack.config.js'
 
 const config: StorybookConfig = {
     stories: [

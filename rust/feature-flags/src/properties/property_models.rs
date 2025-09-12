@@ -20,6 +20,7 @@ pub enum OperatorType {
     IsDateBefore,
     In,
     NotIn,
+    FlagEvaluatesTo,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

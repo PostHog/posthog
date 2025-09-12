@@ -1,30 +1,31 @@
 import './SessionRecordingScene.scss'
 
 import { useValues } from 'kea'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import {
-    sessionRecordingDetailLogic,
     SessionRecordingDetailLogicProps,
+    sessionRecordingDetailLogic,
 } from 'scenes/session-recordings/detail/sessionRecordingDetailLogic'
 import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<SessionRecordingDetailLogicProps> = {
     logic: sessionRecordingDetailLogic,
     component: SessionRecordingDetail,
-    paramsToProps: ({ params: { id } }): (typeof sessionRecordingDetailLogic)['props'] => ({
+    paramsToProps: ({ params: { id } }) => ({
         id,
     }),
     settingSectionId: 'environment-replay',
 }
 
-export function SessionRecordingDetail({ id }: SessionRecordingDetailLogicProps = {}): JSX.Element {
+export function SessionRecordingDetail({ id }: SessionRecordingDetailLogicProps): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 

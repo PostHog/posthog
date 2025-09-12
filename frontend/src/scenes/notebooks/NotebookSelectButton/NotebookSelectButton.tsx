@@ -1,25 +1,27 @@
+import { BuiltLogic, useActions, useValues } from 'kea'
+import { ReactChild, ReactElement, useEffect } from 'react'
+
 import { IconNotebook, IconPlus } from '@posthog/icons'
 import { LemonDivider, LemonDropdown, ProfilePicture } from '@posthog/lemon-ui'
-import { BuiltLogic, useActions, useValues } from 'kea'
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
+
 import { dayjs } from 'lib/dayjs'
-import { IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { PopoverProps } from 'lib/lemon-ui/Popover'
+import { IconWithCount } from 'lib/lemon-ui/icons'
 import { getAppContext } from 'lib/utils/getAppContext'
-import { ReactChild, ReactElement, useEffect } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import {
-    notebookSelectButtonLogic,
     NotebookSelectButtonLogicProps,
+    notebookSelectButtonLogic,
 } from 'scenes/notebooks/NotebookSelectButton/notebookSelectButtonLogic'
 
 import { notebooksModel, openNotebook } from '~/models/notebooksModel'
-import { AccessControlLevel, AccessControlResourceType, NotebookListItemType, NotebookTarget } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
+import { NotebookListItemType, NotebookTarget } from '../types'
 
 export type NotebookSelectProps = NotebookSelectButtonLogicProps & {
     newNotebookTitle?: string
@@ -116,7 +118,8 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
             loadNotebooksContainingResource()
         }
         loadAllNotebooks()
-    }, [])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [loadAllNotebooks])
 
     return (
         <div className="flex flex-col flex-1 h-full overflow-hidden">
@@ -128,17 +131,19 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
                     onChange={(s) => setSearchQuery(s)}
                     fullWidth
                 />
-                <AccessControlledLemonButton
+                <LemonButton
                     data-attr="notebooks-select-button-create"
                     fullWidth
                     icon={<IconPlus />}
                     onClick={openNewNotebook}
-                    resourceType={AccessControlResourceType.Notebook}
-                    minAccessLevel={AccessControlLevel.Editor}
-                    userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.Notebook]}
+                    accessControl={{
+                        resourceType: AccessControlResourceType.Notebook,
+                        minAccessLevel: AccessControlLevel.Editor,
+                        userAccessLevel: getAppContext()?.resource_access_control?.[AccessControlResourceType.Notebook],
+                    }}
                 >
                     New notebook
-                </AccessControlledLemonButton>
+                </LemonButton>
                 <LemonButton
                     fullWidth
                     onClick={() => {
@@ -239,6 +244,7 @@ export function NotebookSelectButton({ children, onNotebookOpened, ...props }: N
         if (!nodeLogic) {
             loadNotebooksContainingResource()
         }
+        // oxlint-disable-next-line exhaustive-deps
     }, [nodeLogic])
 
     const button = (

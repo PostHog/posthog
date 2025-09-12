@@ -1,29 +1,35 @@
-import { IconPlusSmall } from '@posthog/icons'
-import { lemonToast } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useEffect, useRef } from 'react'
+
+import { IconPlusSmall } from '@posthog/icons'
 
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { useEffect, useRef } from 'react'
+import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
-import { PipelineStage } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
+import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
 import { multitabEditorLogic } from '../multitabEditorLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import api from 'lib/api'
 
 export const QueryDatabase = (): JSX.Element => {
-    const { treeData, expandedFolders, expandedSearchFolders, searchTerm, joinsByFieldName } =
-        useValues(queryDatabaseLogic)
+    const {
+        treeData,
+        searchTreeData,
+        expandedFolders,
+        expandedSearchFolders,
+        searchTerm,
+        joinsByFieldName,
+        editingDraftId,
+    } = useValues(queryDatabaseLogic)
     const {
         setExpandedFolders,
         toggleFolderOpen,
@@ -31,10 +37,13 @@ export const QueryDatabase = (): JSX.Element => {
         setExpandedSearchFolders,
         selectSourceTable,
         toggleEditJoinModal,
-        loadDatabase,
-        loadJoins,
+        setEditingDraft,
+        renameDraft,
     } = useActions(queryDatabaseLogic)
     const { deleteDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
+    const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
+
+    const { deleteDraft } = useActions(draftsLogic)
 
     const treeRef = useRef<LemonTreeRef>(null)
     useEffect(() => {
@@ -44,7 +53,8 @@ export const QueryDatabase = (): JSX.Element => {
     return (
         <LemonTree
             ref={treeRef}
-            data={treeData}
+            // TODO: Can move this to treedata selector but selectors are maxed out on dependencies
+            data={searchTerm ? searchTreeData : treeData}
             expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
             onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
             onFolderClick={(folder, isExpanded) => {
@@ -52,7 +62,21 @@ export const QueryDatabase = (): JSX.Element => {
                     toggleFolderOpen(folder.id, isExpanded)
                 }
             }}
+            isItemEditing={(item) => {
+                return editingDraftId === item.record?.id
+            }}
+            onItemNameChange={(item, name) => {
+                if (item.name !== name) {
+                    renameDraft(item.record?.id, name)
+                }
+                setEditingDraft('')
+            }}
             onItemClick={(item) => {
+                // Handle draft clicks - focus existing tab or create new one
+                if (item && item.record?.type === 'draft') {
+                    router.actions.push(urls.sqlEditor(undefined, undefined, undefined, item.record.draft.id))
+                }
+
                 // Copy column name when clicking on a column
                 if (item && item.record?.type === 'column') {
                     void copyToClipboard(item.record.columnName, item.record.columnName)
@@ -72,8 +96,8 @@ export const QueryDatabase = (): JSX.Element => {
                                 className="font-mono text-xs"
                             />
                         ) : (
-                            <div className="flex flex-row justify-between gap-1">
-                                <span className="truncate font-mono text-xs">{item.name}</span>
+                            <div className="flex flex-row gap-1 justify-between">
+                                <span className="font-mono text-xs truncate">{item.name}</span>
                                 {renderTableCount(item.record?.row_count)}
                             </div>
                         )}
@@ -81,6 +105,35 @@ export const QueryDatabase = (): JSX.Element => {
                 )
             }}
             itemSideAction={(item) => {
+                // Show menu for drafts
+                if (item.record?.type === 'draft') {
+                    const draft = item.record.draft
+                    return (
+                        <DropdownMenuGroup>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    setEditingDraft(draft.id)
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    deleteDraft(draft.id)
+                                }}
+                            >
+                                <ButtonPrimitive menuItem className="text-danger">
+                                    Delete
+                                </ButtonPrimitive>
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                    )
+                }
+
                 // Show menu for tables
                 if (item.record?.type === 'table') {
                     return (
@@ -214,19 +267,8 @@ export const QueryDatabase = (): JSX.Element => {
                                         if (item.record?.columnName) {
                                             const join =
                                                 joinsByFieldName[`${item.record.table}.${item.record.columnName}`]
-                                            void deleteWithUndo({
-                                                endpoint: api.dataWarehouseViewLinks.determineDeleteEndpoint(),
-                                                object: {
-                                                    id: join.id,
-                                                    name: `${join.field_name} on ${join.source_table_name}`,
-                                                },
-                                                callback: () => {
-                                                    loadDatabase()
-                                                    loadJoins()
-                                                },
-                                            }).catch((e) => {
-                                                lemonToast.error(`Failed to delete warehouse view link: ${e.detail}`)
-                                            })
+
+                                            deleteJoin(join)
                                         }
                                     }}
                                 >
@@ -253,7 +295,7 @@ export const QueryDatabase = (): JSX.Element => {
                             className="z-2"
                             onClick={(e) => {
                                 e.stopPropagation()
-                                router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
+                                router.actions.push(urls.dataWarehouseSourceNew())
                             }}
                             data-attr="sql-editor-add-source"
                         >

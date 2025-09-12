@@ -1,15 +1,15 @@
-// eslint-disable-next-line simple-import-sort/imports
 import { mockProducerObserver } from '../helpers/mocks/producer.mock'
 
-import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 // eslint-disable-next-line no-restricted-imports
 import { fetch } from 'undici'
+
+import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
 import { KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { PluginConfig, PluginConfigVMResponse } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
-import { delay, UUIDT } from '../../src/utils/utils'
+import { UUIDT, delay } from '../../src/utils/utils'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
 import { plugin60 } from '../helpers/plugins'

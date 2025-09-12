@@ -1,4 +1,5 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
+
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 

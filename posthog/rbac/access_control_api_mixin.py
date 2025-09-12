@@ -1,6 +1,5 @@
 from typing import TYPE_CHECKING
 
-
 if TYPE_CHECKING:
     from ee.api.rbac.access_control import AccessControlViewSetMixin
 else:

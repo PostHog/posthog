@@ -210,8 +210,15 @@
             ],
             "trendsFilter": {
                 "display": "ActionsTable",
-                "resultCustomizationBy": "value"
-            }
+                "resultCustomizationBy": "position",
+                "resultCustomizations": {
+                    "2": {
+                        "assignmentBy": "position",
+                        "hidden": true
+                    }
+                }
+            },
+            "version": 2
         },
         "full": true
     }

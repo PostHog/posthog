@@ -1,5 +1,7 @@
-import { expectLogic } from 'kea-test-utils'
 import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
+
+import { expectLogic } from 'kea-test-utils'
+
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagsFilters, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
@@ -80,7 +82,7 @@ describe('relatedFeatureFlagsLogic', () => {
                 }
             }
 
-            // eslint-disable-next-line react-hooks/rules-of-hooks
+            // oxlint-disable-next-line react-hooks/rules-of-hooks
             useMocks({
                 get: {
                     [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${queryParams}`]: {

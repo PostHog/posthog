@@ -1,11 +1,12 @@
 import json
 from typing import Union
+
 import requests
 import structlog
+
+from posthog.models.utils import UUIDT
 from posthog.redis import get_client
 from posthog.settings import CDP_API_URL, PLUGINS_RELOAD_REDIS_URL
-from posthog.models.utils import UUIDT
-
 
 logger = structlog.get_logger(__name__)
 
@@ -54,7 +55,7 @@ def reload_integrations_on_workers(team_id: int, integration_ids: list[int]):
 
 def populate_plugin_capabilities_on_workers(plugin_id: str):
     logger.info(f"Populating plugin capabilities for plugin {plugin_id} on workers")
-    publish_message("populate-plugin-capabilities", {"plugin_id": plugin_id})
+    publish_message("populate-plugin-capabilities", {"pluginId": plugin_id})
 
 
 def create_hog_invocation_test(team_id: int, hog_function_id: str, payload: dict) -> requests.Response:
@@ -82,6 +83,18 @@ def patch_hog_function_status(team_id: int, hog_function_id: UUIDT, state: int) 
         CDP_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/status",
         json={"state": state},
     )
+
+
+def generate_messaging_preferences_token(team_id: int, identifier: str) -> str:
+    payload = {"team_id": team_id, "identifier": identifier}
+    response = requests.post(CDP_API_URL + "/api/messaging/generate_preferences_token", json=payload)
+    if response.status_code == 200:
+        return response.json().get("token")
+    return ""
+
+
+def validate_messaging_preferences_token(token: str) -> requests.Response:
+    return requests.get(CDP_API_URL + f"/api/messaging/validate_preferences_token/{token}")
 
 
 def get_hog_function_templates() -> requests.Response:

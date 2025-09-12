@@ -1,5 +1,5 @@
-import { EncryptedFields } from '~/cdp/encryption-utils'
 import { IntegrationType } from '~/cdp/types'
+import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { PubSub } from '~/utils/pubsub'
 
 import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
@@ -9,7 +9,11 @@ import { logger } from '../../../utils/logger'
 export class IntegrationManagerService {
     private lazyLoader: LazyLoader<IntegrationType>
 
-    constructor(private pubSub: PubSub, private postgres: PostgresRouter, private encryptedFields: EncryptedFields) {
+    constructor(
+        private pubSub: PubSub,
+        private postgres: PostgresRouter,
+        private encryptedFields: EncryptedFields
+    ) {
         this.lazyLoader = new LazyLoader({
             name: 'integration_manager',
             loader: async (ids) => await this.fetchIntegrations(ids),

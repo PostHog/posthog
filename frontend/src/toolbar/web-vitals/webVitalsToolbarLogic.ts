@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams, router, urlToAction } from 'kea-router'
+
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
@@ -41,8 +42,14 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
                     ...state,
                     [webVitalMetric]: value,
                 }),
-                resetLocalWebVitals: () => ({} as WebVitalsMetrics),
-                nullifyLocalWebVitals: () => ({ LCP: null, FCP: null, CLS: null, INP: null } as WebVitalsMetrics),
+                resetLocalWebVitals: () => ({}) as WebVitalsMetrics,
+                nullifyLocalWebVitals: () =>
+                    ({
+                        LCP: null,
+                        FCP: null,
+                        CLS: null,
+                        INP: null,
+                    }) as WebVitalsMetrics,
             },
         ],
     }),

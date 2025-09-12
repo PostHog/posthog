@@ -1,4 +1,5 @@
 import { LemonDivider } from '@posthog/lemon-ui'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import ErrorTrackingRules from './ErrorTrackingRules'
@@ -23,7 +24,15 @@ export function ErrorTrackingAutoAssignment(): JSX.Element {
                                     <ErrorTrackingRules.Operator rule={rule} editing={editing} />
                                     <div>filters match</div>
                                 </div>
-                                {!disabled && <ErrorTrackingRules.Actions rule={rule} editing={editing} />}
+                                {!disabled && (
+                                    <ErrorTrackingRules.Actions
+                                        rule={rule}
+                                        editing={editing}
+                                        validate={(rule) =>
+                                            rule.assignee ? undefined : 'You must choose an assignee for each rule.'
+                                        }
+                                    />
+                                )}
                             </div>
                             <LemonDivider className="my-0" />
                             <div className="p-2">

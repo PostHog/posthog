@@ -1,10 +1,11 @@
-import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
 import posthog from 'posthog-js'
-import { toast, ToastContentProps as ToastifyRenderProps, ToastOptions } from 'react-toastify'
+import { ToastOptions, ToastContentProps as ToastifyRenderProps, toast } from 'react-toastify'
 
-import { IconErrorOutline } from '../icons'
+import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
+
 import { LemonButton } from '../LemonButton'
 import { Spinner } from '../Spinner'
+import { IconErrorOutline } from '../icons'
 
 export function ToastCloseButton({ closeToast }: { closeToast?: () => void }): JSX.Element {
     return (

@@ -10,7 +10,7 @@ def create_external_data_source_ok(client: HttpClient, team_id: int) -> int:
         data={
             "source_type": "Stripe",
             "payload": {
-                "client_secret": "sk_test_123",
+                "stripe_secret_key": "sk_test_123",
                 "schemas": [
                     {"name": "BalanceTransaction", "should_sync": True, "sync_type": "full_refresh"},
                     {"name": "Subscription", "should_sync": True, "sync_type": "full_refresh"},

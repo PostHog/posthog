@@ -13,6 +13,7 @@
         "@posthog/frontend": "workspace:*",
         "@storybook/addon-a11y": "^7.6.4",
         "@storybook/addon-actions": "^7.6.4",
+        "@storybook/addon-docs": "^7.6.4",
         "@storybook/addon-essentials": "^7.6.4",
         "@storybook/addon-links": "^7.6.4",
         "@storybook/addon-storysource": "^7.6.4",

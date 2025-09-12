@@ -1,10 +1,11 @@
 import clsx from 'clsx'
+import { useEffect, useMemo, useRef, useState } from 'react'
+
 import { ScaleOptions } from 'lib/Chart'
 import { Chart, ChartItem } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { humanFriendlyNumber } from 'lib/utils'
-import { useEffect, useMemo, useRef, useState } from 'react'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
 import { LemonSkeleton } from '../lemon-ui/LemonSkeleton'
@@ -71,8 +72,8 @@ export function Sparkline({
                 ? data // array of objects, one per series
                 : [data] // array of numbers, turn it into the first series
             : typeof data === 'object'
-            ? [data] // first series as an object
-            : [[data]] // just a random number... huh
+              ? [data] // first series as an object
+              : [[data]] // just a random number... huh
         return arrayData.map((timeseries, index): SparklineTimeSeries => {
             const defaultName =
                 names?.[index] || (arrayData.length === 1 ? name || 'Count' : `${name || 'Series'} ${index + 1}`)
@@ -97,7 +98,7 @@ export function Sparkline({
                 values: timeseries ? [timeseries] : [],
             }
         })
-    }, [data])
+    }, [data]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         // data should always be provided but React can render this without it,

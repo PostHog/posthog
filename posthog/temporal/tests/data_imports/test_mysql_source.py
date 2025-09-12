@@ -22,30 +22,31 @@ OBJECT_STORAGE_ENDPOINT=http://localhost:19000 \
 
 """
 
-import datetime as dt
-import math
-import operator
 import os
-import random
+import math
 import uuid
+import random
+import datetime as dt
+import operator
+
+import pytest
 
 import pymysql
-import pytest
 import structlog
 from asgiref.sync import sync_to_async
 
-from posthog.temporal.data_imports.pipelines.mysql.mysql import (
-    MySQLSourceConfig,
-    _get_partition_settings,
-    _get_table_chunk_size,
-    _get_table_average_row_size,
-    _get_rows_to_sync,
+from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
+from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
+from posthog.temporal.data_imports.sources.mysql.mysql import (
     _build_query,
+    _get_partition_settings,
+    _get_rows_to_sync,
+    _get_table_average_row_size,
+    _get_table_chunk_size,
 )
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.types import IncrementalFieldType
-from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 
@@ -369,12 +370,18 @@ def test_mysql_source_config_loads_with_ssh_tunnel():
         "schema": "schema",
         "database": "database",
         "password": "password",
-        "ssh_tunnel_host": "other-host.com",
-        "ssh_tunnel_enabled": "True",
-        "ssh_tunnel_port": "55550",
-        "ssh_tunnel_auth_type": "password",
-        "ssh_tunnel_auth_type_password": "password",
-        "ssh_tunnel_auth_type_username": "username",
+        "ssh_tunnel": {
+            "enabled": "True",
+            "host": "other-host.com",
+            "port": "55550",
+            "auth_type": {
+                "selection": "password",
+                "username": "username",
+                "password": "password",
+                "private_key": "",
+                "passphrase": "",
+            },
+        },
     }
     config = MySQLSourceConfig.from_dict(job_inputs)
 
@@ -404,7 +411,7 @@ def test_mysql_source_config_loads_with_nested_dict_enabled_tunnel():
             "host": "other-host.com",
             "port": "55550",
             "enabled": "True",
-            "auth": {
+            "auth_type": {
                 "type": "password",
                 "username": "username",
                 "password": "password",
@@ -440,7 +447,7 @@ def test_mysql_source_config_loads_with_nested_dict_disabled_tunnel():
             "host": None,
             "port": None,
             "enabled": False,
-            "auth": {
+            "auth_type": {
                 "type": None,
                 "username": None,
                 "password": None,

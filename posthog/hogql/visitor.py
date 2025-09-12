@@ -1,11 +1,11 @@
 from copy import deepcopy
-from typing import Optional, TypeVar, Generic, Any
+from typing import Any, Generic, Optional, TypeVar
 
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectSetNode
 from posthog.hogql.base import AST, Expr
 from posthog.hogql.errors import BaseHogQLError
-
+from posthog.hogql.utils import is_simple_value
 
 T = TypeVar("T")
 T_AST = TypeVar("T_AST", bound=AST)
@@ -224,6 +224,12 @@ class TraversingVisitor(Visitor[None]):
     def visit_string_type(self, node: ast.StringType):
         pass
 
+    def visit_string_json_type(self, node: ast.StringJSONType):
+        pass
+
+    def visit_string_array_type(self, node: ast.StringArrayType):
+        pass
+
     def visit_boolean_type(self, node: ast.BooleanType):
         pass
 
@@ -289,7 +295,10 @@ class TraversingVisitor(Visitor[None]):
     def visit_hogqlx_attribute(self, node: ast.HogQLXAttribute):
         if isinstance(node.value, list):
             for value in node.value:
-                self.visit(value)
+                if is_simple_value(value):
+                    self.visit(ast.Constant(value=value))
+                else:
+                    self.visit(value)
         else:
             self.visit(node.value)
 
@@ -670,8 +679,15 @@ class CloningVisitor(Visitor[Any]):
 
     def visit_hogqlx_attribute(self, node: ast.HogQLXAttribute):
         if isinstance(node.value, list):
-            return ast.HogQLXAttribute(name=node.name, value=[self.visit(v) for v in node.value])
-        return ast.HogQLXAttribute(name=node.name, value=self.visit(node.value))
+            return ast.HogQLXAttribute(
+                name=node.name,
+                value=[self.visit(ast.Constant(value=v)) if is_simple_value(v) else self.visit(v) for v in node.value],
+            )
+
+        value = node.value
+        if is_simple_value(value):
+            value = ast.Constant(value=value)
+        return ast.HogQLXAttribute(name=node.name, value=self.visit(value))
 
     def visit_program(self, node: ast.Program):
         return ast.Program(

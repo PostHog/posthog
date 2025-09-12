@@ -13,8 +13,9 @@ export function datasetToActorsQuery({ query, dataset, day, index }: DatasetToAc
         dataset.breakdown_value ??
         (index !== undefined && Array.isArray(dataset.breakdownValues) ? dataset.breakdownValues[index] : undefined)
     const compare =
-        dataset.compare_label ??
-        (index !== undefined && Array.isArray(dataset.compareLabels) ? dataset.compareLabels[index] : undefined)
+        (dataset.compare_label ??
+            (index !== undefined && Array.isArray(dataset.compareLabels) ? dataset.compareLabels[index] : undefined)) ||
+        undefined
     return {
         kind: NodeKind.InsightActorsQuery,
         source: query,

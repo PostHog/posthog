@@ -1,10 +1,8 @@
-from datetime import timedelta
 import os
+from datetime import timedelta
 from functools import partial, wraps
 from typing import Union
-import uuid
 
-from posthog.exceptions_capture import capture_exception
 from django.apps import apps
 from django.conf import settings
 from django.contrib.admin.sites import site as admin_site
@@ -13,18 +11,29 @@ from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required as base_login_required
 from django.db import DEFAULT_DB_ALIAS, connections
 from django.db.migrations.executor import MigrationExecutor
+from django.db.models import Q
 from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_http_methods
 
+import structlog
 
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
+from posthog.exceptions_capture import capture_exception
 from posthog.health import is_clickhouse_connected, is_kafka_connected
 from posthog.models import Organization, User
 from posthog.models.integration import SlackIntegration
+from posthog.models.message_category import MessageCategory
+from posthog.models.message_preferences import (
+    ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
+    MessageRecipientPreference,
+    PreferenceStatus,
+)
+from posthog.models.personal_api_key import find_personal_api_key
+from posthog.plugins.plugin_server_api import validate_messaging_preferences_token
 from posthog.redis import get_client
 from posthog.utils import (
     get_available_timezones_with_offsets,
@@ -39,16 +48,6 @@ from posthog.utils import (
     is_postgres_alive,
     is_redis_alive,
 )
-from posthog.models.message_preferences import MessageCategory, MessageRecipientPreference, PreferenceStatus
-from posthog.models.personal_api_key import (
-    PersonalAPIKey,
-    hash_key_value,
-    PERSONAL_API_KEY_MODES_TO_TRY,
-)
-
-
-import structlog
-
 
 logger = structlog.get_logger(__name__)
 
@@ -275,19 +274,9 @@ def api_key_search_view(request: HttpRequest):
     personal_api_key_object = None
     personal_api_key_hash_mode = None
     if query is not None and query.startswith("phx_"):
-        for mode, iterations in PERSONAL_API_KEY_MODES_TO_TRY:
-            secure_value = hash_key_value(query, mode=mode, iterations=iterations)
-            try:
-                personal_api_key_object = (
-                    PersonalAPIKey.objects.select_related("user")
-                    .filter(user__is_active=True)
-                    .get(secure_value=secure_value)
-                )
-                personal_api_key_hash_mode = mode
-                break
-
-            except PersonalAPIKey.DoesNotExist:
-                pass
+        result = find_personal_api_key(query)
+        if result is not None:
+            personal_api_key_object, personal_api_key_hash_mode = result
 
     team_object = None
     team_object_key_type = None
@@ -296,15 +285,8 @@ def api_key_search_view(request: HttpRequest):
 
         try:
             # don't use the cache so that we can differentiate btwn the primary and the backup key
-            team_object = Team.objects.get(secret_api_token=query)
-            team_object_key_type = "primary"
-
-        except Team.DoesNotExist:
-            pass
-
-        try:
-            team_object = Team.objects.get(secret_api_token_backup=query)
-            team_object_key_type = "backup"
+            team_object = Team.objects.get(Q(secret_api_token=query) | Q(secret_api_token_backup=query))
+            team_object_key_type = "primary" if team_object.secret_api_token == query else "backup"
 
         except Team.DoesNotExist:
             pass
@@ -327,16 +309,28 @@ def api_key_search_view(request: HttpRequest):
 @require_http_methods(["GET"])
 def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     """Render the preferences page for a given recipient token"""
-    recipient, error = MessageRecipientPreference.validate_preferences_token(token)
+    response = validate_messaging_preferences_token(token)
+    if response.status_code != 200:
+        error_msg = response.json().get("error", "Invalid recipient token")
+        return render(request, "message_preferences/error.html", {"error": error_msg}, status=400)
 
-    if error:
-        return render(request, "message_preferences/error.html", {"error": error}, status=400)
+    data = response.json()
+    if not data.get("valid"):
+        return render(request, "message_preferences/error.html", {"error": "Invalid recipient token"}, status=400)
 
-    if not recipient:
+    team_id = data.get("team_id")
+    identifier = data.get("identifier")
+    if not team_id or not identifier:
         return render(request, "message_preferences/error.html", {"error": "Invalid recipient"}, status=400)
 
+    try:
+        recipient = MessageRecipientPreference.objects.get(team_id=team_id, identifier=identifier)
+    except MessageRecipientPreference.DoesNotExist:
+        # A first-time preferences page visitor will not have a recipient in Postgres yet.
+        recipient = None
+
     # Only fetch active categories and their preferences
-    categories = MessageCategory.objects.filter(deleted=False, team=recipient.team).order_by("name")
+    categories = MessageCategory.objects.filter(deleted=False, team=team_id, category_type="marketing").order_by("name")
     preferences = recipient.get_all_preferences() if recipient else {}
 
     context = {
@@ -345,12 +339,12 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
             {
                 "id": cat.id,
                 "name": cat.name,
-                "description": cat.description,
-                "opted_in": preferences.get(cat.id) == PreferenceStatus.OPTED_IN,
+                "description": cat.public_description,
+                "status": preferences.get(str(cat.id), PreferenceStatus.NO_PREFERENCE),
             }
             for cat in categories
         ],
-        "token": token,  # Need to pass this back for the update endpoint
+        "token": token,
     }
 
     return render(request, "message_preferences/preferences.html", context)
@@ -364,22 +358,54 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
     if not token:
         return JsonResponse({"error": "Missing token"}, status=400)
 
-    recipient, error = MessageRecipientPreference.validate_preferences_token(token)
-    if error:
-        return JsonResponse({"error": error}, status=400)
+    response = validate_messaging_preferences_token(token)
+    if response.status_code != 200:
+        error_msg = response.json().get("error", "Invalid recipient token")
+        return JsonResponse({"error": error_msg}, status=400)
 
-    if not recipient:
+    data = response.json()
+    if not data.get("valid"):
+        return JsonResponse({"error": "Invalid recipient token"}, status=400)
+    team_id = data.get("team_id")
+    identifier = data.get("identifier")
+    if not team_id or not identifier:
         return JsonResponse({"error": "Invalid recipient"}, status=400)
+
+    recipient = None
+
+    try:
+        recipient = MessageRecipientPreference.objects.get(team_id=team_id, identifier=identifier)
+    except MessageRecipientPreference.DoesNotExist:
+        recipient = MessageRecipientPreference(team_id=team_id, identifier=identifier)
 
     try:
         preferences = request.POST.getlist("preferences[]")
-        # Convert to dict of category_id: opted_in
+        # Convert to dict of category_id: status
+        preferences_dict = {}
+        all_opted_out = True
+
         for pref in preferences:
             category_id, opted_in = pref.split(":")
+
+            if opted_in not in ["true", "false"]:
+                return JsonResponse({"error": "Preference values must be 'true' or 'false'"}, status=400)
+
             status = PreferenceStatus.OPTED_IN if opted_in == "true" else PreferenceStatus.OPTED_OUT
-            recipient.set_preference(uuid.UUID(category_id), status)
+            preferences_dict[category_id] = status.value
+
+            if status == PreferenceStatus.OPTED_IN:
+                all_opted_out = False
+
+        # If all preferences are opted out, add the "$all" preference
+        if all_opted_out and preferences_dict:
+            preferences_dict[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = PreferenceStatus.OPTED_OUT.value
+
+        # Update all preferences with a single DB write
+        recipient.preferences = preferences_dict
+        recipient.save()
 
         return JsonResponse({"success": True})
 
-    except Exception:
+    except Exception as e:
+        capture_exception(e)
         return JsonResponse({"error": "Failed to update preferences"}, status=400)

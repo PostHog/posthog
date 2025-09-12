@@ -1,5 +1,8 @@
-use common_kafka::config::KafkaConfig;
+use crate::job::backoff::BackoffPolicy;
 use envconfig::Envconfig;
+
+// Re-export KafkaConfig for testing
+pub use common_kafka::config::KafkaConfig;
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
@@ -41,6 +44,26 @@ pub struct Config {
         default = "events_plugin_ingestion_overflow"
     )]
     pub kafka_topic_overflow: String,
+
+    // Exponential backoff defaults
+    #[envconfig(from = "BACKOFF_INITIAL_SECONDS", default = "60")]
+    pub backoff_initial_seconds: u64,
+
+    #[envconfig(from = "BACKOFF_MAX_SECONDS", default = "3600")]
+    pub backoff_max_seconds: u64,
+
+    #[envconfig(from = "BACKOFF_MULTIPLIER", default = "2.0")]
+    pub backoff_multiplier: f64,
+
+    // 0 means unlimited retries
+    #[envconfig(from = "BACKOFF_MAX_ATTEMPTS", default = "0")]
+    pub backoff_max_attempts: u32,
+
+    // In-memory cache configuration
+    #[envconfig(from = "IDENTIFY_MEMORY_CACHE_CAPACITY", default = "1000000")]
+    pub identify_memory_cache_capacity: u64,
+    #[envconfig(from = "IDENTIFY_MEMORY_CACHE_TTL_SECONDS", default = "3600")]
+    pub identify_memory_cache_ttl_seconds: u64,
 }
 
 impl Config {
@@ -50,10 +73,17 @@ impl Config {
             "historical" => Ok(self.kafka_topic_historical.clone()),
             "overflow" => Ok(self.kafka_topic_overflow.clone()),
             _ => Err(anyhow::Error::msg(format!(
-                "Unknown kafka topic: {}",
-                logical_topic
+                "Unknown kafka topic: {logical_topic}"
             ))),
         }
+    }
+
+    pub fn backoff_policy(&self) -> BackoffPolicy {
+        BackoffPolicy::new(
+            std::time::Duration::from_secs(self.backoff_initial_seconds),
+            self.backoff_multiplier,
+            std::time::Duration::from_secs(self.backoff_max_seconds),
+        )
     }
 }
 
@@ -61,53 +91,30 @@ impl Config {
 mod tests {
     use super::*;
 
-    fn create_test_config() -> Config {
-        Config {
-            chunk_size: 100000000,
-            host: "::".to_string(),
-            port: 3301,
-            kafka: KafkaConfig {
-                kafka_producer_linger_ms: 20,
-                kafka_producer_queue_mib: 400,
-                kafka_producer_queue_messages: 10000,
-                kafka_message_timeout_ms: 10000,
-                kafka_compression_codec: "none".to_string(),
-                kafka_tls: false,
-                kafka_hosts: "localhost:9092".to_string(),
-            },
-            database_url: "postgres://test".to_string(),
-            max_pg_connections: 4,
-            encryption_keys: "test_key".to_string(),
-            kafka_topic_main: "test_main_topic".to_string(),
-            kafka_topic_historical: "test_historical_topic".to_string(),
-            kafka_topic_overflow: "test_overflow_topic".to_string(),
-        }
-    }
-
     #[test]
     fn test_resolve_kafka_topic_main() {
-        let config = create_test_config();
+        let config = Config::init_from_env().unwrap();
         let result = config.resolve_kafka_topic("main").unwrap();
-        assert_eq!(result, "test_main_topic");
+        assert_eq!(result, "events_plugin_ingestion");
     }
 
     #[test]
     fn test_resolve_kafka_topic_historical() {
-        let config = create_test_config();
+        let config = Config::init_from_env().unwrap();
         let result = config.resolve_kafka_topic("historical").unwrap();
-        assert_eq!(result, "test_historical_topic");
+        assert_eq!(result, "events_plugin_ingestion_historical");
     }
 
     #[test]
     fn test_resolve_kafka_topic_overflow() {
-        let config = create_test_config();
+        let config = Config::init_from_env().unwrap();
         let result = config.resolve_kafka_topic("overflow").unwrap();
-        assert_eq!(result, "test_overflow_topic");
+        assert_eq!(result, "events_plugin_ingestion_overflow");
     }
 
     #[test]
     fn test_resolve_kafka_topic_unknown() {
-        let config = create_test_config();
+        let config = Config::init_from_env().unwrap();
         let result = config.resolve_kafka_topic("unknown");
         assert!(result.is_err());
         assert!(result
@@ -118,7 +125,7 @@ mod tests {
 
     #[test]
     fn test_resolve_kafka_topic_empty() {
-        let config = create_test_config();
+        let config = Config::init_from_env().unwrap();
         let result = config.resolve_kafka_topic("");
         assert!(result.is_err());
         assert!(result
@@ -129,12 +136,21 @@ mod tests {
 
     #[test]
     fn test_resolve_kafka_topic_case_sensitive() {
-        let config = create_test_config();
+        let config = Config::init_from_env().unwrap();
         let result = config.resolve_kafka_topic("MAIN");
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
             .to_string()
             .contains("Unknown kafka topic: MAIN"));
+    }
+
+    #[test]
+    fn test_backoff_policy_defaults() {
+        let config = Config::init_from_env().unwrap();
+        let p = config.backoff_policy();
+        assert_eq!(p.initial_delay.as_secs(), 60);
+        assert_eq!(p.max_delay.as_secs(), 3600);
+        assert!((p.multiplier - 2.0).abs() < f64::EPSILON);
     }
 }

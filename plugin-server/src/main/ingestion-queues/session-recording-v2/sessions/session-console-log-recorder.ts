@@ -1,6 +1,9 @@
 import { DateTime } from 'luxon'
 
-import { TimestampFormat } from '../../../../types'
+import { eventPassesMetadataSwitchoverTest } from '~/main/utils'
+import { sanitizeForUTF8 } from '~/utils/strings'
+
+import { SessionRecordingV2MetadataSwitchoverDate, TimestampFormat } from '../../../../types'
 import { castTimestampOrNow } from '../../../../utils/utils'
 import { ConsoleLogLevel, RRWebEventType } from '../rrweb-types'
 import { MessageWithTeam } from '../teams/types'
@@ -27,16 +30,6 @@ const levelMapping: Record<string, ConsoleLogLevel> = {
 
 function safeLevel(level: unknown): ConsoleLogLevel {
     return levelMapping[typeof level === 'string' ? level : 'info'] || ConsoleLogLevel.Info
-}
-
-function sanitizeForUTF8(input: string): string {
-    // the JS console truncates some logs...
-    // when it does that it doesn't check if the output is valid UTF-8
-    // and so it can truncate halfway through a UTF-16 pair 🤷
-    // the simplest way to fix this is to convert to a buffer and back
-    // annoyingly Node 20 has `toWellFormed` which might have been useful
-    const buffer = Buffer.from(input)
-    return buffer.toString()
 }
 
 function payloadToSafeString(payload: unknown[]): string {
@@ -88,7 +81,7 @@ export class SessionConsoleLogRecorder {
         public readonly teamId: number,
         public readonly batchId: string,
         private readonly store: SessionConsoleLogStore,
-        private readonly metadataSwitchoverDate: Date | null
+        private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate
     ) {}
 
     /**
@@ -117,7 +110,9 @@ export class SessionConsoleLogRecorder {
                 if (event.type === RRWebEventType.Plugin && eventData?.plugin === 'rrweb/console@1') {
                     const timestamp = DateTime.fromMillis(event.timestamp)
 
-                    if (this.metadataSwitchoverDate === null || timestamp.toJSDate() < this.metadataSwitchoverDate) {
+                    if (
+                        !eventPassesMetadataSwitchoverTest(timestamp.toJSDate().getTime(), this.metadataSwitchoverDate)
+                    ) {
                         continue
                     }
 

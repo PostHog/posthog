@@ -1,15 +1,16 @@
-import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconDocumentExpand } from 'lib/lemon-ui/icons'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useCallback, useEffect, useState } from 'react'
 
-import { NotebookSyncStatus } from '~/types'
-
-import { notebookLogic, NotebookLogicProps } from './notebookLogic'
-import { notebookSettingsLogic } from './notebookSettingsLogic'
 import { IconBook } from '@posthog/icons'
+import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
+
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconDocumentExpand } from 'lib/lemon-ui/icons'
+
+import { NotebookSyncStatus } from '../types'
+import { NotebookLogicProps, notebookLogic } from './notebookLogic'
+import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 const syncStatusMap: Record<NotebookSyncStatus, { content: React.ReactNode; tooltip: React.ReactNode }> = {
     synced: {
@@ -68,6 +69,7 @@ export const NotebookSyncInfo = (props: NotebookLogicProps): JSX.Element | null 
             clearTimeout(t)
             clearDebounceTimeout()
         }
+        // oxlint-disable-next-line exhaustive-deps
     }, [syncStatus])
 
     if (!debouncedSyncStatus) {

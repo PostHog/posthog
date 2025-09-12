@@ -1,5 +1,5 @@
-import asyncio
 import json
+import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Optional
@@ -9,6 +9,11 @@ import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.schema import HumanMessage, MaxBillingContext
+
+from posthog.models import Team, User
+from posthog.temporal.common.base import PostHogWorkflow
+
 from ee.hogai.assistant import Assistant
 from ee.hogai.stream.redis_stream import (
     CONVERSATION_STREAM_TIMEOUT,
@@ -17,9 +22,6 @@ from ee.hogai.stream.redis_stream import (
 )
 from ee.hogai.utils.types import AssistantMode
 from ee.models import Conversation
-from posthog.models import Team, User
-from posthog.schema import HumanMessage
-from posthog.temporal.common.base import PostHogWorkflow
 
 logger = structlog.get_logger(__name__)
 
@@ -43,6 +45,7 @@ class AssistantConversationRunnerWorkflowInputs:
     trace_id: Optional[str] = None
     session_id: Optional[str] = None
     mode: AssistantMode = AssistantMode.ASSISTANT
+    billing_context: Optional[MaxBillingContext] = None
 
 
 @workflow.defn(name="conversation-processing")
@@ -87,7 +90,7 @@ async def process_conversation_activity(inputs: AssistantConversationRunnerWorkf
 
     human_message = HumanMessage.model_validate(inputs.message) if inputs.message else None
 
-    assistant = Assistant(
+    assistant = Assistant.create(
         team,
         conversation,
         new_message=human_message,
@@ -97,6 +100,7 @@ async def process_conversation_activity(inputs: AssistantConversationRunnerWorkf
         trace_id=inputs.trace_id,
         session_id=inputs.session_id,
         mode=inputs.mode,
+        billing_context=inputs.billing_context,
     )
 
     stream_key = get_conversation_stream_key(inputs.conversation_id)

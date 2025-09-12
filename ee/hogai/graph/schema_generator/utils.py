@@ -1,9 +1,11 @@
-from typing import Generic, Optional, TypeVar
+from typing import Generic, TypeVar
 
 from pydantic import BaseModel
 
-T = TypeVar("T", bound=BaseModel)
+from posthog.schema import AssistantFunnelsQuery, AssistantHogQLQuery, AssistantRetentionQuery, AssistantTrendsQuery
+
+Q = TypeVar("Q", AssistantHogQLQuery, AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery)
 
 
-class SchemaGeneratorOutput(BaseModel, Generic[T]):
-    query: Optional[T] = None
+class SchemaGeneratorOutput(BaseModel, Generic[Q]):
+    query: Q

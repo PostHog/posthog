@@ -16,7 +16,7 @@ export const gcsPlugin: LegacyDestinationPlugin = {
         icon_url: 'https://raw.githubusercontent.com/PostHog/posthog-gcs-plugin/main/logo.png',
         category: [],
         code_language: 'javascript',
-        hog: 'return event',
+        code: 'return event',
         inputs_schema: [
             {
                 templating: false,

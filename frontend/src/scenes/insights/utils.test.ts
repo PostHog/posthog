@@ -11,7 +11,7 @@ import {
 } from 'scenes/insights/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
-import { ActionsNode, BreakdownFilter, EventsNode, NodeKind, InsightQueryNode } from '~/queries/schema/schema-general'
+import { ActionsNode, BreakdownFilter, EventsNode, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsNode } from '~/queries/utils'
 import { CompareLabelType, Entity, EntityFilter, FilterType, InsightType } from '~/types'
 
@@ -549,6 +549,20 @@ describe('getTrendDatasetKey()', () => {
         }
 
         expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual('{"series":"formula"}')
+    })
+
+    it('handles insights with non-array breakdown values', () => {
+        const dataset: Partial<IndexedTrendResult> = {
+            label: 'Opera',
+            action: {
+                id: '$pageview',
+                type: 'events',
+                order: 0,
+            },
+            breakdown_value: 'Opera',
+        }
+
+        expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual('{"series":0,"breakdown_value":["Opera"]}')
     })
 })
 

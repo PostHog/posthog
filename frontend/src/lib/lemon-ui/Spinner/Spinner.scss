@@ -1,6 +1,6 @@
 .Spinner {
     --spinner-speed: 1s;
-    --spinner-color: var(--accent);
+    --spinner-color: var(--color-accent);
 
     display: inline-block; // Same as .LemonIcon
     flex-shrink: 0;
@@ -10,6 +10,16 @@
 
     &.Spinner--textColored {
         --spinner-color: currentColor;
+    }
+
+    &.Spinner--medium {
+        width: 1.5em;
+        height: 1.5em;
+    }
+
+    &.Spinner--large {
+        width: 30px;
+        height: 30px;
     }
 }
 
@@ -71,7 +81,7 @@
         position: absolute;
         inset: 0;
         content: '';
-        background: var(--bg-surface-primary);
+        background: var(--color-bg-surface-primary);
         opacity: 0.5;
     }
 
@@ -80,6 +90,6 @@
     }
 
     &.SpinnerOverlay--scene-level::before {
-        background: var(--bg-primary);
+        background: var(--color-bg-primary);
     }
 }

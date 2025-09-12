@@ -4,8 +4,8 @@ import django.db.models.deletion
 from django.db import migrations, models
 from django.utils import timezone
 
-import posthog.models.organization_domain
 import posthog.models.utils
+import posthog.models.organization_domain
 
 
 def migrate_domain_whitelist(apps, schema_editor):

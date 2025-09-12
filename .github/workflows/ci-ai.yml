@@ -25,7 +25,7 @@ jobs:
             )
 
         steps:
-            - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+            - uses: actions/checkout@v4
               with:
                   # Check out the actual branch instead of merge commit with master,
                   # because we want the Braintrust experiment to have accurate git metadata (on master it's empty)
@@ -38,7 +38,7 @@ jobs:
                   docker compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
-              uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
+              uses: actions/setup-python@v5
               with:
                   python-version-file: 'pyproject.toml'
 
@@ -59,18 +59,22 @@ jobs:
               run: bin/check_kafka_clickhouse_up
 
             - name: Run LLM evals
-              run: pytest ee/hogai/eval -vv
+              run: pytest ee/hogai/eval/ci -vv
               env:
+                  EVAL_MODE: ci
+                  EXPORT_EVAL_RESULTS: true
                   BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
                   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
                   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+                  INKEEP_API_KEY: ${{ secrets.INKEEP_API_KEY }}
                   AZURE_INFERENCE_CREDENTIAL: ${{ secrets.AZURE_INFERENCE_CREDENTIAL }}
                   AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
 
             - name: Post eval summary to PR
-              if: github.event_name == 'pull_request'
-              uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+              # always() because we want to post even if `pytest` exited with an error (likely just one eval suite errored)
+              if: always() && github.event_name == 'pull_request'
+              uses: actions/github-script@v6
               with:
                   github-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
                   script: |
@@ -147,17 +151,3 @@ jobs:
                           // Just log the summary if this is a push to master
                           console.log(body)
                       }
-
-    posthog-analytics:
-        name: PostHog CI analytics
-        if: always() && github.repository == 'PostHog/posthog' && (
-            github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'evals-ready')
-            )
-        needs: [eval] # last job in this workflow
-        runs-on: ubuntu-latest
-        steps:
-            - name: Checkout
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-            - uses: ./.github/actions/ci-analytics
-              with:
-                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}

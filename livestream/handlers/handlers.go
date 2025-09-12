@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/posthog/posthog/livestream/auth"
@@ -73,7 +74,7 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, filt
 		)
 
 		teamID, token, err = auth.GetAuthClaims(c.Request().Header)
-		if err != nil {
+		if err != nil || token == "" || teamID == 0 {
 			return echo.NewHTTPError(http.StatusUnauthorized, "wrong token")
 		}
 
@@ -111,9 +112,12 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, filt
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
-
+		timeout := time.After(30 * time.Minute)
 		for {
 			select {
+			case <-timeout:
+				log.Debug("SSE connection to be terminated after timeout")
+				return nil
 			case <-c.Request().Context().Done():
 				log.Debugf("SSE client disconnected, ip: %v", c.RealIP())
 				return nil

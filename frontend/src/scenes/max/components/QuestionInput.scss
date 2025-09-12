@@ -6,7 +6,9 @@
 
     &.QuestionInput__SuggestionsList-enter-active {
         opacity: 1;
-        transition: opacity 150ms ease-out, transform 150ms ease-out;
+        transition:
+            opacity 150ms ease-out,
+            transform 150ms ease-out;
         transform: translateY(0);
     }
 
@@ -17,7 +19,9 @@
 
     &.QuestionInput__SuggestionsList-exit-active {
         opacity: 0;
-        transition: opacity 150ms ease-out, transform 150ms ease-out;
+        transition:
+            opacity 150ms ease-out,
+            transform 150ms ease-out;
         transform: scale(0.95) translateY(-0.5rem);
     }
 }

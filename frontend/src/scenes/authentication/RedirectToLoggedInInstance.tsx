@@ -20,13 +20,15 @@
  * And it will update the subdomain, taking you to the following link
  * http://eu.posthogtest.com:8000/login?next=/apps
  */
-
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
-import { getCookie } from 'lib/api'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { roundToDecimal } from 'lib/utils'
 import { posthog } from 'posthog-js'
 import { useEffect, useState } from 'react'
+
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+
+import { getCookie } from 'lib/api'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { roundToDecimal } from 'lib/utils'
 
 // cookie values
 const PH_CURRENT_INSTANCE = 'ph_current_instance'
@@ -74,7 +76,7 @@ export function RedirectIfLoggedInOtherInstance(): JSX.Element | null {
     const [loggedInSubdomainValue, setLoggedInSubdomainValue] = useState<Subdomain | null>(null)
     const [redirectProgress, setRedirectProgress] = useState(0)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         const currentSubdomain = window.location.hostname.split('.')[0]
 
         const loggedInInstance = getCookie(PH_CURRENT_INSTANCE)
@@ -102,7 +104,7 @@ export function RedirectIfLoggedInOtherInstance(): JSX.Element | null {
             logged_in_subdomain: loggedInSubdomain,
             redirect_url: newUrl.href,
         })
-    }, [])
+    })
 
     useEffect(() => {
         if (!isOpen) {

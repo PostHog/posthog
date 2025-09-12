@@ -1,10 +1,10 @@
-import { actions, connect, kea, reducers, path } from 'kea'
+import { actions, connect, kea, path, reducers } from 'kea'
+
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
-
 import type { modalsLogicType } from './modalsLogicType'
 
 export const modalsLogic = kea<modalsLogicType>([
@@ -32,9 +32,9 @@ export const modalsLogic = kea<modalsLogicType>([
         closeDescriptionModal: true,
         openStatsEngineModal: true,
         closeStatsEngineModal: true,
-        openPrimaryMetricModal: (index: number) => ({ index }),
+        openPrimaryMetricModal: (uuid: string) => ({ uuid }),
         closePrimaryMetricModal: true,
-        openSecondaryMetricModal: (index: number) => ({ index }),
+        openSecondaryMetricModal: (uuid: string) => ({ uuid }),
         closeSecondaryMetricModal: true,
         openPrimaryMetricSourceModal: true,
         closePrimaryMetricSourceModal: true,
@@ -48,6 +48,10 @@ export const modalsLogic = kea<modalsLogicType>([
         closeVariantDeltaTimeseriesModal: true,
         openCalculateRunningTimeModal: true,
         closeCalculateRunningTimeModal: true,
+        openPrimaryMetricsReorderModal: true,
+        closePrimaryMetricsReorderModal: true,
+        openSecondaryMetricsReorderModal: true,
+        closeSecondaryMetricsReorderModal: true,
     }),
     reducers({
         isExperimentCollectionGoalModalOpen: [
@@ -153,6 +157,20 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openCalculateRunningTimeModal: () => true,
                 closeCalculateRunningTimeModal: () => false,
+            },
+        ],
+        isPrimaryMetricsReorderModalOpen: [
+            false,
+            {
+                openPrimaryMetricsReorderModal: () => true,
+                closePrimaryMetricsReorderModal: () => false,
+            },
+        ],
+        isSecondaryMetricsReorderModalOpen: [
+            false,
+            {
+                openSecondaryMetricsReorderModal: () => true,
+                closeSecondaryMetricsReorderModal: () => false,
             },
         ],
         isDescriptionModalOpen: [

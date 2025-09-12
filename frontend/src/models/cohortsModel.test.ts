@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
@@ -101,34 +102,6 @@ describe('cohortsModel', () => {
         })
     })
 
-    describe('cohort filters', () => {
-        it('can set and update filters', async () => {
-            // Navigate to cohorts page first
-            router.actions.push(urls.cohorts())
-
-            // Wait for initial load
-            await expectLogic(logic).toDispatchActions(['loadCohortsSuccess'])
-
-            // Test search filter
-            await expectLogic(logic, () => {
-                logic.actions.setCohortFilters({ search: 'test' })
-            })
-                .toDispatchActions(['setCohortFilters', 'loadCohorts', 'loadCohortsSuccess'])
-                .toMatchValues({
-                    cohortFilters: expect.objectContaining({ search: 'test' }),
-                })
-
-            // Test pagination
-            await expectLogic(logic, () => {
-                logic.actions.setCohortFilters({ page: 2 })
-            })
-                .toDispatchActions(['setCohortFilters', 'loadCohorts', 'loadCohortsSuccess'])
-                .toMatchValues({
-                    cohortFilters: expect.objectContaining({ page: 2 }),
-                })
-        })
-    })
-
     describe('cohort operations', () => {
         it('can update a cohort', async () => {
             // Wait for initial load
@@ -186,19 +159,6 @@ describe('cohortsModel', () => {
     })
 
     describe('selectors', () => {
-        it('correctly calculates pagination values', async () => {
-            // Wait for initial load
-            await expectLogic(logic).toDispatchActions(['loadCohortsSuccess'])
-
-            await expectLogic(logic).toMatchValues({
-                pagination: expect.objectContaining({
-                    currentPage: 1,
-                    pageSize: 100,
-                    entryCount: 2,
-                }),
-            })
-        })
-
         it('correctly maps cohorts by id', async () => {
             await expectLogic(logic)
                 .toDispatchActions(['loadAllCohortsSuccess'])

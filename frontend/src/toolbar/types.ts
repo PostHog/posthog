@@ -85,6 +85,8 @@ export type WebExperimentDraftType = Omit<
     | 'filters'
     | 'metrics'
     | 'metrics_secondary'
+    | 'primary_metrics_ordered_uuids'
+    | 'secondary_metrics_ordered_uuids'
     | 'saved_metrics_ids'
     | 'saved_metrics'
     | 'parameters'

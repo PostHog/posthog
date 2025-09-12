@@ -2,8 +2,6 @@ from uuid import uuid4
 
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
-from posthog.exceptions_capture import capture_exception
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
@@ -15,7 +13,11 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from ..base import AssistantNode
+from posthog.exceptions_capture import capture_exception
+
+from ee.hogai.graph.base import AssistantNode
+from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
+
 from .prompts import (
     FALLBACK_EXAMPLE_PROMPT,
     FUNNEL_STEPS_EXAMPLE_PROMPT,
@@ -53,7 +55,7 @@ class QueryExecutorNode(AssistantNode):
         except Exception as err:
             if isinstance(err, NotImplementedError):
                 raise
-            capture_exception(err)
+            capture_exception(err, additional_properties=self._get_debug_props(config))
             return PartialAssistantState(messages=[FailureMessage(content=str(err), id=str(uuid4()))])
 
         query_result = QUERY_RESULTS_PROMPT.format(

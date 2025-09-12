@@ -1,8 +1,8 @@
+import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconCode, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { useState } from 'react'
 
 import {
     CyclotronJobTemplateOption,
@@ -11,7 +11,7 @@ import {
 
 export type CyclotronJobTemplateSuggestionsProps = {
     templating: 'hog' | 'liquid'
-    setTemplating?: (templating: 'hog' | 'liquid') => void
+    setTemplatingEngine?: (templating: 'hog' | 'liquid') => void
     value: string
     onOptionSelect: (option: CyclotronJobTemplateOption) => void
 }
@@ -35,7 +35,7 @@ function CyclotronJobTemplateSuggestionsItem({
 
 export function CyclotronJobTemplateSuggestions({
     templating,
-    setTemplating,
+    setTemplatingEngine,
     onOptionSelect,
 }: CyclotronJobTemplateSuggestionsProps): JSX.Element {
     const logic = cyclotronJobTemplateSuggestionsLogic({ templating })
@@ -60,18 +60,16 @@ export function CyclotronJobTemplateSuggestions({
                         fullWidth
                     />
 
-                    {setTemplating ? (
-                        <FlaggedFeature flag="cdp-hog-input-liquid">
-                            <LemonSelect
-                                value={templating}
-                                onChange={setTemplating}
-                                options={[
-                                    { label: 'Hog', value: 'hog' },
-                                    { label: 'Liquid', value: 'liquid' },
-                                ]}
-                                tooltip="Change the templating language"
-                            />
-                        </FlaggedFeature>
+                    {setTemplatingEngine ? (
+                        <LemonSelect
+                            value={templating}
+                            onChange={setTemplatingEngine}
+                            options={[
+                                { label: 'Hog', value: 'hog' },
+                                { label: 'Liquid', value: 'liquid' },
+                            ]}
+                            tooltip="Change the templating language"
+                        />
                     ) : null}
                 </div>
                 <div className="text-xs text-secondary">

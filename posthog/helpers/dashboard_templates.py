@@ -1,12 +1,9 @@
-from typing import Optional
 from collections.abc import Callable
+from typing import Optional
 
 import structlog
 
-from posthog.constants import (
-    AvailableFeature,
-    ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER,
-)
+from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER, AvailableFeature
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.dashboard_tile import DashboardTile, Text
@@ -469,7 +466,7 @@ DASHBOARD_TEMPLATES: dict[str, Callable] = {
 # end of area to be removed
 
 
-def create_from_template(dashboard: Dashboard, template: DashboardTemplate) -> None:
+def create_from_template(dashboard: Dashboard, template: DashboardTemplate, user=None) -> None:
     if not dashboard.name or dashboard.name == "":
         dashboard.name = template.template_name
     dashboard.filters = template.dashboard_filters
@@ -494,6 +491,7 @@ def create_from_template(dashboard: Dashboard, template: DashboardTemplate) -> N
                 description=template_tile.get("description"),
                 color=template_tile.get("color"),
                 layouts=template_tile.get("layouts"),
+                user=user,
             )
         elif template_tile["type"] == "TEXT":
             _create_tile_for_text(

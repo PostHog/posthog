@@ -1,15 +1,17 @@
 import pytest
+from posthog.test.base import BaseTest
+
 from inline_snapshot import snapshot
 
-from common.hogvm.python.utils import UncaughtHogVMException
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.hubspot.template_hubspot import (
+    TemplateHubspotMigrator,
     template as template_hubspot,
     template_event as template_hubspot_event,
-    TemplateHubspotMigrator,
 )
 from posthog.models import PluginConfig
-from posthog.test.base import BaseTest
+
+from common.hogvm.python.utils import UncaughtHogVMException
 
 
 class TestTemplateHubspot(BaseHogFunctionTemplateTest):
@@ -423,8 +425,8 @@ class TestTemplateMigration(BaseTest):
 
     def test_default_config(self):
         obj = self.get_plugin_config({})
-        template = TemplateHubspotMigrator.migrate(obj)
-        assert template["inputs"] == snapshot(
+        fn = TemplateHubspotMigrator.migrate(obj)
+        assert fn["inputs"] == snapshot(
             {
                 "access_token": {"value": "toky"},
                 "email": {"value": "{person.properties.email}"},
@@ -440,15 +442,15 @@ class TestTemplateMigration(BaseTest):
                 },
             }
         )
-        assert template["filters"] == {
+        assert fn["filters"] == {
             "properties": [{"key": "email", "value": "gmail.com", "operator": "not_icontains", "type": "person"}],
             "events": [
                 {"id": "$identify", "name": "$identify", "type": "events", "properties": []},
                 {"id": "$set", "name": "$set", "type": "events", "properties": []},
             ],
         }
-        assert template["inputs_schema"][0]["key"] == "access_token"
-        assert template["inputs_schema"][0]["type"] == "string"
-        assert template["inputs_schema"][0]["secret"]
-        assert "inputs.oauth.access_token" not in template["hog"]
-        assert "inputs.access_token" in template["hog"]
+        assert fn["inputs_schema"][0]["key"] == "access_token"
+        assert fn["inputs_schema"][0]["type"] == "string"
+        assert fn["inputs_schema"][0]["secret"]
+        assert "inputs.oauth.access_token" not in fn["hog"]
+        assert "inputs.access_token" in fn["hog"]

@@ -1,29 +1,25 @@
-from typing import cast, Literal
+from typing import Literal, cast
+
+from posthog.schema import (
+    CachedWebStatsTableQueryResponse,
+    WebAnalyticsOrderByDirection,
+    WebAnalyticsOrderByFields,
+    WebExternalClicksTableQuery,
+    WebExternalClicksTableQueryResponse,
+    WebStatsTableQueryResponse,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import (
-    property_to_expr,
-)
+from posthog.hogql.property import property_to_expr
+
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
-    WebAnalyticsQueryRunner,
-    map_columns,
-)
-from posthog.schema import (
-    CachedWebStatsTableQueryResponse,
-    WebStatsTableQueryResponse,
-    WebExternalClicksTableQuery,
-    WebExternalClicksTableQueryResponse,
-    WebAnalyticsOrderByFields,
-    WebAnalyticsOrderByDirection,
-)
+from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner, map_columns
 
 
-class WebExternalClicksTableQueryRunner(WebAnalyticsQueryRunner):
+class WebExternalClicksTableQueryRunner(WebAnalyticsQueryRunner[WebExternalClicksTableQueryResponse]):
     query: WebExternalClicksTableQuery
-    response: WebExternalClicksTableQueryResponse
     cached_response: CachedWebStatsTableQueryResponse
     paginator: HogQLHasMorePaginator
 
@@ -114,7 +110,7 @@ GROUP BY "context.columns.url"
         properties = self.query.properties + self._test_account_filters
         return property_to_expr(properties, team=self.team)
 
-    def calculate(self):
+    def _calculate(self):
         query = self.to_query()
         response = self.paginator.execute_hogql_query(
             query_type="stats_table_query",

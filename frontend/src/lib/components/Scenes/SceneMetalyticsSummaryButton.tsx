@@ -1,11 +1,13 @@
+import { useActions, useValues } from 'kea'
+
 import { IconPulse } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { FlaggedFeature } from '../FlaggedFeature'
 import { metalyticsLogic } from '../Metalytics/metalyticsLogic'
 import { SceneDataAttrKeyProps } from './utils'

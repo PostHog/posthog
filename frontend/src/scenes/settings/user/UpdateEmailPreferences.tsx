@@ -1,7 +1,9 @@
-import { LemonButton, LemonCheckbox, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
+
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -12,7 +14,7 @@ export function UpdateEmailPreferences(): JSX.Element {
 
     const weeklyDigestEnabled = !user?.notification_settings?.all_weekly_digest_disabled
     const [weeklyDigestProjectsExpanded, setWeeklyDigestProjectsExpanded] = useState(weeklyDigestEnabled)
-    const pipelineErrorsEnabled = !user?.notification_settings?.plugin_disabled
+    const pipelineErrorsEnabled = user?.notification_settings?.plugin_disabled ?? true
 
     const updateWeeklyDigestForProject = (teamId: number, enabled: boolean): void => {
         if (!user?.notification_settings) {

@@ -77,6 +77,13 @@ else
     fi
 fi
 
+if ! grep -q "SESSION_RECORDING_V2_METADATA_SWITCHOVER" .env; then
+  SESSION_RECORDING_V2_METADATA_SWITCHOVER=$(date -Iseconds)
+  echo "SESSION_RECORDING_V2_METADATA_SWITCHOVER=$SESSION_RECORDING_V2_METADATA_SWITCHOVER" >> .env
+  echo "Added missing SESSION_RECORDING_V2_METADATA_SWITCHOVER to .env file"
+  echo "Session replay will switch to v2 ingestion"
+  source .env
+fi
 
 export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest-release}"
 

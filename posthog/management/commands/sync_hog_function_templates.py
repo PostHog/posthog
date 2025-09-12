@@ -1,12 +1,16 @@
-from django.core.management.base import BaseCommand
-import structlog
 import time
+import dataclasses
+
 from django.conf import settings
+from django.core.management.base import BaseCommand
+
+import structlog
+
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
-from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
-from posthog.plugins.plugin_server_api import get_hog_function_templates
-from posthog.api.hog_function_template import HogFunctionTemplateSerializer
+from posthog.cdp.templates.hog_function_template import sync_template_to_db
+from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.hog_functions.hog_function import HogFunctionType
+from posthog.plugins.plugin_server_api import get_hog_function_templates
 
 logger = structlog.get_logger(__name__)
 
@@ -44,36 +48,24 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         start_time = time.time()
         total_templates = 0
-        created_count = 0
         updated_count = 0
-        skipped_count = 0
         error_count = 0
+        deleted_count = 0
 
         self.stdout.write("Starting HogFunction template sync...")
 
+        all_templates: list[dict] = []
+        current_template_ids = set()
+
         # Process templates from HOG_FUNCTION_TEMPLATES (Python templates)
-        for template in HOG_FUNCTION_TEMPLATES:
-            try:
-                if not self.should_include_python_template(template):
-                    continue
+        for template_dc in HOG_FUNCTION_TEMPLATES:
+            if not self.should_include_python_template(template_dc):
+                continue
 
-                total_templates += 1
-                result = self._process_template(template)
-
-                if result == "created":
-                    created_count += 1
-                elif result == "updated":
-                    updated_count += 1
-                elif result == "skipped":
-                    skipped_count += 1
-            except Exception as e:
-                error_count += 1
-                logger.error(
-                    "Error syncing template to database",
-                    template_id=template.id,
-                    error=str(e),
-                    exc_info=True,
-                )
+            total_templates += 1
+            template_dict = dataclasses.asdict(template_dc)
+            all_templates.append(template_dict)
+            current_template_ids.add(template_dict["id"])
 
         # Process templates from Node.js
         try:
@@ -81,31 +73,11 @@ class Command(BaseCommand):
             if response.status_code == 200:
                 nodejs_templates_json = response.json()
                 for template_data in nodejs_templates_json:
-                    try:
-                        if not self.should_include_nodejs_template(template_data):
-                            continue
+                    if not self.should_include_nodejs_template(template_data):
+                        continue
 
-                        serializer = HogFunctionTemplateSerializer(data=template_data)
-                        serializer.is_valid(raise_exception=True)
-                        template = serializer.save()
-
-                        total_templates += 1
-                        result = self._process_template(template)
-
-                        if result == "created":
-                            created_count += 1
-                        elif result == "updated":
-                            updated_count += 1
-                        elif result == "skipped":
-                            skipped_count += 1
-                    except Exception as e:
-                        error_count += 1
-                        logger.error(
-                            "Error processing Node.js template",
-                            template_id=template_data.get("id", "unknown"),
-                            error=str(e),
-                            exc_info=True,
-                        )
+                    all_templates.append(template_data)
+                    current_template_ids.add(template_data["id"])
             else:
                 self.stdout.write(
                     self.style.WARNING(f"Failed to fetch Node.js templates. Status code: {response.status_code}")
@@ -114,29 +86,47 @@ class Command(BaseCommand):
         except Exception as e:
             self.stdout.write(self.style.ERROR(f"Error fetching Node.js templates: {str(e)}"))
 
+        for template_data in all_templates:
+            try:
+                sync_template_to_db(template_data)
+
+                updated_count += 1
+            except Exception as e:
+                error_count += 1
+                logger.error(
+                    "Error processing template",
+                    template_id=template_data.get("id", "unknown"),
+                    error=str(e),
+                    exc_info=True,
+                )
+
+        try:
+            existing_templates = HogFunctionTemplate.objects.values_list("template_id", flat=True).distinct()
+
+            candidates_for_deletion = {
+                tid for tid in existing_templates if tid.startswith("coming-soon-")
+            } - current_template_ids
+
+            if candidates_for_deletion:
+                templates_to_delete = HogFunctionTemplate.objects.filter(template_id__in=candidates_for_deletion)
+                deleted_count += templates_to_delete.delete()[0]
+
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"Deleted {deleted_count} unused templates: {', '.join(candidates_for_deletion)}"
+                    )
+                )
+        except Exception as e:
+            logger.error("Error checking for unused templates", error=str(e), exc_info=True)
+
         # Output summary
         duration = time.time() - start_time
         self.stdout.write(
             self.style.SUCCESS(
                 f"Sync completed in {duration:.2f}s. "
                 f"Templates: {total_templates}, "
-                f"Created: {created_count}, "
-                f"Updated: {updated_count}, "
-                f"Skipped: {skipped_count}, "
+                f"Created or updated: {updated_count}, "
+                f"Deleted: {deleted_count}, "
                 f"Errors: {error_count}"
             )
         )
-
-    def _process_template(self, template):
-        """Process a single template and return the result status"""
-
-        # Create or update the template
-        _, created = DBHogFunctionTemplate.create_from_dataclass(template)
-
-        if created:
-            self.stdout.write(f"Created template: {template.id}")
-            return "created"
-        else:
-            # New template
-            self.stdout.write(f"Updated template: {template.id}")
-            return "updated"

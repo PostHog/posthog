@@ -1,6 +1,8 @@
-import { LemonButton, LemonInput, LemonTextAreaMarkdown } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { LemonButton, LemonInput, LemonTextAreaMarkdown } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -14,7 +16,8 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
     } = useValues(sessionRecordingPlayerLogic)
     const { setIsCommenting } = useActions(sessionRecordingPlayerLogic)
 
-    const theBuiltOverlayLogic = playerCommentOverlayLogic({ recordingId: sessionRecordingId, ...logicProps })
+    const playerCommentOverlayLogicProps = { recordingId: sessionRecordingId, ...logicProps }
+    const theBuiltOverlayLogic = playerCommentOverlayLogic(playerCommentOverlayLogicProps)
     const { recordingComment, isRecordingCommentSubmitting } = useValues(theBuiltOverlayLogic)
     const { submitRecordingComment, resetRecordingComment } = useActions(theBuiltOverlayLogic)
 
@@ -23,6 +26,7 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
             <div className="flex flex-col bg-primary border border-border rounded p-2 shadow-lg">
                 <Form
                     logic={playerCommentOverlayLogic}
+                    props={playerCommentOverlayLogicProps}
                     formKey="recordingComment"
                     id="recording-comment-form"
                     enableFormOnSubmit

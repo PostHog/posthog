@@ -1,6 +1,7 @@
 import datetime as dt
 
 import pytest
+
 from django.test.client import Client as DjangoTestClient
 
 from posthog.api.test.test_organization import create_organization
@@ -15,6 +16,7 @@ from posthog.warehouse.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 def create_external_data_job_log_entry(
@@ -69,7 +71,7 @@ def external_data_resources(client, organization, team):
         source_id="source_id",
         connection_id="connection_id",
         status=ExternalDataSource.Status.COMPLETED,
-        source_type=ExternalDataSource.Type.STRIPE,
+        source_type=ExternalDataSourceType.STRIPE,
     )
     credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=team)
     warehouse_table = DataWarehouseTable.objects.create(

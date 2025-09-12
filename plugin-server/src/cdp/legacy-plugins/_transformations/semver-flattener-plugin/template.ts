@@ -1,5 +1,6 @@
-import { LegacyTransformationPlugin } from '../../types'
 import { processEvent } from '.'
+
+import { LegacyTransformationPlugin } from '../../types'
 
 export const semverFlattenerPlugin: LegacyTransformationPlugin = {
     processEvent,
@@ -13,7 +14,7 @@ export const semverFlattenerPlugin: LegacyTransformationPlugin = {
         icon_url: '/static/transformations/semver-flattener.png',
         category: ['Transformation'],
         code_language: 'javascript',
-        hog: `return event`,
+        code: `return event`,
         inputs_schema: [
             {
                 key: 'properties',

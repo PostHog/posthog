@@ -12,6 +12,7 @@
 
         pre {
             padding-top: 0.375rem;
+            padding-bottom: 0.375rem;
         }
     }
 
@@ -21,13 +22,13 @@
         right: 0.5rem;
         display: flex;
         gap: 0.5rem;
-        background: var(--bg-surface-primary) !important; // so that you can see button when over unwrapped text
+        background: var(--color-bg-surface-primary) !important; // so that you can see button when over unwrapped text
     }
 
     pre {
         padding: 0.75rem 1rem;
-        background: var(--bg-surface-primary) !important;
-        border: solid 1px var(--border-primary) !important;
+        background: var(--color-bg-surface-primary) !important;
+        border: solid 1px var(--color-border-primary) !important;
         border-radius: var(--radius) !important;
     }
 }

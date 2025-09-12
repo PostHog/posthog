@@ -2,11 +2,12 @@ import './PlayerInspectorList.scss'
 
 import { range } from 'd3'
 import { useActions, useValues } from 'kea'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useEffect, useMemo, useRef } from 'react'
 import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
 import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
+
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerInspectorListItem } from './components/PlayerInspectorListItem'
@@ -65,7 +66,7 @@ export function PlayerInspectorList(): JSX.Element {
                 listRef.current.scrollToRow(playbackIndicatorIndex)
             }
         }
-    }, [playbackIndicatorIndex])
+    }, [playbackIndicatorIndex]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const renderRow: ListRowRenderer = ({ index, key, parent, style }) => {
         return (

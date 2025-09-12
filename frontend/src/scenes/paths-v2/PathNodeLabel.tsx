@@ -1,14 +1,16 @@
+import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, InsightLogicProps } from '~/types'
 
+import { PathNodeData, pageUrl } from './pathUtils'
 import { pathsDataLogic } from './pathsDataLogic'
-import { pageUrl, PathNodeData } from './pathUtils'
 import { NODE_LABEL_HEIGHT, NODE_LABEL_LEFT_OFFSET, NODE_LABEL_TOP_OFFSET, NODE_LABEL_WIDTH } from './renderPaths'
 
 export type PathNodeLabelProps = {

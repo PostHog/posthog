@@ -1,5 +1,5 @@
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
-import { ExperimentMetricType } from '~/queries/schema/schema-general'
+import { isExperimentFunnelMetric, isExperimentMeanMetric } from '~/queries/schema/schema-general'
 import { ExperimentMetricMathType } from '~/types'
 
 import { ConversionRateInputType } from './runningTimeCalculatorLogic'
@@ -19,14 +19,11 @@ export const calculateVariance = (
         return null
     }
 
-    if (
-        metric.metric_type === ExperimentMetricType.MEAN &&
-        metric.source.math === ExperimentMetricMathType.TotalCount
-    ) {
+    if (isExperimentMeanMetric(metric) && metric.source.math === ExperimentMetricMathType.TotalCount) {
         return VARIANCE_SCALING_FACTOR_TOTAL_COUNT * averageEventsPerUser
     }
 
-    if (metric.metric_type === ExperimentMetricType.MEAN && metric.source.math === ExperimentMetricMathType.Sum) {
+    if (isExperimentMeanMetric(metric) && metric.source.math === ExperimentMetricMathType.Sum) {
         return VARIANCE_SCALING_FACTOR_SUM * averagePropertyValuePerUser ** 2
     }
 
@@ -53,10 +50,7 @@ export const calculateRecommendedSampleSize = (
     let d // Represents the absolute effect size (difference we want to detect)
     let sampleSizeFormula // The correct sample size formula for each metric type
 
-    if (
-        metric.metric_type === ExperimentMetricType.MEAN &&
-        metric.source.math === ExperimentMetricMathType.TotalCount
-    ) {
+    if (isExperimentMeanMetric(metric) && metric.source.math === ExperimentMetricMathType.TotalCount) {
         /**
          * Count Per User Metric:
          * - "mean" is the average number of events per user (e.g., clicks per user).
@@ -80,10 +74,7 @@ export const calculateRecommendedSampleSize = (
          * - `d` is the absolute effect size (MDE * mean).
          */
         sampleSizeFormula = (16 * variance) / d ** 2
-    } else if (
-        metric.metric_type === ExperimentMetricType.MEAN &&
-        metric.source.math === ExperimentMetricMathType.Sum
-    ) {
+    } else if (isExperimentMeanMetric(metric) && metric.source.math === ExperimentMetricMathType.Sum) {
         /**
          * Continuous property metric:
          *
@@ -106,7 +97,7 @@ export const calculateRecommendedSampleSize = (
          * - The formula is identical to the Count metric case.
          */
         sampleSizeFormula = (16 * variance) / d ** 2
-    } else if (metric.metric_type === ExperimentMetricType.FUNNEL) {
+    } else if (isExperimentFunnelMetric(metric)) {
         const manualConversionRateDecimal = manualConversionRate / 100
         const conversionRate =
             conversionRateInputType === ConversionRateInputType.MANUAL

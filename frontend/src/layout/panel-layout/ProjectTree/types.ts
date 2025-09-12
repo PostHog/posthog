@@ -1,16 +1,16 @@
 import {
     ContextMenuItem,
     ContextMenuSeparator,
-    ContextMenuSubTrigger,
-    ContextMenuSubContent,
     ContextMenuSub,
+    ContextMenuSubContent,
+    ContextMenuSubTrigger,
 } from 'lib/ui/ContextMenu/ContextMenu'
 import {
     DropdownMenuItem,
     DropdownMenuSeparator,
     DropdownMenuSub,
-    DropdownMenuSubTrigger,
     DropdownMenuSubContent,
+    DropdownMenuSubTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 
 import { FileSystemEntry } from '~/queries/schema/schema-general'

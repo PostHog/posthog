@@ -1,17 +1,19 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
-import { DashboardsTable } from 'scenes/dashboard/dashboards/DashboardsTable'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { DashboardTemplateChooser } from 'scenes/dashboard/DashboardTemplateChooser'
-import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
+import { DashboardsTable } from 'scenes/dashboard/dashboards/DashboardsTable'
+import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { FeatureFlagType } from '~/types'
 
 import { featureFlagLogic } from './featureFlagLogic'
 
-export function AnalysisTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType }): JSX.Element {
+export function AnalysisTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     return (
         <div className="NewDashboardModal">
             <BindLogic logic={newDashboardLogic} props={{ featureFlagId: featureFlag.id as number }}>

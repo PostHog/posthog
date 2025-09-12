@@ -57,8 +57,8 @@ describe('deduplicateEvents', () => {
 
         // Mock deduplicateIds to return duplicates
         const duplicateKeys = new Set([
-            '7a184cabe9cce485b181a9b8113845fededc36f56d7d4eff4fbebca53abd55f7',
-            'd0eafb964a9b3a603d44cea8376f5434e24fec80760e0bed1cd5b76ee5869796',
+            '7ebcf011d2a6c17c9405fb2da91cba540aceab53ca59e562f49eacf6fd47996d',
+            '7bfa9b827deb2126be762b189062579f0f962c169d25d4f002341c2679f4502b',
         ])
         deduplicationRedis.deduplicateIds = jest.fn().mockResolvedValue({
             duplicates: duplicateKeys,
@@ -69,8 +69,8 @@ describe('deduplicateEvents', () => {
 
         expect(deduplicationRedis.deduplicateIds).toHaveBeenCalledWith({
             keys: [
-                '7a184cabe9cce485b181a9b8113845fededc36f56d7d4eff4fbebca53abd55f7',
-                'd0eafb964a9b3a603d44cea8376f5434e24fec80760e0bed1cd5b76ee5869796',
+                '7ebcf011d2a6c17c9405fb2da91cba540aceab53ca59e562f49eacf6fd47996d',
+                '7bfa9b827deb2126be762b189062579f0f962c169d25d4f002341c2679f4502b',
             ],
         })
         expect(deduplicationRedis.deduplicate).not.toHaveBeenCalled()
@@ -128,7 +128,7 @@ describe('deduplicateEvents', () => {
         await deduplicateEvents(deduplicationRedis, messages)
 
         expect(deduplicationRedis.deduplicateIds).toHaveBeenCalledWith({
-            keys: ['7a184cabe9cce485b181a9b8113845fededc36f56d7d4eff4fbebca53abd55f7'],
+            keys: ['7ebcf011d2a6c17c9405fb2da91cba540aceab53ca59e562f49eacf6fd47996d'],
         })
         expect(deduplicationRedis.deduplicate).not.toHaveBeenCalled()
 

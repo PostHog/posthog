@@ -218,7 +218,7 @@ impl Worker {
 
             let should_heartbeat = update
                 .last_heartbeat
-                .map_or(true, |last| Utc::now() - last > self.heartbeat_window);
+                .is_none_or(|last| Utc::now() - last > self.heartbeat_window);
 
             if !should_heartbeat {
                 return Ok(());
@@ -414,7 +414,7 @@ impl FlushBatch {
         // handle.
         let mut i = 0;
         while i < self.pending.len() {
-            if self.pending[i].deadline.map_or(false, |d| d < now) && self.pending[i].tries > 0 {
+            if self.pending[i].deadline.is_some_and(|d| d < now) && self.pending[i].tries > 0 {
                 self.pending.swap_remove(i).fail_deadline_exceeded();
             } else {
                 i += 1;

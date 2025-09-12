@@ -2,16 +2,23 @@ import { Message, MessageHeader } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 import { z } from 'zod'
 
+import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { MessageSizeTooLarge } from '~/utils/db/error'
 import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
-import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
+import { KafkaConsumer, parseEventHeaders, parseKafkaHeaders } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
-import { latestOffsetTimestampGauge, setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
-import { runInstrumentedFunction } from '../main/utils'
 import {
+    eventDroppedCounter,
+    latestOffsetTimestampGauge,
+    setUsageInNonPersonEventsCounter,
+} from '../main/ingestion-queues/metrics'
+import {
+    EventHeaders,
+    HealthCheckResult,
+    HealthCheckResultError,
     Hub,
     IncomingEventWithTeam,
     KafkaConsumerBreadcrumb,
@@ -28,13 +35,14 @@ import { PromiseScheduler } from '../utils/promise-scheduler'
 import { retryIfRetriable } from '../utils/retries'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
-import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch'
+import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
 import { deduplicateEvents } from './deduplication/events'
-import { createDeduplicationRedis, DeduplicationRedis } from './deduplication/redis-client'
+import { DeduplicationRedis, createDeduplicationRedis } from './deduplication/redis-client'
 import {
     applyDropEventsRestrictions,
+    applyForceOverflowRestrictions,
     applyPersonProcessingRestrictions,
     parseKafkaMessage,
     resolveTeam,
@@ -50,12 +58,6 @@ const ingestionEventOverflowed = new Counter({
 const forcedOverflowEventsCounter = new Counter({
     name: 'ingestion_forced_overflow_events_total',
     help: 'Number of events that were routed to overflow because they matched the force overflow tokens list',
-})
-
-const headerEventMismatchCounter = new Counter({
-    name: 'ingestion_header_event_mismatch_total',
-    help: 'Number of events where headers do not match the parsed event data',
-    labelNames: ['token', 'distinct_id'],
 })
 
 type EventsForDistinctId = {
@@ -76,7 +78,7 @@ const KNOWN_SET_EVENTS = new Set([
     'survey sent',
 ])
 
-const trackIfNonPersonEventUpdatesPersons = (event: PipelineEvent) => {
+const trackIfNonPersonEventUpdatesPersons = (event: PipelineEvent): void => {
     if (
         !PERSON_EVENTS.has(event.event) &&
         !KNOWN_SET_EVENTS.has(event.event) &&
@@ -150,21 +152,24 @@ export class IngestionConsumer {
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
 
-        this.personStore = new BatchWritingPersonsStore(this.hub.db, {
+        this.personStore = new BatchWritingPersonsStore(this.hub.personRepository, this.hub.db.kafkaProducer, {
             dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
             maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
             optimisticUpdateRetryInterval: this.hub.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
         })
 
-        this.groupStore = new BatchWritingGroupStore(this.hub.db, {
+        this.groupStore = new BatchWritingGroupStore(this.hub, {
             maxConcurrentUpdates: this.hub.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.hub.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
             optimisticUpdateRetryInterval: this.hub.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
         })
 
         this.deduplicationRedis = createDeduplicationRedis(this.hub)
-        this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
+        this.kafkaConsumer = new KafkaConsumer({
+            groupId: this.groupId,
+            topic: this.topic,
+        })
     }
 
     public get service(): PluginServerService {
@@ -188,11 +193,13 @@ export class IngestionConsumer {
         ])
 
         await this.kafkaConsumer.connect(async (messages) => {
-            return await runInstrumentedFunction({
-                statsKey: `ingestionConsumer.handleEachBatch`,
-                sendException: false,
-                func: async () => await this.handleKafkaBatch(messages),
-            })
+            return await instrumentFn(
+                {
+                    key: `ingestionConsumer.handleEachBatch`,
+                    sendException: false,
+                },
+                async () => await this.handleKafkaBatch(messages)
+            )
         })
     }
 
@@ -214,12 +221,15 @@ export class IngestionConsumer {
         logger.info('👍', `${this.name} - stopped!`)
     }
 
-    public isHealthy() {
-        return this.kafkaConsumer?.isHealthy()
+    public isHealthy(): HealthCheckResult {
+        if (!this.kafkaConsumer) {
+            return new HealthCheckResultError('Kafka consumer not initialized', {})
+        }
+        return this.kafkaConsumer.isHealthy()
     }
 
     private runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {
-        return runInstrumentedFunction<T>({ statsKey: `ingestionConsumer.${name}`, func })
+        return instrumentFn<T>(`ingestionConsumer.${name}`, func)
     }
 
     private createBreadcrumb(message: Message): KafkaConsumerBreadcrumb {
@@ -239,7 +249,7 @@ export class IngestionConsumer {
                 if ('kafka-consumer-breadcrumbs' in header) {
                     try {
                         const headerValue = header['kafka-consumer-breadcrumbs']
-                        const valueString = headerValue instanceof Buffer ? headerValue.toString() : headerValue
+                        const valueString = headerValue instanceof Buffer ? headerValue.toString() : String(headerValue)
                         const parsedValue = parseJSON(valueString)
                         if (Array.isArray(parsedValue)) {
                             const validatedBreadcrumbs = z.array(KafkaConsumerBreadcrumbSchema).safeParse(parsedValue)
@@ -514,7 +524,7 @@ export class IngestionConsumer {
         personsStoreForBatch: PersonsStoreForBatch,
         groupStoreForBatch: GroupStoreForBatch
     ): Promise<EventPipelineResult | undefined> {
-        const { event, message, team } = incomingEvent
+        const { event, message, team, headers } = incomingEvent
 
         const existingBreadcrumbs = this.getExistingBreadcrumbsFromHeaders(message)
         const currentBreadcrumb = this.createBreadcrumb(message)
@@ -527,7 +537,8 @@ export class IngestionConsumer {
                         event,
                         allBreadcrumbs,
                         personsStoreForBatch,
-                        groupStoreForBatch
+                        groupStoreForBatch,
+                        headers
                     )
                     return await runner.runEventPipeline(event, team)
                 })
@@ -548,7 +559,7 @@ export class IngestionConsumer {
         }
     }
 
-    private async handleProcessingErrorV1(error: any, message: Message, event: PipelineEvent) {
+    private async handleProcessingErrorV1(error: any, message: Message, event: PipelineEvent): Promise<void> {
         logger.error('🔥', `Error processing message`, {
             stack: error.stack,
             error: error,
@@ -599,7 +610,8 @@ export class IngestionConsumer {
         event: PipelineEvent,
         breadcrumbs: KafkaConsumerBreadcrumb[] = [],
         personsStoreForBatch: PersonsStoreForBatch,
-        groupStoreForBatch: GroupStoreForBatch
+        groupStoreForBatch: GroupStoreForBatch,
+        headers?: EventHeaders
     ): EventPipelineRunner {
         return new EventPipelineRunner(
             this.hub,
@@ -607,7 +619,8 @@ export class IngestionConsumer {
             this.hogTransformer,
             breadcrumbs,
             personsStoreForBatch,
-            groupStoreForBatch
+            groupStoreForBatch,
+            headers
         )
     }
 
@@ -615,17 +628,36 @@ export class IngestionConsumer {
         const preprocessedEvents: IncomingEventWithTeam[] = []
 
         for (const message of messages) {
-            const filteredMessage = applyDropEventsRestrictions(message, this.eventIngestionRestrictionManager)
-            if (!filteredMessage) {
+            const headers = parseEventHeaders(message.headers)
+
+            if (applyDropEventsRestrictions(this.eventIngestionRestrictionManager, headers)) {
+                eventDroppedCounter
+                    .labels({
+                        event_type: 'analytics',
+                        drop_cause: 'blocked_token',
+                    })
+                    .inc()
                 continue
             }
 
-            const parsedEvent = parseKafkaMessage(filteredMessage)
+            const forceOverflowDecision = applyForceOverflowRestrictions(this.eventIngestionRestrictionManager, headers)
+            if (forceOverflowDecision.shouldRedirect && this.overflowEnabled()) {
+                ingestionEventOverflowed.inc(1)
+                forcedOverflowEventsCounter.inc()
+                void this.promiseScheduler.schedule(
+                    this.emitToOverflow([message], forceOverflowDecision.preservePartitionLocality)
+                )
+                continue
+            }
+
+            const parsedEvent = parseKafkaMessage(message)
             if (!parsedEvent) {
                 continue
             }
 
-            const eventWithTeam = await resolveTeam(this.hub, parsedEvent)
+            const eventWithHeaders = { ...parsedEvent, headers }
+
+            const eventWithTeam = await resolveTeam(this.hub, eventWithHeaders)
             if (!eventWithTeam) {
                 continue
             }
@@ -648,7 +680,7 @@ export class IngestionConsumer {
         const groupedEvents: IncomingEventsByDistinctId = {}
 
         for (const eventWithTeam of messages) {
-            const { message, event, team } = eventWithTeam
+            const { message, event, team, headers } = eventWithTeam
             const token = event.token ?? ''
             const distinctId = event.distinct_id ?? ''
             const eventKey = `${token}:${distinctId}`
@@ -663,65 +695,27 @@ export class IngestionConsumer {
                 }
             }
 
-            groupedEvents[eventKey].events.push({ message, event, team })
+            groupedEvents[eventKey].events.push({ message, event, team, headers })
         }
 
         return groupedEvents
     }
 
-    private shouldSkipPerson(token?: string, distinctId?: string) {
+    private shouldSkipPerson(token?: string, distinctId?: string): boolean {
         if (!token) {
             return false
         }
         return this.eventIngestionRestrictionManager.shouldSkipPerson(token, distinctId)
     }
 
-    private shouldForceOverflow(token?: string, distinctId?: string) {
+    private shouldForceOverflow(token?: string, distinctId?: string): boolean {
         if (!token) {
             return false
         }
         return this.eventIngestionRestrictionManager.shouldForceOverflow(token, distinctId)
     }
 
-    private validateHeadersMatchEvent(event: PipelineEvent, headerToken?: string, headerDistinctId?: string) {
-        let tokenStatus = 'ok'
-        if (!headerToken && event.token) {
-            tokenStatus = 'missing_in_header'
-        } else if (headerToken && !event.token) {
-            tokenStatus = 'missing_in_event'
-        } else if (!headerToken && !event.token) {
-            tokenStatus = 'missing'
-        } else if (headerToken && event.token && headerToken !== event.token) {
-            tokenStatus = 'different'
-        }
-
-        let distinctIdStatus = 'ok'
-        if (!headerDistinctId && event.distinct_id) {
-            distinctIdStatus = 'missing_in_header'
-        } else if (headerDistinctId && !event.distinct_id) {
-            distinctIdStatus = 'missing_in_event'
-        } else if (!headerDistinctId && !event.distinct_id) {
-            distinctIdStatus = 'missing'
-        } else if (headerDistinctId && event.distinct_id && headerDistinctId !== event.distinct_id) {
-            distinctIdStatus = 'different'
-        }
-
-        if (tokenStatus !== 'ok' || distinctIdStatus !== 'ok') {
-            headerEventMismatchCounter.labels(tokenStatus, distinctIdStatus).inc()
-
-            logger.warn('🔍', `Header/event validation issue detected`, {
-                eventUuid: event.uuid,
-                headerToken,
-                eventToken: event.token,
-                headerDistinctId,
-                eventDistinctId: event.distinct_id,
-                tokenStatus,
-                distinctIdStatus,
-            })
-        }
-    }
-
-    private overflowEnabled() {
+    private overflowEnabled(): boolean {
         return (
             !!this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
             this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic &&
@@ -729,7 +723,7 @@ export class IngestionConsumer {
         )
     }
 
-    private async emitToOverflow(kafkaMessages: Message[], preservePartitionLocalityOverride?: boolean) {
+    private async emitToOverflow(kafkaMessages: Message[], preservePartitionLocalityOverride?: boolean): Promise<void> {
         const overflowTopic = this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC
         if (!overflowTopic) {
             throw new Error('No overflow topic configured')
@@ -757,14 +751,14 @@ export class IngestionConsumer {
                     // ``message.key`` should not be undefined here, but in the
                     // (extremely) unlikely event that it is, set it to ``null``
                     // instead as that behavior is safer.
-                    key: preservePartitionLocality ? message.key ?? null : null,
+                    key: preservePartitionLocality ? (message.key ?? null) : null,
                     headers: parseKafkaHeaders(headers),
                 })
             })
         )
     }
 
-    private async emitToTestingTopic(kafkaMessages: Message[]) {
+    private async emitToTestingTopic(kafkaMessages: Message[]): Promise<void> {
         const testingTopic = this.testingTopic
         if (!testingTopic) {
             throw new Error('No testing topic configured')

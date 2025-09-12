@@ -1,7 +1,6 @@
 import json
 
 import pytest
-
 from posthog.test.base import TestMigrations
 
 pytestmark = pytest.mark.skip("old migrations slow overall test run down")

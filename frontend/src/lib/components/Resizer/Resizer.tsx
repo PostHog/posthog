@@ -1,13 +1,15 @@
 import './Resizer.scss'
 
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { resizerLogic, ResizerLogicProps } from './resizerLogic'
+import { cn } from 'lib/utils/css-classes'
+
+import { ResizerLogicProps, resizerLogic } from './resizerLogic'
 
 export type ResizerProps = ResizerLogicProps & {
     offset?: number | string
+    className?: string
 }
 
 export function Resizer(props: ResizerProps): JSX.Element {
@@ -26,10 +28,11 @@ export function Resizer(props: ResizerProps): JSX.Element {
 
     return (
         <div
-            className={clsx(
+            className={cn(
                 'Resizer',
                 isResizeInProgress && isSelected && 'Resizer--resizing',
-                `Resizer--${props.placement}`
+                `Resizer--${props.placement}`,
+                props.className
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{

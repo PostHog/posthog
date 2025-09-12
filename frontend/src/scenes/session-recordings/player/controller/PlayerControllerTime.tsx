@@ -1,6 +1,8 @@
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
+
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
@@ -10,7 +12,7 @@ import { ONE_FRAME_MS, sessionRecordingPlayerLogic } from 'scenes/session-record
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { HotKeyOrModifier } from '~/types'
 
-import { playerSettingsLogic, TimestampFormat } from '../playerSettingsLogic'
+import { TimestampFormat, playerSettingsLogic } from '../playerSettingsLogic'
 import { seekbarLogic } from './seekbarLogic'
 
 function RelativeTimestampLabel({ size }: { size: 'small' | 'normal' }): JSX.Element {
@@ -40,7 +42,10 @@ function RelativeTimestampLabel({ size }: { size: 'small' | 'normal' }): JSX.Ele
     )
 }
 
-export function Timestamp({ size }: { size: 'small' | 'normal' }): JSX.Element {
+export function Timestamp({
+    size,
+    noPadding,
+}: { size: 'small' | 'normal' } & Pick<LemonButtonProps, 'noPadding'>): JSX.Element {
     const { logicProps, currentTimestamp, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(logicProps))
     const { timestampFormat } = useValues(playerSettingsLogic)
@@ -53,7 +58,8 @@ export function Timestamp({ size }: { size: 'small' | 'normal' }): JSX.Element {
     return (
         <LemonButton
             data-attr="recording-timestamp"
-            className="text-center whitespace-nowrap font-mono text-xs"
+            className="text-center whitespace-nowrap font-mono text-xs inline"
+            noPadding={noPadding}
             onClick={() => {
                 const values = Object.values(TimestampFormat)
                 const nextIndex = (values.indexOf(timestampFormat) + 1) % values.length

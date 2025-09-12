@@ -1,9 +1,12 @@
 import '~/styles'
+
 import '~/toolbar/styles.scss'
 
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { useEffect } from 'react'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
@@ -19,7 +22,7 @@ import { toolbarConfigLogic } from './toolbarConfigLogic'
 import { TOOLBAR_ID } from './utils'
 
 function useToolbarStyles(): void {
-    useEffect(() => {
+    useOnMountEffect(() => {
         const head = document.getElementsByTagName('head')[0]
         const shadowRoot = window.document.getElementById(TOOLBAR_ID)?.shadowRoot
         const styleTags: HTMLStyleElement[] = Array.from(head.getElementsByTagName('style'))
@@ -29,7 +32,7 @@ function useToolbarStyles(): void {
             style.appendChild(document.createTextNode(text))
             shadowRoot?.appendChild(style)
         })
-    }, [])
+    })
 }
 
 const meta: Meta = {
@@ -99,7 +102,7 @@ const BasicTemplate: StoryFn<ToolbarStoryProps> = (props) => {
         setVisibleMenu(props.menu || 'none')
         toggleMinimized(props.minimized ?? false)
         toggleTheme(props.theme || 'light')
-    }, [Object.values(props)])
+    }, [Object.values(props)]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="min-h-[32rem]">

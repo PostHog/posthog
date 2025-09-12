@@ -1,10 +1,9 @@
 import dataclasses
 from copy import deepcopy
 
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
 
-
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="stable",
     free=False,
     type="destination",
@@ -14,7 +13,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/hubspot.png",
     category=["CRM", "Customer Success"],
     code_language="hog",
-    hog="""
+    code="""
 let properties := {
     'email': inputs.email
 }
@@ -99,7 +98,7 @@ if (res.status == 200) {
     },
 )
 
-template_event: HogFunctionTemplate = HogFunctionTemplate(
+template_event: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="stable",
     free=False,
     id="template-hubspot-event",
@@ -109,7 +108,7 @@ template_event: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/hubspot.png",
     category=["CRM", "Customer Success"],
     code_language="hog",
-    hog="""
+    code="""
 if (empty(inputs.email)) {
     print('`email` input is empty. Not sending event.')
     return
@@ -371,6 +370,8 @@ class TemplateHubspotMigrator(HogFunctionTemplateMigrator):
     @classmethod
     def migrate(cls, obj):
         hf = deepcopy(dataclasses.asdict(template))
+        hf["hog"] = hf["code"]
+        del hf["code"]
 
         # Must reauthenticate with HubSpot
         hubspotAccessToken = obj.config.get("hubspotAccessToken", "")

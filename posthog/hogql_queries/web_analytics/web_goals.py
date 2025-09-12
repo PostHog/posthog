@@ -1,22 +1,15 @@
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from typing import TypeVar
-from collections.abc import Iterator
+
+from posthog.schema import CachedWebGoalsQueryResponse, WebAnalyticsOrderByFields, WebGoalsQuery, WebGoalsQueryResponse
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr, get_property_type, action_to_expr
+from posthog.hogql.property import action_to_expr, get_property_type, property_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
-    WebAnalyticsQueryRunner,
-)
-from posthog.models import Action
-from posthog.schema import (
-    WebGoalsQueryResponse,
-    WebGoalsQuery,
-    CachedWebGoalsQueryResponse,
-    WebAnalyticsOrderByFields,
-)
 
+from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
+from posthog.models import Action
 
 # Returns an array `seq` split into chunks of size `size`
 # Example:
@@ -33,9 +26,8 @@ class NoActionsError(Exception):
     pass
 
 
-class WebGoalsQueryRunner(WebAnalyticsQueryRunner):
+class WebGoalsQueryRunner(WebAnalyticsQueryRunner[WebGoalsQueryResponse]):
     query: WebGoalsQuery
-    response: WebGoalsQueryResponse
     cached_response: CachedWebGoalsQueryResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -84,7 +76,7 @@ class WebGoalsQueryRunner(WebAnalyticsQueryRunner):
                                     left=ast.Field(chain=[f"action_current_count_{n}"]),
                                     right=ast.Constant(value=0),
                                 ),
-                                ast.Field(chain=["person_id"]),
+                                ast.Field(chain=["web_goals_person_id"]),
                                 ast.Constant(value=None),
                             ],
                         ),
@@ -102,7 +94,7 @@ class WebGoalsQueryRunner(WebAnalyticsQueryRunner):
                                     left=ast.Field(chain=[f"action_previous_count_{n}"]),
                                     right=ast.Constant(value=0),
                                 ),
-                                ast.Field(chain=["person_id"]),
+                                ast.Field(chain=["web_goals_person_id"]),
                                 ast.Constant(value=None),
                             ],
                         ),
@@ -143,7 +135,7 @@ class WebGoalsQueryRunner(WebAnalyticsQueryRunner):
             inner_select = parse_select(
                 """
 SELECT
-    any(events.person_id) as person_id,
+    any(events.person_id) as web_goals_person_id,
     min(session.$start_timestamp) as start_timestamp
 FROM events
 WHERE and(
@@ -171,8 +163,8 @@ GROUP BY {events_session_id}
             outer_select = parse_select(
                 """
 SELECT
-    uniqIf(person_id, {current_period}) as current_total_people,
-    uniqIf(person_id, {previous_period}) as previous_total_people
+    uniqIf(web_goals_person_id, {current_period}) as current_total_people,
+    uniqIf(web_goals_person_id, {previous_period}) as previous_total_people
 FROM {inner_select}
 WHERE {periods_expression}
                 """,
@@ -190,7 +182,7 @@ WHERE {periods_expression}
 
         return outer_select
 
-    def calculate(self):
+    def _calculate(self):
         try:
             query = self.to_query()
         except NoActionsError:

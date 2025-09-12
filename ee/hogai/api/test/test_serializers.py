@@ -1,11 +1,12 @@
+from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
+
+from posthog.schema import AssistantMessage, AssistantToolCallMessage
 
 from ee.hogai.api.serializers import ConversationSerializer
 from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantState
 from ee.models.assistant import Conversation
-from posthog.schema import AssistantMessage, AssistantToolCallMessage
-from posthog.test.base import APIBaseTest
 
 
 class TestConversationSerializers(APIBaseTest):
@@ -46,7 +47,12 @@ class TestConversationSerializers(APIBaseTest):
             mock_get_state.return_value = MockSnapshot()
 
             data = ConversationSerializer(
-                conversation, context={"assistant_graph": AssistantGraph(self.team, self.user).compile_full_graph()}
+                conversation,
+                context={
+                    "assistant_graph": AssistantGraph(self.team, self.user).compile_full_graph(),
+                    "team": self.team,
+                    "user": self.user,
+                },
             ).data
 
             # Check that only the expected messages are included

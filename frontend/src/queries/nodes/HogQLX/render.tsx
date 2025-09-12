@@ -1,6 +1,8 @@
 import React from 'react'
+
 import { IconAI } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
+
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { ExplainCSPViolationButton } from 'lib/components/LLMButton/ExplainCSPViolationButton'
 import { Sparkline } from 'lib/components/Sparkline'
@@ -73,6 +75,7 @@ export function renderHogQLX(value: any): JSX.Element {
             return <JSONViewer src={rest} name={null} collapsed={Object.keys(rest).length > 10 ? 0 : 1} />
         } else if (tag === 'Sparkline') {
             const { data, children, type, ...props } = rest
+
             return (
                 <LightErrorBoundary>
                     <Sparkline className="h-8" {...props} data={data ?? children ?? []} type={type} />
@@ -80,6 +83,7 @@ export function renderHogQLX(value: any): JSX.Element {
             )
         } else if (tag === 'ExplainCSPReport') {
             const { properties } = rest
+
             return (
                 <LightErrorBoundary>
                     <ExplainCSPViolationButton
@@ -100,6 +104,7 @@ export function renderHogQLX(value: any): JSX.Element {
             )
         } else if (tag === 'RecordingButton') {
             const { sessionId, recordingStatus } = rest
+
             return (
                 <LightErrorBoundary>
                     <ViewRecordingButton
@@ -115,16 +120,20 @@ export function renderHogQLX(value: any): JSX.Element {
             )
         } else if (tag === 'a') {
             const { href, children, source, target } = rest
+            const value = children ?? source
+
             return (
                 <LightErrorBoundary>
                     <Link to={href} target={target ?? undefined}>
-                        {children ?? source ? renderHogQLX(children ?? source) : href}
+                        {value ? renderHogQLX(value) : href}
                     </Link>
                 </LightErrorBoundary>
             )
         } else if (tag === 'blink' || tag === 'marquee' || tag === 'redacted') {
             const { children, source } = rest
-            const renderedChildren = children ?? source ? renderHogQLX(children ?? source) : ''
+            const value = children ?? source
+            const renderedChildren = value ? renderHogQLX(value) : ''
+
             return (
                 <LightErrorBoundary>
                     <span className={`hogqlx-${tag}`}>
@@ -134,13 +143,12 @@ export function renderHogQLX(value: any): JSX.Element {
             )
         } else if (HOGQLX_TAGS_NO_ATTRIBUTES.includes(tag)) {
             const { children, source, key } = rest
-            const element = React.createElement(
-                tag,
-                { key: key ?? undefined },
-                children ?? source ? renderHogQLX(children ?? source ?? '') : undefined
-            )
+            const value = children ?? source
+            const element = React.createElement(tag, { key: key ?? undefined }, value ? renderHogQLX(value) : undefined)
+
             return <LightErrorBoundary>{element}</LightErrorBoundary>
         }
+
         return <div>Unknown tag: {String(tag)}</div>
     }
 

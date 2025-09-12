@@ -1,16 +1,17 @@
-import { IconPlus, IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
+import { IconPlus, IconX } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import AutoTab from './AutoTab'
-import { multitabEditorLogic, NEW_QUERY, QueryTab } from './multitabEditorLogic'
+import { NEW_QUERY, QueryTab, multitabEditorLogic } from './multitabEditorLogic'
 
 interface QueryTabsProps {
     models: QueryTab[]
     onClick: (model: QueryTab) => void
-    onClear: (model: QueryTab) => void
+    onClear: (model: QueryTab, options?: { force?: boolean }) => void
     onRename: (model: QueryTab, newName: string) => void
     onAdd: () => void
     activeModelUri: QueryTab | null
@@ -63,7 +64,7 @@ export function QueryTabs({ models, onClear, onClick, onAdd, onRename, activeMod
 interface QueryTabProps {
     model: QueryTab
     onClick: (model: QueryTab) => void
-    onClear?: (model: QueryTab) => void
+    onClear?: (model: QueryTab, options?: { force?: boolean }) => void
     active: boolean
     onRename: (model: QueryTab, newName: string) => void
 }
@@ -73,7 +74,7 @@ function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryT
     const [isEditing, setIsEditing] = useState(false)
 
     useEffect(() => {
-        setTabName(model.view?.name || model.name || NEW_QUERY)
+        setTabName(model.name || model.view?.name || NEW_QUERY)
     }, [model.view?.name, model.name])
 
     const handleRename = (): void => {
@@ -124,7 +125,8 @@ function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryT
                 <LemonButton
                     onClick={(e) => {
                         e.stopPropagation()
-                        onClear(model)
+
+                        onClear(model, { force: !!e.shiftKey })
                     }}
                     size="xsmall"
                     icon={<IconX />}

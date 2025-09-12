@@ -1,13 +1,14 @@
+from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
 from langchain_core.messages import AIMessage as LangchainAIMessage
+
+from posthog.schema import HumanMessage
 
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
 from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState
 from ee.models.assistant import Conversation
-from posthog.schema import HumanMessage
-from posthog.test.base import BaseTest
 
 
 class TestTitleGenerator(BaseTest):
@@ -30,6 +31,25 @@ class TestTitleGenerator(BaseTest):
             # Refresh from DB to ensure we get latest value
             self.conversation.refresh_from_db()
             self.assertEqual(self.conversation.title, "Test Title")
+
+    def test_saves_a_long_title_truncated(self):
+        """Test that if a title over our length is generated, it is truncated on save, without error."""
+        with patch(
+            "ee.hogai.graph.title_generator.nodes.TitleGeneratorNode._model",
+            return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content=("Long " * 100).strip())]),
+        ):
+            node = TitleGeneratorNode(self.team, self.user)
+            new_state = node.run(
+                AssistantState(messages=[HumanMessage(content="Test Message")]),
+                {"configurable": {"thread_id": self.conversation.id}},
+            )
+            self.assertIsNone(new_state)
+            # Refresh from DB to ensure we get latest value
+            self.conversation.refresh_from_db()
+            self.assertEqual(
+                self.conversation.title,
+                "Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long",
+            )
 
     def test_title_already_set_should_stay_the_same(self):
         """Test that existing conversation titles are not overwritten."""

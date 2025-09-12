@@ -8,131 +8,155 @@ import { SettingSectionId } from './settings/types'
 // If so, we can preload the scene's required chunks in parallel with the scene itself.
 
 export enum Scene {
+    Action = 'Action',
+    Actions = 'Actions',
+    AdvancedActivityLogs = 'AdvancedActivityLogs',
+    AsyncMigrations = 'AsyncMigrations',
+    BatchExport = 'BatchExport',
+    BatchExportNew = 'BatchExportNew',
+    Billing = 'Billing',
+    BillingAuthorizationStatus = 'BillingAuthorizationStatus',
+    BillingSection = 'BillingSection',
+    Canvas = 'Canvas',
+    Cohort = 'Cohort',
+    Cohorts = 'Cohorts',
+    CustomCss = 'CustomCss',
+    Dashboard = 'Dashboard',
+    Dashboards = 'Dashboards',
+    DataManagement = 'DataManagement',
+    DataPipelines = 'DataPipelines',
+    DataPipelinesNew = 'DataPipelinesNew',
+    DataWarehouse = 'DataWarehouse',
+    DataWarehouseRedirect = 'DataWarehouseRedirect',
+    DataWarehouseSource = 'DataWarehouseSource',
+    DataWarehouseSourceNew = 'DataWarehouseSourceNew',
+    DeadLetterQueue = 'DeadLetterQueue',
+    DebugHog = 'DebugHog',
+    DebugQuery = 'DebugQuery',
+    EarlyAccessFeatures = 'EarlyAccessFeatures',
     Error404 = '404',
     ErrorAccessDenied = 'AccessDenied',
     ErrorNetwork = '4xx',
     ErrorProjectUnavailable = 'ProjectUnavailable',
     ErrorTracking = 'ErrorTracking',
-    ErrorTrackingIssue = 'ErrorTrackingIssue',
     ErrorTrackingConfiguration = 'ErrorTrackingConfiguration',
-    Dashboards = 'Dashboards',
-    Dashboard = 'Dashboard',
-    Insight = 'Insight',
-    WebAnalytics = 'WebAnalytics',
-    WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
-    WebAnalyticsMarketing = 'WebAnalyticsMarketing',
-    WebAnalyticsPageReports = 'WebAnalyticsPageReports',
-    RevenueAnalytics = 'RevenueAnalytics',
-    Cohort = 'Cohort',
-    Activity = 'Activity',
-    DataManagement = 'DataManagement',
+    ErrorTrackingIssue = 'ErrorTrackingIssue',
+    ErrorTrackingIssueFingerprints = 'ErrorTrackingIssueFingerprints',
     EventDefinition = 'EventDefinition',
     EventDefinitionEdit = 'EventDefinitionEdit',
+    Experiment = 'Experiment',
+    Experiments = 'Experiments',
+    ExperimentsSharedMetric = 'ExperimentsSharedMetric',
+    ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
+    ExploreEvents = 'ExploreEvents',
+    FeatureFlag = 'FeatureFlag',
+    FeatureFlags = 'FeatureFlags',
+    Game368 = 'Game368',
+    Group = 'Group',
+    Groups = 'Groups',
+    GroupsNew = 'GroupsNew',
+    Heatmaps = 'Heatmaps',
+    HogFunction = 'HogFunction',
+    Insight = 'Insight',
+    IntegrationsRedirect = 'IntegrationsRedirect',
+    InviteSignup = 'InviteSignup',
+    LegacyPlugin = 'LegacyPlugin',
+    Link = 'Link',
+    Links = 'Links',
+    LiveEvents = 'LiveEvents',
+    Login = 'Login',
+    Login2FA = 'Login2FA',
+    Max = 'Max',
+    Messaging = 'Messaging',
+    MessagingCampaign = 'MessagingCampaign',
+    MoveToPostHogCloud = 'MoveToPostHogCloud',
+    NewTab = 'NewTab',
+    Notebook = 'Notebook',
+    Notebooks = 'Notebooks',
+    OAuthAuthorize = 'OAuthAuthorize',
+    Onboarding = 'Onboarding',
+    OrganizationCreateFirst = 'OrganizationCreate',
+    OrganizationCreationConfirm = 'OrganizationCreationConfirm',
+    PasswordReset = 'PasswordReset',
+    PasswordResetComplete = 'PasswordResetComplete',
+    Person = 'Person',
+    Persons = 'Persons',
+    Pipeline = 'Pipeline',
+    PipelineNode = 'PipelineNode',
+    PipelineNodeNew = 'PipelineNodeNew',
+    PreflightCheck = 'PreflightCheck',
+    Products = 'Products',
+    ProjectCreateFirst = 'ProjectCreate',
+    ProjectHomepage = 'ProjectHomepage',
     PropertyDefinition = 'PropertyDefinition',
     PropertyDefinitionEdit = 'PropertyDefinitionEdit',
     Replay = 'Replay',
-    ReplaySingle = 'ReplaySingle',
-    ReplayPlaylist = 'ReplayPlaylist',
     ReplayFilePlayback = 'ReplayFilePlayback',
+    ReplayPlaylist = 'ReplayPlaylist',
     ReplaySettings = 'ReplaySettings',
-    CustomCss = 'CustomCss',
-    PersonsManagement = 'PersonsManagement',
-    Person = 'Person',
-    PipelineNodeNew = 'PipelineNodeNew',
-    Pipeline = 'Pipeline',
-    PipelineNode = 'PipelineNode',
-    Groups = 'Groups',
-    GroupsNew = 'GroupsNew',
-    Group = 'Group',
-    Action = 'Action',
-    EarlyAccessFeatures = 'EarlyAccessFeatures',
-    Experiments = 'Experiments',
-    ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
-    ExperimentsSharedMetric = 'ExperimentsSharedMetric',
-    Experiment = 'Experiment',
-    FeatureFlags = 'FeatureFlags',
-    FeatureFlag = 'FeatureFlag',
-    Surveys = 'Surveys',
+    ReplaySingle = 'ReplaySingle',
+    RevenueAnalytics = 'RevenueAnalytics',
+    SQLEditor = 'SQLEditor',
+    SavedInsights = 'SavedInsights',
+    SessionAttributionExplorer = 'SessionAttributionExplorer',
+    Settings = 'Settings',
+    Signup = 'Signup',
+    Site = 'Site',
+    StartupProgram = 'StartupProgram',
     Survey = 'Survey',
     SurveyTemplates = 'SurveyTemplates',
-    SQLEditor = 'SQLEditor',
-    DataWarehouseRedirect = 'DataWarehouseRedirect',
-    OrganizationCreateFirst = 'OrganizationCreate',
-    ProjectHomepage = 'ProjectHomepage',
-    Max = 'Max',
-    ProjectCreateFirst = 'ProjectCreate',
+    Surveys = 'Surveys',
     SystemStatus = 'SystemStatus',
-    AsyncMigrations = 'AsyncMigrations',
-    DeadLetterQueue = 'DeadLetterQueue',
-    Billing = 'Billing',
-    BillingSection = 'BillingSection',
-    BillingAuthorizationStatus = 'BillingAuthorizationStatus',
-    SavedInsights = 'SavedInsights',
     ToolbarLaunch = 'ToolbarLaunch',
-    Site = 'Site',
-    IntegrationsRedirect = 'IntegrationsRedirect',
-    // Authentication, onboarding & initialization routes
-    Login = 'Login',
-    Login2FA = 'Login2FA',
-    Signup = 'Signup',
-    InviteSignup = 'InviteSignup',
-    PasswordReset = 'PasswordReset',
-    PasswordResetComplete = 'PasswordResetComplete',
-    PreflightCheck = 'PreflightCheck',
-    OrganizationCreationConfirm = 'OrganizationCreationConfirm',
     Unsubscribe = 'Unsubscribe',
-    DebugQuery = 'DebugQuery',
-    DebugHog = 'DebugHog',
-    VerifyEmail = 'VerifyEmail',
-    Notebooks = 'Notebooks',
-    Notebook = 'Notebook',
-    Canvas = 'Canvas',
-    Products = 'Products',
-    Onboarding = 'Onboarding',
-    Settings = 'Settings',
-    MoveToPostHogCloud = 'MoveToPostHogCloud',
-    Heatmaps = 'Heatmaps',
-    Links = 'Links',
-    Link = 'Link',
-    SessionAttributionExplorer = 'SessionAttributionExplorer',
-    Messaging = 'Messaging',
-    MessagingCampaign = 'MessagingCampaign',
-    Wizard = 'Wizard',
-    StartupProgram = 'StartupProgram',
-    OAuthAuthorize = 'OAuthAuthorize',
-    HogFunction = 'HogFunction',
-    DataPipelines = 'DataPipelines',
-    DataPipelinesNew = 'DataPipelinesNew',
-    DataWarehouseSource = 'DataWarehouseSource',
-    DataWarehouseSourceNew = 'DataWarehouseSourceNew',
-    LegacyPlugin = 'LegacyPlugin',
-    BatchExport = 'BatchExport',
-    BatchExportNew = 'BatchExportNew',
-    UserInterviews = 'UserInterviews',
     UserInterview = 'UserInterview',
-    Game368 = 'Game368',
+    UserInterviews = 'UserInterviews',
+    VerifyEmail = 'VerifyEmail',
+    WebAnalytics = 'WebAnalytics',
+    WebAnalyticsMarketing = 'WebAnalyticsMarketing',
+    WebAnalyticsPageReports = 'WebAnalyticsPageReports',
+    WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
+    EmbeddedAnalytics = 'EmbeddedAnalytics',
+    Wizard = 'Wizard',
 }
 
-export type SceneProps = Record<string, any>
+export type SceneComponent<T> = (props: T) => JSX.Element | null
 
-export type SceneComponent = (params?: SceneProps) => JSX.Element | null
-
-export interface SceneExport {
+export interface SceneExport<T = {}> {
     /** component to render for this scene */
-    component: SceneComponent
+    component: SceneComponent<T>
     /** logic to mount for this scene */
     logic?: LogicWrapper
     /** setting section id to open when clicking the settings button */
     settingSectionId?: SettingSectionId
     /** convert URL parameters from scenes.ts into logic props */
-    paramsToProps?: (params: SceneParams) => SceneProps
+    paramsToProps?: (params: SceneParams) => T
     /** when was the scene last touched, unix timestamp for sortability */
     lastTouch?: number
 }
 
-export interface LoadedScene extends SceneExport {
+type SceneProps = Record<string, any>
+
+// KLUDGE: LoadedScene is used in a logic and therefore cannot accept generics
+// we use an untyped SceneProps to satisfy the types
+export interface LoadedScene extends SceneExport<SceneProps> {
     id: string
+    tabId?: string
     sceneParams: SceneParams
+}
+
+export interface SceneTab {
+    id: string
+    pathname: string
+    search: string
+    hash: string
+    title: string
+    active: boolean
+    customTitle?: string
+
+    sceneId?: string
+    sceneKey?: string
+    sceneParams?: SceneParams
 }
 
 export interface SceneParams {
@@ -154,12 +178,13 @@ export interface SceneConfig {
     allowUnauthenticated?: boolean
     /**
      * If `app`, navigation is shown, and the scene has default padding.
+     * If `app-full-scene-height`, navigation is shown, and the scene has default padding and wrapper takes full screen height.
      * If `app-raw`, navigation is shown, but the scene has no padding.
      * If `app-container`, navigation is shown, and the scene is centered with a max width.
      * If `plain`, there's no navigation present, and the scene has no padding.
      * @default 'app'
      */
-    layout?: 'app' | 'app-raw' | 'app-container' | 'app-raw-no-header' | 'plain'
+    layout?: 'app' | 'app-raw' | 'app-container' | 'app-raw-no-header' | 'plain' | 'app-full-scene-height'
     /** Hides project notice (ProjectNotice.tsx). */
     hideProjectNotice?: boolean
     /** Hides billing notice (BillingAlertsV2.tsx). */
@@ -197,4 +222,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Notebooks
     [Scene.Notebook]: AccessControlResourceType.Notebook,
     [Scene.Notebooks]: AccessControlResourceType.Notebook,
+
+    // Session recordings
+    [Scene.Replay]: AccessControlResourceType.SessionRecording,
+    [Scene.ReplaySingle]: AccessControlResourceType.SessionRecording,
+    [Scene.ReplayPlaylist]: AccessControlResourceType.SessionRecording,
 }

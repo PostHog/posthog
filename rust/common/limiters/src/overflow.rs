@@ -182,7 +182,7 @@ mod tests {
         let key2 = String::from("token2:user2");
 
         // replicate the above in forced_keys list
-        let forced_keys = Some(format!("{},{}", key1, key2));
+        let forced_keys = Some(format!("{key1},{key2}"));
         let limiter = OverflowLimiter::new(
             NonZeroU32::new(1).unwrap(),
             NonZeroU32::new(1).unwrap(),
@@ -205,7 +205,7 @@ mod tests {
         let key2 = String::from("token2:user2");
 
         // replicate the above in forced_keys list
-        let forced_keys = Some(format!("{},{}", key1, key2));
+        let forced_keys = Some(format!("{key1},{key2}"));
         let limiter = OverflowLimiter::new(
             NonZeroU32::new(10).unwrap(),
             NonZeroU32::new(10).unwrap(),
@@ -232,18 +232,18 @@ mod tests {
     async fn test_optional_distinct_id() {
         let token1 = "token1";
         let dist_id1 = "user1";
-        let key1 = format!("{}:{}", token1, dist_id1);
+        let key1 = format!("{token1}:{dist_id1}");
         let token2 = "token2";
         let dist_id2 = "user2";
-        let key2 = format!("{}:{}", token2, dist_id2);
+        let key2 = format!("{token2}:{dist_id2}");
         let token3 = "token3";
         let dist_id3 = "user3";
-        let key3 = format!("{}:{}", token3, dist_id3);
+        let key3 = format!("{token3}:{dist_id3}");
 
         let limiter = OverflowLimiter::new(
             NonZeroU32::new(1).unwrap(),
             NonZeroU32::new(1).unwrap(),
-            Some(format!("{},{}", token1, key2)),
+            Some(format!("{token1},{key2}")),
             false,
         );
 

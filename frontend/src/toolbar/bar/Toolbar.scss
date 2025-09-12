@@ -17,7 +17,7 @@
         }
 
         ::-webkit-scrollbar-track {
-            background: var(--bg-surface-primary);
+            background: var(--color-bg-surface-primary);
         }
 
         ::-webkit-scrollbar-thumb {
@@ -67,10 +67,12 @@
         overflow: hidden;
         overflow-y: auto;
         color: var(--text-3000);
-        background-color: var(--bg-primary);
+        background-color: var(--color-bg-primary);
         filter: drop-shadow(0 5px 10px var(--trace-3000));
         border-radius: var(--radius);
-        transition: opacity 150ms ease, max-height 150ms ease;
+        transition:
+            opacity 150ms ease,
+            max-height 150ms ease;
     }
 
     &--visible {
@@ -115,8 +117,8 @@
     // fixed width so that animations work when changing width
     width: var(--toolbar-width-expanded);
     overflow: hidden;
-    color: var(--text-primary);
-    background-color: var(--bg-primary);
+    color: var(--color-text-primary);
+    background-color: var(--color-bg-primary);
     filter: drop-shadow(0 5px 10px var(--trace-3000));
     border: 1px solid var(--border-bold-3000);
     border-radius: var(--radius);

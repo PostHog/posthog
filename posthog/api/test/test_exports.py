@@ -1,14 +1,17 @@
 from datetime import datetime, timedelta
 from typing import Optional
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from unittest.mock import patch
+
+from django.http import HttpResponse
+from django.utils.timezone import now
 
 import celery
 import requests.exceptions
 from boto3 import resource
 from botocore.client import Config
-from django.http import HttpResponse
-from django.utils.timezone import now
-from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.api.insight import InsightSerializer
@@ -27,7 +30,6 @@ from posthog.settings import (
 )
 from posthog.tasks import exporter
 from posthog.tasks.exports.image_exporter import export_image
-from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 
 TEST_ROOT_BUCKET = "test_exports"
 
@@ -100,7 +102,7 @@ class TestExports(APIBaseTest):
             .replace("+00:00", "Z"),
         }
 
-        mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
+        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
 
     @patch("posthog.api.exports.exporter")
     def test_can_create_export_with_ttl(self, mock_exporter_task) -> None:
@@ -128,7 +130,7 @@ class TestExports(APIBaseTest):
             "expires_after": one_week_from_now.isoformat() + "Z",
         }
 
-        mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
+        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
 
     @patch("posthog.api.exports.exporter")
     def test_swallow_missing_schema_and_allow_front_end_to_poll(self, mock_exporter_task) -> None:
@@ -151,7 +153,7 @@ class TestExports(APIBaseTest):
             msg=f"was not HTTP 201 😱 - {response.json()}",
         )
         data = response.json()
-        mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
+        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
 
     @patch("posthog.tasks.exports.image_exporter._export_to_png")
     @patch("posthog.api.exports.exporter")
@@ -213,7 +215,7 @@ class TestExports(APIBaseTest):
             ],
         )
 
-        mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
+        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
 
         # look at the page the screenshot will be taken of
         exported_asset = ExportedAsset.objects.get(pk=data["id"])

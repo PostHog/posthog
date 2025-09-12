@@ -1,21 +1,23 @@
 import { useValues } from 'kea'
 
+import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
+
 import { BulkActions } from './components/IssueActions/BulkActions'
 import { IssueQueryOptions } from './components/IssueQueryOptions/IssueQueryOptions'
+import { errorTrackingBulkSelectLogic } from './errorTrackingBulkSelectLogic'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
-import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 
 export const ErrorTrackingListOptions = (): JSX.Element => {
-    const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
+    const { selectedIssueIds } = useValues(errorTrackingBulkSelectLogic)
     const { results } = useValues(errorTrackingDataNodeLogic)
 
     return (
-        <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-primary">
+        <SceneStickyBar showBorderBottom={false}>
             {selectedIssueIds.length > 0 ? (
                 <BulkActions issues={results} selectedIds={selectedIssueIds} />
             ) : (
                 <IssueQueryOptions />
             )}
-        </div>
+        </SceneStickyBar>
     )
 }

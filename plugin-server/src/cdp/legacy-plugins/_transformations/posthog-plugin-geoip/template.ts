@@ -1,5 +1,6 @@
-import { LegacyTransformationPlugin } from '../../types'
 import { processEvent } from '.'
+
+import { LegacyTransformationPlugin } from '../../types'
 
 // NOTE: This is a deprecated plugin and should never be shown to new users
 export const posthogPluginGeoip: LegacyTransformationPlugin = {
@@ -14,7 +15,7 @@ export const posthogPluginGeoip: LegacyTransformationPlugin = {
         icon_url: '/static/transformations/geoip.png',
         category: ['Custom'],
         code_language: 'javascript',
-        hog: `return event`,
+        code: `return event`,
         inputs_schema: [],
     },
 }

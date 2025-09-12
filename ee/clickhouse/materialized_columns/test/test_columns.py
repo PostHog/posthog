@@ -1,10 +1,23 @@
+import datetime
+from collections.abc import Iterable
 from datetime import timedelta
 from time import sleep
-from collections.abc import Iterable
+
+import pytest
+from freezegun import freeze_time
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest import TestCase
 from unittest.mock import patch
 
-from freezegun import freeze_time
+from tenacity import retry, stop_after_attempt, wait_exponential
+
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns
+from posthog.conftest import create_clickhouse_tables
+from posthog.constants import GROUP_TYPES_LIMIT
+from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.property import PropertyName, TableColumn
+from posthog.settings import CLICKHOUSE_DATABASE
 
 from ee.clickhouse.materialized_columns.columns import (
     MaterializedColumn,
@@ -16,15 +29,6 @@ from ee.clickhouse.materialized_columns.columns import (
     materialize,
     update_column_is_disabled,
 )
-from ee.tasks.materialized_columns import mark_all_materialized
-from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns
-from posthog.clickhouse.client import sync_execute
-from posthog.conftest import create_clickhouse_tables
-from posthog.constants import GROUP_TYPES_LIMIT
-from posthog.models.event.sql import EVENTS_DATA_TABLE
-from posthog.models.property import PropertyName, TableColumn
-from posthog.settings import CLICKHOUSE_DATABASE
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 
 EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS = [f"$group_{i}" for i in range(GROUP_TYPES_LIMIT)] + [
     "$session_id",
@@ -62,13 +66,13 @@ class TestMaterializedColumnDetails(TestCase):
         )
         assert new_format_disabled_details.as_column_comment() == new_format_disabled_comment
 
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             MaterializedColumnDetails.from_column_comment("bad-prefix::property")
 
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             MaterializedColumnDetails.from_column_comment("bad-prefix::column::property")
 
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             MaterializedColumnDetails.from_column_comment("column_materializer::column::property::enabled")
 
 
@@ -87,48 +91,50 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         create_clickhouse_tables()
 
     def test_get_columns_default(self):
-        self.assertCountEqual(
-            [property_name for property_name, _ in get_materialized_columns("events")],
-            EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS,
+        assert sorted([property_name for property_name, _ in get_materialized_columns("events")]) == sorted(
+            EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS
         )
-        self.assertCountEqual(get_materialized_columns("person"), [])
+        assert sorted(get_materialized_columns("person")) == sorted([])
 
     def test_caching_and_materializing(self):
-        with freeze_time("2020-01-04T13:01:01Z"):
+        base_time = datetime.datetime.fromisoformat("2020-01-04T13:01:01Z")
+        with freeze_time(base_time):
             materialize("events", "$foo", create_minmax_index=True)
             materialize("events", "$bar", create_minmax_index=True)
             materialize("person", "$zeta", create_minmax_index=True)
 
-            self.assertCountEqual(
+            assert sorted(
                 [
                     property_name
                     for property_name, _ in get_enabled_materialized_columns("events", use_cache=True).keys()
-                ],
-                ["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
-            )
-            self.assertCountEqual(
-                get_enabled_materialized_columns("person", use_cache=True).keys(),
-                [("$zeta", "properties")],
+                ]
+            ) == sorted(["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS])
+            assert sorted(get_enabled_materialized_columns("person", use_cache=True).keys()) == sorted(
+                [("$zeta", "properties")]
             )
 
             materialize("events", "abc", create_minmax_index=True)
 
-            self.assertCountEqual(
+            assert sorted(
                 [
                     property_name
                     for property_name, _ in get_enabled_materialized_columns("events", use_cache=True).keys()
-                ],
-                ["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
-            )
+                ]
+            ) == sorted(["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS])
 
-        with freeze_time("2020-01-04T14:00:01Z"):
-            self.assertCountEqual(
+        # The cache is updated in the background, so we need to poll for cache update with retry
+        # otherwise this flakes
+        @retry(wait=wait_exponential(multiplier=0.5, min=0.5, max=2), stop=stop_after_attempt(5))
+        def check_cache_updated():
+            assert sorted(
                 [
                     property_name
                     for property_name, _ in get_enabled_materialized_columns("events", use_cache=True).keys()
-                ],
-                ["$foo", "$bar", "abc", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
-            )
+                ]
+            ) == sorted(["$foo", "$bar", "abc", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS])
+
+        with freeze_time(base_time + timedelta(minutes=59)):
+            check_cache_updated()
 
     @patch("secrets.choice", return_value="X")
     def test_materialized_column_naming(self, mock_choice):
@@ -197,8 +203,8 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             materialize("events", "another", create_minmax_index=True),
         ]
 
-        self.assertEqual(self._count_materialized_rows("mat_prop"), 0)
-        self.assertEqual(self._count_materialized_rows("mat_another"), 0)
+        assert self._count_materialized_rows("mat_prop") == 0
+        assert self._count_materialized_rows("mat_another") == 0
 
         with freeze_time("2021-05-10T14:00:01Z"):
             backfill_materialized_columns(
@@ -221,21 +227,18 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             sleep(0.1)
             iterations += 1
 
-        self.assertGreaterEqual(self._count_materialized_rows("mat_prop"), 4)
-        self.assertGreaterEqual(self._count_materialized_rows("mat_another"), 4)
+        assert self._count_materialized_rows("mat_prop") >= 4
+        assert self._count_materialized_rows("mat_another") >= 4
 
-        self.assertEqual(
-            sync_execute("SELECT mat_prop, mat_another FROM events ORDER BY timestamp"),
-            [
-                ("1", ""),
-                ("2", "5"),
-                ("3", ""),
-                ("", ""),
-                ("4", ""),
-                ("", "6"),
-                ("", "7"),
-            ],
-        )
+        assert sync_execute("SELECT mat_prop, mat_another FROM events ORDER BY timestamp") == [
+            ("1", ""),
+            ("2", "5"),
+            ("3", ""),
+            ("", ""),
+            ("4", ""),
+            ("", "6"),
+            ("", "7"),
+        ]
 
     def test_column_types(self):
         columns = [
@@ -245,20 +248,10 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
         expr_nonnullable = "replaceRegexpAll(JSONExtractRaw(properties, 'myprop'), '^\"|\"$', '')"
         expr_nullable = "JSONExtract(properties, 'myprop_nullable', 'Nullable(String)')"
-        self.assertEqual(("String", "MATERIALIZED", expr_nonnullable), self._get_column_types("mat_myprop"))
-        self.assertEqual(
-            ("Nullable(String)", "MATERIALIZED", expr_nullable), self._get_column_types("mat_myprop_nullable")
-        )
 
         backfill_materialized_columns("events", columns, timedelta(days=50))
-        self.assertEqual(("String", "DEFAULT", expr_nonnullable), self._get_column_types("mat_myprop"))
-        self.assertEqual(("Nullable(String)", "DEFAULT", expr_nullable), self._get_column_types("mat_myprop_nullable"))
-
-        mark_all_materialized()
-        self.assertEqual(("String", "MATERIALIZED", expr_nonnullable), self._get_column_types("mat_myprop"))
-        self.assertEqual(
-            ("Nullable(String)", "MATERIALIZED", expr_nullable), self._get_column_types("mat_myprop_nullable")
-        )
+        assert self._get_column_types("mat_myprop") == ("String", "DEFAULT", expr_nonnullable)
+        assert self._get_column_types("mat_myprop_nullable") == ("Nullable(String)", "DEFAULT", expr_nullable)
 
     def _count_materialized_rows(self, column):
         return sync_execute(
@@ -350,7 +343,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         for property_name, destination_column in materialized_columns.items():
             key = (property_name, source_column)
             assert key not in get_materialized_columns(table)
-            with self.assertRaises(ValueError):
+            with pytest.raises(ValueError):
                 MaterializedColumn.get(table, destination_column)
 
     def _get_latest_mutation_id(self, table: str) -> str:

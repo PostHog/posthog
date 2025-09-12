@@ -1,8 +1,9 @@
-import './TextInputPrimitive.scss'
-import { cva, type VariantProps } from 'cva'
-import { cn } from 'lib/utils/css-classes'
-import { forwardRef, useCallback, useEffect, useRef } from 'react'
 import './TextInputPrimitive.css'
+
+import { type VariantProps, cva } from 'cva'
+import { forwardRef, useCallback, useEffect, useRef } from 'react'
+
+import { cn } from 'lib/utils/css-classes'
 
 export const textInputVariants = cva({
     base: 'text-input-primitive w-full rounded border border-primary p-2 text-sm outline-none focus-visible:border-secondary',
@@ -11,9 +12,10 @@ export const textInputVariants = cva({
             default: 'border-primary bg-surface-primary hover:border-secondary',
         },
         size: {
-            sm: 'h-[var(--text-input-height-sm)]',
-            default: 'h-[var(--text-input-height-base)]',
-            lg: 'h-[var(--text-input-height-lg)]',
+            sm: 'text-input-primitive--height-sm',
+            default: 'text-input-primitive--height-base',
+            lg: 'text-input-primitive--height-lg',
+            auto: '',
         },
         error: {
             true: 'border-error bg-fill-error-highlight hover:border-error focus-visible:border-error',

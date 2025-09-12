@@ -342,12 +342,12 @@ pub fn extract_root_domain(url: &str) -> Result<String, CookielessManagerError> 
     // Check if it's an IPv6 address
     if let Ok(IpAddr::V6(ipv6)) = url.parse::<IpAddr>() {
         // Return the normalized form of the IPv6 address in brackets
-        return Ok(format!("[{}]", ipv6));
+        return Ok(format!("[{ipv6}]"));
     }
 
     // Add a fake protocol if none exists
     let input = if !url.contains("://") {
-        format!("http://{}", url)
+        format!("http://{url}")
     } else {
         url.to_string()
     };
@@ -364,7 +364,7 @@ pub fn extract_root_domain(url: &str) -> Result<String, CookielessManagerError> 
     // Check if the hostname is an IP address
     if hostname.parse::<IpAddr>().is_ok() {
         return match port {
-            Some(p) => Ok(format!("{}:{}", hostname, p)),
+            Some(p) => Ok(format!("{hostname}:{p}")),
             None => Ok(hostname.to_string()),
         };
     }
@@ -383,7 +383,7 @@ pub fn extract_root_domain(url: &str) -> Result<String, CookielessManagerError> 
 
     // Add the port back if it exists
     match port {
-        Some(p) => Ok(format!("{}:{}", domain, p)),
+        Some(p) => Ok(format!("{domain}:{p}")),
         None => Ok(domain),
     }
 }
@@ -525,7 +525,7 @@ mod tests {
                 let expected_root_domain = test_case["expected_root_domain"].as_str().unwrap();
 
                 let result = extract_root_domain(host).unwrap();
-                assert_eq!(result, expected_root_domain, "Failed for host: {}", host);
+                assert_eq!(result, expected_root_domain, "Failed for host: {host}");
             }
         } else {
             panic!("extract_root_domain_tests not found in test_cases.json");
@@ -549,7 +549,7 @@ mod tests {
         let mut mock_redis = MockRedisClient::new();
         let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        let redis_key = format!("cookieless_salt:{}", today);
+        let redis_key = format!("cookieless_salt:{today}");
         mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
         let redis_client = Arc::new(mock_redis);
 
@@ -616,7 +616,7 @@ mod tests {
         let mut mock_redis = MockRedisClient::new();
         let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        let redis_key = format!("cookieless_salt:{}", today);
+        let redis_key = format!("cookieless_salt:{today}");
         mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
         let redis_client = Arc::new(mock_redis.clone());
 
@@ -893,7 +893,7 @@ mod tests {
         let mut mock_redis = MockRedisClient::new();
         let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        let redis_key = format!("cookieless_salt:{}", today);
+        let redis_key = format!("cookieless_salt:{today}");
         mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
 
         // Create an event
@@ -973,7 +973,7 @@ mod tests {
         let mut mock_redis = MockRedisClient::new();
         let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        let redis_key = format!("cookieless_salt:{}", today);
+        let redis_key = format!("cookieless_salt:{today}");
         mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
         let redis_client = Arc::new(mock_redis);
 
@@ -1053,7 +1053,7 @@ mod tests {
         let mut mock_redis = MockRedisClient::new();
         let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        let redis_key = format!("cookieless_salt:{}", today);
+        let redis_key = format!("cookieless_salt:{today}");
         mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
         let redis_client = Arc::new(mock_redis);
 

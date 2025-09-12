@@ -74,7 +74,7 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/services/tiktok.png',
     category: ['Advertisement'],
     code_language: 'hog',
-    hog: `
+    code: `
 if (empty(inputs.pixelId) or empty(inputs.accessToken)) {
     throw Error('Pixel ID and access token are required')
 }

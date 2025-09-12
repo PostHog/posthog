@@ -1,6 +1,8 @@
 import React from 'react'
+
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
+
 import { ActivationTask } from './activationLogic'
 
 export const IngestFirstEventContent = (): JSX.Element => (

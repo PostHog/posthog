@@ -1,36 +1,36 @@
-import { actions, connect, kea, path, reducers, selectors, listeners } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
+
+import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval, uuid } from 'lib/utils'
 import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
-    CurrencyCode,
-    DatabaseSchemaDataWarehouseTable,
-    DataWarehouseNode,
-    SourceMap,
-    ConversionGoalFilter,
-    MarketingAnalyticsOrderBy,
-    MarketingAnalyticsColumnsSchemaNames,
     CompareFilter,
+    ConversionGoalFilter,
+    CurrencyCode,
+    DataWarehouseNode,
+    DatabaseSchemaDataWarehouseTable,
+    MarketingAnalyticsColumnsSchemaNames,
+    SourceMap,
 } from '~/queries/schema/schema-general'
-import { DataWarehouseSettingsTab, ExternalDataSource, IntervalType, PipelineNodeTab, PipelineStage } from '~/types'
-
 import { MARKETING_ANALYTICS_SCHEMA } from '~/queries/schema/schema-general'
+import { DataWarehouseSettingsTab, ExternalDataSource, IntervalType } from '~/types'
+import { ChartDisplayType } from '~/types'
+
+import { defaultConversionGoalFilter } from '../components/settings/constants'
 import type { marketingAnalyticsLogicType } from './marketingAnalyticsLogicType'
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
-import { defaultConversionGoalFilter } from '../components/settings/constants'
 import { externalAdsCostTile } from './marketingCostTile'
 import {
     MarketingDashboardMapper,
-    NativeMarketingSource,
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
+    NativeMarketingSource,
     VALID_NATIVE_MARKETING_SOURCES,
     generateUniqueName,
 } from './utils'
-import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval } from 'lib/utils'
-import { uuid } from 'lib/utils'
 
 export type ExternalTable = {
     name: string
@@ -72,8 +72,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         ],
     })),
     actions({
-        setMarketingAnalyticsOrderBy: (orderBy: number, direction: 'ASC' | 'DESC') => ({ orderBy, direction }),
-        clearMarketingAnalyticsOrderBy: () => true,
         setDraftConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
         setConversionGoalInput: (goal: ConversionGoalFilter) => ({ goal }),
         resetConversionGoalInput: () => true,
@@ -86,15 +84,11 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             dateTo,
             interval,
         }),
+        showColumnConfigModal: true,
+        hideColumnConfigModal: true,
+        setChartDisplayType: (chartDisplayType: ChartDisplayType) => ({ chartDisplayType }),
     }),
     reducers({
-        marketingAnalyticsOrderBy: [
-            null as MarketingAnalyticsOrderBy | null,
-            {
-                setMarketingAnalyticsOrderBy: (_, { orderBy, direction }) => [orderBy, direction],
-                clearMarketingAnalyticsOrderBy: () => null,
-            },
-        ],
         draftConversionGoal: [
             null as ConversionGoalFilter | null,
             {
@@ -175,6 +169,20 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 },
             },
         ],
+        columnConfigModalVisible: [
+            false,
+            {
+                showColumnConfigModal: () => true,
+                hideColumnConfigModal: () => false,
+            },
+        ],
+        chartDisplayType: [
+            ChartDisplayType.ActionsAreaGraph as ChartDisplayType,
+            persistConfig,
+            {
+                setChartDisplayType: (_, { chartDisplayType }) => chartDisplayType,
+            },
+        ],
     }),
     selectors({
         validSourcesMap: [
@@ -235,10 +243,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                                 name: table.fields[field].hogql_value,
                                 type: table.fields[field].type,
                             })),
-                            sourceUrl: urls.pipelineNode(
-                                PipelineStage.Source,
-                                `${tableType}-${dataWarehouseSource?.id || table.source?.id || table.id}`,
-                                isDataWarehouse ? PipelineNodeTab.Schemas : PipelineNodeTab.SourceConfiguration
+                            sourceUrl: urls.dataWarehouseSource(
+                                `${tableType}-${dataWarehouseSource?.id || table.source?.id || table.id}`
                             ),
                             external_type: tableType,
                             source_map: sourceMap,
@@ -327,37 +333,18 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
         ],
     }),
-    actionToUrl(() => ({
-        setMarketingAnalyticsOrderBy: ({ orderBy, direction }) => {
+    actionToUrl(({ values }) => ({
+        setChartDisplayType: () => {
             const searchParams = new URLSearchParams(window.location.search)
-            if (orderBy !== null && direction) {
-                searchParams.set('sort_field', orderBy.toString())
-                searchParams.set('sort_direction', direction)
-            } else {
-                searchParams.delete('sort_field')
-                searchParams.delete('sort_direction')
-            }
-            return [window.location.pathname, searchParams.toString()]
-        },
-        clearMarketingAnalyticsOrderBy: () => {
-            const searchParams = new URLSearchParams(window.location.search)
-            searchParams.delete('sort_field')
-            searchParams.delete('sort_direction')
+            searchParams.set('chart_display_type', values.chartDisplayType)
             return [window.location.pathname, searchParams.toString()]
         },
     })),
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions }) => ({
         '*': (_, searchParams) => {
-            const sortField = searchParams.sort_field
-            const sortDirection = searchParams.sort_direction
-
-            if (sortField && sortDirection && (sortDirection === 'ASC' || sortDirection === 'DESC')) {
-                const orderBy = parseInt(sortField, 10)
-                if (!isNaN(orderBy) && values.marketingAnalyticsOrderBy?.[0] !== orderBy) {
-                    actions.setMarketingAnalyticsOrderBy(orderBy, sortDirection as 'ASC' | 'DESC')
-                }
-            } else if (!sortField && !sortDirection && values.marketingAnalyticsOrderBy) {
-                actions.clearMarketingAnalyticsOrderBy()
+            const chartDisplayType = searchParams.chart_display_type as ChartDisplayType | undefined
+            if (chartDisplayType && Object.values(ChartDisplayType).includes(chartDisplayType)) {
+                actions.setChartDisplayType(chartDisplayType)
             }
         },
     })),
@@ -367,7 +354,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             actions.resetConversionGoalInput()
         },
         resetConversionGoalInput: () => {
-            // Clear the dynamic goal when resetting local goal
+            // Clear the draft goal when resetting local goal
             actions.setDraftConversionGoal(null)
         },
     })),

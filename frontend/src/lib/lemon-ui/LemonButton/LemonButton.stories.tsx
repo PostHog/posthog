@@ -1,13 +1,17 @@
-import { IconGear, IconInfo, IconPlus } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import clsx from 'clsx'
+
+import { IconGear, IconInfo, IconPlus } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
+
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
-import { IconCalculate, IconLink } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { IconCalculate, IconLink } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, delay, range } from 'lib/utils'
 import { urls } from 'scenes/urls'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LemonButton, LemonButtonProps, LemonButtonWithDropdown, LemonButtonWithDropdownProps } from './LemonButton'
 import { More } from './More'
@@ -435,6 +439,33 @@ export const WithOverflowingContent = (): JSX.Element => {
                 Truncating {longText}
             </LemonButton>
             <LemonButton type="secondary">{longText}</LemonButton>
+        </div>
+    )
+}
+
+export const WithAccessControl = (): JSX.Element => {
+    return (
+        <div className="flex gap-2">
+            <LemonButton
+                type="primary"
+                accessControl={{
+                    resourceType: AccessControlResourceType.Project,
+                    minAccessLevel: AccessControlLevel.Admin,
+                    userAccessLevel: AccessControlLevel.Admin,
+                }}
+            >
+                Enabled (admin ≥ admin)
+            </LemonButton>
+            <LemonButton
+                type="primary"
+                accessControl={{
+                    resourceType: AccessControlResourceType.Project,
+                    minAccessLevel: AccessControlLevel.Admin,
+                    userAccessLevel: AccessControlLevel.Viewer,
+                }}
+            >
+                Disabled (viewer {'<'} admin)
+            </LemonButton>
         </div>
     )
 }

@@ -1,6 +1,5 @@
 import { dateFilterToText } from 'lib/utils'
 import { InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
-import { InsightFreshness } from './InsightFreshness'
 
 import { Node, NodeKind } from '~/queries/schema/schema-general'
 import {
@@ -10,6 +9,8 @@ import {
     isInsightQueryNode,
     isInsightVizNode,
 } from '~/queries/utils'
+
+import { InsightFreshness } from './InsightFreshness'
 
 export function TopHeading({ query, lastRefresh }: { query: Node | null; lastRefresh?: string | null }): JSX.Element {
     let insightType: InsightTypeMetadata

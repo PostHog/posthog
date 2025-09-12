@@ -1,12 +1,13 @@
-import dataclasses
 import json
+import dataclasses
 from copy import deepcopy
 
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
 from posthog.hogql.escape_sql import escape_hogql_string
+
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
 from posthog.models.integration import GoogleCloudIntegration
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=False,
     type="destination",
@@ -16,7 +17,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/google-cloud-storage.png",
     category=["Custom"],
     code_language="hog",
-    hog="""
+    code="""
 let res := fetch(f'https://storage.googleapis.com/upload/storage/v1/b/{encodeURLComponent(inputs.bucketName)}/o?uploadType=media&name={encodeURLComponent(inputs.filename)}', {
   'method': 'POST',
   'headers': {
@@ -74,6 +75,8 @@ class TemplateGoogleCloudStorageMigrator(HogFunctionTemplateMigrator):
     @classmethod
     def migrate(cls, obj):
         hf = deepcopy(dataclasses.asdict(template))
+        hf["hog"] = hf["code"]
+        del hf["code"]
 
         exportEventsToIgnore = [x.strip() for x in obj.config.get("exportEventsToIgnore", "").split(",") if x]
         bucketName = obj.config.get("bucketName", "")

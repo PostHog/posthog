@@ -21,7 +21,7 @@ export const fixtureSubscriptionResponse = (id: number, args: Partial<Subscripti
         byweekday: ['wednesday'],
         bysetpos: 1,
         ...args,
-    } as SubscriptionType)
+    }) as SubscriptionType
 
 describe('subscriptionLogic', () => {
     let newLogic: ReturnType<typeof subscriptionLogic.build>

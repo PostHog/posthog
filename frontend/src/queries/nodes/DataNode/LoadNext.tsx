@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
+
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { useMemo } from 'react'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataNode } from '~/queries/schema/schema-general'
@@ -78,7 +79,7 @@ export function LoadPreviewText({ localResponse }: { localResponse?: Record<stri
         return <div />
     }
 
-    const resultCount = response && 'results' in response ? response?.results?.length ?? 0 : 0
+    const resultCount = response && 'results' in response ? (response.results?.length ?? 0) : 0
     const isSingleEntry = resultCount === 1
     const showFirstPrefix = hasMoreData && resultCount > 1
 

@@ -1,7 +1,10 @@
+import json
+
 import dagster
 
-from dags.common import JobOwners
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
+
+from dags.common import JobOwners
 
 
 class ErrorConfig(dagster.Config):
@@ -22,6 +25,17 @@ def error_op(
     ).result()
 
 
-@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
+@dagster.job(
+    tags={
+        "owner": JobOwners.TEAM_CLICKHOUSE.value,
+        "dagster-k8s/config": json.dumps(
+            {
+                "container_config": {
+                    "resources": {"requests": {"cpu": "1", "memory": "2Gi"}, "limits": {"cpu": "2", "memory": "4Gi"}}
+                }
+            }
+        ),
+    }
+)
 def error():
     error_op()

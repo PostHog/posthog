@@ -1,9 +1,11 @@
-import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { IconSlack } from 'lib/lemon-ui/icons'
 
-import { slackSetupModalLogic, SlackSetupModalLogicProps } from './slackSetupModalLogic'
+import { SlackSetupModalLogicProps, slackSetupModalLogic } from './slackSetupModalLogic'
 
 export const SlackSetupModal = (props: SlackSetupModalLogicProps): JSX.Element => {
     const logic = slackSetupModalLogic(props)

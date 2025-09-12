@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { HedgehogAvatar } from './HedgehogAvatar'
 
@@ -8,12 +9,12 @@ interface CollapsedFloatingMaxProps {
 }
 
 export function CollapsedFloatingMax({ onExpand, onPositionChange }: CollapsedFloatingMaxProps): JSX.Element {
-    const { isFloatingMaxExpanded, floatingMaxPosition } = useValues(maxGlobalLogic)
+    const { floatingMaxPosition } = useValues(maxGlobalLogic)
 
     return (
         <HedgehogAvatar
             onExpand={onExpand}
-            isExpanded={isFloatingMaxExpanded}
+            isExpanded={false}
             onPositionChange={onPositionChange}
             fixedDirection={floatingMaxPosition?.side === 'left' ? 'left' : 'right'}
         />

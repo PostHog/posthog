@@ -10,7 +10,7 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/services/twilio.png',
     category: ['Communication'],
     code_language: 'hog',
-    hog: `
+    code: `
 let toNumber := inputs.to_number
 let message := inputs.message
 let fromNumber := inputs.from_number
@@ -72,7 +72,7 @@ if (inputs.debug) {
             integration_key: 'twilio_account',
             integration_field: 'twilio_phone_number',
             label: 'From Phone Number',
-            description: 'Your Twilio phone number (e.g. +12292109687)',
+            description: 'Your Twilio phone number',
             secret: false,
             hidden: false,
             required: true,
@@ -84,7 +84,8 @@ if (inputs.debug) {
             secret: false,
             required: true,
             description: 'Phone number to send the SMS to (in E.164 format, e.g., +1234567890).',
-            default: '{person.properties.phone}',
+            default: '{{ person.properties.phone }}',
+            templating: 'liquid',
         },
         {
             key: 'message',
@@ -93,7 +94,8 @@ if (inputs.debug) {
             secret: false,
             required: true,
             description: 'SMS message content (max 1600 characters).',
-            default: 'PostHog event {event.event} was triggered',
+            default: 'PostHog event {{ event.event }} was triggered',
+            templating: 'liquid',
         },
         {
             key: 'debug',

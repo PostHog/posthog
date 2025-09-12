@@ -1,11 +1,13 @@
-import { LemonInputSelect, LemonInputSelectOption } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
+
+import { LemonInputSelect, LemonInputSelectOption } from '@posthog/lemon-ui'
+
+import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { IntegrationType } from '~/types'
 
 import { linearIntegrationLogic } from './linearIntegrationLogic'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 
 export type LinearTeamPickerProps = {
     integration: IntegrationType

@@ -4,6 +4,10 @@ from typing import Optional
 
 import structlog
 
+from posthog.clickhouse.client import sync_execute
+from posthog.models.property import PropertyName, TableColumn, TableWithProperties
+from posthog.settings import CLICKHOUSE_CLUSTER
+
 from ee.clickhouse.materialized_columns.columns import (
     MaterializedColumn,
     backfill_materialized_columns,
@@ -16,9 +20,6 @@ from ee.settings import (
     MATERIALIZE_COLUMNS_MAX_AT_ONCE,
     MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
 )
-from posthog.clickhouse.client import sync_execute
-from posthog.models.property import PropertyName, TableColumn, TableWithProperties
-from posthog.settings import CLICKHOUSE_CLUSTER
 
 Suggestion = tuple[TableWithProperties, TableColumn, PropertyName]
 

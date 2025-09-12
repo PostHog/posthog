@@ -9,13 +9,14 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
-from ee.hogai.utils.types import AssistantMode, AssistantState
-from ee.models.assistant import Conversation
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer
+
+from ee.hogai.utils.types import AssistantMode, AssistantState
+from ee.models.assistant import Conversation
 
 
 class InsightsToolCallSerializer(serializers.Serializer):
@@ -57,13 +58,13 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         serializer = InsightsToolCallSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         conversation = self.get_queryset().create(user=request.user, team=self.team, type=Conversation.Type.TOOL_CALL)
-        assistant = Assistant(
+        assistant = Assistant.create(
             self.team,
             conversation,
             user=cast(User, request.user),
             is_new_conversation=False,  # we don't care about the conversation id being sent back to the client
             mode=AssistantMode.INSIGHTS_TOOL,
-            tool_call_partial_state=serializer.validated_data["state"],
+            initial_state=serializer.validated_data["state"],
         )
 
         return Response(

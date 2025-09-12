@@ -16,7 +16,7 @@
                 color: var(--text-3000);
 
                 &:hover {
-                    color: var(--accent);
+                    color: var(--color-accent);
                 }
             }
         }
@@ -38,6 +38,6 @@
         justify-content: center;
         width: 100%;
         padding: 4rem;
-        background-color: var(--bg-primary);
+        background-color: var(--color-bg-primary);
     }
 }

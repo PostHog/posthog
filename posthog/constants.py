@@ -16,7 +16,8 @@ class AvailableFeature(StrEnum):
     SOCIAL_SSO = "social_sso"
     SAML = "saml"
     SSO_ENFORCEMENT = "sso_enforcement"
-    ADVANCED_PERMISSIONS = "advanced_permissions"
+    ADVANCED_PERMISSIONS = "advanced_permissions"  # TODO: Remove this once access_control is propagated
+    ACCESS_CONTROL = "access_control"
     INGESTION_TAXONOMY = "ingestion_taxonomy"
     PATHS_ADVANCED = "paths_advanced"
     CORRELATION_ANALYSIS = "correlation_analysis"
@@ -42,6 +43,7 @@ class AvailableFeature(StrEnum):
     API_QUERIES_CONCURRENCY = "api_queries_concurrency"
     ORGANIZATION_INVITE_SETTINGS = "organization_invite_settings"
     ORGANIZATION_SECURITY_SETTINGS = "organization_security_settings"
+    ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT = "organization_app_query_concurrency_limit"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -58,6 +60,7 @@ TRENDS_BAR = "ActionsBar"
 TRENDS_BAR_VALUE = "ActionsBarValue"
 TRENDS_WORLD_MAP = "WorldMap"
 TRENDS_BOLD_NUMBER = "BoldNumber"
+TRENDS_CALENDAR_HEATMAP = "CalendarHeatmap"
 
 # Sync with frontend NON_TIME_SERIES_DISPLAY_TYPES
 NON_TIME_SERIES_DISPLAY_TYPES = [
@@ -66,9 +69,10 @@ NON_TIME_SERIES_DISPLAY_TYPES = [
     TRENDS_BAR_VALUE,
     TRENDS_WORLD_MAP,
     TRENDS_BOLD_NUMBER,
+    TRENDS_CALENDAR_HEATMAP,
 ]
 # Sync with frontend NON_BREAKDOWN_DISPLAY_TYPES
-NON_BREAKDOWN_DISPLAY_TYPES = [TRENDS_BOLD_NUMBER]
+NON_BREAKDOWN_DISPLAY_TYPES = [TRENDS_BOLD_NUMBER, TRENDS_CALENDAR_HEATMAP]
 
 # CONSTANTS
 INSIGHT_TRENDS = "TRENDS"
@@ -98,6 +102,7 @@ DISPLAY_TYPES = Literal[
     "ActionsBarValue",
     "WorldMap",
     "BoldNumber",
+    "CalendarHeatmap",
 ]
 
 DEPRECATED_DISPLAY_TYPES = Literal[
@@ -238,7 +243,8 @@ class FunnelCorrelationType(StrEnum):
 
 
 RETENTION_RECURRING = "retention_recurring"
-RETENTION_FIRST_TIME = "retention_first_time"
+RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS = "retention_first_time"
+RETENTION_FIRST_EVER_OCCURRENCE = "retention_first_ever_occurrence"
 
 DISTINCT_ID_FILTER = "distinct_id"
 PERSON_UUID_FILTER = "person_uuid"
@@ -253,12 +259,6 @@ UNIQUE_USERS = "dau"
 UNIQUE_GROUPS = "unique_group"
 WEEKLY_ACTIVE = "weekly_active"
 MONTHLY_ACTIVE = "monthly_active"
-
-
-class RetentionQueryType(StrEnum):
-    RETURNING = "returning"
-    TARGET = "target"
-    TARGET_FIRST_TIME = "target_first_time"
 
 
 class ExperimentNoResultsErrorKeys(StrEnum):
@@ -307,6 +307,7 @@ class FlagRequestType(StrEnum):
 
 
 SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
+GENERATED_DASHBOARD_PREFIX = "Generated Dashboard"
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
 DATA_WAREHOUSE_TASK_QUEUE = "data-warehouse-task-queue"
@@ -316,7 +317,10 @@ BATCH_EXPORTS_TASK_QUEUE = "batch-exports-task-queue"
 DATA_MODELING_TASK_QUEUE = "data-modeling-task-queue"
 SYNC_BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
 GENERAL_PURPOSE_TASK_QUEUE = "general-purpose-task-queue"
+TASKS_TASK_QUEUE = "tasks-task-queue"
 TEST_TASK_QUEUE = "test-task-queue"
+BILLING_TASK_QUEUE = "billing-task-queue"
+VIDEO_EXPORT_TASK_QUEUE = "video-export-task-queue"
 
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
 

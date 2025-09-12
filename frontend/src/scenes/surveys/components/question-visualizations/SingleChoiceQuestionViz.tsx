@@ -1,11 +1,11 @@
 import clsx from 'clsx'
 import { BindLogic } from 'kea'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
-import { ChoiceQuestionProcessedResponses } from 'scenes/surveys/surveyLogic'
 
-import { GraphType, InsightLogicProps, MultipleSurveyQuestion } from '~/types'
+import { ChoiceQuestionProcessedResponses, GraphType, InsightLogicProps, MultipleSurveyQuestion } from '~/types'
 
 const insightProps: InsightLogicProps = {
     dashboardItemId: `new-survey`,
@@ -55,8 +55,8 @@ export function SingleChoiceQuestionViz({
                     Math.min(Math.ceil(data.length / 10), 3) === 1
                         ? 'grid-cols-1'
                         : Math.min(Math.ceil(data.length / 10), 3) === 2
-                        ? 'grid-cols-2'
-                        : 'grid-cols-3'
+                          ? 'grid-cols-2'
+                          : 'grid-cols-3'
                 )}
             >
                 {data.map((d: { value: number; label: string }, i: number) => {

@@ -1,32 +1,34 @@
 import './HedgehogBuddy.scss'
 
-import { lemonToast, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { ForwardedRef, useEffect, useMemo, useRef, useState } from 'react'
+import React from 'react'
+
+import { ProfilePicture, lemonToast } from '@posthog/lemon-ui'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
-import { ForwardedRef, useEffect, useMemo, useRef, useState } from 'react'
-import React from 'react'
 import { userLogic } from 'scenes/userLogic'
 
 import { HedgehogConfig, OrganizationMemberType } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
-import { COLOR_TO_FILTER_MAP, hedgehogBuddyLogic } from './hedgehogBuddyLogic'
 import { HedgehogOptions } from './HedgehogOptions'
+import { COLOR_TO_FILTER_MAP, hedgehogBuddyLogic } from './hedgehogBuddyLogic'
 import {
     AccessoryInfo,
     AnimationName,
     OverlayAnimationName,
-    overlayAnimations,
     SHADOW_HEIGHT,
-    skins,
     SPRITE_SHEET_WIDTH,
     SPRITE_SIZE,
-    spriteAccessoryUrl,
     SpriteInfo,
+    overlayAnimations,
+    skins,
+    spriteAccessoryUrl,
     spriteOverlayUrl,
     spriteUrl,
     standardAccessories,
@@ -822,8 +824,8 @@ export class HedgehogActor {
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{
                                 // NOTE: Some styles done here to avoid it showing as an interactable element (via border)
-                                border: '1px solid var(--border-primary)',
-                                backgroundColor: 'var(--bg-surface-primary)',
+                                border: '1px solid var(--color-border-primary)',
+                                backgroundColor: 'var(--color-bg-surface-primary)',
                             }}
                         >
                             {this.tooltip}

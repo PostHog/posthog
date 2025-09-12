@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconGraph, IconLifecycle, IconTrends } from '@posthog/icons'
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { Icon123, IconAreaChart, IconTableChart } from 'lib/lemon-ui/icons'
 
 import { ChartDisplayType } from '~/types'

@@ -1,12 +1,8 @@
-import { IconFolderMove, IconFolderOpen, IconShortcut } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconFolderMove, IconFolderOpen, IconShortcut } from '@posthog/icons'
+
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
-import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
-import { moveToLogic } from '../FileSystem/MoveTo/moveToLogic'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -14,7 +10,15 @@ import {
     DropdownMenuOpenIndicator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { Label } from 'lib/ui/Label/Label'
+
+import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
+
+import { moveToLogic } from '../FileSystem/MoveTo/moveToLogic'
 
 export function SceneFile({ dataAttrKey }: { dataAttrKey: string }): JSX.Element | null {
     const { assureVisibility } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
@@ -24,18 +28,15 @@ export function SceneFile({ dataAttrKey }: { dataAttrKey: string }): JSX.Element
     const { openMoveToModal } = useActions(moveToLogic)
 
     return projectTreeRefEntry ? (
-        <div className="flex flex-col">
-            <Label intent="menu">File</Label>
+        <ScenePanelLabel title="File">
             <DropdownMenu>
-                <div className="-ml-1.5">
-                    <DropdownMenuTrigger asChild>
-                        <ButtonPrimitive menuItem data-attr={`${dataAttrKey}-file-dropdown-menu-trigger`}>
-                            <IconFolderOpen />
-                            {splitPath(projectTreeRefEntry.path).slice(0, -1).join('/')}
-                            <DropdownMenuOpenIndicator className="ml-auto" />
-                        </ButtonPrimitive>
-                    </DropdownMenuTrigger>
-                </div>
+                <DropdownMenuTrigger asChild>
+                    <ButtonPrimitive variant="panel" menuItem data-attr={`${dataAttrKey}-file-dropdown-menu-trigger`}>
+                        <IconFolderOpen />
+                        {splitPath(projectTreeRefEntry.path).slice(0, -1).join('/')}
+                        <DropdownMenuOpenIndicator className="ml-auto" />
+                    </ButtonPrimitive>
+                </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" matchTriggerWidth>
                     <DropdownMenuItem className="w-full">
                         <ButtonPrimitive
@@ -72,6 +73,6 @@ export function SceneFile({ dataAttrKey }: { dataAttrKey: string }): JSX.Element
                     </DropdownMenuItem>
                 </DropdownMenuContent>
             </DropdownMenu>
-        </div>
+        </ScenePanelLabel>
     ) : null
 }

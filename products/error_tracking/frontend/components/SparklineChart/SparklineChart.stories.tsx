@@ -2,7 +2,8 @@ import { action } from '@storybook/addon-actions'
 import { Meta, StoryObj } from '@storybook/react'
 import * as d3 from 'd3'
 
-import { generateSparklineLabels } from '../../utils'
+import { dayjs } from 'lib/dayjs'
+
 import { SparklineChart, SparklineEvent, SparklineOptions } from './SparklineChart'
 
 const meta: Meta = {
@@ -48,6 +49,14 @@ export const IssueChartWithZeroes: Story = {
     },
 }
 
+export const IssueChartWithZeroesAndOnes: Story = {
+    args: {
+        data: buildData(0, 1),
+        options: buildSparklineOptions(),
+        className: 'w-[800px] h-[200px]',
+    },
+}
+
 export const IssueChartWithOverlappingEvents: Story = {
     args: {
         data: buildData(),
@@ -74,17 +83,13 @@ function buildData(
     maxDate: string = '2022-02-01'
 ): Array<{ value: number; date: Date }> {
     const generator = d3.randomLcg(42) // Initialize a random generator with seed
-    const ranges = generateSparklineLabels(
-        {
-            date_from: minDate,
-            date_to: maxDate,
-        },
-        resolution
-    )
+    const dayJsStart = dayjs(minDate)
+    const dayJsEnd = dayjs(maxDate)
+    const binSize = dayJsEnd.diff(dayJsStart, 'seconds') / resolution
     return new Array(resolution).fill(0).map((_, index) => {
         return {
-            value: Math.floor(generator() * (maxValue - minValue) + minValue),
-            date: ranges[index].toDate(),
+            value: Math.round(generator() * (maxValue - minValue) + minValue),
+            date: dayJsStart.add(index * binSize, 'seconds').toDate(),
         }
     })
 }
@@ -93,14 +98,15 @@ function buildSparklineOptions(): SparklineOptions {
     return {
         ...datumInteractions,
         ...eventsInteractions,
-        backgroundColor: 'var(--primitive-neutral-200)',
-        hoverBackgroundColor: 'var(--primitive-neutral-700)',
-        axisColor: 'var(--primitive-neutral-300)',
+        backgroundColor: 'var(--color-neutral-200)',
+        hoverBackgroundColor: 'var(--color-neutral-700)',
+        axisColor: 'var(--color-neutral-300)',
         eventLabelHeight: 20,
         eventMinSpace: 2,
         eventLabelPaddingX: 5,
         eventLabelPaddingY: 3,
         borderRadius: 5,
+        minBarHeight: 10,
     }
 }
 
