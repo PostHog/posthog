@@ -70,7 +70,7 @@ export const CampaignSceneHeader = (props: CampaignSceneLogicProps = {}): JSX.El
                     </>
                 }
             />
-            <SceneTitleSection name={campaign.name} resourceType={{ type: 'campaign' }} />
+            <SceneTitleSection name="Messaging" resourceType={{ type: 'messaging' }} />
         </>
     )
 }
