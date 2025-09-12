@@ -67,10 +67,6 @@ export class ProcessingPipeline<T> {
     static of<T>(value: T): ProcessingPipeline<T> {
         return new ProcessingPipeline({ type: PipelineStepResultType.OK, value })
     }
-
-    static fromResult<T>(result: ProcessingResult<T>): ProcessingPipeline<T> {
-        return new ProcessingPipeline(result)
-    }
 }
 
 export type SyncPreprocessingStep<T, U> = (value: T) => ProcessingResult<U>
