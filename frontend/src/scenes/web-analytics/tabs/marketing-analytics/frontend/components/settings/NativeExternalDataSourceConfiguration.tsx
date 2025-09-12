@@ -11,7 +11,7 @@ import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWare
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
+import { ExternalDataSource } from '~/types'
 
 import { useSortedPaginatedList } from '../../hooks/useSortedPaginatedList'
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
@@ -134,7 +134,7 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
                     <AddSourceDropdown<ExternalDataSource['source_type']>
                         sources={VALID_NATIVE_MARKETING_SOURCES}
                         onSourceAdd={(source) => {
-                            router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { source }))
+                            router.actions.push(urls.dataWarehouseSource(`managed-${source}`))
                         }}
                     />
                 }
@@ -157,13 +157,7 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
                         title: 'Source',
                         render: (_, item: ExternalDataSource): JSX.Element => {
                             return (
-                                <Link
-                                    to={urls.pipelineNode(
-                                        PipelineStage.Source,
-                                        `managed-${item.id}`,
-                                        PipelineNodeTab.Schemas
-                                    )}
-                                >
+                                <Link to={urls.dataWarehouseSource(`managed-${item.id}`)}>
                                     {item.prefix || item.source_type}
                                 </Link>
                             )
@@ -210,15 +204,7 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
                                 <LemonButton
                                     icon={<IconGear />}
                                     size="small"
-                                    onClick={() => {
-                                        router.actions.push(
-                                            urls.pipelineNode(
-                                                PipelineStage.Source,
-                                                `managed-${item.id}`,
-                                                PipelineNodeTab.Schemas
-                                            )
-                                        )
-                                    }}
+                                    to={urls.dataWarehouseSource(`managed-${item.id}`)}
                                     tooltip="Configure source schemas"
                                 />
                             )
