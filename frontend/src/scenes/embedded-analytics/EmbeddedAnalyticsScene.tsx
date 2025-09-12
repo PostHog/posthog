@@ -1,4 +1,4 @@
-import { IconPieChart } from '@posthog/icons'
+import { IconCode2 } from '@posthog/icons'
 
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -20,7 +20,7 @@ export function EmbeddedAnalyticsScene(): JSX.Element {
                     description="Monitor API usage metrics and system performance through embedded analytics dashboard."
                     resourceType={{
                         type: 'embedded',
-                        forceIcon: <IconPieChart />,
+                        forceIcon: <IconCode2 />,
                         forceIconColorOverride: [
                             'var(--color-product-embedded-analytics-light)',
                             'var(--color-product-embedded-analytics-dark)',
