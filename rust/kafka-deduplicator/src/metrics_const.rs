@@ -25,10 +25,16 @@ pub const TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM: &str = "timestamp_dedup_si
 pub const TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM: &str = "timestamp_dedup_different_fields";
 
 /// Histogram for number of different properties in timestamp deduplication
-pub const TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM: &str = "timestamp_dedup_different_properties";
+pub const TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM: &str =
+    "timestamp_dedup_different_properties";
 
 /// Histogram for properties similarity score in timestamp deduplication
-pub const TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM: &str = "timestamp_dedup_properties_similarity";
+pub const TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM: &str =
+    "timestamp_dedup_properties_similarity";
+
+/// Counter for specific fields that differ in timestamp deduplication
+pub const TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER: &str =
+    "timestamp_dedup_field_differences_total";
 
 // ==== UUID deduplication metrics ====
 /// Histogram for timestamp variance in milliseconds for UUID duplicates
@@ -48,6 +54,9 @@ pub const UUID_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM: &str = "uuid_dedup_differen
 
 /// Histogram for properties similarity score in UUID deduplication
 pub const UUID_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM: &str = "uuid_dedup_properties_similarity";
+
+/// Counter for specific fields that differ in UUID deduplication
+pub const UUID_DEDUP_FIELD_DIFFERENCES_COUNTER: &str = "uuid_dedup_field_differences_total";
 
 // ==== Cleanup operations metrics ====
 /// Counter for cleanup operations performed

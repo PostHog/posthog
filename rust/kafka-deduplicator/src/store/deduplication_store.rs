@@ -182,6 +182,15 @@ impl DeduplicationStore {
                 .with_label("lib", &lib_name)
                 .record(similarity.properties_similarity);
 
+            // Emit counters for specific fields that differ
+            for (field_name, _, _) in &similarity.different_fields {
+                self.metrics
+                    .counter(TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER)
+                    .with_label("lib", &lib_name)
+                    .with_label("field", field_name)
+                    .increment(1);
+            }
+
             // Store updated metadata
             let serialized = bincode::serde::encode_to_vec(&metadata, bincode::config::standard())
                 .context("Failed to serialize timestamp metadata")?;
@@ -283,6 +292,15 @@ impl DeduplicationStore {
                 .histogram(UUID_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM)
                 .with_label("lib", &lib_name)
                 .record(similarity.properties_similarity);
+
+            // Emit counters for specific fields that differ
+            for (field_name, _, _) in &similarity.different_fields {
+                self.metrics
+                    .counter(UUID_DEDUP_FIELD_DIFFERENCES_COUNTER)
+                    .with_label("lib", &lib_name)
+                    .with_label("field", field_name)
+                    .increment(1);
+            }
 
             // Store updated metadata
             let serialized = bincode::serde::encode_to_vec(&metadata, bincode::config::standard())
