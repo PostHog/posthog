@@ -1,7 +1,7 @@
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
-import { DashboardType, DataColorThemeModel, ExportContext, InsightModel, SessionRecordingType } from '~/types'
+import { DashboardType, DataColorThemeModel, HeatmapExportContext, InsightModel, SessionRecordingType } from '~/types'
 
 export enum ExportType {
     Image = 'image',
@@ -25,5 +25,5 @@ export interface ExportedData extends SharingConfigurationSettings {
     mode?: SessionRecordingPlayerMode
     exportToken?: string
     heatmap_url?: string
-    heatmap_context?: ExportContext
+    heatmap_context?: HeatmapExportContext
 }
