@@ -12,6 +12,8 @@ import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
 import { hogFunctionsListLogic } from 'scenes/hog-functions/list/hogFunctionsListLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { HogFunctionTypeType, ProductKey } from '~/types'
 
 import { DataPipelinesNewSceneKind } from './DataPipelinesNewScene'
@@ -76,7 +78,7 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
     const productInfoMapping = MAPPING[kind]
 
     return (
-        <>
+        <div className="flex flex-col gap-4">
             <PageHeader buttons={newButton} />
             {productInfoMapping ? (
                 <ProductIntroduction
@@ -89,7 +91,7 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
                     isEmpty={hogFunctions.length === 0 && !loading}
                 />
             ) : null}
-            <div>
+            <SceneSection>
                 <HogFunctionList
                     logicKey={logicKey}
                     type={kind}
@@ -102,11 +104,11 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
                               : undefined
                     }
                 />
-                <div>
-                    <h2 className="mt-4">Create a new {humanizedKind}</h2>
-                    <HogFunctionTemplateList type={kind} additionalTypes={additionalKinds} hideComingSoonByDefault />
-                </div>
-            </div>
-        </>
+            </SceneSection>
+            <SceneDivider />
+            <SceneSection title={`Create a new ${humanizedKind}`}>
+                <HogFunctionTemplateList type={kind} additionalTypes={additionalKinds} hideComingSoonByDefault />
+            </SceneSection>
+        </div>
     )
 }
