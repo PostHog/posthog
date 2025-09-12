@@ -55,6 +55,9 @@ export type LogsViewerProps = LogsViewerLogicProps & {
         columns: LemonTableColumn<GroupedLogEntry, keyof GroupedLogEntry | undefined>[]
     ) => LemonTableColumn<GroupedLogEntry, keyof GroupedLogEntry | undefined>[]
     renderMessage?: (message: string) => JSX.Element | string
+    hideDateFilter?: boolean
+    hideLevelsFilter?: boolean
+    hideInstanceIdColumn?: boolean
 }
 
 /**
@@ -65,6 +68,9 @@ export function LogsViewer({
     renderColumns = (c) => c,
     renderMessage = (m) => m,
     instanceLabel = 'invocation',
+    hideDateFilter,
+    hideLevelsFilter,
+    hideInstanceIdColumn,
     ...props
 }: LogsViewerProps): JSX.Element {
     const logic = logsViewerLogic(props)
@@ -94,6 +100,7 @@ export function LogsViewer({
         {
             width: 0,
             title: instanceLabel,
+            isHidden: hideInstanceIdColumn === true,
             dataIndex: 'instanceId',
             key: 'instanceId',
             render: (_, { instanceId }) => (
@@ -188,19 +195,25 @@ export function LogsViewer({
                     />
                 </div>
                 <div className="flex items-center gap-2">
-                    <LogLevelsPicker value={filters.levels} onChange={(levels) => setFilters({ levels })} />
+                    {!hideLevelsFilter && (
+                        <LogLevelsPicker value={filters.levels} onChange={(levels) => setFilters({ levels })} />
+                    )}
 
-                    <DateFilter
-                        dateTo={filters.date_to}
-                        dateFrom={filters.date_from}
-                        onChange={(from, to) => setFilters({ date_from: from || undefined, date_to: to || undefined })}
-                        allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
-                        makeLabel={(key) => (
-                            <>
-                                <IconCalendar /> {key}
-                            </>
-                        )}
-                    />
+                    {!hideDateFilter && (
+                        <DateFilter
+                            dateTo={filters.date_to}
+                            dateFrom={filters.date_from}
+                            onChange={(from, to) =>
+                                setFilters({ date_from: from || undefined, date_to: to || undefined })
+                            }
+                            allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
+                            makeLabel={(key) => (
+                                <>
+                                    <IconCalendar /> {key}
+                                </>
+                            )}
+                        />
+                    )}
 
                     {typeof props.groupByInstanceId !== 'boolean' && (
                         <LemonSelect
@@ -291,6 +304,7 @@ export function LogsViewer({
                     className="ph-no-capture overflow-y-auto"
                     rowKey={(record, index) => `${record.timestamp.toISOString()}-${index}`}
                     footer={footer}
+                    hideInstanceIdColumn={hideInstanceIdColumn}
                 />
             )}
 
@@ -303,6 +317,7 @@ export function LogsViewerTable({
     instanceLabel,
     renderMessage,
     renderColumns = (c) => c,
+    hideInstanceIdColumn,
     ...props
 }: Omit<LemonTableProps<LogEntry>, 'columns'> & {
     instanceLabel: string
@@ -310,6 +325,7 @@ export function LogsViewerTable({
     renderColumns?: (
         columns: LemonTableColumn<LogEntry, keyof LogEntry | undefined>[]
     ) => LemonTableColumn<LogEntry, keyof LogEntry | undefined>[]
+    hideInstanceIdColumn?: boolean
 }): JSX.Element {
     let logColumns: LemonTableColumn<LogEntry, keyof LogEntry | undefined>[] = [
         {
@@ -328,6 +344,7 @@ export function LogsViewerTable({
         },
         {
             width: 0,
+            isHidden: hideInstanceIdColumn === true,
             title: instanceLabel,
             dataIndex: 'instanceId',
             key: 'instanceId',
