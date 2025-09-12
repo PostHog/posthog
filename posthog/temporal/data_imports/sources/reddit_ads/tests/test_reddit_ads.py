@@ -73,6 +73,7 @@ class TestGetResource:
         assert resource["name"] == "campaigns"
         assert resource["table_name"] == "campaigns"
         assert resource["primary_key"] == ["id"]
+        assert isinstance(resource["endpoint"], dict)
         assert resource["endpoint"]["path"] == "/ad_accounts/test_account/campaigns"
         assert resource["endpoint"]["method"] == "GET"
         assert resource["write_disposition"] == "replace"
@@ -81,21 +82,29 @@ class TestGetResource:
         """Test getting campaigns resource with incremental configuration."""
         resource = get_resource("campaigns", "test_account", True, dt.datetime(2024, 3, 15, 14, 30))
 
-        assert resource["write_disposition"]["disposition"] == "merge"
-        assert resource["write_disposition"]["strategy"] == "upsert"
-        assert "modified_at[after]" in resource["endpoint"]["params"]
+        assert isinstance(resource["write_disposition"], dict)
+        write_disposition = resource["write_disposition"]
+        assert write_disposition["disposition"] == "merge"
+        assert write_disposition["strategy"] == "upsert"  # type: ignore[typeddict-item]
+        assert isinstance(resource["endpoint"], dict)
+        endpoint_params = resource["endpoint"]["params"]
+        assert endpoint_params is not None
+        assert "modified_at[after]" in endpoint_params
 
     def test_get_resource_campaign_report_incremental(self):
         """Test getting campaign report resource with incremental configuration."""
         resource = get_resource("campaign_report", "test_account", True, dt.datetime(2024, 3, 15, 14, 30))
 
-        assert resource["write_disposition"]["disposition"] == "merge"
-        assert resource["write_disposition"]["strategy"] == "upsert"
+        assert isinstance(resource["write_disposition"], dict)
+        write_disposition = resource["write_disposition"]
+        assert write_disposition["disposition"] == "merge"
+        assert write_disposition["strategy"] == "upsert"  # type: ignore[typeddict-item]
+        assert isinstance(resource["endpoint"], dict)
         assert resource["endpoint"]["method"] == "POST"
-        assert resource["endpoint"]["json"]["data"]["starts_at"] == "2024-03-15T14:00:00Z"
-        assert resource["endpoint"]["json"]["data"]["ends_at"].endswith(
-            ":00:00Z"
-        )  # Should be next hour (rounded to hour)
+        endpoint_json = resource["endpoint"]["json"]
+        assert endpoint_json is not None
+        assert endpoint_json["data"]["starts_at"] == "2024-03-15T14:00:00Z"
+        assert endpoint_json["data"]["ends_at"].endswith(":00:00Z")  # Should be next hour (rounded to hour)
 
     def test_get_resource_unknown_endpoint(self):
         """Test getting unknown endpoint raises ValueError."""

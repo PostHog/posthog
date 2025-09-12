@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+from posthog.schema import SourceFieldInputConfig, SourceFieldOauthConfig
+
 from posthog.temporal.data_imports.sources.generated_configs import RedditAdsSourceConfig
 from posthog.temporal.data_imports.sources.reddit_ads.source import RedditAdsSource
 from posthog.warehouse.types import ExternalDataSourceType
@@ -30,6 +32,7 @@ class TestRedditAdsSource:
 
         # Check account_id field
         account_field = config.fields[0]
+        assert isinstance(account_field, SourceFieldInputConfig)
         assert account_field.name == "account_id"
         assert account_field.label == "Reddit Ads Account ID"
         assert account_field.required is True
@@ -37,6 +40,7 @@ class TestRedditAdsSource:
 
         # Check oauth field
         oauth_field = config.fields[1]
+        assert isinstance(oauth_field, SourceFieldOauthConfig)
         assert oauth_field.name == "reddit_integration_id"
         assert oauth_field.label == "Reddit Ads account"
         assert oauth_field.required is True
@@ -54,7 +58,7 @@ class TestRedditAdsSource:
 
     def test_validate_credentials_missing_integration_id(self):
         """Test credential validation with missing integration ID."""
-        invalid_config = RedditAdsSourceConfig(reddit_integration_id=None, account_id="789")
+        invalid_config = RedditAdsSourceConfig(reddit_integration_id=0, account_id="789")
 
         is_valid, error_message = self.source.validate_credentials(invalid_config, self.team_id)
 
