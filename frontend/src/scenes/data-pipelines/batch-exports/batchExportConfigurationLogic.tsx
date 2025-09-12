@@ -737,6 +737,11 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
         logicProps: [() => [(_, props) => props], (props) => props],
         service: [(s, p) => [s.batchExportConfig, p.service], (config, service) => config?.destination.type || service],
         isNew: [(_, p) => [p.id], (id): boolean => !id],
+        loading: [
+            (s) => [s.batchExportConfigLoading, s.batchExportConfigTestLoading],
+            (batchExportConfigLoading, batchExportConfigTestLoading) =>
+                batchExportConfigLoading || batchExportConfigTestLoading,
+        ],
         requiredFields: [
             (s) => [s.service, s.isNew, s.configuration],
             (service, isNew, config): string[] => {

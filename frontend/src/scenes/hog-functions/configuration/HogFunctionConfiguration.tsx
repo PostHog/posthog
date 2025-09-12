@@ -212,13 +212,7 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
                                                     fullWidth
                                                     label={
                                                         <span className="flex flex-1">
-                                                            {hogFunction
-                                                                ? configuration.enabled
-                                                                    ? 'Enabled'
-                                                                    : 'Disabled'
-                                                                : configuration.enabled
-                                                                  ? 'Start enabled'
-                                                                  : 'Start paused'}
+                                                            {configuration.enabled ? 'Enabled' : 'Disabled'}
                                                         </span>
                                                     }
                                                     tooltip={

@@ -5,28 +5,22 @@ import { IconCheckCircle, IconPlus, IconX } from '@posthog/icons'
 import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
-import { NotFound } from 'lib/components/NotFound'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
-import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import {
-    AnyPropertyFilter,
-    BATCH_EXPORT_SERVICE_NAMES,
-    BatchExportConfigurationTest,
-    BatchExportConfigurationTestStep,
-    BatchExportService,
-} from '~/types'
+import { AnyPropertyFilter, BatchExportConfigurationTest, BatchExportConfigurationTestStep } from '~/types'
 
 import {
     BatchExportConfigurationClearChangesButton,
@@ -45,11 +39,9 @@ export function BatchExportConfiguration(): JSX.Element {
         batchExportConfigTestLoading,
         configuration,
         tables,
-        batchExportConfigLoading,
         batchExportConfig,
         selectedModel,
         runningStep,
-        service,
         logicProps,
     } = useValues(batchExportConfigurationLogic)
     const { setSelectedModel, setConfigurationValue, runBatchExportConfigTestStep } =
@@ -57,18 +49,7 @@ export function BatchExportConfiguration(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
     const sessionsBatchExports = featureFlags[FEATURE_FLAGS.SESSIONS_BATCH_EXPORTS]
-
-    if (service && !BATCH_EXPORT_SERVICE_NAMES.includes(service as BatchExportService['type'])) {
-        return <NotFound object={`batch export service ${service}`} />
-    }
-
-    if (!batchExportConfig && batchExportConfigLoading) {
-        return <SpinnerOverlay />
-    }
-
-    if (!batchExportConfigTest && batchExportConfigTestLoading) {
-        return <SpinnerOverlay />
-    }
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const requiredFields = ['interval']
     const requiredFieldsMissing = requiredFields.filter((field) => !configuration[field])
@@ -85,40 +66,65 @@ export function BatchExportConfiguration(): JSX.Element {
                     <div className="flex flex-wrap gap-4 items-start">
                         <div className="flex flex-col flex-1 min-w-100 deprecated-space-y-3">
                             <div className="p-3 rounded border bg-surface-primary deprecated-space-y-2">
-                                <div className="flex flex-row gap-2 items-center min-h-16">
-                                    {configuration.destination ? (
-                                        <>
-                                            <RenderBatchExportIcon size="medium" type={configuration.destination} />
-                                            <div className="flex-1 text-sm font-semibold">
-                                                {humanizeBatchExportName(configuration.destination)}
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <div className="flex-1" />
-                                    )}
+                                {!newSceneLayout ? (
+                                    <>
+                                        <div className="flex flex-row gap-2 items-center min-h-16">
+                                            {configuration.destination ? (
+                                                <>
+                                                    <RenderBatchExportIcon
+                                                        size="medium"
+                                                        type={configuration.destination}
+                                                    />
+                                                    <div className="flex-1 text-sm font-semibold">
+                                                        {humanizeBatchExportName(configuration.destination)}
+                                                    </div>
+                                                </>
+                                            ) : (
+                                                <div className="flex-1" />
+                                            )}
 
-                                    <LemonField
-                                        name="paused"
-                                        info="Start in a paused state or continuously exporting from now"
-                                    >
-                                        {({ value, onChange }) => (
-                                            <LemonSwitch
-                                                label="Enabled"
-                                                onChange={() => onChange(!value)}
-                                                checked={!value}
-                                                bordered
-                                            />
-                                        )}
-                                    </LemonField>
-                                </div>
+                                            <LemonField
+                                                name="paused"
+                                                info="Start in a paused state or continuously exporting from now"
+                                            >
+                                                {({ value, onChange }) => (
+                                                    <LemonSwitch
+                                                        label="Enabled"
+                                                        onChange={() => onChange(!value)}
+                                                        checked={!value}
+                                                        bordered
+                                                    />
+                                                )}
+                                            </LemonField>
+                                        </div>
 
-                                <LemonField
-                                    name="name"
-                                    label="Name"
-                                    info="Customizing the name can be useful if multiple instances of the same type are used."
-                                >
-                                    <LemonInput type="text" />
-                                </LemonField>
+                                        <LemonField
+                                            name="name"
+                                            label="Name"
+                                            info="Customizing the name can be useful if multiple instances of the same type are used."
+                                        >
+                                            <LemonInput type="text" />
+                                        </LemonField>
+                                    </>
+                                ) : (
+                                    <>
+                                        <LemonField
+                                            label="Status"
+                                            name="paused"
+                                            info="Start in a paused state or continuously exporting from now"
+                                        >
+                                            {({ value, onChange }) => (
+                                                <LemonSwitch
+                                                    label="Enabled"
+                                                    onChange={() => onChange(!value)}
+                                                    checked={!value}
+                                                    fullWidth
+                                                    bordered
+                                                />
+                                            )}
+                                        </LemonField>
+                                    </>
+                                )}
 
                                 <div className="flex gap-2 min-h-16">
                                     <LemonField

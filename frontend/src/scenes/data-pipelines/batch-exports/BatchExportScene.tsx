@@ -1,19 +1,23 @@
 import { BindLogic, actions, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { BatchExportBackfills } from 'scenes/data-pipelines/batch-exports/BatchExportBackfills'
 import { BatchExportRuns } from 'scenes/data-pipelines/batch-exports/BatchExportRuns'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
+import { HogFunctionSkeleton } from 'scenes/hog-functions/misc/HogFunctionSkeleton'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { Breadcrumb } from '~/types'
+import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService, Breadcrumb } from '~/types'
 
 import { PipelineNodeLogs } from '../legacy-plugins/PipelineNodeLogs'
 import { PipelineNodeMetrics } from '../legacy-plugins/PipelineNodeMetrics'
@@ -125,7 +129,9 @@ function BatchExportSceneHeader(): JSX.Element {
             />
             <SceneTitleSection
                 name={configuration.name}
-                description={configuration.description || ''}
+                description={null}
+                // TODO: follow up at some point and add description support
+                // description={configuration.description || ''}
                 resourceType={{
                     type: 'data_pipelines',
                     forceIcon: configuration.destination ? (
@@ -144,7 +150,27 @@ function BatchExportSceneHeader(): JSX.Element {
 export function BatchExportScene(): JSX.Element {
     const { currentTab, logicProps } = useValues(batchExportSceneLogic)
     const { setCurrentTab } = useActions(batchExportSceneLogic)
-    const { id } = logicProps
+    const { id, service } = logicProps
+
+    const configLogic = batchExportConfigurationLogic(logicProps)
+    const { batchExportConfig, loading } = useValues(configLogic)
+
+    if (loading && !batchExportConfig) {
+        return (
+            <div className="flex flex-col gap-4">
+                <LemonSkeleton className="w-full h-12" />
+                <HogFunctionSkeleton />
+            </div>
+        )
+    }
+
+    if (id && !batchExportConfig) {
+        return <NotFound object="Batch export" />
+    }
+
+    if (service && !BATCH_EXPORT_SERVICE_NAMES.includes(service as BatchExportService['type'])) {
+        return <NotFound object={`batch export service ${service}`} />
+    }
 
     const tabs: (LemonTab<BatchExportSceneTab> | null)[] = [
         {
@@ -195,7 +221,7 @@ export function BatchExportScene(): JSX.Element {
             <BindLogic logic={batchExportConfigurationLogic} props={logicProps}>
                 <BatchExportSceneHeader />
                 <SceneDivider />
-                <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} />
+                <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
             </BindLogic>
         </SceneContent>
     )
