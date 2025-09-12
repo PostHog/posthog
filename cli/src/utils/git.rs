@@ -46,7 +46,7 @@ fn find_git_dir(dir: Option<PathBuf>) -> Option<PathBuf> {
     }
 }
 
-fn get_remote_url(git_dir: &Path) -> Option<String> {
+pub fn get_remote_url(git_dir: &Path) -> Option<String> {
     // Try grab it from the git config
     let config_path = git_dir.join("config");
     if config_path.exists() {
@@ -72,7 +72,7 @@ fn get_remote_url(git_dir: &Path) -> Option<String> {
     None
 }
 
-fn get_repo_name(git_dir: &Path) -> Option<String> {
+pub fn get_repo_name(git_dir: &Path) -> Option<String> {
     // Try grab it from the configured remote, otherwise just use the directory name
     let config_path = git_dir.join("config");
     if config_path.exists() {
@@ -83,7 +83,7 @@ fn get_repo_name(git_dir: &Path) -> Option<String> {
 
         for line in config_content.lines() {
             let line = line.trim();
-            if line.starts_with("url = ") && line.ends_with(".git") {
+            if line.starts_with("url = ") {
                 let url = line.trim_start_matches("url = ");
                 if let Some(repo_name) = url.split('/').next_back() {
                     let clean_name = repo_name.trim_end_matches(".git");
