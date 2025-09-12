@@ -75,6 +75,9 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         setQuery: (query: Node) => ({ query }),
         duplicateCohort: (asStatic: boolean) => ({ asStatic }),
         updateCohortCount: true,
+        setCreationPersonQuery: (query: Node) => ({ query }),
+        addPersonToCreateStaticCohort: (personId: string) => ({ personId }),
+        removePersonFromCreateStaticCohort: (personId: string) => ({ personId }),
     }),
 
     reducers(({ props }) => ({
@@ -195,6 +198,40 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 setQuery: (state, { query }) => (isDataTableNode(query) ? query : state),
             },
         ],
+        creationPersonQuery: [
+            {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.ActorsQuery,
+                    fixedProperties: [],
+                    select: ['id', 'person_display_name -- Person'],
+                },
+                showPropertyFilter: false,
+                showEventFilter: false,
+                showExport: false,
+                showSearch: true,
+                showActions: false,
+                showElapsedTime: false,
+                showTimings: false,
+            } as DataTableNode,
+            {
+                setCreationPersonQuery: (state, { query }) => (isDataTableNode(query) ? query : state),
+            },
+        ],
+        personsToCreateStaticCohort: [
+            {} as Record<string, boolean>,
+            {
+                addPersonToCreateStaticCohort: (state, { personId }) => ({
+                    ...state,
+                    [personId]: true,
+                }),
+                removePersonFromCreateStaticCohort: (state, { personId }) => {
+                    const newState = { ...state }
+                    delete newState[personId]
+                    return newState
+                },
+            },
+        ],
     })),
 
     forms(({ actions }) => ({
@@ -213,7 +250,12 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 if (cohort.id !== 'new') {
                     actions.saveCohort(cohort)
                 } else {
-                    actions.saveCohort({ ...cohort, _create_in_folder: 'Unfiled/Cohorts' })
+                    const personIds = Object.keys(values.personsToCreateStaticCohort)
+                    actions.saveCohort({
+                        ...cohort,
+                        _create_in_folder: 'Unfiled/Cohorts',
+                        _create_static_person_ids: personIds.length > 0 ? personIds : undefined,
+                    })
                 }
             },
         },

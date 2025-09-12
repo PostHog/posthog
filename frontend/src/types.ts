@@ -1479,6 +1479,7 @@ export interface CohortType {
     }
     experiment_set?: number[]
     _create_in_folder?: string | null
+    _create_static_person_ids?: string[]
 }
 
 export interface InsightHistory {
