@@ -33,13 +33,9 @@ import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExp
 import { RenderBatchExportIcon } from './BatchExportIcon'
 import { batchExportConfigurationLogic, getDefaultConfiguration } from './batchExportConfigurationLogic'
 import { BatchExportConfigurationForm } from './types'
-import { humanizeBatchExportName, normalizeBatchExportService } from './utils'
+import { humanizeBatchExportName } from './utils'
 
-export function BatchExportConfiguration({ service, id }: { service?: string; id?: string }): JSX.Element {
-    service = normalizeBatchExportService(service ?? '')
-    const logicProps = { service: (service as BatchExportService['type']) || null, id: id || null }
-    const logic = batchExportConfigurationLogic(logicProps)
-
+export function BatchExportConfiguration(): JSX.Element {
     const {
         isNew,
         batchExportConfigTest,
@@ -53,14 +49,16 @@ export function BatchExportConfiguration({ service, id }: { service?: string; id
         batchExportConfig,
         selectedModel,
         runningStep,
-    } = useValues(logic)
+        service,
+        logicProps,
+    } = useValues(batchExportConfigurationLogic)
     const {
         resetConfiguration,
         submitConfiguration,
         setSelectedModel,
         setConfigurationValue,
         runBatchExportConfigTestStep,
-    } = useActions(logic)
+    } = useActions(batchExportConfigurationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
     const sessionsBatchExports = featureFlags[FEATURE_FLAGS.SESSIONS_BATCH_EXPORTS]

@@ -1,4 +1,4 @@
-import { actions, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
+import { BindLogic, actions, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -9,14 +9,17 @@ import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { BatchExportService, Breadcrumb } from '~/types'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { Breadcrumb } from '~/types'
 
 import { PipelineNodeLogs } from '../legacy-plugins/PipelineNodeLogs'
 import { PipelineNodeMetrics } from '../legacy-plugins/PipelineNodeMetrics'
 import { BatchExportConfiguration } from './BatchExportConfiguration'
 import type { batchExportSceneLogicType } from './BatchExportSceneType'
 import { BatchExportsMetrics } from './BatchExportsMetrics'
-import { BatchExportConfigurationLogicProps } from './batchExportConfigurationLogic'
+import { BatchExportConfigurationLogicProps, batchExportConfigurationLogic } from './batchExportConfigurationLogic'
+import { normalizeBatchExportService } from './utils'
 
 const BATCH_EXPORT_SCENE_TABS = ['configuration', 'metrics', 'logs', 'runs', 'backfills'] as const
 export type BatchExportSceneTab = (typeof BATCH_EXPORT_SCENE_TABS)[number]
@@ -95,21 +98,20 @@ export const scene: SceneExport = {
     logic: batchExportSceneLogic,
     paramsToProps: ({ params: { id, service } }): (typeof batchExportSceneLogic)['props'] => ({
         id: id === 'new' ? null : id,
-        service: service as BatchExportService['type'] | null,
+        service: service ? normalizeBatchExportService(service) : null,
     }),
 }
 
 export function BatchExportScene(): JSX.Element {
     const { currentTab, logicProps } = useValues(batchExportSceneLogic)
     const { setCurrentTab } = useActions(batchExportSceneLogic)
-
-    const { id, service } = logicProps
+    const { id } = logicProps
 
     const tabs: (LemonTab<BatchExportSceneTab> | null)[] = [
         {
             label: 'Configuration',
             key: 'configuration',
-            content: <BatchExportConfiguration id={id} service={service} />,
+            content: <BatchExportConfiguration />,
         },
         id
             ? {
@@ -149,5 +151,12 @@ export function BatchExportScene(): JSX.Element {
             : null,
     ]
 
-    return <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} />
+    return (
+        <SceneContent forceNewSpacing>
+            <BindLogic logic={batchExportConfigurationLogic} props={logicProps}>
+                <SceneDivider />
+                <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} />
+            </BindLogic>
+        </SceneContent>
+    )
 }
