@@ -1550,6 +1550,11 @@ export interface QueryRequest {
     query: QuerySchema
     filters_override?: DashboardFilter
     variables_override?: Record<string, Record<string, any>>
+    /**
+     * Name given to a query. It's used to identify the query in the UI.
+     * Up to 128 characters for a name.
+     */
+    name?: string
 }
 
 export interface QueryUpgradeRequest {
@@ -2360,6 +2365,9 @@ export type FileSystemIconType =
     | 'llm_analytics'
     | 'product_analytics'
     | 'revenue_analytics'
+    | 'revenue_analytics_metadata'
+    | 'marketing_settings'
+    | 'embedded_analytics'
     | 'sql_editor'
     | 'web_analytics'
     | 'error_tracking'
@@ -2371,6 +2379,7 @@ export type FileSystemIconType =
     | 'experiment'
     | 'feature_flag'
     | 'data_pipeline'
+    | 'data_pipeline_metadata'
     | 'data_warehouse'
     | 'task'
     | 'link'

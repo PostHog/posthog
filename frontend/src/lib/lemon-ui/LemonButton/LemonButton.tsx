@@ -82,11 +82,13 @@ export interface LemonButtonPropsBase
     tooltipArrowOffset?: number
     /** Whether to force the tooltip to be visible. */
     tooltipForceMount?: boolean
+    /** Whether to stop event propagation on click */
+    stopPropagation?: boolean
     /** Access control props for automatic permission checking */
     accessControl?: {
-        userLevel: AccessControlLevel
-        minLevel: AccessControlLevel
-        resource: AccessControlResourceType
+        resourceType: AccessControlResourceType
+        minAccessLevel: AccessControlLevel
+        userAccessLevel?: AccessControlLevel
     }
 }
 
@@ -160,6 +162,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 buttonWrapper,
                 tooltipDocLink,
                 tooltipForceMount,
+                stopPropagation,
                 accessControl,
                 ...buttonProps
             },
@@ -203,14 +206,16 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
 
             // Handle access control
             if (accessControl) {
-                const { userLevel, minLevel, resource } = accessControl
-                const hasAccess = accessLevelSatisfied(resource, userLevel, minLevel)
+                const { userAccessLevel, minAccessLevel, resourceType } = accessControl
+                const hasAccess = userAccessLevel
+                    ? accessLevelSatisfied(resourceType, userAccessLevel, minAccessLevel)
+                    : true
                 if (!hasAccess) {
                     disabled = true
                     if (!disabledReason) {
                         disabledReason = `You don't have sufficient permissions for this ${resourceTypeToString(
-                            resource
-                        )}. Your access level (${userLevel}) doesn't meet the required level (${minLevel}).`
+                            resourceType
+                        )}. Your access level (${userAccessLevel}) doesn't meet the required level (${minAccessLevel}).`
                     }
                 }
             }
@@ -262,7 +267,16 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         truncate && 'LemonButton--truncate',
                         className
                     )}
-                    onClick={!disabled ? onClick : undefined}
+                    onClick={
+                        !disabled
+                            ? (event) => {
+                                  if (stopPropagation) {
+                                      event.stopPropagation()
+                                  }
+                                  onClick?.(event)
+                              }
+                            : undefined
+                    }
                     // We are using the ARIA disabled instead of native HTML because of this:
                     // https://css-tricks.com/making-disabled-buttons-more-inclusive/
                     aria-disabled={disabled}

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconInfo, IconPlus } from '@posthog/icons'
+import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSwitch, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -25,8 +25,9 @@ export function ExternalDataSourceConfiguration({
     buttonRef?: React.RefObject<HTMLButtonElement>
 }): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading, joins } = useValues(revenueAnalyticsSettingsLogic)
-    const { updateSourceRevenueAnalyticsConfig } = useActions(revenueAnalyticsSettingsLogic)
+    const { updateSourceRevenueAnalyticsConfig, deleteJoin } = useActions(revenueAnalyticsSettingsLogic)
     const { toggleEditJoinModal, toggleNewJoinModal } = useActions(viewLinkLogic)
+
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     const revenueSources =
         dataWarehouseSources?.results.filter((source) => VALID_REVENUE_SOURCES.includes(source.source_type)) ?? []
@@ -86,6 +87,10 @@ export function ExternalDataSourceConfiguration({
                         title: '',
                         width: 0,
                         render: (_, source: ExternalDataSource) => {
+                            if (dataWarehouseSourcesLoading) {
+                                return <Spinner size="medium" />
+                            }
+
                             return <DataWarehouseSourceIcon type={source.source_type} />
                         },
                     },
@@ -94,15 +99,27 @@ export function ExternalDataSourceConfiguration({
                         title: 'Source',
                         render: (_, source: ExternalDataSource) => {
                             return (
-                                <Link
-                                    to={urls.pipelineNode(
-                                        PipelineStage.Source,
-                                        `managed-${source.id}`,
-                                        PipelineNodeTab.Schemas
-                                    )}
-                                >
-                                    {source.source_type}&nbsp;{source.prefix && `(${source.prefix})`}
-                                </Link>
+                                <span className="inline-flex items-centet gap-2">
+                                    <Link
+                                        to={urls.pipelineNode(
+                                            PipelineStage.Source,
+                                            `managed-${source.id}`,
+                                            PipelineNodeTab.Schemas
+                                        )}
+                                    >
+                                        {source.source_type}&nbsp;{source.prefix && `(${source.prefix})`}
+                                    </Link>
+                                    <LemonSwitch
+                                        checked={source.revenue_analytics_config.enabled}
+                                        disabledReason={dataWarehouseSourcesLoading ? 'Updating...' : undefined}
+                                        onChange={(checked) =>
+                                            updateSourceRevenueAnalyticsConfig({
+                                                source,
+                                                config: { enabled: checked },
+                                            })
+                                        }
+                                    />
+                                </span>
                             )
                         },
                     },
@@ -131,15 +148,26 @@ export function ExternalDataSourceConfiguration({
                                         Joined to <code>persons</code> via:
                                     </span>
 
-                                    {join ? (
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            onClick={() => toggleEditJoinModal(join)}
-                                            disabledReason={disabledReasonForRevenueAnalyticsConfig(source)}
-                                        >
-                                            {join.source_table_name}.{join.source_table_key}
-                                        </LemonButton>
+                                    {join && source.revenue_analytics_config.enabled ? (
+                                        <>
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                onClick={() => toggleEditJoinModal(join)}
+                                                disabledReason={disabledReasonForRevenueAnalyticsConfig(source)}
+                                            >
+                                                {join.source_table_name}.{join.source_table_key}
+                                            </LemonButton>
+
+                                            <LemonButton
+                                                type="secondary"
+                                                status="danger"
+                                                size="small"
+                                                tooltip="Delete join"
+                                                icon={<IconTrash />}
+                                                onClick={() => deleteJoin(join)}
+                                            />
+                                        </>
                                     ) : (
                                         <LemonButton
                                             type="secondary"
@@ -190,15 +218,27 @@ export function ExternalDataSourceConfiguration({
                                         Joined to <code>groups</code> via:
                                     </span>
 
-                                    {join ? (
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            onClick={() => toggleEditJoinModal(join)}
-                                            disabledReason={disabledReasonForRevenueAnalyticsConfig(source)}
-                                        >
-                                            {join.source_table_name}.{join.source_table_key}
-                                        </LemonButton>
+                                    {join && source.revenue_analytics_config.enabled ? (
+                                        <>
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                onClick={() => toggleEditJoinModal(join)}
+                                                disabledReason={disabledReasonForRevenueAnalyticsConfig(source)}
+                                                tooltip="Edit join"
+                                            >
+                                                {join.source_table_name}.{join.source_table_key}
+                                            </LemonButton>
+
+                                            <LemonButton
+                                                type="secondary"
+                                                status="danger"
+                                                size="small"
+                                                tooltip="Delete join"
+                                                icon={<IconTrash />}
+                                                onClick={() => deleteJoin(join)}
+                                            />
+                                        </>
                                     ) : (
                                         <LemonButton
                                             type="secondary"
@@ -211,7 +251,7 @@ export function ExternalDataSourceConfiguration({
                                                     source_table_name: joinName,
                                                     source_table_key: 'id',
                                                     joining_table_name: 'groups',
-                                                    joining_table_key: 'group_key',
+                                                    joining_table_key: 'key',
                                                     field_name: 'groups',
                                                 })
                                             }
@@ -221,24 +261,6 @@ export function ExternalDataSourceConfiguration({
                                         </LemonButton>
                                     )}
                                 </span>
-                            )
-                        },
-                    },
-                    {
-                        key: 'revenue_analytics_enabled',
-                        title: 'Enabled?',
-                        render: (_, source: ExternalDataSource) => {
-                            return (
-                                <LemonSwitch
-                                    checked={source.revenue_analytics_config.enabled}
-                                    disabledReason={dataWarehouseSourcesLoading ? 'Updating...' : undefined}
-                                    onChange={(checked) =>
-                                        updateSourceRevenueAnalyticsConfig({
-                                            source,
-                                            config: { enabled: checked },
-                                        })
-                                    }
-                                />
                             )
                         },
                     },
@@ -272,16 +294,6 @@ export function ExternalDataSourceConfiguration({
                                     }
                                 />
                             )
-                        },
-                    },
-                    {
-                        key: 'loading',
-                        render: () => {
-                            if (!dataWarehouseSourcesLoading) {
-                                return null
-                            }
-
-                            return <Spinner />
                         },
                     },
                 ]}

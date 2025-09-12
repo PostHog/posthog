@@ -10,6 +10,7 @@ import { SettingSectionId } from './settings/types'
 export enum Scene {
     Action = 'Action',
     Actions = 'Actions',
+    AdvancedActivityLogs = 'AdvancedActivityLogs',
     AsyncMigrations = 'AsyncMigrations',
     BatchExport = 'BatchExport',
     BatchExportNew = 'BatchExportNew',
@@ -116,6 +117,7 @@ export enum Scene {
     WebAnalyticsMarketing = 'WebAnalyticsMarketing',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
+    EmbeddedAnalytics = 'EmbeddedAnalytics',
     Wizard = 'Wizard',
 }
 
@@ -220,4 +222,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Notebooks
     [Scene.Notebook]: AccessControlResourceType.Notebook,
     [Scene.Notebooks]: AccessControlResourceType.Notebook,
+
+    // Session recordings
+    [Scene.Replay]: AccessControlResourceType.SessionRecording,
+    [Scene.ReplaySingle]: AccessControlResourceType.SessionRecording,
+    [Scene.ReplayPlaylist]: AccessControlResourceType.SessionRecording,
 }

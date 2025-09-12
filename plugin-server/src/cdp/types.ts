@@ -188,6 +188,7 @@ export type MinimalAppMetric = {
     metric_name:
         | 'early_exit'
         | 'triggered'
+        | 'trigger_failed'
         | 'succeeded'
         | 'failed'
         | 'filtered'
@@ -315,7 +316,11 @@ export type HogFunctionInputSchemaType = {
     requires_field?: string
     integration_field?: string
     requiredScopes?: string
-    templating?: boolean
+    /**
+     * templating: true indicates the field supports templating. Alternatively
+     * it can be set to 'hog' or 'liquid' to specify the default templating engine to use.
+     */
+    templating?: boolean | 'hog' | 'liquid'
 }
 
 export type HogFunctionTypeType =
