@@ -1,9 +1,13 @@
 import { BindLogic, actions, connect, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { LemonDivider } from '@posthog/lemon-ui'
+
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -219,14 +223,34 @@ export const scene: SceneExport<HogFunctionConfigurationLogicProps> = {
 }
 
 function HogFunctionHeader(): JSX.Element {
-    const { configuration, logicProps, loading } = useValues(hogFunctionConfigurationLogic)
-    const { setConfigurationValue } = useActions(hogFunctionConfigurationLogic)
+    const { configuration, logicProps, loading, isLegacyPlugin } = useValues(hogFunctionConfigurationLogic)
+    const { setConfigurationValue, duplicate, deleteHogFunction } = useActions(hogFunctionConfigurationLogic)
 
     return (
         <>
             <PageHeader
                 buttons={
                     <>
+                        {!logicProps.templateId && (
+                            <>
+                                <More
+                                    overlay={
+                                        <>
+                                            {!isLegacyPlugin && (
+                                                <LemonButton fullWidth onClick={() => duplicate()}>
+                                                    Duplicate
+                                                </LemonButton>
+                                            )}
+                                            <LemonDivider />
+                                            <LemonButton status="danger" fullWidth onClick={() => deleteHogFunction()}>
+                                                Delete
+                                            </LemonButton>
+                                        </>
+                                    }
+                                />
+                                <LemonDivider vertical />
+                            </>
+                        )}
                         <HogFunctionConfigurationClearChangesButton />
                         <HogFunctionConfigurationSaveButton />
                     </>
