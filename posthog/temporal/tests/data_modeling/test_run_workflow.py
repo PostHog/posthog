@@ -857,6 +857,12 @@ async def test_run_workflow_with_minio_bucket(
                 assert warehouse_table.row_count == len(
                     expected_data
                 ), f"Row count for {query.name} not the expected value"
+                assert (
+                    warehouse_table.size_in_s3_mib is not None and warehouse_table.size_in_s3_mib != 0
+                ), f"Table size in mib for {query.name} is not set"
+
+            job = await DataModelingJob.objects.aget(workflow_id=workflow_id)
+            assert job.storage_delta_mib is not None and job.storage_delta_mib != 0, f"Job storage delta is not set"
 
 
 async def test_run_workflow_with_minio_bucket_with_errors(
