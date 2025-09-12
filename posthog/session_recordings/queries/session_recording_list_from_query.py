@@ -202,7 +202,10 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 ),
                 right=ast.ArithmeticOperation(
                     op=ast.ArithmeticOperationOp.Sub,
-                    left=ast.Call(name="now"),
+                    left=ast.Call(
+                        name="now",
+                        args=[],
+                    ),
                     right=ast.Call(
                         name="toIntervalDay",
                         args=[
