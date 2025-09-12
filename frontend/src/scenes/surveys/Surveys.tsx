@@ -163,7 +163,6 @@ function Surveys(): JSX.Element {
                 resourceType={{
                     type: 'survey',
                 }}
-                docsURL="https://posthog.com/docs/surveys?utm_medium=in-product&utm_campaign=new-survey"
             />
             <SceneDivider />
             <LemonTabs

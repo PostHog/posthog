@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from posthog.models.organization_integration import OrganizationIntegration
 
 from ee.api.authentication import VercelAuthentication
+from ee.api.vercel.utils import expect_vercel_user_claim
 from ee.api.vercel.vercel_error_mixin import VercelErrorResponseMixin
 from ee.api.vercel.vercel_permission import VercelPermission
 from ee.api.vercel.vercel_region_proxy_mixin import VercelRegionProxyMixin
@@ -96,11 +97,11 @@ class VercelInstallationViewSet(VercelRegionProxyMixin, VercelErrorResponseMixin
             raise exceptions.ValidationError(detail=serializer.errors)
 
         installation_id = validate_installation_id(self.kwargs.get("installation_id"))
-        VercelIntegration.upsert_installation(installation_id, serializer.validated_data)
+        user_claim = expect_vercel_user_claim(request)
+        VercelIntegration.upsert_installation(installation_id, serializer.validated_data, user_claim)
 
         # Update cache since installation now exists
         self.set_installation_cache(installation_id, True)
-
         return Response(status=204)
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:

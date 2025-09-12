@@ -452,7 +452,7 @@ def create_hogql_database(
     modifiers: Optional[HogQLQueryModifiers] = None,
     timings: Optional[HogQLTimings] = None,
 ) -> Database:
-    from posthog.hogql.database.s3_table import S3Table
+    from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
     from posthog.hogql.query import create_default_modifiers_for_team
 
     from posthog.models import Team
@@ -585,7 +585,7 @@ def create_hogql_database(
 
     class WarehousePropertiesVirtualTable(VirtualTable):
         fields: dict[str, FieldOrTable]
-        parent_table: S3Table
+        parent_table: HogQLDataWarehouseTable
 
         def to_printed_hogql(self):
             return self.parent_table.to_printed_hogql()
