@@ -12,17 +12,10 @@ import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { productConfiguration, productRedirects, productRoutes } from '~/products'
 import { EventsQuery } from '~/queries/schema/schema-general'
-import {
-    ActivityScope,
-    ActivityTab,
-    InsightShortId,
-    PipelineStage,
-    PipelineTab,
-    PropertyFilterType,
-    ReplayTabs,
-} from '~/types'
+import { ActivityScope, ActivityTab, InsightShortId, PropertyFilterType, ReplayTabs } from '~/types'
 
 import { BillingSectionId } from './billing/types'
+import { DataPipelinesSceneTab } from './data-pipelines/DataPipelinesScene'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -42,6 +35,11 @@ export const preloadedScenes: Record<string, SceneExport> = {
 }
 
 export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
+    [Scene.AdvancedActivityLogs]: {
+        projectBased: true,
+        organizationBased: false,
+        name: 'Advanced activity logs',
+    },
     [Scene.AsyncMigrations]: { instanceLevel: true },
     [Scene.BillingAuthorizationStatus]: {
         hideProjectNotice: true,
@@ -64,17 +62,37 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.DASHBOARD,
         defaultDocsPath: '/docs/product-analytics/dashboards',
     },
-    [Scene.Dashboards]: { projectBased: true, name: 'Dashboards', activityScope: ActivityScope.DASHBOARD },
+    [Scene.Dashboards]: {
+        projectBased: true,
+        name: 'Dashboards',
+        activityScope: ActivityScope.DASHBOARD,
+    },
     [Scene.DataManagement]: {
         projectBased: true,
         name: 'Data management',
         activityScope: ActivityScope.DATA_MANAGEMENT,
         defaultDocsPath: '/docs/data',
     },
-    [Scene.DataPipelinesNew]: { projectBased: true, name: 'New data pipeline' },
-    [Scene.DataPipelines]: { projectBased: true, name: 'Data pipelines' },
-    [Scene.DataWarehouseSourceNew]: { projectBased: true, name: 'New data warehouse source' },
-    [Scene.DataWarehouseSource]: { projectBased: true, name: 'Data warehouse source' },
+
+    [Scene.DataPipelines]: {
+        name: 'Data pipelines',
+        activityScope: ActivityScope.HOG_FUNCTION,
+        defaultDocsPath: '/docs/cdp',
+    },
+    [Scene.DataPipelinesNew]: {
+        projectBased: true,
+        name: 'New data pipeline',
+        activityScope: ActivityScope.HOG_FUNCTION,
+        defaultDocsPath: '/docs/cdp',
+    },
+    [Scene.DataWarehouseSource]: {
+        projectBased: true,
+        name: 'Data warehouse source',
+    },
+    [Scene.DataWarehouseSourceNew]: {
+        projectBased: true,
+        name: 'New data warehouse source',
+    },
     [Scene.DeadLetterQueue]: { instanceLevel: true },
     [Scene.DebugHog]: { projectBased: true, name: 'Hog Repl' },
     [Scene.DebugQuery]: { projectBased: true },
@@ -202,24 +220,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.PERSON,
         defaultDocsPath: '/docs/data/persons',
     },
-    [Scene.PipelineNodeNew]: {
-        projectBased: true,
-        name: 'Pipeline new step',
-        activityScope: ActivityScope.PLUGIN,
-        defaultDocsPath: '/docs/cdp',
-    },
-    [Scene.PipelineNode]: {
-        projectBased: true,
-        name: 'Pipeline step',
-        activityScope: ActivityScope.PLUGIN,
-        defaultDocsPath: '/docs/cdp',
-    },
-    [Scene.Pipeline]: {
-        projectBased: true,
-        name: 'Pipeline',
-        activityScope: ActivityScope.PLUGIN,
-        defaultDocsPath: '/docs/cdp',
-    },
     [Scene.PreflightCheck]: { onlyUnauthenticated: true },
     [Scene.Products]: { projectBased: true, name: 'Products', layout: 'plain' },
     [Scene.ProjectCreateFirst]: {
@@ -268,6 +268,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
         hideProjectNotice: true,
+        layout: 'app-full-scene-height',
     },
     [Scene.RevenueAnalytics]: {
         projectBased: true,
@@ -347,6 +348,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     ...productConfiguration,
 }
 
+const redirectPipeline = (stage: DataPipelinesSceneTab, id: string): string => {
+    if (id.startsWith('hog-')) {
+        return urls.hogFunction(id.replace('hog-', ''))
+    }
+    return urls.dataPipelines(stage)
+}
+
 // NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use a function (not string) redirect
 // NOTE: If you need a query param to be automatically forwarded to the redirect URL, add it to the forwardedRedirectQueryParams array
 export const forwardedRedirectQueryParams: string[] = ['invite_modal']
@@ -360,17 +368,18 @@ export const redirects: Record<
     '/activity': urls.activity(),
     '/annotations': () => urls.annotations(),
     '/annotations/:id': ({ id }) => urls.annotation(id),
-    '/apps': urls.pipeline(PipelineTab.Overview),
-    '/apps/:id': ({ id }) => urls.pipelineNode(PipelineStage.Transformation, id),
-    '/batch_exports': urls.pipeline(PipelineTab.Destinations),
-    '/batch_exports/:id': ({ id }) => urls.pipelineNode(PipelineStage.Destination, id),
+    '/apps': urls.dataPipelines('overview'),
+    '/apps/:id': urls.dataPipelines('overview'),
+    '/batch_exports/:id': ({ id }) => urls.batchExport(id),
+    '/batch_exports': urls.dataPipelines('destinations'),
     '/comments': () => urls.comments(),
     '/dashboards': urls.dashboards(),
     '/data-management': urls.eventDefinitions(),
-    '/data-management/database': urls.pipeline(PipelineTab.Sources),
+    '/data-management/database': urls.dataPipelines('sources'),
     '/data-pipelines': urls.dataPipelines('overview'),
     '/data-warehouse': urls.dataWarehouse(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
+
     '/events': urls.activity(),
     '/events/:id/*': ({ id, _ }) => {
         const query = getDefaultEventsSceneQuery([
@@ -390,6 +399,7 @@ export const redirects: Record<
         }
         return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url
     },
+
     '/events/actions': urls.actions(),
     '/events/properties': urls.propertyDefinitions(),
     '/events/properties/:id': ({ id }) => urls.propertyDefinition(id),
@@ -403,8 +413,16 @@ export const redirects: Record<
     '/new': urls.newTab(),
     '/organization/members': urls.settings('organization'),
     '/organization/settings': urls.settings('organization'),
-    '/pipeline': urls.pipeline(),
-    '/pipeline/data-import': urls.pipeline(PipelineTab.Sources),
+    '/pipeline': urls.dataPipelines('overview'),
+    '/pipelines': urls.dataPipelines('overview'),
+    '/pipeline/new/site-app': urls.dataPipelinesNew('site_app'),
+    '/pipeline/sources/:id': ({ id }) => redirectPipeline('sources', id),
+    '/pipeline/destinations/:id': ({ id }) => redirectPipeline('destinations', id),
+    '/pipeline/transformations/:id': ({ id }) => redirectPipeline('transformations', id),
+    '/pipeline/sources/:id/:tab': ({ id }) => redirectPipeline('sources', id),
+    '/pipeline/destinations/:id/:tab': ({ id }) => redirectPipeline('destinations', id),
+    '/pipeline/transformations/:id/:tab': ({ id }) => redirectPipeline('transformations', id),
+    '/pipeline/data-import': urls.dataPipelines('sources'),
     '/project/settings': urls.settings('project'),
     '/recordings/file-playback': () => urls.replayFilePlayback(),
     '/recordings/playlists/:id': ({ id }) => urls.replayPlaylist(id),
@@ -479,11 +497,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.personByDistinctId('*', false)]: [Scene.Person, 'personByDistinctId'],
     [urls.personByUUID('*', false)]: [Scene.Person, 'personByUUID'],
     [urls.persons()]: [Scene.Persons, 'persons'],
-    [urls.pipelineNodeNew(':stage')]: [Scene.PipelineNodeNew, 'pipelineNodeNew'],
-    [urls.pipelineNodeNew(':stage', { id: ':id' })]: [Scene.PipelineNodeNew, 'pipelineNodeNewWithId'],
-    [urls.pipeline(':tab')]: [Scene.Pipeline, 'pipeline'],
-    [urls.pipelineNode(':stage', ':id', ':nodeTab')]: [Scene.PipelineNode, 'pipelineNode'],
-    [urls.pipelineNode(':stage', ':id')]: [Scene.PipelineNode, 'pipelineNodeWithId'],
     [urls.customCss()]: [Scene.CustomCss, 'customCss'],
     [urls.groups(':groupTypeIndex')]: [Scene.Groups, 'groups'],
     [urls.groupsNew(':groupTypeIndex')]: [Scene.GroupsNew, 'groupsNew'],
@@ -549,6 +562,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.canvas()]: [Scene.Canvas, 'canvas'],
     [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
+    [urls.advancedActivityLogs()]: [Scene.AdvancedActivityLogs, 'advancedActivityLogs'],
     [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
     [urls.links()]: [Scene.Links, 'links'],
     [urls.link(':id')]: [Scene.Link, 'link'],
@@ -557,11 +571,11 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
-    [urls.dataPipelines(':kind')]: [Scene.DataPipelines, 'dataPipelines'],
-    [urls.dataPipelinesNew(':kind')]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
+    [urls.dataPipelines(':kind' as any)]: [Scene.DataPipelines, 'dataPipelines'],
+    [urls.dataPipelinesNew(':kind' as any)]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
     [urls.dataWarehouse()]: [Scene.DataWarehouse, 'dataWarehouse'],
     [urls.dataWarehouseSourceNew()]: [Scene.DataWarehouseSourceNew, 'dataWarehouseSourceNew'],
-    [urls.dataWarehouseSource(':id', ':tab')]: [Scene.DataWarehouseSource, 'dataWarehouseSource'],
+    [urls.dataWarehouseSource(':id', ':tab' as any)]: [Scene.DataWarehouseSource, 'dataWarehouseSource'],
     [urls.batchExport(':id')]: [Scene.BatchExport, 'batchExport'],
     [urls.batchExportNew(':service')]: [Scene.BatchExportNew, 'batchExportNew'],
     [urls.legacyPlugin(':id')]: [Scene.LegacyPlugin, 'legacyPlugin'],

@@ -482,8 +482,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.productTab],
-            (productTab: ProductTab): Breadcrumb[] => {
+            (s) => [s.productTab, s.featureFlags],
+            (productTab: ProductTab, featureFlags): Breadcrumb[] => {
                 const breadcrumbs: Breadcrumb[] = [
                     {
                         key: Scene.WebAnalytics,
@@ -491,6 +491,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         path: urls.webAnalytics(),
                     },
                 ]
+
+                if (featureFlags[FEATURE_FLAGS.SCENE_TABS]) {
+                    // These pages are tabs on a scene, so no need for a back button
+                    return breadcrumbs
+                }
 
                 if (productTab === ProductTab.WEB_VITALS) {
                     breadcrumbs.push({

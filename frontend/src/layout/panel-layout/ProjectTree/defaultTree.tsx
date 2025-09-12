@@ -14,10 +14,10 @@ import {
     IconFlask,
     IconFunnels,
     IconGraph,
-    IconHandMoney,
     IconHogQL,
     IconLifecycle,
     IconLive,
+    IconMegaphone,
     IconMessage,
     IconNotebook,
     IconNotification,
@@ -47,7 +47,7 @@ import {
     getTreeItemsProducts,
 } from '~/products'
 import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
-import { FileSystemIconColor, PipelineStage, PipelineTab } from '~/types'
+import { FileSystemIconColor } from '~/types'
 
 const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {
     dashboard: {
@@ -70,7 +70,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconPiggyBank />,
     },
     marketing_settings: {
-        icon: <IconHandMoney />,
+        icon: <IconMegaphone />,
     },
     web_analytics: {
         icon: <IconPieChart />,
@@ -299,28 +299,28 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
         {
             path: `Data/Source`,
             type: 'hog_function/source',
-            href: urls.pipelineNodeNew(PipelineStage.Source),
+            href: urls.dataPipelinesNew('source'),
             icon: <IconPlug />,
             iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
         },
         {
             path: `Data/Destination`,
             type: 'hog_function/destination',
-            href: urls.pipelineNodeNew(PipelineStage.Destination),
+            href: urls.dataPipelinesNew('destination'),
             icon: <IconPlug />,
             iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
         },
         {
             path: `Data/Transformation`,
             type: 'hog_function/transformation',
-            href: urls.pipelineNodeNew(PipelineStage.Transformation),
+            href: urls.dataPipelinesNew('transformation'),
             icon: <IconPlug />,
             iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
         },
         {
             path: `Data/Site app`,
             type: 'hog_function/site_app',
-            href: urls.pipelineNodeNew(PipelineStage.SiteApp),
+            href: urls.dataPipelinesNew('site_app'),
             icon: <IconPlug />,
             iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
         },
@@ -364,21 +364,28 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         category: 'Pipeline',
         type: 'hog_function/source',
         iconType: 'data_pipeline_metadata',
-        href: urls.pipeline(PipelineTab.Sources),
+        href: urls.dataPipelines('sources'),
     } as FileSystemImport,
     {
         path: `Transformations`,
         category: 'Pipeline',
         type: 'hog_function/transformation',
         iconType: 'data_pipeline_metadata',
-        href: urls.pipeline(PipelineTab.Transformations),
+        href: urls.dataPipelines('transformations'),
     } as FileSystemImport,
     {
         path: `Destinations`,
         category: 'Pipeline',
         type: 'hog_function/destination',
         iconType: 'data_pipeline_metadata',
-        href: urls.pipeline(PipelineTab.Destinations),
+        href: urls.dataPipelines('destinations'),
+    } as FileSystemImport,
+    {
+        path: `Activity logs`,
+        category: 'Activity',
+        iconType: 'logs',
+        href: urls.advancedActivityLogs(),
+        flag: FEATURE_FLAGS.ADVANCED_ACTIVITY_LOGS,
     } as FileSystemImport,
 ]
 
@@ -406,7 +413,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             type: 'hog_function',
             iconType: 'data_pipeline' as FileSystemIconType,
             iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
-            href: urls.pipeline(),
+            href: urls.dataPipelines(),
         } as FileSystemImport,
         {
             path: `SQL editor`,

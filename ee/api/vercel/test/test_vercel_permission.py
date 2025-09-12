@@ -1,5 +1,5 @@
 import json
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -12,6 +12,7 @@ from posthog.models import Organization, Team
 from posthog.models.organization_integration import OrganizationIntegration
 
 from ee.api.vercel.test.base import VercelTestBase
+from ee.api.vercel.types import VercelSystemClaims, VercelUser, VercelUserClaims
 from ee.api.vercel.vercel_permission import VercelPermission
 
 
@@ -21,22 +22,70 @@ class TestVercelPermission(VercelTestBase):
         self.permission = VercelPermission()
         self.mock_view = MagicMock()
         self.mock_request = MagicMock()
+        self.mock_request.user = VercelUser(claims=self._mock_user_claims())
         self.claims_patcher = patch("ee.api.vercel.vercel_permission.get_vercel_claims")
         self.mock_get_claims = self.claims_patcher.start()
+        self.user_claim_patcher = patch("ee.api.vercel.vercel_permission.expect_vercel_user_claim")
+        self.mock_expect_user_claim = self.user_claim_patcher.start()
 
     def tearDown(self):
         self.claims_patcher.stop()
+        self.user_claim_patcher.stop()
         super().tearDown()
 
-    def _setup_request(self, auth_type="user", action="update", supported_types=None, headers=None, **claims):
+    def _mock_user_claims(self, user_role: Literal["ADMIN", "USER"] = "ADMIN", installation_id=None):
+        return VercelUserClaims(
+            iss="https://marketplace.vercel.com",
+            sub="account:test:user:test",
+            aud="test_audience",
+            account_id="test_account",
+            installation_id=installation_id or self.installation_id,
+            user_id="test_user",
+            user_role=user_role,
+            type=None,
+            user_avatar_url=None,
+            user_email=None,
+            user_name=None,
+        )
+
+    def _mock_system_claims(self, installation_id=None):
+        return VercelSystemClaims(
+            iss="https://marketplace.vercel.com",
+            sub="account:test",
+            aud="test_audience",
+            account_id="test_account",
+            installation_id=installation_id or self.installation_id,
+            type=None,
+        )
+
+    def _setup_request(
+        self,
+        auth_type="user",
+        action="update",
+        supported_types=None,
+        user_role: Literal["ADMIN", "USER"] = "ADMIN",
+        installation_id=None,
+        headers=None,
+    ):
         if headers is not None:
             self.mock_request.headers = headers
         else:
             self.mock_request.headers = {"X-Vercel-Auth": auth_type}
+
         self.mock_view.action = action
         if supported_types:
             self.mock_view.vercel_supported_auth_types = {action: supported_types}
-        self.mock_get_claims.return_value = claims
+
+        if headers is not None and not headers:
+            return  # Don't set up claims for empty header dicts
+
+        if auth_type.lower() == "user":
+            user_claims = self._mock_user_claims(user_role, installation_id)
+            self.mock_get_claims.return_value = user_claims
+            self.mock_expect_user_claim.return_value = user_claims
+        else:
+            system_claims = self._mock_system_claims(installation_id)
+            self.mock_get_claims.return_value = system_claims
 
     def _assert_permission_denied(self, func, expected_msg):
         with pytest.raises(PermissionDenied) as exc_info:
@@ -90,7 +139,9 @@ class TestVercelPermission(VercelTestBase):
     )
     def test_installation_id_validation(self, view_kwargs, claims, should_pass, error_msg):
         self.mock_view.kwargs = view_kwargs
-        self.mock_get_claims.return_value = claims
+        auth_type = "user" if "user_role" in claims else "system"
+        self._setup_request(auth_type=auth_type, installation_id=claims.get("installation_id"))
+
         if should_pass:
             assert self.permission.has_object_permission(self.mock_request, self.mock_view, None) is True
         else:
@@ -100,6 +151,7 @@ class TestVercelPermission(VercelTestBase):
 
     def test_has_object_permission_no_jwt_auth(self):
         self.mock_view.kwargs = {"installation_id": VercelTestBase.TEST_INSTALLATION_ID}
+        self.mock_get_claims.reset_mock()
         self.mock_get_claims.side_effect = AuthenticationFailed("Not authenticated with Vercel")
         self._assert_auth_failed(
             lambda: self.permission.has_object_permission(self.mock_request, self.mock_view, None),
@@ -147,7 +199,7 @@ class TestVercelPermission(VercelTestBase):
         assert self.permission.has_permission(self.mock_request, self.mock_view) is True
 
     def test_missing_role_denied_for_admin_action(self):
-        self._setup_request(action="update", supported_types=["user"])
+        self._setup_request(action="update", supported_types=["user"], user_role="USER")
         self._assert_permission_denied(
             lambda: self.permission.has_permission(self.mock_request, self.mock_view), "requires ADMIN role"
         )
