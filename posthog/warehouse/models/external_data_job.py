@@ -62,20 +62,6 @@ def get_external_data_job(job_id: UUID) -> ExternalDataJob:
 
 
 @database_sync_to_async
-def aget_external_data_jobs_by_schema_id(schema_id: UUID) -> list[ExternalDataJob]:
-    from posthog.warehouse.models import ExternalDataSchema
-
-    return list(
-        ExternalDataJob.objects.prefetch_related(
-            "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
-        )
-        .filter(schema_id=schema_id)
-        .order_by("-created_at")
-        .all()
-    )
-
-
-@database_sync_to_async
 def get_latest_run_if_exists(team_id: int, pipeline_id: UUID) -> ExternalDataJob | None:
     job = (
         ExternalDataJob.objects.filter(

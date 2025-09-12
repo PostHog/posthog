@@ -1,6 +1,8 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -18,7 +20,7 @@ export const humanFriendlyTabName = (tab: PipelineTab): string => {
 export const pipelineLogic = kea<pipelineLogicType>([
     path(['scenes', 'pipeline', 'pipelineLogic']),
     connect(() => ({
-        values: [userLogic, ['user', 'hasAvailableFeature']],
+        values: [userLogic, ['user', 'hasAvailableFeature'], featureFlagLogic, ['featureFlags']],
     })),
     actions({
         setCurrentTab: (tab: PipelineTab = PipelineTab.Destinations) => ({ tab }),
@@ -31,12 +33,14 @@ export const pipelineLogic = kea<pipelineLogicType>([
             },
         ],
     }),
-    selectors(() => ({
+    selectors({
         breadcrumbs: [
-            (s) => [s.currentTab],
-            (tab: PipelineTab): Breadcrumb[] => {
+            (s) => [s.currentTab, s.featureFlags],
+            (tab: PipelineTab, featureFlags: FeatureFlagsSet): Breadcrumb[] => {
                 return [
-                    { key: Scene.Pipeline, name: 'Data pipeline' },
+                    ...(featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+                        ? []
+                        : [{ key: Scene.Pipeline, name: 'Data pipeline' }]),
                     {
                         key: tab,
                         name: humanFriendlyTabName(tab),
@@ -53,7 +57,7 @@ export const pipelineLogic = kea<pipelineLogicType>([
                 }
             },
         ],
-    })),
+    }),
     actionToUrl(({ values }) => {
         return {
             setCurrentTab: () => [urls.pipeline(values.currentTab)],

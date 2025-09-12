@@ -82,7 +82,6 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     type: 'person',
                     forceIcon: <IconPeople />,
                 }}
-                docsURL="https://posthog.com/docs/data/persons"
             />
             <SceneDivider />
 
