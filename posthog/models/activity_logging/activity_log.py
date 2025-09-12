@@ -134,29 +134,17 @@ class ActivityLog(UUIDTModel):
                 name="idx_alog_org_detail_exists",
                 condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
             ),
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 2da3c8c671 (Add index to help with details existance with org_id searches)
             models.Index(
                 fields=["organization_id"],
                 name="idx_activitylog_org_detail_exists",
                 condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
             ),
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 0dcbec97e5 (Add index to help with org_id-scope searches)
-=======
->>>>>>> 2da3c8c671 (Add index to help with details existance with org_id searches)
-=======
             GinIndex(
                 name="idx_activitylog_detail_gin_path_ops",
                 fields=["detail"],
                 opclasses=["jsonb_path_ops"],
                 condition=models.Q(detail__isnull=False),
             ),
->>>>>>> e41f50b770 (Index to help with path ops on JSON)
         ]
 
     team_id = models.PositiveIntegerField(null=True)
