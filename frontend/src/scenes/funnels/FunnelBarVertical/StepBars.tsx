@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { funnelDataLogic } from '../funnelDataLogic'
