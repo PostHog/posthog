@@ -1,5 +1,7 @@
 import { LemonTag } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
+
 import { ExportedAsset } from './advancedActivityLogsLogic'
 
 export const getStatusTag = (exportAsset: ExportedAsset): JSX.Element => {
@@ -35,13 +37,7 @@ export const getFilterSummary = (exportAsset: ExportedAsset): string => {
 
     const activeFilters: string[] = []
     if (filters.start_date || filters.end_date) {
-        if (filters.start_date && filters.end_date) {
-            activeFilters.push(`Date: ${filters.start_date} to ${filters.end_date}`)
-        } else if (filters.start_date) {
-            activeFilters.push(`From: ${filters.start_date}`)
-        } else if (filters.end_date) {
-            activeFilters.push(`Until: ${filters.end_date}`)
-        }
+        activeFilters.push(`Date filter: 1`)
     }
     if (filters.users && filters.users.length > 0) {
         activeFilters.push(`Users: ${filters.users.length}`)
@@ -50,7 +46,7 @@ export const getFilterSummary = (exportAsset: ExportedAsset): string => {
         activeFilters.push(`Scopes: ${filters.scopes.length}`)
     }
     if (filters.activities && filters.activities.length > 0) {
-        activeFilters.push(`Activities: ${filters.activities.length}`)
+        activeFilters.push(`Actions: ${filters.activities.length}`)
     }
 
     return activeFilters.length > 0 ? activeFilters.join(', ') : 'No filters'
@@ -65,13 +61,21 @@ export const getFilterTooltip = (exportAsset: ExportedAsset): JSX.Element => {
     const filterSections: JSX.Element[] = []
 
     if (filters.start_date || filters.end_date) {
+        const formatDate = (dateStr: string) => {
+            try {
+                return dayjs(dateStr).format('YYYY-MM-DD HH:mm:ss')
+            } catch {
+                return dateStr
+            }
+        }
+
         filterSections.push(
             <div key="dates">
                 <strong>Date Range:</strong>
                 <br />
-                {filters.start_date && `From: ${filters.start_date}`}
+                {filters.start_date && `From: ${formatDate(filters.start_date)}`}
                 {filters.start_date && filters.end_date && <br />}
-                {filters.end_date && `To: ${filters.end_date}`}
+                {filters.end_date && `To: ${formatDate(filters.end_date)}`}
             </div>
         )
     }
@@ -101,7 +105,7 @@ export const getFilterTooltip = (exportAsset: ExportedAsset): JSX.Element => {
     if (filters.activities && filters.activities.length > 0) {
         filterSections.push(
             <div key="activities">
-                <strong>Activities ({filters.activities.length}):</strong>
+                <strong>Actions ({filters.activities.length}):</strong>
                 <br />
                 {filters.activities.slice(0, 5).join(', ')}
                 {filters.activities.length > 5 && `... and ${filters.activities.length - 5} more`}

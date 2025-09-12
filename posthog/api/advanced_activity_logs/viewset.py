@@ -2,6 +2,7 @@ import json
 import hashlib
 import logging
 from datetime import datetime, timedelta
+from typing import Any
 from urllib.parse import urlencode
 
 from django.db.models import Q, QuerySet
@@ -85,10 +86,12 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             self._field_discovery = AdvancedActivityLogFieldDiscovery(self.organization.id)
         return self._field_discovery
 
-    def _make_filters_serializable(self, filters_data: dict) -> dict:
-        serializable_filters = {}
+    def _make_filters_serializable(self, filters_data: dict) -> dict[str, Any]:
+        serializable_filters: dict[str, Any] = {}
         for key, value in filters_data.items():
-            if isinstance(value, list):
+            if isinstance(value, datetime):
+                serializable_filters[key] = value.isoformat()
+            elif isinstance(value, list):
                 serializable_filters[key] = [str(v) if hasattr(v, "hex") else v for v in value]
             else:
                 serializable_filters[key] = value

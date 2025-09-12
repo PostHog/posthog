@@ -14,10 +14,10 @@ import {
     IconFlask,
     IconFunnels,
     IconGraph,
-    IconHandMoney,
     IconHogQL,
     IconLifecycle,
     IconLive,
+    IconMegaphone,
     IconMessage,
     IconNotebook,
     IconNotification,
@@ -70,7 +70,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconPiggyBank />,
     },
     marketing_settings: {
-        icon: <IconHandMoney />,
+        icon: <IconMegaphone />,
     },
     web_analytics: {
         icon: <IconPieChart />,
