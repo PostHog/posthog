@@ -1,28 +1,3 @@
-// ==== Deduplication-specific metrics ====
-/// Counter for the number of duplicate events found
-pub const DUPLICATE_EVENTS_TOTAL_COUNTER: &str = "duplicate_events_total";
-
-/// Counter for the number of unique events processed
-pub const UNIQUE_EVENTS_TOTAL_COUNTER: &str = "unique_events_total";
-
-/// Histogram for batch processing duration
-pub const BATCH_PROCESSING_DURATION_HISTOGRAM: &str = "batch_processing_duration_seconds";
-
-/// Histogram for batch size (number of events per batch)
-pub const BATCH_SIZE_HISTOGRAM: &str = "batch_size_events";
-
-/// Gauge for duplicate rate (percentage of duplicates in last batch)
-pub const DUPLICATE_RATE_GAUGE: &str = "duplicate_rate_percentage";
-
-/// Counter for cleanup operations performed
-pub const CLEANUP_OPERATIONS_COUNTER: &str = "cleanup_operations_total";
-
-/// Histogram for cleanup duration
-pub const CLEANUP_DURATION_HISTOGRAM: &str = "cleanup_duration_seconds";
-
-/// Histogram for bytes freed during cleanup
-pub const CLEANUP_BYTES_FREED_HISTOGRAM: &str = "cleanup_bytes_freed";
-
 // ==== RocksDB generic metrics ====
 /// Histogram for RocksDB read operation duration
 pub const ROCKSDB_READ_DURATION_HISTOGRAM: &str = "rocksdb_read_duration_seconds";
