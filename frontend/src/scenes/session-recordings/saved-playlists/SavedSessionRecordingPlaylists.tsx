@@ -253,8 +253,8 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
     ]
 
     return (
-        <div className="deprecated-space-y-4">
-            <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
+        <>
+            <div className="flex justify-between gap-2 items-center flex-wrap">
                 <LemonInput
                     type="search"
                     placeholder="Search for collections"
@@ -326,6 +326,6 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     nouns={['playlist', 'playlists']}
                 />
             )}
-        </div>
+        </>
     )
 }

@@ -421,7 +421,6 @@ export function Experiments(): JSX.Element {
             <SceneTitleSection
                 name="Experiments"
                 description={EXPERIMENTS_PRODUCT_DESCRIPTION}
-                docsURL="https://posthog.com/docs/experiments/installation?utm_medium=in-product&utm_campaign=new-experiment"
                 resourceType={{
                     type: 'experiment',
                 }}
