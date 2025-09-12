@@ -184,7 +184,39 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 op=ast.CompareOperationOp.GtEq,
                 left=ast.Field(chain=["s", "min_first_timestamp"]),
                 right=ast.Constant(value=datetime.now(UTC) - timedelta(days=self.ttl_days)),
-            )
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Call(
+                    name="addDays",
+                    args=[
+                        ast.Call(
+                            name="dateTrunc",
+                            args=[
+                                ast.Constant(value="DAY"),
+                                ast.Field(chain=["s", "min_first_timestamp"]),
+                            ],
+                        ),
+                        ast.Constant(value=1),
+                    ],
+                ),
+                right=ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Sub,
+                    left=ast.Call(name="now"),
+                    right=ast.Call(
+                        name="toIntervalDay",
+                        args=[
+                            ast.Call(
+                                name="coalesce",
+                                args=[
+                                    ast.Field(chain=["s", "retention_period_days"]),
+                                    ast.Constant(value=365),
+                                ],
+                            )
+                        ],
+                    ),
+                ),
+            ),
         ]
 
         if self._query.distinct_ids:
