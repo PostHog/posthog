@@ -407,6 +407,15 @@ def wait_for_backup(
         context.log.info("No backup to wait for")
 
 
+@dagster.graph
+def run_backup_for_shard(shard: int):
+    """Run the backup pipeline for a single shard."""
+    latest_backup = get_latest_backup(shard=shard)
+    checked_backup = check_latest_backup_status(latest_backup=latest_backup)
+    new_backup = run_backup(latest_backup=checked_backup, shard=shard)
+    wait_for_backup(backup=new_backup)
+
+
 @dagster.job(
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 2}),
 )
@@ -418,14 +427,7 @@ def sharded_backup():
 
     For each backup, the logic is exactly the same as the described in the `non_sharded_backup` job.
     """
-
-    def run_backup_for_shard(shard: int):
-        latest_backup = get_latest_backup(shard=shard)
-        checked_backup = check_latest_backup_status(latest_backup=latest_backup)
-        new_backup = run_backup(latest_backup=checked_backup, shard=shard)
-        wait_for_backup(backup=new_backup)
-
-    shards: dagster.DynamicOutput = get_shards()
+    shards = get_shards()
     shards.map(run_backup_for_shard)
 
 
