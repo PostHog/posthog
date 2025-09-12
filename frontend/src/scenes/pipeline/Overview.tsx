@@ -2,18 +2,23 @@ import { IconPlusSmall } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { PageHeader } from 'lib/components/PageHeader'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { DataWarehouseManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
 import { DataWarehouseSelfManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseSelfManagedSourcesTable'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { PipelineStage, PipelineTab } from '~/types'
 
 import { DestinationsTable } from './destinations/Destinations'
 import { DESTINATION_TYPES, TRANSFORMATION_TYPES } from './destinations/constants'
 
 export function Overview(): JSX.Element {
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     const menuItems: LemonMenuItems = [
         {
             label: 'Source',
@@ -25,7 +30,7 @@ export function Overview(): JSX.Element {
     ]
 
     return (
-        <>
+        <SceneContent forceNewSpacing>
             <PageHeader
                 buttons={
                     <div className="flex items-center m-2 shrink-0">
@@ -42,54 +47,89 @@ export function Overview(): JSX.Element {
                     </div>
                 }
             />
+
             <div className="deprecated-space-y-4">
-                <div>
-                    <Link to={urls.pipeline(PipelineTab.Sources)}>
-                        <h2>Managed sources</h2>
-                    </Link>
+                <SceneSection
+                    title="Managed sources"
+                    actions={<Link to={urls.pipeline(PipelineTab.Sources)}>See all</Link>}
+                    hideTitleAndDescription={!newSceneLayout}
+                >
+                    {!newSceneLayout && (
+                        <Link to={urls.pipeline(PipelineTab.Sources)}>
+                            <h2>Managed sources</h2>
+                        </Link>
+                    )}
                     <div className="deprecated-space-y-2">
                         <DataWarehouseManagedSourcesTable />
                     </div>
-                </div>
-                <div>
-                    <Link to={urls.pipeline(PipelineTab.Sources)}>
-                        <h2>Self-managed sources</h2>
-                    </Link>
+                </SceneSection>
+                <SceneDivider />
+                <SceneSection
+                    title="Self-managed sources"
+                    actions={<Link to={urls.pipeline(PipelineTab.Sources)}>See all</Link>}
+                    hideTitleAndDescription={!newSceneLayout}
+                >
+                    {!newSceneLayout && (
+                        <Link to={urls.pipeline(PipelineTab.Sources)}>
+                            <h2>Self-managed sources</h2>
+                        </Link>
+                    )}
                     <div className="deprecated-space-y-2">
                         <DataWarehouseSelfManagedSourcesTable />
                     </div>
-                </div>
-                <div>
-                    <Link to={urls.pipeline(PipelineTab.Transformations)}>
-                        <h2>Transformations</h2>
-                    </Link>
-                    <p>
-                        Modify and enrich your incoming data. Only active transformations are shown here.{' '}
-                        <Link to={urls.pipeline(PipelineTab.Transformations)}>See all.</Link>
-                    </p>
+                </SceneSection>
+                <SceneDivider />
+                <SceneSection
+                    title="Transformations"
+                    description="Modify and enrich your incoming data. Only active transformations are shown here."
+                    actions={<Link to={urls.pipeline(PipelineTab.Transformations)}>See all</Link>}
+                    hideTitleAndDescription={!newSceneLayout}
+                >
+                    {!newSceneLayout && (
+                        <>
+                            <Link to={urls.pipeline(PipelineTab.Transformations)}>
+                                <h2>Transformations</h2>
+                            </Link>
+                            <p>
+                                Modify and enrich your incoming data. Only active transformations are shown here.{' '}
+                                <Link to={urls.pipeline(PipelineTab.Transformations)}>See all.</Link>
+                            </p>
+                        </>
+                    )}
                     <DestinationsTable
                         types={TRANSFORMATION_TYPES}
                         hideFeedback={true}
                         hideAddDestinationButton={false}
                         hideChangeOrderButton={true}
                     />
-                </div>
-                <div>
-                    <Link to={urls.pipeline(PipelineTab.Destinations)}>
-                        <h2>Destinations</h2>
-                    </Link>
-                    <p>
-                        Send your data to destinations in real time or with batch exports. Only active Destinations are
-                        shown here. <Link to={urls.pipeline(PipelineTab.Destinations)}>See all.</Link>
-                    </p>
+                </SceneSection>
+                <SceneDivider />
+                <SceneSection
+                    title="Destinations"
+                    description="Send your data to destinations in real time or with batch exports. Only active Destinations are shown here."
+                    actions={<Link to={urls.pipeline(PipelineTab.Destinations)}>See all</Link>}
+                    hideTitleAndDescription={!newSceneLayout}
+                >
+                    {!newSceneLayout && (
+                        <>
+                            <Link to={urls.pipeline(PipelineTab.Destinations)}>
+                                <h2>Destinations</h2>
+                            </Link>
+                            <p>
+                                Send your data to destinations in real time or with batch exports. Only active
+                                Destinations are shown here.{' '}
+                                <Link to={urls.pipeline(PipelineTab.Destinations)}>See all.</Link>
+                            </p>
+                        </>
+                    )}
                     <DestinationsTable
                         types={DESTINATION_TYPES}
                         hideFeedback={true}
                         hideAddDestinationButton={false}
                         hideChangeOrderButton={true}
                     />
-                </div>
+                </SceneSection>
             </div>
-        </>
+        </SceneContent>
     )
 }

@@ -8,6 +8,7 @@ import { IconPlus, IconSearch, IconShare, IconX } from '@posthog/icons'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
+import { IconMenu } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from 'lib/ui/HoverCard/HoverCard'
 import { cn } from 'lib/utils/css-classes'
@@ -18,6 +19,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
 import { sceneLogic } from '~/scenes/sceneLogic'
 
+import { navigationLogic } from '../navigation/navigationLogic'
 import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
 
 export interface SceneTabsProps {
@@ -29,7 +31,9 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const { newTab, reorderTabs } = useActions(sceneLogic)
     const { toggleSearchBar } = useActions(commandBarLogic)
     const { isLayoutPanelVisible } = useValues(panelLayoutLogic)
-
+    const { mobileLayout } = useValues(navigationLogic)
+    const { showLayoutNavBar } = useActions(panelLayoutLogic)
+    const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
@@ -46,6 +50,17 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
             )}
         >
             {/* rounded corner on the left to make scene curve into tab line */}
+            {mobileLayout && (
+                <ButtonPrimitive
+                    onClick={() => showLayoutNavBar(!isLayoutNavbarVisibleForMobile)}
+                    iconOnly
+                    className="ml-1"
+                >
+                    {isLayoutNavbarVisibleForMobile ? <IconX /> : <IconMenu />}
+                </ButtonPrimitive>
+            )}
+
+            {/* rounded corner on the left to make scene curve into tab line */}
             {!isLayoutPanelVisible && (
                 <div className="absolute left-0 -bottom-1 size-2 bg-surface-tertiary">
                     <div className="relative -bottom-1 size-2 border-l border-t border-primary rounded-tl bg-primary" />
@@ -54,7 +69,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
 
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
                 <SortableContext items={[...tabs.map((t) => t.id), 'new']} strategy={horizontalListSortingStrategy}>
-                    <div className={cn('flex flex-row gap-1 pt-1 max-w-full items-center', className)}>
+                    <div className={cn('flex flex-row gap-1 max-w-full items-center', className)}>
                         <div className="py-1 pl-[2px] shrink-0">
                             <ButtonPrimitive
                                 iconOnly
@@ -75,34 +90,32 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                 <IconSearch className="text-secondary size-4" />
                             </ButtonPrimitive>
                         </div>
-                        <div className="flex flex-row flex-1 min-w-0">
+                        <div className="flex flex-row flex-1 min-w-0 gap-1">
                             {tabs.map((tab) => (
                                 <SortableSceneTab key={tab.id} tab={tab} />
                             ))}
                         </div>
-                        <div className="py-1 shrink-0">
-                            <Link
-                                to={urls.newTab()}
-                                data-attr="scene-tab-new-button"
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    newTab()
-                                }}
-                                buttonProps={{
-                                    size: 'sm',
-                                    className:
-                                        'p-1 flex flex-row items-center gap-1 cursor-pointer rounded-tr rounded-tl border-b',
-                                    iconOnly: true,
-                                }}
-                                tooltip={
-                                    <>
-                                        New tab <KeyboardShortcut command b />
-                                    </>
-                                }
-                            >
-                                <IconPlus className="!ml-0" fontSize={14} />
-                            </Link>
-                        </div>
+                        <Link
+                            to={urls.newTab()}
+                            data-attr="scene-tab-new-button"
+                            onClick={(e) => {
+                                e.preventDefault()
+                                newTab()
+                            }}
+                            buttonProps={{
+                                size: 'sm',
+                                className:
+                                    'p-1 flex flex-row items-center gap-1 cursor-pointer rounded-tr rounded-tl border-b',
+                                iconOnly: true,
+                            }}
+                            tooltip={
+                                <>
+                                    New tab <KeyboardShortcut command b />
+                                </>
+                            }
+                        >
+                            <IconPlus className="!ml-0" fontSize={14} />
+                        </Link>
                     </div>
                 </SortableContext>
             </DndContext>
@@ -126,38 +139,38 @@ function SortableSceneTab({ tab }: { tab: SceneTab }): JSX.Element {
             {...listeners}
             className="grow-0 shrink basis-auto min-w-[40px] max-w-[200px]"
         >
-            <HoverCard>
-                <HoverCardTrigger>
-                    <SceneTabContextMenu tab={tab}>
+            <SceneTabContextMenu tab={tab}>
+                <HoverCard>
+                    <HoverCardTrigger>
                         <SceneTabComponent tab={tab} isDragging={isDragging} />
-                    </SceneTabContextMenu>
-                </HoverCardTrigger>
-                <HoverCardContent
-                    className="break-words"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => e.stopPropagation()}
-                >
-                    <ButtonPrimitive
-                        iconOnly
-                        size="xs"
-                        tooltip="Copy tab URL for sharing"
-                        className="text-primary float-right"
-                        onClick={() => {
-                            try {
-                                navigator.clipboard.writeText(
-                                    `${window.location.origin}${tab.pathname}${tab.search}${tab.hash}`
-                                )
-                                lemonToast.success('URL copied to clipboard')
-                            } catch (error) {
-                                lemonToast.error(`Failed to copy URL to clipboard ${error}`)
-                            }
-                        }}
+                    </HoverCardTrigger>
+                    <HoverCardContent
+                        className="break-words"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
                     >
-                        <IconShare />
-                    </ButtonPrimitive>
-                    <span className="text-primary text-sm font-semibold">{tab.title}</span>
-                </HoverCardContent>
-            </HoverCard>
+                        <ButtonPrimitive
+                            iconOnly
+                            size="xs"
+                            tooltip="Copy tab URL for sharing"
+                            className="text-primary float-right"
+                            onClick={() => {
+                                try {
+                                    navigator.clipboard.writeText(
+                                        `${window.location.origin}${tab.pathname}${tab.search}${tab.hash}`
+                                    )
+                                    lemonToast.success('URL copied to clipboard')
+                                } catch (error) {
+                                    lemonToast.error(`Failed to copy URL to clipboard ${error}`)
+                                }
+                            }}
+                        >
+                            <IconShare />
+                        </ButtonPrimitive>
+                        <span className="text-primary text-sm font-semibold">{tab.title}</span>
+                    </HoverCardContent>
+                </HoverCard>
+            </SceneTabContextMenu>
         </div>
     )
 }
@@ -197,7 +210,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
             to={isDragging ? undefined : `${tab.pathname}${tab.search}${tab.hash}`}
             className={cn(
                 'w-full',
-                'h-[37px] p-0.5 flex flex-row items-center gap-1 rounded-tr rounded-tl border border-transparent bottom-[-1px] relative',
+                'relative h-[37px] p-0.5 flex flex-row items-center gap-1 rounded-tr rounded-tl border border-transparent bottom-[-2px]',
                 tab.active
                     ? 'cursor-default text-primary bg-primary border-primary border-b-transparent'
                     : 'cursor-pointer text-secondary bg-transparent hover:bg-surface-primary hover:text-primary-hover',
