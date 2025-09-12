@@ -10,12 +10,12 @@ export interface StreamlitLogicProps {
 export const streamlitLogic = kea<streamlitLogicType>([
     path(['scenes', 'streamlit', 'streamlitLogic']),
     props({} as StreamlitLogicProps),
-    
+
     actions({
         // Add your actions here
         setLoading: (loading: boolean) => ({ loading }),
     }),
-    
+
     reducers({
         isLoading: [
             false,
