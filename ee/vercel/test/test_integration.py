@@ -67,6 +67,17 @@ class TestVercelIntegration(TestCase):
         assert result["isArchived"] == is_archived
         assert "origin" in result
         assert "createdAt" in result
+        assert "updatedAt" in result
+        # Verify createdAt is in milliseconds (should be > 1 billion ms since epoch)
+        assert (
+            result["createdAt"] > 1_000_000_000_000
+        ), f"createdAt should be in milliseconds, got {result['createdAt']}"
+        assert isinstance(result["createdAt"], int), f"createdAt should be int, got {type(result['createdAt'])}"
+        # Verify updatedAt is in milliseconds
+        assert (
+            result["updatedAt"] > 1_000_000_000_000
+        ), f"updatedAt should be in milliseconds, got {result['updatedAt']}"
+        assert isinstance(result["updatedAt"], int), f"updatedAt should be int, got {type(result['updatedAt'])}"
 
     def make_vercel_item(self, **overrides):
         base = {
@@ -455,7 +466,7 @@ class TestVercelIntegration(TestCase):
         team, _ = self.make_team_with_vercel(self.organization, self.user)
         factory = getattr(self, factory_name)
         item = factory(team, name, desc, archived)
-        result = converter(item)
+        result = converter(item, created=True)
         self.assert_vercel_item(item, result, category, archived, expected_slug, name, desc)
 
     @parameterized.expand(
@@ -484,15 +495,15 @@ class TestVercelIntegration(TestCase):
             vercel_item = self.make_vercel_item()
             VercelIntegration._sync_item_to_vercel(
                 team=team,
-                item_type="test_item",
-                item_id="123",
+                item_type="flag",
+                item_pk="123",
                 vercel_item=vercel_item,
                 created=params.get("created", True),
             )
         else:
             VercelIntegration._delete_item_from_vercel(
                 team=team,
-                item_type="test_item",
+                item_type="flag",
                 item_id="test_id",
             )
 
@@ -518,7 +529,7 @@ class TestVercelIntegration(TestCase):
 
         mock_delete.assert_called_once_with(
             team=team,
-            item_type="feature_flag",
+            item_type="flag",
             item_id=f"flag_{feature_flag.pk}",
         )
 

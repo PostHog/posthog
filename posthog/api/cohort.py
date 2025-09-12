@@ -398,6 +398,10 @@ class CohortSerializer(serializers.ModelSerializer):
     def _handle_csv_errors(self, e: Exception, cohort: Cohort) -> None:
         """Centralized error handling with consistent exception capture"""
 
+        # Reset calculating flag on error
+        cohort.is_calculating = False
+        cohort.save(update_fields=["is_calculating"])
+
         if isinstance(e, UnicodeDecodeError):
             raise ValidationError({"csv": [CSVConfig.ErrorMessages.ENCODING_ERROR]})
         elif isinstance(e, csv.Error):
@@ -412,6 +416,10 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def _calculate_static_by_csv(self, file, cohort: Cohort) -> None:
         """Main orchestration method for CSV processing - clear high-level flow"""
+        # Set calculating flag immediately so UI shows loading state
+        cohort.is_calculating = True
+        cohort.save(update_fields=["is_calculating"])
+
         try:
             first_row, reader = self._parse_csv_file(file)
 
