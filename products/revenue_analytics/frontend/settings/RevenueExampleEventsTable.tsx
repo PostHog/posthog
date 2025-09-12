@@ -69,7 +69,7 @@ export function RevenueExampleEventsTable(): JSX.Element | null {
                 </>
             )}
 
-            <Query query={exampleEventsQuery} context={queryContext} />
+            <Query attachTo={revenueAnalyticsSettingsLogic} query={exampleEventsQuery} context={queryContext} />
         </SceneSection>
     )
 }

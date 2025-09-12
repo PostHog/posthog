@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconDashboard, IconGear, IconTrending } from '@posthog/icons'
@@ -10,6 +10,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { DEFAULT_CURRENCY } from 'lib/utils/geography/currency'
@@ -39,18 +40,21 @@ export function WebOverview(props: {
     query: WebOverviewQuery
     cachedResults?: AnyResponseType
     context: QueryContext
+    attachTo?: LogicWrapper | BuiltLogic
+    uniqueKey?: string
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `WebOverview.${uniqueNode++}`)
     const logic = dataNodeLogic({
         query: props.query,
-        key,
+        key: props.uniqueKey || key,
         cachedResults: props.cachedResults,
         loadPriority,
         onData,
         dataNodeCollectionId: dataNodeCollectionId ?? key,
     })
     const { response, responseLoading } = useValues(logic)
+    useAttachedLogic(logic, props.attachTo)
 
     const webOverviewQueryResponse = response as WebOverviewQueryResponse | undefined
 

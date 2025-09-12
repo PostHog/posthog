@@ -46,6 +46,7 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
                 </div>
                 <LemonModal.Content embedded>
                     <WebQuery
+                        attachTo={webAnalyticsLogic}
                         query={modal.query}
                         insightProps={modal.insightProps}
                         showIntervalSelect={modal.showIntervalSelect}
