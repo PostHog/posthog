@@ -441,11 +441,6 @@ impl CheckpointManager {
                         for (partition, store) in candidates {
                             let partition_tag = partition.to_string();
 
-                            if Self::checkpoint_in_progress(&partition, &is_checkpointing).await {
-                                debug!(partition = partition_tag, "Checkpoint manager: checkpoint already in progress, skipping");
-                                continue;
-                            }
-
                             // acquire semaphore or block here
                             let ticket: OwnedSemaphorePermit;
                             tokio::select! {
@@ -464,7 +459,11 @@ impl CheckpointManager {
                                     }
                                 }
                             }
-                            // if we made it here, we have a permit and can move forward!
+
+                            if Self::checkpoint_in_progress(&partition, &is_checkpointing).await {
+                                debug!(partition = partition_tag, "Checkpoint manager: checkpoint already in progress, skipping");
+                                continue;
+                            }
 
                             // Determine if this should be a full upload or incremental
                             let mode = Self::get_checkpoint_mode(&partition, &checkpoint_counters, &submit_loop_config).await;
@@ -519,23 +518,22 @@ impl CheckpointManager {
                                 }
                             });
 
+                            // release the permit so another checkpoint attempt can proceed
+                            drop(ticket);
+
                             // release the in-flight lock regardless of outcome
                             {
                                 let mut is_checkpointing_guard = is_checkpointing.lock().await;
                                 is_checkpointing_guard.remove(&partition);
                             }
 
-                            // release the permit so another checkpoint attempt can proceed
-                            drop(ticket);
-
                             // result is observed interally and errors shouldn't bubble up here
                             // so we only care if the export was successful and we need to
                             // increment the checkpoint counter
                             if let Ok(Ok(Some(_))) = result.await {
                                 // NOTE: could race another checkpoint attempt on same partition between
-                                //       is_checkpointing release and this call, but we also need to
-                                //       maintain lock access ordering here. May need to consider
-                                //       implementing these a single lock-wrapped object...
+                                //       is_checkpointing release and this call, but we must maintain
+                                //       lock access ordering. Can revisit this later if its a problem
                                 {
                                     let mut counter_guard = checkpoint_counters.lock().await;
                                     let counter_for_partition = *counter_guard.get(&partition).unwrap_or(&0_u32);
