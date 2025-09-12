@@ -317,6 +317,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "id",
         "secret_api_token",
         "secret_api_token_backup",
+        "_old_api_token",
     ],
     "Project": ["id", "created_at"],
     "DataWarehouseSavedQuery": [
