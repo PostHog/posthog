@@ -148,12 +148,20 @@ function BatchExportSceneHeader(): JSX.Element {
 }
 
 export function BatchExportScene(): JSX.Element {
+    const { logicProps } = useValues(batchExportSceneLogic)
+    return (
+        <BindLogic logic={batchExportConfigurationLogic} props={logicProps}>
+            <BatchExportSceneContent />
+        </BindLogic>
+    )
+}
+
+export function BatchExportSceneContent(): JSX.Element {
     const { currentTab, logicProps } = useValues(batchExportSceneLogic)
     const { setCurrentTab } = useActions(batchExportSceneLogic)
     const { id, service } = logicProps
 
-    const configLogic = batchExportConfigurationLogic(logicProps)
-    const { batchExportConfig, loading } = useValues(configLogic)
+    const { batchExportConfig, loading } = useValues(batchExportConfigurationLogic)
 
     if (loading && !batchExportConfig) {
         return (
@@ -218,11 +226,9 @@ export function BatchExportScene(): JSX.Element {
 
     return (
         <SceneContent forceNewSpacing>
-            <BindLogic logic={batchExportConfigurationLogic} props={logicProps}>
-                <BatchExportSceneHeader />
-                <SceneDivider />
-                <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
-            </BindLogic>
+            <BatchExportSceneHeader />
+            <SceneDivider />
+            <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
         </SceneContent>
     )
 }
