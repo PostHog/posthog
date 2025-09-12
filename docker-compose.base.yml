@@ -161,7 +161,7 @@ services:
             DYNAMIC_CONFIG_ENABLED: 'true'
 
     objectstorage:
-        image: chrislusf/seaweedfs:latest
+        image: chrislusf/seaweedfs:3.97
         restart: on-failure
         environment:
             # Volume replication settings (format: same_rack,different_rack,different_datacenter)
