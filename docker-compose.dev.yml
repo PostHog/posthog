@@ -164,6 +164,16 @@ services:
         ports:
             - '19000:19000'
             - '19001:19001'
+            - '9333:9333'
+
+    seaweedfs-filer:
+        image: chrislusf/seaweedfs:3.97
+        restart: on-failure
+        command: 'filer -master=objectstorage:9333'
+        ports:
+            - '8888:8888'
+        depends_on:
+            - objectstorage
 
     maildev:
         extends:
