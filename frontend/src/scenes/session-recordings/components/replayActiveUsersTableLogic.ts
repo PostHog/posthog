@@ -40,8 +40,7 @@ export const replayActiveUsersTableLogic = kea<replayActiveUsersTableLogicType>(
                 SELECT
                     $session_id as session_id,
                     any(person_id) as person_id,
-                    any(person.properties) as pp,
-                    any(distinct_id) as distinct_id
+                    any(person.properties) as pp
                 FROM events
                 WHERE timestamp >= now() - interval 7 day
                   AND timestamp <= now()
@@ -60,11 +59,10 @@ export const replayActiveUsersTableLogic = kea<replayActiveUsersTableLogicType>(
             SELECT
                 sp.person_id,
                 sp.pp,
-                sp.distinct_id,
                 count(distinct sp.session_id) as total_count
             FROM session_persons sp 
             WHERE sp.person_id IS NOT NULL
-            GROUP BY sp.person_id, sp.pp, sp.distinct_id
+            GROUP BY sp.person_id, sp.pp
             ORDER BY total_count DESC
             LIMIT 10
                 `
@@ -75,12 +73,8 @@ export const replayActiveUsersTableLogic = kea<replayActiveUsersTableLogicType>(
 
                 return (qResponse.results || []).map((row) => {
                     return {
-                        person: {
-                            id: row[0] as string,
-                            properties: JSON.parse(row[1]) as Record<string, any>,
-                            distinct_ids: [row[2] as string],
-                        },
-                        count: row[3] as number,
+                        person: { id: row[0] as string, properties: JSON.parse(row[1]) as Record<string, any> },
+                        count: row[2] as number,
                     }
                 }) as { person: PersonType; count: number }[]
             },
