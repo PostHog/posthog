@@ -5,7 +5,6 @@ import { useMemo } from 'react'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDialog, LemonMenu, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -53,53 +52,45 @@ export function HogFunctionLogs(props: { hogFunctionId: string }): JSX.Element {
 
     return (
         <>
-            <PageHeader
-                buttons={
+            {selectingMany ? (
+                <div className="flex gap-2 items-center mb-2 justify-end">
                     <>
-                        {!selectingMany ? (
-                            <LemonButton size="small" type="secondary" onClick={() => setSelectingMany(true)}>
-                                Select invocations
-                            </LemonButton>
-                        ) : (
-                            <>
-                                <LemonButton size="small" type="secondary" onClick={() => setSelectingMany(false)}>
-                                    Cancel
-                                </LemonButton>
-                                <LemonButton size="small" type="secondary" onClick={() => selectAllForRetry()}>
-                                    Select all
-                                </LemonButton>
-                                <LemonButton
-                                    size="small"
-                                    type="primary"
-                                    onClick={() => {
-                                        LemonDialog.open({
-                                            title: 'Retry invocations',
-                                            content: `Are you sure you want to retry the selected events? Please don't close the window until the invocations have completed.`,
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                            },
-                                            primaryButton: {
-                                                children: 'Retry selected events',
-                                                onClick: () => retrySelectedInvocations(),
-                                            },
-                                        })
-                                    }}
-                                    loading={retryRunning}
-                                    disabledReason={
-                                        retryRunning
-                                            ? 'Please wait for the current retries to complete.'
-                                            : Object.values(selectedForRetry).length === 0
-                                              ? 'No invocations selected'
-                                              : undefined
-                                    }
-                                >
-                                    Retry selected
-                                </LemonButton>
-                            </>
-                        )}
+                        <LemonButton size="small" type="secondary" onClick={() => setSelectingMany(false)}>
+                            Cancel
+                        </LemonButton>
+                        <LemonButton size="small" type="secondary" onClick={() => selectAllForRetry()}>
+                            Select all
+                        </LemonButton>
+                        <LemonButton
+                            size="small"
+                            type="primary"
+                            onClick={() => {
+                                LemonDialog.open({
+                                    title: 'Retry invocations',
+                                    content: `Are you sure you want to retry the selected events? Please don't close the window until the invocations have completed.`,
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                    },
+                                    primaryButton: {
+                                        children: 'Retry selected events',
+                                        onClick: () => retrySelectedInvocations(),
+                                    },
+                                })
+                            }}
+                            loading={retryRunning}
+                            disabledReason={
+                                retryRunning
+                                    ? 'Please wait for the current retries to complete.'
+                                    : Object.values(selectedForRetry).length === 0
+                                      ? 'No invocations selected'
+                                      : undefined
+                            }
+                        >
+                            Retry selected
+                        </LemonButton>
                     </>
-                }
-            />
+                </div>
+            ) : null}
             <LogsViewer
                 {...logicProps}
                 sourceId={props.hogFunctionId}
