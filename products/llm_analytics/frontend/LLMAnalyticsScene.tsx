@@ -73,6 +73,7 @@ const Tiles = (): JSX.Element => {
             {tiles.map(({ title, description, query, context }, i) => (
                 <QueryCard
                     key={i}
+                    attachTo={llmAnalyticsLogic}
                     title={title}
                     description={description}
                     query={{ kind: NodeKind.InsightVizNode, source: query } as InsightVizNode}
