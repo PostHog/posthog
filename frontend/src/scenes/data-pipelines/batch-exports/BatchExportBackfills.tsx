@@ -4,7 +4,6 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonDialog, LemonTable } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { IconCancel, IconRefresh } from 'lib/lemon-ui/icons'
@@ -16,7 +15,6 @@ import { BatchExportBackfillsLogicProps, batchExportBackfillsLogic } from './bat
 
 export function BatchExportBackfills({ id }: BatchExportBackfillsLogicProps): JSX.Element {
     const logic = batchExportBackfillsLogic({ id })
-    const { openBackfillModal } = useActions(logic)
     const { batchExportConfig } = useValues(logic)
 
     if (!batchExportConfig) {
@@ -24,32 +22,27 @@ export function BatchExportBackfills({ id }: BatchExportBackfillsLogicProps): JS
     }
 
     return (
-        <>
-            <PageHeader
-                buttons={
-                    <LemonButton type="primary" onClick={() => openBackfillModal()}>
-                        Start backfill
-                    </LemonButton>
-                }
-            />
-            <div className="deprecated-space-y-2">
-                <BatchExportBackfillsControls id={id} />
-                <BatchExportLatestBackfills id={id} />
-            </div>
+        <div className="flex flex-col gap-2">
+            <BatchExportBackfillsControls id={id} />
+            <BatchExportLatestBackfills id={id} />
             <BatchExportBackfillModal id={id} />
-        </>
+        </div>
     )
 }
 
 function BatchExportBackfillsControls({ id }: BatchExportBackfillsLogicProps): JSX.Element {
     const logic = batchExportBackfillsLogic({ id })
     const { loading } = useValues(logic)
-    const { loadBackfills } = useActions(logic)
+    const { loadBackfills, openBackfillModal } = useActions(logic)
 
     return (
-        <div className="flex gap-2 items-center">
+        <div className="flex gap-2 items-center justify-between">
             <LemonButton onClick={loadBackfills} loading={loading} type="secondary" icon={<IconRefresh />} size="small">
                 Refresh
+            </LemonButton>
+
+            <LemonButton type="primary" onClick={() => openBackfillModal()}>
+                Start backfill
             </LemonButton>
         </div>
     )

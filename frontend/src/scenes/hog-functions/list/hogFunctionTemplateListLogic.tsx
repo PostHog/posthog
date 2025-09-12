@@ -36,11 +36,13 @@ export type HogFunctionTemplateListLogicProps = {
     /** Additional types to list */
     additionalTypes?: HogFunctionTypeType[]
     /** If provided, only those templates will be shown */
-    subTemplateIds?: HogFunctionSubTemplateIdType[]
+    subTemplateIds?: HogFunctionSubTemplateIdType[] | null
     /** Overrides to be used when creating a new hog function */
     configurationOverrides?: Pick<HogFunctionTemplateType, 'filters'>
     syncFiltersWithUrl?: boolean
-    manualTemplates?: HogFunctionTemplateType[]
+    manualTemplates?: HogFunctionTemplateType[] | null
+    manualTemplatesLoading?: boolean
+    hideComingSoonByDefault?: boolean
 }
 
 export const shouldShowHogFunctionTemplate = (
@@ -57,7 +59,10 @@ export const shouldShowHogFunctionTemplate = (
 }
 
 export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType>([
-    props({} as HogFunctionTemplateListLogicProps),
+    props({
+        manualTemplates: null,
+        subTemplateIds: null,
+    } as HogFunctionTemplateListLogicProps),
     key(
         (props) =>
             `${props.syncFiltersWithUrl ? 'scene' : 'default'}/${props.type ?? 'destination'}/${
@@ -103,40 +108,46 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         loading: [(s) => [s.rawTemplatesLoading], (x) => x],
 
         templates: [
-            (s) => [s.rawTemplates, (_, props) => props],
-            (
-                rawTemplates,
-                { subTemplateIds, manualTemplates }: HogFunctionTemplateListLogicProps
-            ): HogFunctionTemplateWithSubTemplateType[] => {
-                if (!subTemplateIds) {
-                    return [...rawTemplates, ...(manualTemplates || [])] as HogFunctionTemplateWithSubTemplateType[]
-                }
+            (s) => [
+                s.rawTemplates,
+                s.user,
+                (_, p: HogFunctionTemplateListLogicProps) => p.manualTemplates ?? [],
+                (_, p: HogFunctionTemplateListLogicProps) => p.subTemplateIds ?? [],
+            ],
+            (rawTemplates, user, manualTemplates, subTemplateIds): HogFunctionTemplateWithSubTemplateType[] => {
+                let templates: HogFunctionTemplateWithSubTemplateType[] = []
 
-                const final: HogFunctionTemplateWithSubTemplateType[] = []
+                if (!subTemplateIds?.length) {
+                    templates = [
+                        ...rawTemplates,
+                        ...(manualTemplates || []),
+                    ] as HogFunctionTemplateWithSubTemplateType[]
+                } else {
+                    // Special case for listing sub templates - we
+                    for (const template of rawTemplates) {
+                        for (const subTemplateId of subTemplateIds ?? []) {
+                            const subTemplate = getSubTemplate(template, subTemplateId)
 
-                // Special case for listing sub templates - we
-                for (const template of rawTemplates) {
-                    for (const subTemplateId of subTemplateIds ?? []) {
-                        const subTemplate = getSubTemplate(template, subTemplateId)
-
-                        if (subTemplate) {
-                            // Store it with the overrides applied
-                            final.push({
-                                ...template,
-                                ...subTemplate,
-                            })
+                            if (subTemplate) {
+                                // Store it with the overrides applied
+                                templates.push({
+                                    ...template,
+                                    ...subTemplate,
+                                })
+                            }
                         }
                     }
                 }
-
-                return final
+                return templates
+                    .filter((x) => shouldShowHogFunctionTemplate(x, user))
+                    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
             },
         ],
 
         templatesFuse: [
             (s) => [s.templates],
-            (hogFunctionTemplates): Fuse => {
-                return new FuseClass(hogFunctionTemplates || [], {
+            (templates): Fuse => {
+                return new FuseClass(templates || [], {
                     keys: ['name', 'description'],
                     threshold: 0.3,
                 })
@@ -144,13 +155,29 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         ],
 
         filteredTemplates: [
-            (s) => [s.filters, s.templates, s.templatesFuse, s.user],
-            (filters, templates, templatesFuse, user): HogFunctionTemplateType[] => {
+            (s) => [s.filters, s.templates, s.templatesFuse, (_, props) => props.hideComingSoonByDefault ?? false],
+            (filters, templates, templatesFuse, hideComingSoonByDefault): HogFunctionTemplateType[] => {
                 const { search } = filters
 
-                return (search ? templatesFuse.search(search).map((x) => x.item) : templates).filter(
-                    (x) => shouldShowHogFunctionTemplate(x, user) && (x.status === 'coming_soon' ? search : true)
+                if (search) {
+                    return templatesFuse.search(search).map((x) => x.item)
+                }
+
+                const [available, comingSoon] = templates.reduce(
+                    ([available, comingSoon], template) => {
+                        if (template.status === 'coming_soon') {
+                            if (!hideComingSoonByDefault) {
+                                comingSoon.push(template)
+                            }
+                        } else {
+                            available.push(template)
+                        }
+                        return [available, comingSoon]
+                    },
+                    [[], []] as HogFunctionTemplateType[][]
                 )
+
+                return [...available, ...comingSoon]
             },
         ],
 
@@ -165,9 +192,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                     // TRICKY: Hacky place but this is where we handle "nonHogFunctionTemplates" to modify the linked url
 
                     if (template.id.startsWith('managed-') || template.id.startsWith('self-managed-')) {
-                        return (
-                            urls.dataWarehouseSourceNew() +
-                            '?kind=' +
+                        return urls.dataWarehouseSourceNew(
                             template.id.replace('self-managed-', '').replace('managed-', '')
                         )
                     }
