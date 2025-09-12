@@ -119,7 +119,7 @@ def run_backup_test(
 
         # Execute the job
         job.execute_in_process(
-            run_config=prepare_run_config(job_config),
+            run_config=prepare_run_config(job_config, is_sharded=sharded),
             resources={
                 "cluster": cluster,
                 "s3": S3Resource(

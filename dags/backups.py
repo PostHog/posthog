@@ -469,22 +469,26 @@ def non_sharded_backup():
     wait_for_backup(new_backup)
 
 
-def prepare_run_config(config: BackupConfig) -> dagster.RunConfig:
-    return dagster.RunConfig(
-        {
-            op.name: {"config": config.model_dump(mode="json")}
-            for op in [
-                get_latest_backup,
-                run_backup,
-                check_latest_backup_status,
-                wait_for_backup,
-                run_backup_pipeline_for_shard,
-            ]
-        }
-    )
+def prepare_run_config(config: BackupConfig, is_sharded: bool = False) -> dagster.RunConfig:
+    if is_sharded:
+        # For sharded backup, only configure the ops that are actually used
+        return dagster.RunConfig(
+            {
+                "get_shards": {},
+                "run_backup_pipeline_for_shard": {"config": config.model_dump(mode="json")},
+            }
+        )
+    else:
+        # For non-sharded backup, configure the original ops
+        return dagster.RunConfig(
+            {
+                op.name: {"config": config.model_dump(mode="json")}
+                for op in [get_latest_backup, run_backup, check_latest_backup_status, wait_for_backup]
+            }
+        )
 
 
-def run_backup_request(table: str, incremental: bool) -> dagster.RunRequest:
+def run_backup_request(table: str, incremental: bool, is_sharded: bool = False) -> dagster.RunRequest:
     timestamp = datetime.now(UTC)
     config = BackupConfig(
         database=settings.CLICKHOUSE_DATABASE,
@@ -494,7 +498,7 @@ def run_backup_request(table: str, incremental: bool) -> dagster.RunRequest:
     )
     return dagster.RunRequest(
         run_key=f"{timestamp.strftime('%Y%m%d')}-{table}",
-        run_config=prepare_run_config(config),
+        run_config=prepare_run_config(config, is_sharded=is_sharded),
         tags={
             "backup_type": "incremental" if incremental else "full",
             "table": table,
@@ -511,7 +515,7 @@ def run_backup_request(table: str, incremental: bool) -> dagster.RunRequest:
 def full_sharded_backup_schedule():
     """Launch a full backup for sharded tables"""
     for table in SHARDED_TABLES:
-        yield run_backup_request(table, incremental=False)
+        yield run_backup_request(table, incremental=False, is_sharded=True)
 
 
 @dagster.schedule(
@@ -533,7 +537,7 @@ def full_non_sharded_backup_schedule():
 def incremental_sharded_backup_schedule():
     """Launch an incremental backup for sharded tables"""
     for table in SHARDED_TABLES:
-        yield run_backup_request(table, incremental=True)
+        yield run_backup_request(table, incremental=True, is_sharded=True)
 
 
 @dagster.schedule(
