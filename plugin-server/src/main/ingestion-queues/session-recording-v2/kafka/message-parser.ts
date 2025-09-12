@@ -61,7 +61,7 @@ export class KafkaMessageParser {
 
     private async parseMessage(message: Message): Promise<ParsedMessageData | null> {
         const dropMessage = (reason: string, extra?: Record<string, any>) => {
-            KafkaMetrics.incrementMessageDropped('session_recordings_blob_ingestion', reason)
+            KafkaMetrics.incrementMessageDropped('session_recordings_blob_ingestion_v2', reason)
 
             logger.warn('⚠️', 'invalid_message', {
                 reason,

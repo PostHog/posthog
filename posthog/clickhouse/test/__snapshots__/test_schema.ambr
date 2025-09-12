@@ -2559,7 +2559,7 @@
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
-      retention_period_days Nullable(Int64)
+      retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''
@@ -2585,7 +2585,7 @@
   `snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
   `snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   `_timestamp` Nullable(DateTime),
-  `retention_period_days` Nullable(Int64)
+  `retention_period_days` SimpleAggregateFunction(max, Nullable(Int64))
   )
   AS SELECT
   session_id,
@@ -2621,9 +2621,7 @@
   argMinState(snapshot_source, first_timestamp) as snapshot_source,
   argMinState(snapshot_library, first_timestamp) as snapshot_library,
   max(_timestamp) as _timestamp,
-  -- CH will pick the retention period here, but only if there is a single unique non-null value across all blocks
-  -- ...otherwise this column will be NULL
-  singleValueOrNull(retention_period_days) as retention_period_days
+  max(retention_period_days) as retention_period_days
   FROM posthog_test.kafka_session_replay_events
   group by session_id, team_id
   
@@ -3285,7 +3283,7 @@
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
-      retention_period_days Nullable(Int64)
+      retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)
@@ -4052,7 +4050,7 @@
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
-      retention_period_days Nullable(Int64)
+      retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''
@@ -5195,7 +5193,7 @@
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
-      retention_period_days Nullable(Int64)
+      retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)
@@ -5785,7 +5783,7 @@
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
-      retention_period_days Nullable(Int64)
+      retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '''

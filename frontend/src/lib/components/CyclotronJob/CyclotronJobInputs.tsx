@@ -166,7 +166,9 @@ function JsonConfigField(props: {
                                 <CyclotronJobTemplateSuggestionsButton
                                     templating={templatingKind}
                                     value={jsonValue}
-                                    setTemplating={(templating) => props.onChange?.({ ...props.input, templating })}
+                                    setTemplatingEngine={(templating) =>
+                                        props.onChange?.({ ...props.input, templating })
+                                    }
                                     onOptionSelect={(option) => {
                                         void copyToClipboard(`{${option.example}}`, 'template code')
                                     }}
@@ -198,8 +200,10 @@ function EmailTemplateField({
         <EmailTemplater
             type={schema.type as 'email' | 'native_email'}
             variables={sampleGlobalsWithInputs ?? {}}
+            defaultValue={schema.default}
             value={value}
             onChange={onChange}
+            templating={schema.templating}
         />
     )
 }
@@ -236,7 +240,7 @@ function CyclotronJobTemplateInput(props: {
                 <CyclotronJobTemplateSuggestionsButton
                     templating={templating}
                     value={props.input.value}
-                    setTemplating={(templating) => props.onChange?.({ ...props.input, templating })}
+                    setTemplatingEngine={(templating) => props.onChange?.({ ...props.input, templating })}
                     onOptionSelect={(option) => {
                         props.onChange?.({ ...props.input, value: `${props.input.value} {${option.example}}` })
                     }}
@@ -421,8 +425,6 @@ function CyclotronJobInputRenderer({
                     schema={schema}
                     value={input.value}
                     onChange={(newValue) => {
-                        onValueChange(newValue)
-
                         // Clear all integration_field inputs when the integration changes
                         if (configuration.inputs_schema && onInputChange) {
                             configuration.inputs_schema
@@ -431,6 +433,8 @@ function CyclotronJobInputRenderer({
                                     onInputChange(field.key, { value: null })
                                 })
                         }
+
+                        onValueChange(newValue)
                     }}
                 />
             )

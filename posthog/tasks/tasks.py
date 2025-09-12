@@ -781,23 +781,13 @@ def check_flags_to_rollback() -> None:
 
 
 @shared_task(ignore_result=True)
-def ee_persist_single_recording(id: str, team_id: int) -> None:
+def ee_persist_single_recording_v2(id: str, team_id: int) -> None:
     try:
-        from ee.session_recordings.persistence_tasks import persist_single_recording
+        from ee.session_recordings.persistence_tasks import persist_single_recording_v2
 
-        persist_single_recording(id, team_id)
+        persist_single_recording_v2(id, team_id)
     except ImportError:
         pass
-
-
-@shared_task(ignore_result=True)
-def ee_persist_finished_recordings() -> None:
-    try:
-        from ee.session_recordings.persistence_tasks import persist_finished_recordings
-    except ImportError:
-        pass
-    else:
-        persist_finished_recordings()
 
 
 @shared_task(ignore_result=True)

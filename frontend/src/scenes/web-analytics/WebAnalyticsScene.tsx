@@ -15,19 +15,21 @@ export function WebAnalyticsScene(): JSX.Element {
         <>
             <PageHeader buttons={<WebAnalyticsHeaderButtons />} />
             <SceneContent>
-                <SceneTitleSection
-                    name="Web analytics"
-                    description="Analyze your web analytics data to understand website performance and user behavior."
-                    resourceType={{
-                        type: 'web',
-                        forceIcon: <IconPieChart />,
-                        forceIconColorOverride: [
-                            'var(--color-product-web-analytics-light)',
-                            'var(--color-product-web-analytics-dark)',
-                        ],
-                    }}
-                />
-                <SceneDivider />
+                <div className="flex flex-col gap-4">
+                    <SceneTitleSection
+                        name="Web analytics"
+                        description="Analyze your web analytics data to understand website performance and user behavior."
+                        resourceType={{
+                            type: 'web',
+                            forceIcon: <IconPieChart />,
+                            forceIconColorOverride: [
+                                'var(--color-product-web-analytics-light)',
+                                'var(--color-product-web-analytics-dark)',
+                            ],
+                        }}
+                    />
+                    <SceneDivider />
+                </div>
                 <WebAnalyticsDashboard />
             </SceneContent>
         </>
