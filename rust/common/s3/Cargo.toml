@@ -1,0 +1,13 @@
+[package]
+name = "common-s3"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aws-sdk-s3 = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+aws-config = { workspace = true }
