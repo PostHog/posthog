@@ -42,7 +42,7 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
                 "field_type": IncrementalFieldType.DateTime,
             }
         ],
-        partition_keys=["modified_at"],
+        partition_keys=["created_at"],
         partition_mode="datetime",
         partition_format="month",
         partition_size=1,
@@ -72,7 +72,7 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
                 "field_type": IncrementalFieldType.DateTime,
             }
         ],
-        partition_keys=["modified_at"],
+        partition_keys=["created_at"],
         partition_mode="datetime",
         partition_format="month",
         partition_size=1,
@@ -102,7 +102,7 @@ REDDIT_ADS_CONFIG: dict[str, EndpointConfig] = {
                 "field_type": IncrementalFieldType.DateTime,
             }
         ],
-        partition_keys=["modified_at"],
+        partition_keys=["created_at"],
         partition_mode="datetime",
         partition_format="month",
         partition_size=1,
