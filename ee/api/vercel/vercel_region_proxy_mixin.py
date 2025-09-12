@@ -76,7 +76,7 @@ class VercelRegionProxyMixin:
 
             drf_request = Request(request)
             auth_result = VercelAuthentication().authenticate(drf_request)
-            return auth_result[0].claims.get("installation_id") if auth_result else None
+            return auth_result[0].claims.installation_id if auth_result else None
 
         except (exceptions.AuthenticationFailed, exceptions.ValidationError):
             return None
