@@ -76,6 +76,7 @@ const Tiles = (): JSX.Element => {
                     description={description}
                     query={{ kind: NodeKind.InsightVizNode, source: query } as InsightVizNode}
                     context={context}
+                    sceneSource="llm-analytics"
                     className={clsx(
                         'h-96',
                         /* Second row is the only one to have 2 tiles in the xl layout */

@@ -335,7 +335,6 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                     onDescriptionChange={(value) => {
                         setActionValue('description', value)
                     }}
-                    docsURL="https://posthog.com/docs/data/actions"
                     canEdit
                     forceEdit={!id}
                 />

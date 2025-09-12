@@ -6189,3 +6189,141 @@ async fn test_cohort_with_and_negated_cohort_condition() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_date_string_property_matching_with_is_date_after() -> Result<()> {
+    // This test reproduces the issue where a date string stored in DB like "2024-03-15T19:17:07.083Z"
+    // is compared against a filter value like "2024-03-15 19:37:00" using the is_date_after operator.
+    // The flag should NOT match since 19:17:07 is before 19:37:00 on the same day.
+
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "test_user_123".to_string();
+
+    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(redis_client.clone())
+        .await
+        .unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    // Insert person with last_active_date as a string date
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        distinct_id.clone(),
+        Some(json!({
+            "user_id": "test_123",
+            "last_active_date": "2024-03-15T19:17:07.083Z",
+            "segment": null  // This ensures the segment filter won't match
+        })),
+    )
+    .await
+    .unwrap();
+
+    // Insert flag with filter configuration
+    let flag_json = json!([{
+        "id": 1,
+        "key": "date-comparison-flag",
+        "name": "Date Comparison Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "variant": null,
+                    "properties": [],
+                    "rollout_percentage": 100
+                },
+                {
+                    "variant": "experimental",
+                    "properties": [{
+                        "key": "segment",
+                        "type": "person",
+                        "value": ["premium"],
+                        "operator": "exact"
+                    }],
+                    "rollout_percentage": 100
+                },
+                {
+                    "variant": "experimental",
+                    "properties": [{
+                        "key": "last_active_date",
+                        "type": "person",
+                        "value": "2024-03-15 19:37:00",  // 20 minutes after the person's actual time
+                        "operator": "is_date_after"
+                    }],
+                    "rollout_percentage": 100
+                }
+            ],
+            "payloads": {},
+            "multivariate": {
+                "variants": [
+                    {
+                        "key": "control",
+                        "name": "Control variant",
+                        "rollout_percentage": 50
+                    },
+                    {
+                        "key": "experimental",
+                        "name": "Experimental variant",
+                        "rollout_percentage": 50
+                    }
+                ]
+            }
+        }
+    }]);
+
+    insert_flags_for_team_in_redis(
+        redis_client.clone(),
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await
+    .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_response = res.json::<Value>().await?;
+
+    // Check the response
+    let flags = &json_response["flags"];
+    let test_flag = &flags["date-comparison-flag"];
+
+    // The flag should NOT match the date condition since:
+    // - last_active_date: 2024-03-15T19:17:07.083Z (person's value)
+    // - is NOT after: 2024-03-15 19:37:00 (filter value)
+    // The person's time (19:17) is BEFORE the filter time (19:37)
+
+    // First group matches (100% rollout, no conditions), so flag should be enabled
+    // but with the base variant (null or control based on rollout)
+    assert_eq!(
+        test_flag["enabled"], true,
+        "Flag should be enabled from first group"
+    );
+
+    // The variant should be control or null, NOT "experimental"
+    // since the date condition shouldn't match
+    let variant = test_flag["variant"].as_str();
+    assert!(
+        variant.is_none() || variant == Some("control"),
+        "Variant should be control or null, not 'experimental'. Got: {variant:?}",
+    );
+
+    Ok(())
+}
