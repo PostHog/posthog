@@ -11,6 +11,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { DataPipelinesNewSceneKind } from 'scenes/data-pipelines/DataPipelinesNewScene'
 import { DataPipelinesSceneTab } from 'scenes/data-pipelines/DataPipelinesScene'
 import { HogFunctionConfiguration } from 'scenes/hog-functions/configuration/HogFunctionConfiguration'
 import {
@@ -87,12 +88,13 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.type, s.loading, s.configuration, s.alertId],
+            (s) => [s.type, s.loading, s.configuration, s.alertId, (_, props) => props.id ?? null],
             (
                 type: HogFunctionTypeType,
                 loading: boolean,
                 configuration: HogFunctionType | null,
-                alertId: string | undefined
+                alertId: string | undefined,
+                id: string | null
             ): Breadcrumb[] => {
                 if (loading) {
                     return [
@@ -136,7 +138,9 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                         {
                             key: [Scene.DataPipelines, pipelineTab],
                             name: `${capitalizeFirstLetter(type).replace('_', ' ')}s`,
-                            path: urls.dataPipelines(pipelineTab),
+                            path: id
+                                ? urls.dataPipelines(pipelineTab)
+                                : urls.dataPipelinesNew(type as DataPipelinesNewSceneKind),
                         },
                         finalCrumb,
                     ]
