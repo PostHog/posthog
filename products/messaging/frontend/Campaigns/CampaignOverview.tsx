@@ -4,13 +4,12 @@ import { Form } from 'kea-forms'
 import posthog from 'posthog-js'
 
 import { IconLeave, IconPlusSmall, IconTarget } from '@posthog/icons'
-import { LemonButton, LemonLabel, LemonTag, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonLabel, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
@@ -21,24 +20,10 @@ export function CampaignOverview(props: CampaignLogicProps): JSX.Element {
         <div className="flex flex-col gap-4">
             <Form id="campaign-overview" logic={campaignLogic} props={props} formKey="campaign" enableFormOnSubmit>
                 <div className="flex flex-col flex-wrap gap-4 items-start">
-                    <BasicInfoSection />
                     <ConversionGoalSection />
                     <ExitConditionSection />
                 </div>
             </Form>
-        </div>
-    )
-}
-
-function BasicInfoSection(): JSX.Element {
-    return (
-        <div className="flex flex-col gap-2 py-2 w-120">
-            <LemonField name="name" label="Name">
-                <LemonInput />
-            </LemonField>
-            <LemonField name="description" label="Description">
-                <LemonTextArea placeholder="Help your teammates understand this campaign" />
-            </LemonField>
         </div>
     )
 }

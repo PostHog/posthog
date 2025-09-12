@@ -80,6 +80,7 @@ export function CampaignScene(props: CampaignSceneLogicProps): JSX.Element {
                 activeKey={currentTab}
                 onChange={(tab) => router.actions.push(urls.messagingCampaign(props.id ?? 'new', tab))}
                 tabs={tabs}
+                sceneInset
             />
         </SceneContent>
     )
