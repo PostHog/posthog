@@ -74,7 +74,6 @@ export function ToolbarLaunch(): JSX.Element {
                         type: 'toolbar',
                         forceIcon: <IconToolbar />,
                     }}
-                    docsURL="https://posthog.com/docs/toolbar"
                 />
 
                 <SceneDivider />

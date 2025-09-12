@@ -232,7 +232,6 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         onDescriptionChange={(value) => {
                             setCohortValue('description', value)
                         }}
-                        docsURL="https://posthog.com/docs/data/cohorts"
                         canEdit
                         forceEdit={isNewCohort}
                     />

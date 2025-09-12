@@ -86,7 +86,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     .filter(({ path }) => path.startsWith('Insight/'))
                     .map((fs) => ({
                         href: fs.href,
-                        name: 'new ' + fs.path.substring(8),
+                        name: fs.path.substring(8),
                         icon: getIconForFileSystemItem(fs),
                         flag: fs.flag,
                     }))
@@ -104,7 +104,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     .filter(({ path }) => !path.startsWith('Insight/') && !path.startsWith('Data/'))
                     .map((fs) => ({
                         href: fs.href,
-                        name: 'new ' + fs.path,
+                        name: fs.path,
                         icon: getIconForFileSystemItem(fs),
                         flag: fs.flag,
                     }))
@@ -131,7 +131,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 const queryTree: ItemsGridItem[] = [
                     {
                         category: 'Create new insight',
-                        types: [{ name: 'SQL', icon: <IconDatabase />, href: '/sql' }, ...newInsightItems],
+                        types: [{ name: 'SQL editor', icon: <IconDatabase />, href: '/sql' }, ...newInsightItems],
                     },
                     {
                         category: 'Create new ...',
