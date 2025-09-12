@@ -29,14 +29,13 @@ class Migration(migrations.Migration):
                     UPDATE posthog_featureflag flag
                     SET updated_at = last_flag_activity.latest_created_at
                     FROM (
-                        SELECT CAST(log.item_id AS INT) AS flag_id, log.team_id, MAX(log.created_at) AS latest_created_at
+                        SELECT log.item_id, log.team_id, MAX(log.created_at) AS latest_created_at
                         FROM posthog_activitylog log
                         WHERE log.scope = 'FeatureFlag'
                         AND log.activity = 'updated'
-                        AND log.item_id ~ '^[0-9]+$'
-                        GROUP BY log.team_id, CAST(log.item_id AS INT)
+                        GROUP BY log.team_id, log.item_id
                     ) last_flag_activity
-                    WHERE flag.id = last_flag_activity.flag_id
+                    WHERE CAST(flag.id AS VARCHAR) = last_flag_activity.item_id
                     AND flag.team_id = last_flag_activity.team_id;
                     """,
                     reverse_sql="UPDATE posthog_featureflag SET updated_at = NULL WHERE updated_at IS NOT NULL;",
