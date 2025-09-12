@@ -7,6 +7,7 @@ import { useState } from 'react'
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import {
     LemonButton,
+    LemonButtonProps,
     LemonCheckbox,
     LemonDivider,
     LemonInput,
@@ -18,7 +19,7 @@ import {
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
-import { IconSwapHoriz } from 'lib/lemon-ui/icons'
+import { IconLink, IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
@@ -318,5 +319,25 @@ export function ViewLinkKeyLabel({ column }: KeyLabelProps): JSX.Element {
                 {column.type}
             </LemonTag>
         </span>
+    )
+}
+
+type ViewLinkButtonProps = LemonButtonProps & {
+    tableName: string
+}
+
+export function ViewLinkButton({ tableName, ...props }: ViewLinkButtonProps): JSX.Element {
+    const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
+
+    const handleClick = (): void => {
+        selectSourceTable(tableName)
+        toggleJoinTableModal()
+    }
+
+    return (
+        <>
+            <LemonButton children="Join data" icon={<IconLink />} onClick={handleClick} type="primary" {...props} />
+            <ViewLinkModal />
+        </>
     )
 }
