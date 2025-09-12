@@ -56,7 +56,7 @@ export function DataPipelinesOverview(): JSX.Element {
                     </LemonMenu>
                 }
             />
-            <div className="deprecated-space-y-4">
+            <div className="flex flex-col gap-4">
                 <FlaggedFeature flag="cdp-hog-sources">
                     <>
                         <SceneSection
