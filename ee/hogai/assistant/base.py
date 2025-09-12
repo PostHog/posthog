@@ -415,7 +415,11 @@ class BaseAssistant(ABC):
         """Process a chunk of OpenAI `reasoning`, and if a new headline was just finalized, return it.
 
         Captures everything between the first opening ** and the last closing ** as the headline.
+
+        Returns None if no complete headline was found.
         """
+        BOLD_MARKER = "**"
+
         try:
             if summary := reasoning.get("summary"):
                 summary_text_chunk = summary[0]["text"]
@@ -430,18 +434,18 @@ class BaseAssistant(ABC):
 
         if self._reasoning_headline_chunk is None:
             # Not currently building a headline - look for opening **
-            first_marker = summary_text_chunk.find("**")
+            first_marker = summary_text_chunk.find(BOLD_MARKER)
             if first_marker == -1:
                 return None  # No markers, nothing to do
 
             # Found opening marker
             remaining = summary_text_chunk[first_marker + 2 :]
-            last_marker = remaining.rfind("**")
+            last_marker = remaining.rfind(BOLD_MARKER)
 
             if last_marker != -1:
                 # Found closing marker - complete headline in one chunk
                 # Filter out any internal ** markers
-                headline = remaining[:last_marker].replace("**", "")
+                headline = remaining[:last_marker].replace(BOLD_MARKER, "")
                 self._last_reasoning_headline = headline
                 return self._last_reasoning_headline
             else:
@@ -450,13 +454,13 @@ class BaseAssistant(ABC):
                 return None
         else:
             # Currently building a headline - look for closing **
-            last_marker = summary_text_chunk.rfind("**")
+            last_marker = summary_text_chunk.rfind(BOLD_MARKER)
             if last_marker != -1:
                 # Found closing marker
                 self._reasoning_headline_chunk += summary_text_chunk[:last_marker]
                 # Filter out any internal ** markers
                 if self._reasoning_headline_chunk:
-                    headline = self._reasoning_headline_chunk.replace("**", "")
+                    headline = self._reasoning_headline_chunk.replace(BOLD_MARKER, "")
                     self._last_reasoning_headline = headline
                     self._reasoning_headline_chunk = None
                     return self._last_reasoning_headline
