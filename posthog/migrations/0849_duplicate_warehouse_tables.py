@@ -5,7 +5,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0848_activitylog_detail_gin_index"),
+        ("posthog", "0849_duplicate_warehouse_tables"),
     ]
 
     operations = [
