@@ -14,7 +14,7 @@ function parseKafkaMessage(message: Message): IncomingEvent | null {
         const combinedEvent: PipelineEvent = { ...parseJSON(dataStr), ...rawEvent }
         const event: PipelineEvent = normalizeEvent(combinedEvent)
 
-        return { message, event }
+        return { event }
     } catch (error) {
         logger.warn('Failed to parse Kafka message', { error })
         return null

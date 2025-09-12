@@ -1350,7 +1350,6 @@ export interface EventHeaders {
 }
 
 export interface IncomingEvent {
-    message: Message
     event: PipelineEvent
     headers?: EventHeaders
 }
