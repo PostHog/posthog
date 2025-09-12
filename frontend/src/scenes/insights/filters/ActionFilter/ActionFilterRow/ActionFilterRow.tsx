@@ -202,11 +202,19 @@ export function ActionFilterRow({
     const { mathDefinitions } = useValues(mathsLogic)
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
 
-    const { insightProps } = useValues(insightLogic({ dashboardItemId: typeKey }))
-    const { isStepOptional } = useValues(funnelDataLogic(insightProps))
-
     const mountedInsightDataLogic = insightDataLogic.findMounted({ dashboardItemId: typeKey })
     const query = mountedInsightDataLogic?.values?.query
+
+    const isFunnelContext = mathAvailability === MathAvailability.FunnelsOnly
+
+    // Always call hooks for React compliance - provide safe defaults for non-funnel contexts
+    const { insightProps: funnelInsightProps } = useValues(
+        insightLogic({ dashboardItemId: isFunnelContext ? (typeKey as any) : 'new' })
+    )
+    const { isStepOptional: funnelIsStepOptional } = useValues(funnelDataLogic(funnelInsightProps))
+
+    // Only use the funnel results when in funnel context
+    const isStepOptional = isFunnelContext ? funnelIsStepOptional : () => false
 
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
     const [isMenuVisible, setIsMenuVisible] = useState(false)
