@@ -9,12 +9,12 @@ import {
 import { ManualLinkSourceType } from '~/types'
 
 import { NativeSource } from './marketingAnalyticsLogic'
-import { googleAdsCostTile } from './marketingCostTile'
+import { googleAdsCostTile, linkedinAdsCostTile } from './marketingCostTile'
 
-export type NativeMarketingSource = Extract<ExternalDataSourceType, 'GoogleAds' | 'MetaAds'>
+export type NativeMarketingSource = Extract<ExternalDataSourceType, 'GoogleAds' | 'MetaAds' | 'LinkedinAds'>
 export type NonNativeMarketingSource = Extract<ExternalDataSourceType, 'BigQuery'>
 
-export const VALID_NATIVE_MARKETING_SOURCES: NativeMarketingSource[] = ['GoogleAds']
+export const VALID_NATIVE_MARKETING_SOURCES: NativeMarketingSource[] = ['GoogleAds', 'LinkedinAds']
 export const VALID_NON_NATIVE_MARKETING_SOURCES: NonNativeMarketingSource[] = ['BigQuery']
 export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
     'aws',
@@ -28,9 +28,13 @@ export const MAX_ITEMS_TO_SHOW = 3
 export const GOOGLE_ADS_CAMPAIGN_TABLE_NAME = 'campaign'
 export const GOOGLE_ADS_CAMPAIGN_STATS_TABLE_NAME = 'campaign_stats'
 
+export const LINKEDIN_ADS_CAMPAIGN_TABLE_NAME = 'campaigns'
+export const LINKEDIN_ADS_CAMPAIGN_STATS_TABLE_NAME = 'campaign_stats'
+
 export const NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS: Record<NativeMarketingSource, string[]> = {
     GoogleAds: [GOOGLE_ADS_CAMPAIGN_TABLE_NAME, GOOGLE_ADS_CAMPAIGN_STATS_TABLE_NAME],
     MetaAds: [], // TODO: Add required fields when MetaAds cost tile is implemented in MarketingDashboardMapper
+    LinkedinAds: [LINKEDIN_ADS_CAMPAIGN_TABLE_NAME, LINKEDIN_ADS_CAMPAIGN_STATS_TABLE_NAME],
 }
 
 export function MarketingDashboardMapper(source: NativeSource): DataWarehouseNode | null {
@@ -40,6 +44,8 @@ export function MarketingDashboardMapper(source: NativeSource): DataWarehouseNod
         case 'MetaAds':
             // TODO: Implement MetaAds cost tile when MetaAds support is added
             return null
+        case 'LinkedinAds':
+            return linkedinAdsCostTile(source)
         default:
             return null
     }

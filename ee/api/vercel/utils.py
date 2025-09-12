@@ -7,7 +7,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 from social_core.utils import requests
 
-from ee.api.vercel.types import VercelClaims, VercelUser
+from ee.api.vercel.types import VercelClaims, VercelUser, VercelUserClaims
 
 VERCEL_JWKS_URL = "https://marketplace.vercel.com/.well-known/jwks.json"
 VERCEL_JWKS_CACHE_KEY = "vercel_jwks"
@@ -26,6 +26,15 @@ def get_vercel_claims(request: Request) -> VercelClaims:
         raise AuthenticationFailed("Not authenticated with Vercel")
 
     return request.user.claims
+
+
+def expect_vercel_user_claim(request: Request) -> VercelUserClaims:
+    claim = get_vercel_claims(request)
+
+    if not isinstance(claim, VercelUserClaims):
+        raise AuthenticationFailed("Invalid claim type")
+
+    return claim
 
 
 def get_vercel_jwks() -> dict[str, Any]:
