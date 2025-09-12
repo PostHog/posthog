@@ -55,18 +55,17 @@ pub struct CheckpointPath {
 impl CheckpointPath {
     pub fn new(partition: Partition, local_checkpoint_base_dir: &Path) -> Result<Self> {
         let checkpoint_epoch_micros = Self::generate_checkpoint_timestamp()?;
+        let cp_epoch_micros_str = format!("{:020}", checkpoint_epoch_micros);
         let cp_topic_partition = format!(
             "{}{}_{}",
             CHECKPOINT_NAME_PREFIX,
             &partition.topic(),
             &partition.partition_number()
         );
-
-        let remote_path = format!("{}/{}", &cp_topic_partition, checkpoint_epoch_micros);
-
+        let remote_path = format!("{}/{}", &cp_topic_partition, cp_epoch_micros_str);
         let local_path = PathBuf::from(local_checkpoint_base_dir)
             .join(cp_topic_partition)
-            .join(checkpoint_epoch_micros.to_string());
+            .join(cp_epoch_micros_str);
         let local_path_tag = local_path.to_string_lossy().to_string();
 
         Ok(Self {
@@ -149,7 +148,13 @@ impl CheckpointWorker {
     }
 
     async fn create_partition_checkpoint_directory(&self) -> Result<()> {
-        if let Err(e) = tokio::fs::create_dir_all(&self.paths.local_path)
+        // oddly, the RocksDB client likes to create the final directory in the
+        // checkpoint path and will error if the parent dirs do not exist, or
+        // full path exists ahead of the checkpoint attempt. Here, we only
+        // create the directories above the final timestamp-based dir that
+        // will house the checkpoint files
+        let base_path = self.paths.local_path.parent().unwrap();
+        if let Err(e) = tokio::fs::create_dir_all(base_path)
             .await
             .context("Checkpoint worker: failed to create local directory")
         {

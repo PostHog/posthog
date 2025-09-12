@@ -298,7 +298,6 @@ async fn test_manual_checkpoint() {
     let result = result.unwrap();
     assert!(result.is_some());
     assert!(result.unwrap() == paths.remote_path);
-
 }
 
 #[tokio::test]
@@ -479,7 +478,7 @@ async fn test_checkpoint_with_mock_uploader() {
     );
 
     let result = worker.checkpoint_partition().await;
-    assert!(result.is_ok());
+    assert!(result.is_ok(), "checkpoint should succeed: {:?}", result.err());
 
     let result = result.unwrap();
     assert!(result.is_some());
