@@ -129,12 +129,11 @@ export class HogFlowExecutorService {
             return earlyExitResult
         }
 
-        const currentAction = invocation.state.currentAction
-            ? `[Action:${invocation.state.currentAction.id}]`
-            : 'trigger'
+        const hasCurrentAction = Boolean(invocation.state.currentAction)
+        const currentAction = hasCurrentAction ? `[Action:${invocation.state.currentAction!.id}]` : 'trigger'
         logs.push({
             level: 'debug',
-            message: `Resuming workflow execution at ${currentAction}`,
+            message: `${hasCurrentAction ? 'Resuming' : 'Starting'} workflow execution at ${currentAction}`,
             timestamp: DateTime.now(),
         })
 

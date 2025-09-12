@@ -203,7 +203,7 @@ describe('Hogflow Executor', () => {
                 logs: [
                     {
                         level: 'debug',
-                        message: 'Resuming workflow execution at trigger',
+                        message: 'Starting workflow execution at trigger',
                         timestamp: expect.any(DateTime),
                     },
                     {
@@ -283,7 +283,7 @@ describe('Hogflow Executor', () => {
             expect(result.invocation.queueScheduledAt).toEqual(expect.any(DateTime))
             expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
-                  "Resuming workflow execution at trigger",
+                  "Starting workflow execution at trigger",
                   "Executing action [Action:function_id_1]",
                   "[Action:function_id_1] Hello, Mr John Doe!",
                   "[Action:function_id_1] Fetch 1, 200",
