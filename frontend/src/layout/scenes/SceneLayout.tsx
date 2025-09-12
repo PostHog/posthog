@@ -110,7 +110,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
         <>
             <div
                 className={cn(
-                    'col-span-2 h-[var(--scene-layout-header-height)] sticky top-0 z-10 flex justify-center items-start',
+                    'col-span-2 h-[var(--scene-layout-header-height)] sticky top-0 z-[var(--z-main-nav)] flex justify-center items-start',
                     {
                         'col-start-1 col-span-1': scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
                     }
