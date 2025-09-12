@@ -324,6 +324,7 @@ class FeatureFlagSerializer(
             "has_encrypted_payloads",
             "status",
             "evaluation_runtime",
+            "last_called_at",
             "_create_in_folder",
             "_should_create_usage_dashboard",
         ]
@@ -972,6 +973,7 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             "has_encrypted_payloads",
             "version",
             "evaluation_runtime",
+            "last_called_at",
             "evaluation_tags",
         ]
 
