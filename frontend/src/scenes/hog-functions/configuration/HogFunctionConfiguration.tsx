@@ -171,6 +171,9 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
 
                                             <div className="flex flex-row gap-2 items-center h-10">
                                                 {template && <HogFunctionStatusTag status={template.status} />}
+                                                {hogFunction && (
+                                                    <HogFunctionStatusIndicator hogFunction={hogFunction} />
+                                                )}
                                                 <LemonField name="enabled">
                                                     {({ value, onChange }) => (
                                                         <LemonSwitch
