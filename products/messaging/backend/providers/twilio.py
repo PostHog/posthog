@@ -1,6 +1,7 @@
-from posthoganalytics import capture_exception
-import requests
 import logging
+
+import requests
+from posthoganalytics import capture_exception
 
 logger = logging.getLogger(__name__)
 

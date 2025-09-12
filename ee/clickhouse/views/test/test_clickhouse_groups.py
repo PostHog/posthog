@@ -1,31 +1,29 @@
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
 import json
-from unittest import mock
 from uuid import UUID
 
-from django.db import IntegrityError
 from freezegun.api import freeze_time
-from orjson import orjson
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
+from unittest import mock
+from unittest.mock import patch
+
+from django.db import IntegrityError
+
 from flaky import flaky
+from orjson import orjson
 from rest_framework import status
 
-from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
-from posthog.hogql.parser import parse_select
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
-from posthog.models import GroupTypeMapping, Person, Notebook, GroupUsageMetric
+
+from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
+from posthog.models import GroupTypeMapping, GroupUsageMetric, Notebook, Person
 from posthog.models.group.util import create_group
 from posthog.models.notebook import ResourceNotebook
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    snapshot_clickhouse_queries,
-)
-from unittest.mock import patch
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 PATH = "ee.clickhouse.views.groups"
 
@@ -187,7 +185,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                 "notebook": None,
             },
         )
-        self.assertFalse(ResourceNotebook.objects.filter(group=group).exists())
+        self.assertFalse(ResourceNotebook.objects.filter(group=group.id).exists())
         self.assertEqual(0, Notebook.objects.filter(team=self.team).count())
 
     @freeze_time("2021-05-02")
@@ -205,7 +203,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index={index}&group_key={key}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, "Should return 200 OK")
-        relationships = ResourceNotebook.objects.filter(group=group)
+        relationships = ResourceNotebook.objects.filter(group=group.id)
         self.assertIsNotNone(relationships)
         self.assertEqual(
             response.json(),
@@ -238,7 +236,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
         notebook = Notebook.objects.create(team=self.team, title="Mr. Krabs Notes")
-        ResourceNotebook.objects.create(group=group, notebook=notebook)
+        ResourceNotebook.objects.create(group=group.id, notebook=notebook)
 
         response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index={index}&group_key={key}")
 
@@ -278,7 +276,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, "Should return 200 OK")
         final_notebook_count = Notebook.objects.filter(team=self.team).count()
         self.assertEqual(final_notebook_count, initial_notebook_count, "Notebook creation should be rolled back")
-        self.assertFalse(ResourceNotebook.objects.filter(group=group).exists())
+        self.assertFalse(ResourceNotebook.objects.filter(group=group.id).exists())
         mock_relationship_create.assert_called_once()
         self.assertEqual(len(logs.records), 1)
         log = logs.records[0]

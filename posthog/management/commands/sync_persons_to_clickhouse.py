@@ -2,8 +2,9 @@ import json
 import logging
 from uuid import UUID
 
-import structlog
 from django.core.management.base import BaseCommand
+
+import structlog
 
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.client import KafkaProducer
@@ -11,11 +12,7 @@ from posthog.models.group.group import Group
 from posthog.models.group.util import raw_create_group_ch
 from posthog.models.person import PersonDistinctId
 from posthog.models.person.person import Person
-from posthog.models.person.util import (
-    _delete_ch_distinct_id,
-    create_person,
-    create_person_distinct_id,
-)
+from posthog.models.person.util import _delete_ch_distinct_id, create_person, create_person_distinct_id
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)

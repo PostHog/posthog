@@ -1,12 +1,14 @@
 # Self-Managed Marketing Source Adapters
 
 from posthog.hogql import ast
-from .base import MarketingSourceAdapter, ValidationResult, ExternalConfig
+
 from products.marketing_analytics.backend.hogql_queries.constants import (
     MARKETING_ANALYTICS_SCHEMA,
     UNKNOWN_CAMPAIGN,
     UNKNOWN_SOURCE,
 )
+
+from .base import ExternalConfig, MarketingSourceAdapter, ValidationResult
 
 
 class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):

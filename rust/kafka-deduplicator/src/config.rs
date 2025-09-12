@@ -16,7 +16,7 @@ pub struct Config {
     #[envconfig(default = "events")]
     pub kafka_consumer_topic: String,
 
-    #[envconfig(default = "earliest")]
+    #[envconfig(default = "latest")]
     pub kafka_consumer_offset_reset: String,
 
     // Kafka Producer configuration
@@ -52,6 +52,10 @@ pub struct Config {
     // 1GB default, supports: raw bytes, scientific notation (9.663676416e+09), or units (9Gi, 1GB)
     pub max_store_capacity: String,
 
+    #[envconfig(default = "120")]
+    // 2 minutes default - interval for checking and cleaning up old data when capacity is exceeded
+    pub cleanup_interval_secs: u64,
+
     // Consumer processing configuration
     #[envconfig(default = "100")]
     pub max_in_flight_messages: usize,
@@ -73,6 +77,9 @@ pub struct Config {
 
     #[envconfig(default = "5")] // 5 seconds
     pub commit_interval_secs: u64,
+
+    #[envconfig(default = "120")] // 120 seconds (2 minutes)
+    pub flush_interval_secs: u64,
 
     // HTTP server configuration
     #[envconfig(from = "BIND_HOST", default = "0.0.0.0")]
@@ -104,6 +111,22 @@ pub struct Config {
 
     #[envconfig(default = "300")] // 5 minutes in seconds
     pub s3_timeout_secs: u64,
+
+    #[envconfig(default = "true")]
+    pub export_prometheus: bool,
+
+    // OpenTelemetry configuration
+    #[envconfig(from = "OTEL_EXPORTER_OTLP_ENDPOINT")]
+    pub otel_url: Option<String>,
+
+    #[envconfig(from = "OTEL_TRACES_SAMPLER_ARG", default = "0.001")]
+    pub otel_sampling_rate: f64,
+
+    #[envconfig(from = "OTEL_SERVICE_NAME", default = "posthog-kafka-deduplicator")]
+    pub otel_service_name: String,
+
+    #[envconfig(from = "OTEL_LOG_LEVEL", default = "info")]
+    pub otel_log_level: tracing::Level,
 }
 
 impl Config {
@@ -174,6 +197,16 @@ impl Config {
     /// Get commit interval as Duration
     pub fn commit_interval(&self) -> Duration {
         Duration::from_secs(self.commit_interval_secs)
+    }
+
+    /// Get flush interval as Duration
+    pub fn flush_interval(&self) -> Duration {
+        Duration::from_secs(self.flush_interval_secs)
+    }
+
+    /// Get cleanup interval as Duration
+    pub fn cleanup_interval(&self) -> Duration {
+        Duration::from_secs(self.cleanup_interval_secs)
     }
 
     /// Get producer send timeout as Duration

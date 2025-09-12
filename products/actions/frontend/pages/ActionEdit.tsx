@@ -326,19 +326,17 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                     resourceType={{
                         to: urls.actions(),
                         type: RESOURCE_TYPE,
-                        tooltip: 'Go to all actions',
-                        typePlural: 'actions',
                     }}
                     markdown={true}
                     isLoading={actionLoading}
-                    onNameBlur={(value) => {
+                    onNameChange={(value) => {
                         setActionValue('name', value)
                     }}
-                    onDescriptionBlur={(value) => {
+                    onDescriptionChange={(value) => {
                         setActionValue('description', value)
                     }}
-                    docsURL="https://posthog.com/docs/data/actions"
                     canEdit
+                    forceEdit={!id}
                 />
 
                 <SceneDivider />

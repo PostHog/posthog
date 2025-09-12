@@ -1,11 +1,7 @@
 from django.conf import settings
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.table_engines import (
-    Distributed,
-    ReplicationScheme,
-    AggregatingMergeTree,
-)
+from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 
 TABLE_BASE_NAME = "raw_sessions"
 
@@ -22,8 +18,16 @@ def TRUNCATE_RAW_SESSIONS_TABLE_SQL():
     return f"TRUNCATE TABLE IF EXISTS {SHARDED_RAW_SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
 
 
-def DROP_RAW_SESSION_TABLE_SQL():
+def DROP_RAW_SESSION_SHARDED_TABLE_SQL():
     return f"DROP TABLE IF EXISTS {SHARDED_RAW_SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+
+
+def DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL():
+    return f"DROP TABLE IF EXISTS {TABLE_BASE_NAME} {ON_CLUSTER_CLAUSE()}"
+
+
+def DROP_RAW_SESSION_WRITABLE_TABLE_SQL():
+    return f"DROP TABLE IF EXISTS {WRITABLE_RAW_SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
 
 
 def DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL():
@@ -443,7 +447,7 @@ AS
 """.format(
         table_name=f"{TABLE_BASE_NAME}_mv",
         target_table=f"writable_{TABLE_BASE_NAME}",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
         database=settings.CLICKHOUSE_DATABASE,
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL(),
     )
@@ -456,7 +460,7 @@ MODIFY QUERY
 {select_sql}
 """.format(
         table_name=f"{TABLE_BASE_NAME}_mv",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL(),
     )
 )
@@ -497,7 +501,7 @@ def DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(on_cluster=True):
 # debugging
 RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL = (
     lambda: f"""
-CREATE OR REPLACE VIEW {TABLE_BASE_NAME}_v {ON_CLUSTER_CLAUSE()} AS
+CREATE OR REPLACE VIEW {TABLE_BASE_NAME}_v {ON_CLUSTER_CLAUSE(on_cluster=False)} AS
 SELECT
     session_id_v7,
     fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)) as session_timestamp,

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconApps, IconPencil } from '@posthog/icons'
+import { IconNotification, IconPencil } from '@posthog/icons'
 import { LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
@@ -154,8 +154,7 @@ export function Annotations(): JSX.Element {
                 description="Annotations allow you to mark when certain changes happened so you can easily see how they impacted your metrics."
                 resourceType={{
                     type: 'annotation',
-                    typePlural: 'annotations',
-                    forceIcon: <IconApps />,
+                    forceIcon: <IconNotification />,
                 }}
             />
             <SceneDivider />

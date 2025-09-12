@@ -1,36 +1,38 @@
-import asyncio
-import collections.abc
-import dataclasses
-import datetime as dt
-import enum
-import itertools
-import json
 import os
 import re
-import typing
+import enum
+import json
 import uuid
+import typing
+import asyncio
+import datetime as dt
+import itertools
+import dataclasses
+import collections.abc
 
-import asyncstdlib
-import deltalake
-import pyarrow as pa
-import pyarrow.compute as pc
-import temporalio.activity
-import temporalio.common
-import temporalio.exceptions
-import temporalio.workflow
-from deltalake import DeltaTable
 from django.conf import settings
+
+import pyarrow as pa
+import deltalake
+import asyncstdlib
+import pyarrow.compute as pc
+import temporalio.common
+import temporalio.activity
+import temporalio.workflow
+import temporalio.exceptions
+from deltalake import DeltaTable
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
@@ -43,12 +45,7 @@ from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
 from posthog.warehouse.data_load.create_table import create_table_from_saved_query
-from posthog.warehouse.models import (
-    DataWarehouseModelPath,
-    DataWarehouseSavedQuery,
-    DataWarehouseTable,
-    get_s3_client,
-)
+from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery, DataWarehouseTable, get_s3_client
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.warehouse.s3 import ensure_bucket_exists
 
@@ -544,13 +541,6 @@ async def materialize_model(
             await revert_materialization(saved_query, logger)
             await mark_job_as_failed(job, error_message, logger)
             raise Exception(f"Table reference missing for model {model_label}: {error_message}") from e
-        elif "no log files" in error_message:
-            error_message = f"Query did not return rows. Try changing your time range or query."
-            saved_query.latest_error = error_message
-            await logger.ainfo("Query did not return results for model %s, reverting materialization", model_label)
-            await revert_materialization(saved_query, logger)
-            await mark_job_as_failed(job, error_message, logger)
-            raise Exception(f"Query did not return results for model {model_label}: {error_message}") from e
         elif "Memory limit" in error_message:
             error_message = f"Query exceeded memory limit. Try reducing its scope by changing the time range."
             saved_query.latest_error = error_message
@@ -584,6 +574,9 @@ async def materialize_model(
     await logger.adebug("Copying query files in S3")
     prepare_s3_files_for_querying(saved_query.folder_path, saved_query.normalized_name, file_uris, True)
 
+    saved_query.is_materialized = True
+    await database_sync_to_async(saved_query.save)()
+
     await update_table_row_count(saved_query, row_count, logger)
 
     # Update the job record with the row count and completed status
@@ -616,26 +609,12 @@ async def revert_materialization(saved_query: DataWarehouseSavedQuery, logger: F
     unrecoverable error, like a table reference no longer existing.
     """
     try:
-        from posthog.warehouse.data_load.saved_query_service import delete_saved_query_schedule
-
-        await database_sync_to_async(delete_saved_query_schedule)(str(saved_query.id))
-
-        saved_query.sync_frequency_interval = None
-        saved_query.status = None
-        saved_query.last_run_at = None
-        saved_query.latest_error = None
-
-        # Clear the table reference so consumers will use the on-demand view instead
-        if saved_query.table is not None:
-            saved_query.table = None
-            table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=saved_query.table_id)
-            await database_sync_to_async(table.soft_delete)()
-
-        await database_sync_to_async(saved_query.save)()
+        await database_sync_to_async(saved_query.revert_materialization)()
 
         await logger.ainfo("Successfully reverted materialization for saved query %s", saved_query.name)
 
     except Exception as e:
+        capture_exception(e)
         await logger.aexception("Failed to revert materialization for saved query %s: %s", saved_query.name, str(e))
 
 
@@ -778,7 +757,6 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
                     query_typings.append((column_name, ch_type, call_tuple))
                 else:
                     query_typings.append((column_name, ch_type, None))
-
     if has_type_to_convert:
         await logger.adebug("Query has fields that need converting")
 
@@ -868,37 +846,33 @@ def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, 
     new_columns: list[pa.Array] = []
     new_fields: list[pa.Field] = []
 
-    types_to_transform = ["Date", "Date32", "DateTime"]
+    types_to_transform = ["Date", "Date32", "DateTime", "DateTime64"]
     for column_name, type in types:
         field = batch.schema.field(column_name)
         column = batch.column(column_name)
 
-        if (
-            not any(t.lower() in type.lower() for t in types_to_transform)
-            or pa.types.is_timestamp(field.type)
-            or pa.types.is_date(field.type)
-        ):
+        if not any(t.lower() in type.lower() for t in types_to_transform) or pa.types.is_date(field.type):
             new_columns.append(column)
             new_fields.append(field)
             continue
 
-        if "datetime" in type.lower():
-            new_field = field.with_type(pa.timestamp("us"))
+        if "datetime64" in type.lower() and pa.types.is_timestamp(field.type):
+            new_field: pa.Field = field.with_type(pa.timestamp("us", tz="UTC"))
+            new_column = pc.cast(column, new_field.type)
+        elif "datetime" in type.lower():
+            new_field = field.with_type(pa.timestamp("us", tz="UTC"))
             # Gotta upcast from UInt32 to Int64 then Timestamp(s) first, and finally after to microseconds after
             int64_col = pc.cast(column, pa.int64())
             seconds_col = pc.cast(int64_col, pa.timestamp("s"))
             new_column = pc.cast(seconds_col, new_field.type)
-
-            new_fields.append(new_field)
-            new_columns.append(new_column)
         else:
             new_field = field.with_type(pa.date32())
             # Gotta upcast from uint16 to int32 first
             int32_col = pc.cast(column, pa.int32())
             new_column = pc.cast(int32_col, new_field.type)
 
-            new_fields.append(new_field)
-            new_columns.append(new_column)
+        new_fields.append(new_field)
+        new_columns.append(new_column)
 
     new_metadata: dict[str | bytes, str | bytes] | None = (
         typing.cast(dict[str | bytes, str | bytes], dict(batch.schema.metadata)) if batch.schema.metadata else None
@@ -1479,7 +1453,7 @@ class RunWorkflow(PostHogWorkflow):
                 run_dag_activity,
                 run_model_activity_inputs,
                 start_to_close_timeout=dt.timedelta(hours=1),
-                heartbeat_timeout=dt.timedelta(minutes=1),
+                heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=1,
                 ),

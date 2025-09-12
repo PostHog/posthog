@@ -1,19 +1,18 @@
 use std::{sync::Arc, time::Duration};
 
 use app_context::AppContext;
+use batch_ingestion::process_batch;
 use common_kafka::kafka_consumer::{RecvErr, SingleTopicConsumer};
 use config::Config;
 use metrics_consts::{
     BATCH_ACQUIRE_TIME, CACHE_CONSUMED, COMPACTED_UPDATES, DUPLICATES_IN_BATCH, EMPTY_EVENTS,
-    EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, ISOLATED_PROPDEFS_DB_SELECTED,
-    RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT,
-    UPDATES_SEEN, UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
+    EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, RECV_DEQUEUED,
+    SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN,
+    UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
 };
 use types::{Event, Update};
-use v2_batch_ingestion::process_batch;
 
 use ahash::AHashSet;
-use sqlx::PgPool;
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::{error, warn};
 use update_cache::Cache;
@@ -25,12 +24,12 @@ use crate::{
 
 pub mod api;
 pub mod app_context;
+pub mod batch_ingestion;
 pub mod config;
 pub mod measuring_channel;
 pub mod metrics_consts;
 pub mod types;
 pub mod update_cache;
-pub mod v2_batch_ingestion;
 
 pub async fn update_consumer_loop(
     config: Config,
@@ -89,19 +88,8 @@ pub async fn update_consumer_loop(
         let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
         metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
 
-        // the new mirror deployment should point database writes
-        // at the new isolated propdefs instance in all envs.
-        // THE ORIGINAL property-defs-rs deployment should NEVER DO THIS
-        let resolved_pool: &PgPool = if context.propdefs_pool.is_some() {
-            metrics::counter!(ISOLATED_PROPDEFS_DB_SELECTED).increment(1);
-            context.propdefs_pool.as_ref().unwrap()
-        } else {
-            &context.pool
-        };
-
         // enrich batch group events with resolved group_type_indices
-        // before passing along to process_batch. We can refactor this
-        // to make it less awkward soon.
+        // before passing along to process_batch
         let _unused = context
             .resolve_group_types_indexes(&mut batch)
             .await
@@ -112,7 +100,7 @@ pub async fn update_consumer_loop(
                 )
             });
 
-        process_batch(&config, cache.clone(), resolved_pool, batch).await;
+        process_batch(&config, cache.clone(), &context.pool, batch).await;
     }
 }
 

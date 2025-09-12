@@ -1,12 +1,12 @@
 from abc import ABC, abstractmethod
 from collections import defaultdict
 
-import structlog
 from django.utils import timezone
+
+import structlog
 from prometheus_client import Counter
 
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-
 
 logger = structlog.get_logger(__name__)
 

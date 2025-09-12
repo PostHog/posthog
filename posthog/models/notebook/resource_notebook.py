@@ -1,6 +1,7 @@
 from django.core.exceptions import ValidationError
 from django.db import models
-from posthog.models.utils import UUIDTModel, build_unique_relationship_check, build_partial_uniqueness_constraint
+
+from posthog.models.utils import UUIDTModel, build_partial_uniqueness_constraint, build_unique_relationship_check
 
 RELATED_OBJECTS = ("group",)
 
@@ -19,12 +20,12 @@ class ResourceNotebook(UUIDTModel):
     # Relationships (exactly one must be set)
     # When adding a new foreign key, make sure to add the foreign key field and append field name
     # to the `RELATED_OBJECTS` tuple above.
-    group = models.ForeignKey(
-        "Group",
-        on_delete=models.CASCADE,
+    # Group relationship is not a foreign key because the table lives in another database instance, which would cause IntegrityErrors when inserting a new ResourceNotebook row.
+
+    group = models.IntegerField(
         null=True,
         blank=True,
-        related_name="notebooks",
+        db_column="group_id",
     )
 
     class Meta:

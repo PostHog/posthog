@@ -165,7 +165,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                         )}
                     </div>
                     <div>
-                        {savedQuery?.sync_frequency ? (
+                        {savedQuery?.is_materialized ? (
                             <div>
                                 {savedQuery?.last_run_at ? (
                                     `Last run at ${humanFriendlyDetailedTime(savedQuery?.last_run_at)}`

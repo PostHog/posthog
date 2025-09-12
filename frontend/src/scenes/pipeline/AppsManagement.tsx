@@ -3,12 +3,16 @@ import { useActions, useValues } from 'kea'
 import { IconDownload, IconLock, IconRedo, IconTrash, IconUnlock } from '@posthog/icons'
 import { LemonBanner, LemonDialog, LemonDivider, LemonMenu, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { PluginInstallationType, PluginType } from '~/types'
 
 import { AppCode } from './AppCode'
@@ -39,13 +43,14 @@ export function AppsManagement(): JSX.Element {
         pluginsLoading,
     } = useValues(appsManagementLogic)
     const { isDev, isCloudOrDev } = useValues(preflightLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     if (!canInstallPlugins || !canGloballyManagePlugins) {
         return <>You don't have permission to manage apps.</>
     }
 
     return (
-        <div className="pipeline-apps-management-scene">
+        <SceneContent forceNewSpacing className="pipeline-apps-management-scene">
             {/* When plugins are still loading we don't know yet if any apps are out of sync
             with the global state, so skip this section for smooter user experience */}
             {isCloudOrDev &&
@@ -53,39 +58,83 @@ export function AppsManagement(): JSX.Element {
                 (missingGlobalPlugins.length > 0 ||
                     shouldBeGlobalPlugins.length > 0 ||
                     shouldNotBeGlobalPlugins.length > 0) && <OutOfSyncApps />}
-            <h2>Manual installation</h2>
+            <SceneSection title="Manual installation" hideTitleAndDescription={!newSceneLayout}>
+                {!newSceneLayout && (
+                    <>
+                        <h2>Manual installation</h2>
+                    </>
+                )}
+            </SceneSection>
+
             <InstallFromUrl />
             {isDev && <InstallLocalApp />}
             <InstallSourceApp />
 
-            <LemonDivider className="my-6" />
+            {newSceneLayout ? <SceneDivider /> : <LemonDivider className="my-6" />}
 
-            <h2>Installed apps</h2>
-            <AppsToUpdate />
+            <SceneSection title="Installed apps" hideTitleAndDescription={!newSceneLayout}>
+                {!newSceneLayout && (
+                    <>
+                        <h2>Installed apps</h2>
+                    </>
+                )}
+                <AppsToUpdate />
+            </SceneSection>
+
             {globalPlugins && (
-                <>
-                    <h3 className="mt-3">Global apps</h3>
-                    <p>These apps can be used in all organizations.</p>
+                <SceneSection
+                    title="Global apps"
+                    description="These apps can be used in all organizations."
+                    titleSize="sm"
+                    hideTitleAndDescription={!newSceneLayout}
+                >
+                    {!newSceneLayout && (
+                        <>
+                            <h3 className="mt-3">Global apps</h3>
+                            <p>These apps can be used in all organizations.</p>
+                        </>
+                    )}
                     <AppsTable plugins={globalPlugins} />
-                </>
+                </SceneSection>
             )}
 
             {localPlugins && (
-                <>
-                    <h3 className="mt-3">Local apps</h3>
-                    <p>These apps can only be used by this organization, or ones with an existing plugin config.</p>
+                <SceneSection
+                    title="Local apps"
+                    description="These apps can only be used by this organization, or ones with an existing plugin config."
+                    titleSize="sm"
+                    hideTitleAndDescription={!newSceneLayout}
+                >
+                    {!newSceneLayout && (
+                        <>
+                            <h3 className="mt-3">Local apps</h3>
+                            <p>
+                                These apps can only be used by this organization, or ones with an existing plugin
+                                config.
+                            </p>
+                        </>
+                    )}
                     <AppsTable plugins={localPlugins} />
-                </>
+                </SceneSection>
             )}
 
             {inlinePlugins && (
-                <>
-                    <h3 className="mt-3">Inline plugins</h3>
-                    <p>These plugins are inlined into plugin-server code, any updates should be done there.</p>
+                <SceneSection
+                    title="Inline plugins"
+                    description="These plugins are inlined into plugin-server code, any updates should be done there."
+                    titleSize="sm"
+                    hideTitleAndDescription={!newSceneLayout}
+                >
+                    {!newSceneLayout && (
+                        <>
+                            <h3 className="mt-3">Inline plugins</h3>
+                            <p>These plugins are inlined into plugin-server code, any updates should be done there.</p>
+                        </>
+                    )}
                     <InlinePluginsTable plugins={inlinePlugins} />
-                </>
+                </SceneSection>
             )}
-        </div>
+        </SceneContent>
     )
 }
 
@@ -327,47 +376,70 @@ function InlinePluginsTable({ plugins }: RenderAppsTable): JSX.Element {
 
 function OutOfSyncApps(): JSX.Element {
     const { shouldNotBeGlobalPlugins, shouldBeGlobalPlugins } = useValues(appsManagementLogic)
-
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     return (
-        <>
-            <h2>Out-of-sync global apps</h2>
+        <SceneSection title="Out-of-sync global apps" hideTitleAndDescription={!newSceneLayout}>
+            {!newSceneLayout && <h2>Out-of-sync global apps</h2>}
             <LemonBanner type="warning">
                 This PostHog Cloud instance is currently out of sync with the GLOBAL_PLUGINS list.
             </LemonBanner>
+            <SceneDivider />
             <MissingGlobalPlugins />
+            <SceneDivider />
 
             {shouldNotBeGlobalPlugins && (
-                <>
-                    <h3 className="mt-3">Apps that should NOT be global</h3>
-                    <p>These apps should NOT be global according to repo.</p>
+                <SceneSection
+                    title="Apps that should NOT be global"
+                    description="These apps should NOT be global according to repo."
+                    hideTitleAndDescription
+                >
+                    {!newSceneLayout && (
+                        <>
+                            <h3 className="mt-3">Apps that should NOT be global</h3>
+                            <p>These apps should NOT be global according to repo.</p>
+                        </>
+                    )}
                     <AppsTable plugins={shouldNotBeGlobalPlugins} />
-                </>
+                </SceneSection>
+            )}
+            {shouldBeGlobalPlugins && (
+                <SceneSection
+                    title="Apps that SHOULD be global"
+                    description="These already installed apps should be global according to repo."
+                    hideTitleAndDescription
+                >
+                    {!newSceneLayout && (
+                        <>
+                            <h3 className="mt-3">Apps that SHOULD be global</h3>
+                            <p>These already installed apps should be global according to repo.</p>
+                        </>
+                    )}
+                    <AppsTable plugins={shouldBeGlobalPlugins} />
+                </SceneSection>
             )}
 
-            {shouldBeGlobalPlugins && (
-                <>
-                    <h3 className="mt-3">Apps that SHOULD be global</h3>
-                    <p>These already installed apps should be global according to repo.</p>
-                    <AppsTable plugins={shouldBeGlobalPlugins} />
-                </>
-            )}
-            <LemonDivider className="my-6" />
-        </>
+            {newSceneLayout ? <SceneDivider /> : <LemonDivider className="my-6" />}
+        </SceneSection>
     )
 }
 
 function MissingGlobalPlugins(): JSX.Element {
     const { missingGlobalPlugins, pluginsLoading, installingPluginUrl } = useValues(appsManagementLogic)
     const { installPlugin } = useActions(appsManagementLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     if (missingGlobalPlugins.length === 0) {
         return <></>
     }
     const data = missingGlobalPlugins.map((url: string) => ({ url }))
     return (
-        <>
-            <h3 className="mt-3">Missing global apps</h3>
-            <p>These plugins are defined in the GLOBAL_PLUGINS list, but are not installed on this instance.</p>
+        <SceneSection title="Missing global apps" hideTitleAndDescription={!newSceneLayout}>
+            {!newSceneLayout && (
+                <>
+                    <h3 className="mt-3">Missing global apps</h3>
+                    <p>These plugins are defined in the GLOBAL_PLUGINS list, but are not installed on this instance.</p>
+                </>
+            )}
             <LemonTable
                 dataSource={data}
                 columns={[
@@ -402,7 +474,7 @@ function MissingGlobalPlugins(): JSX.Element {
                     },
                 ]}
             />
-        </>
+        </SceneSection>
     )
 }
 
@@ -412,7 +484,7 @@ function InstallFromUrl(): JSX.Element {
     const { isCloudOrDev } = useValues(preflightLogic)
     const { pluginUrl } = useValues(appsManagementLogic)
     const { setPluginUrl, installPlugin } = useActions(appsManagementLogic)
-
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     const cloudRequiredPrefix = 'https://github.com/PostHog/'
     let disabledReason = !pluginUrl ? 'Please enter a url' : undefined
     if (isCloudOrDev) {
@@ -420,22 +492,47 @@ function InstallFromUrl(): JSX.Element {
     }
 
     return (
-        <>
-            <h3 className="mt-3">Install from GitHub</h3>
-            <p>
-                {isCloudOrDev ? (
-                    <>
-                        Only PostHog organization repositories are allowed, i.e. starting with{' '}
-                        <Link to={cloudRequiredPrefix} target="blank">
-                            {cloudRequiredPrefix}
-                        </Link>{' '}
-                    </>
-                ) : (
-                    <>
-                        For private repositories, append <code>?private_token=TOKEN</code> to the end of the URL.
-                    </>
-                )}
-            </p>
+        <SceneSection
+            title="Install from GitHub"
+            titleSize="sm"
+            description={
+                <>
+                    {isCloudOrDev ? (
+                        <>
+                            Only PostHog organization repositories are allowed, i.e. starting with{' '}
+                            <Link to={cloudRequiredPrefix} target="blank">
+                                {cloudRequiredPrefix}
+                            </Link>{' '}
+                        </>
+                    ) : (
+                        <>
+                            For private repositories, append <code>?private_token=TOKEN</code> to the end of the URL.
+                        </>
+                    )}
+                </>
+            }
+            hideTitleAndDescription={!newSceneLayout}
+        >
+            {!newSceneLayout && (
+                <>
+                    <h3 className="mt-3">Install from GitHub</h3>
+                    <p>
+                        {isCloudOrDev ? (
+                            <>
+                                Only PostHog organization repositories are allowed, i.e. starting with{' '}
+                                <Link to={cloudRequiredPrefix} target="blank">
+                                    {cloudRequiredPrefix}
+                                </Link>{' '}
+                            </>
+                        ) : (
+                            <>
+                                For private repositories, append <code>?private_token=TOKEN</code> to the end of the
+                                URL.
+                            </>
+                        )}
+                    </p>
+                </>
+            )}
             <div className="flex items-center gap-2">
                 <LemonInput
                     value={pluginUrl}
@@ -451,19 +548,28 @@ function InstallFromUrl(): JSX.Element {
                     Fetch and install
                 </LemonButton>
             </div>
-        </>
+        </SceneSection>
     )
 }
 
 function InstallLocalApp(): JSX.Element {
     const { localPluginPath } = useValues(appsManagementLogic)
     const { setLocalPluginPath, installPlugin } = useActions(appsManagementLogic)
-
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     return (
         <>
-            <div>
-                <h3 className="mt-3">Install from local path</h3>
-                <p>To install a local app from this computer/server, give its full path below.</p>
+            <SceneSection
+                title="Install from local path"
+                titleSize="sm"
+                description="To install a local app from this computer/server, give its full path below."
+                hideTitleAndDescription={!newSceneLayout}
+            >
+                {!newSceneLayout && (
+                    <>
+                        <h3 className="mt-3">Install from local path</h3>
+                        <p>To install a local app from this computer/server, give its full path below.</p>
+                    </>
+                )}
                 <div className="flex items-center gap-2">
                     <LemonInput
                         value={localPluginPath}
@@ -479,7 +585,7 @@ function InstallLocalApp(): JSX.Element {
                         Install
                     </LemonButton>
                 </div>
-            </div>
+            </SceneSection>
         </>
     )
 }
@@ -487,6 +593,7 @@ function InstallLocalApp(): JSX.Element {
 function InstallSourceApp(): JSX.Element {
     const { sourcePluginName, sourcePluginKind } = useValues(appsManagementLogic)
     const { setSourcePluginName, installPlugin, setSourcePluginKind } = useActions(appsManagementLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const menuItems = Object.values(SourcePluginKind).map((kind) => ({
         label: kind,
@@ -496,15 +603,32 @@ function InstallSourceApp(): JSX.Element {
     }))
 
     return (
-        <div>
-            <h3 className="mt-3">Install by writing source code</h3>
-            <p>
-                To install a source app provide the name and start coding.
-                <Link to="https://posthog.com/docs/apps" target="_blank">
-                    {' '}
-                    Read the documentation for more information!
-                </Link>
-            </p>
+        <SceneSection
+            title="Install by writing source code"
+            titleSize="sm"
+            description={
+                <>
+                    To install a source app provide the name and start coding.
+                    <Link to="https://posthog.com/docs/apps" target="_blank">
+                        {' '}
+                        Read the documentation for more information!
+                    </Link>
+                </>
+            }
+            hideTitleAndDescription={!newSceneLayout}
+        >
+            {!newSceneLayout && (
+                <>
+                    <h3 className="mt-3">Install by writing source code</h3>
+                    <p>
+                        To install a source app provide the name and start coding.
+                        <Link to="https://posthog.com/docs/apps" target="_blank">
+                            {' '}
+                            Read the documentation for more information!
+                        </Link>
+                    </p>
+                </>
+            )}
             <div className="flex items-center gap-2">
                 <LemonInput
                     value={sourcePluginName}
@@ -523,6 +647,6 @@ function InstallSourceApp(): JSX.Element {
                     Install
                 </LemonButton>
             </div>
-        </div>
+        </SceneSection>
     )
 }

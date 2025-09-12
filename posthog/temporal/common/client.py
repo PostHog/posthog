@@ -1,10 +1,11 @@
 import dataclasses
 from typing import Any
 
+from django.conf import settings as django_settings
+
 import temporalio.converter
 import temporalio.contrib.opentelemetry
 from asgiref.sync import async_to_sync
-from django.conf import settings as django_settings
 from temporalio.client import Client, TLSConfig
 from temporalio.runtime import Runtime
 

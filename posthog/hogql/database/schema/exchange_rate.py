@@ -1,18 +1,18 @@
 from typing import Union
 
-from posthog.models.team.team import Team
+from posthog.schema import RevenueAnalyticsEventItem
+
 from posthog.hogql import ast
-from posthog.schema import (
-    RevenueAnalyticsEventItem,
-)
-from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
-    StringDatabaseField,
     DateDatabaseField,
     DecimalDatabaseField,
     FieldOrTable,
+    StringDatabaseField,
 )
+
+from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
+from posthog.models.team.team import Team
 
 
 class ExchangeRateTable(DANGEROUS_NoTeamIdCheckTable):

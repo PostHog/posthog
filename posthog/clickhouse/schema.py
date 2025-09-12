@@ -6,15 +6,18 @@ from posthog.clickhouse.dead_letter_queue import (
     DEAD_LETTER_QUEUE_TABLE_SQL,
     KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
 )
-from posthog.clickhouse.log_entries import (
-    KAFKA_LOG_ENTRIES_TABLE_SQL,
-    LOG_ENTRIES_TABLE_MV_SQL,
-    LOG_ENTRIES_TABLE_SQL,
-)
+from posthog.clickhouse.distributed_system_processes import DISTRIBUTED_SYSTEM_PROCESSES_TABLE_SQL
+from posthog.clickhouse.log_entries import KAFKA_LOG_ENTRIES_TABLE_SQL, LOG_ENTRIES_TABLE_MV_SQL, LOG_ENTRIES_TABLE_SQL
 from posthog.clickhouse.plugin_log_entries import (
     KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL,
     PLUGIN_LOG_ENTRIES_TABLE_MV_SQL,
     PLUGIN_LOG_ENTRIES_TABLE_SQL,
+)
+from posthog.clickhouse.query_log_archive import (
+    QUERY_LOG_ARCHIVE_DATA_TABLE,
+    QUERY_LOG_ARCHIVE_MV,
+    QUERY_LOG_ARCHIVE_NEW_MV_SQL,
+    QUERY_LOG_ARCHIVE_NEW_TABLE_SQL,
 )
 from posthog.heatmaps.sql import (
     DISTRIBUTED_HEATMAPS_TABLE_SQL,
@@ -23,9 +26,7 @@ from posthog.heatmaps.sql import (
     KAFKA_HEATMAPS_TABLE_SQL,
     WRITABLE_HEATMAPS_TABLE_SQL,
 )
-from posthog.models.ai.pg_embeddings import (
-    PG_EMBEDDINGS_TABLE_SQL,
-)
+from posthog.models.ai.pg_embeddings import PG_EMBEDDINGS_TABLE_SQL
 from posthog.models.app_metrics.sql import (
     APP_METRICS_DATA_TABLE_SQL,
     APP_METRICS_MV_TABLE_SQL,
@@ -43,14 +44,7 @@ from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DICTIONARY_SQL,
     CHANNEL_DEFINITION_TABLE_SQL,
 )
-from posthog.models.exchange_rate.sql import (
-    EXCHANGE_RATE_DATA_BACKFILL_SQL,
-    EXCHANGE_RATE_DICTIONARY_SQL,
-    EXCHANGE_RATE_TABLE_SQL,
-)
-from posthog.models.cohort.sql import (
-    CREATE_COHORTPEOPLE_TABLE_SQL,
-)
+from posthog.models.cohort.sql import CREATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.error_tracking.sql import (
     ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_MV_SQL,
     ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
@@ -67,11 +61,12 @@ from posthog.models.event.sql import (
     KAFKA_EVENTS_TABLE_JSON_SQL,
     WRITABLE_EVENTS_TABLE_SQL,
 )
-from posthog.models.group.sql import (
-    GROUPS_TABLE_MV_SQL,
-    GROUPS_TABLE_SQL,
-    KAFKA_GROUPS_TABLE_SQL,
+from posthog.models.exchange_rate.sql import (
+    EXCHANGE_RATE_DATA_BACKFILL_SQL,
+    EXCHANGE_RATE_DICTIONARY_SQL,
+    EXCHANGE_RATE_TABLE_SQL,
 )
+from posthog.models.group.sql import GROUPS_TABLE_MV_SQL, GROUPS_TABLE_SQL, KAFKA_GROUPS_TABLE_SQL
 from posthog.models.ingestion_warnings.sql import (
     DISTRIBUTED_INGESTION_WARNINGS_TABLE_SQL,
     INGESTION_WARNINGS_DATA_TABLE_SQL,
@@ -121,14 +116,14 @@ from posthog.models.sessions.sql import (
     WRITABLE_SESSIONS_TABLE_SQL,
 )
 from posthog.models.web_preaggregated.sql import (
-    WEB_STATS_COMBINED_VIEW_SQL,
     WEB_BOUNCES_COMBINED_VIEW_SQL,
-    WEB_STATS_DAILY_SQL,
     WEB_BOUNCES_DAILY_SQL,
-    WEB_STATS_HOURLY_SQL,
     WEB_BOUNCES_HOURLY_SQL,
-    WEB_STATS_SQL,
     WEB_BOUNCES_SQL,
+    WEB_STATS_COMBINED_VIEW_SQL,
+    WEB_STATS_DAILY_SQL,
+    WEB_STATS_HOURLY_SQL,
+    WEB_STATS_SQL,
 )
 from posthog.session_recordings.sql.session_recording_event_sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
@@ -142,15 +137,18 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
     KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_MV_SQL,
     SESSION_REPLAY_EVENTS_TABLE_SQL,
+    WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 from posthog.session_recordings.sql.session_replay_event_v2_test_sql import (
     SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE_SQL,
     SESSION_REPLAY_EVENTS_V2_TEST_DISTRIBUTED_TABLE_SQL,
     SESSION_REPLAY_EVENTS_V2_TEST_KAFKA_TABLE_SQL,
     SESSION_REPLAY_EVENTS_V2_TEST_MV_SQL,
+    SESSION_REPLAY_EVENTS_V2_TEST_WRITABLE_TABLE_SQL,
 )
-from posthog.clickhouse.distributed_system_processes import DISTRIBUTED_SYSTEM_PROCESSES_TABLE_SQL
 
+# Queries to create tables, you must pass function, otherwise the table is created before
+# objects are mocked and the ambr will go into infinite loop update.
 CREATE_MERGETREE_TABLE_QUERIES = (
     LOG_ENTRIES_TABLE_SQL,
     CREATE_COHORTPEOPLE_TABLE_SQL,
@@ -172,6 +170,7 @@ CREATE_MERGETREE_TABLE_QUERIES = (
     APP_METRICS2_DATA_TABLE_SQL,
     PERFORMANCE_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_SQL,
+    WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE_SQL,
     CHANNEL_DEFINITION_TABLE_SQL,
     EXCHANGE_RATE_TABLE_SQL,
@@ -185,6 +184,7 @@ CREATE_MERGETREE_TABLE_QUERIES = (
     WEB_BOUNCES_HOURLY_SQL,
     WEB_STATS_SQL,
     WEB_BOUNCES_SQL,
+    lambda: QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(table_name=QUERY_LOG_ARCHIVE_DATA_TABLE),
 )
 CREATE_DISTRIBUTED_TABLE_QUERIES = (
     WRITABLE_EVENTS_TABLE_SQL,
@@ -206,6 +206,7 @@ CREATE_DISTRIBUTED_TABLE_QUERIES = (
     WRITABLE_HEATMAPS_TABLE_SQL,
     DISTRIBUTED_HEATMAPS_TABLE_SQL,
     DISTRIBUTED_SYSTEM_PROCESSES_TABLE_SQL,
+    SESSION_REPLAY_EVENTS_V2_TEST_WRITABLE_TABLE_SQL,
 )
 CREATE_KAFKA_TABLE_QUERIES = (
     KAFKA_LOG_ENTRIES_TABLE_SQL,
@@ -252,6 +253,7 @@ CREATE_MV_TABLE_QUERIES = (
     SESSIONS_TABLE_MV_SQL,
     RAW_SESSIONS_TABLE_MV_SQL,
     HEATMAPS_TABLE_MV_SQL,
+    QUERY_LOG_ARCHIVE_NEW_MV_SQL(view_name=QUERY_LOG_ARCHIVE_MV, dest_table=QUERY_LOG_ARCHIVE_DATA_TABLE),
 )
 
 CREATE_TABLE_QUERIES = (
@@ -277,4 +279,11 @@ CREATE_VIEW_QUERIES = (
 )
 
 build_query = lambda query: query if isinstance(query, str) else query()
-get_table_name = lambda query: re.findall(r"[\.\s]`?([a-z0-9_]+)`?\s+ON CLUSTER", build_query(query))[0]
+
+
+def get_table_name(query):
+    query = build_query(query)
+    try:
+        return re.findall(r"[\.\s]`?([a-z0-9_]+)`?\s+(?:ON CLUSTER '[a-z0-9_]+'\s+)?|\(", query)[0]
+    except Exception:
+        raise ValueError(f"No table name found in query {query}")

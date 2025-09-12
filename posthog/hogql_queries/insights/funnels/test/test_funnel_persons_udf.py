@@ -1,11 +1,7 @@
-from unittest.mock import patch, Mock
-
+from unittest.mock import Mock, patch
 
 from posthog.constants import INSIGHT_FUNNELS
-from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import (
-    get_actors,
-    BaseTestFunnelPersons,
-)
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import BaseTestFunnelPersons, get_actors
 from posthog.hogql_queries.insights.funnels.test.test_funnel_udf import use_udf_funnel_flag_side_effect
 
 

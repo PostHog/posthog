@@ -1,12 +1,12 @@
+import re
 import logging
 from functools import wraps
 from time import perf_counter
-import re
 
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
-from posthog.clickhouse.client.connection import Workload, ClickHouseUser
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_HOST
 
 logger = logging.getLogger(__name__)

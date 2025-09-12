@@ -1,26 +1,32 @@
 from typing import Any, cast
 from uuid import uuid4
-from ee.hogai.graph.base import AssistantNode
-from ee.hogai.graph.billing.prompts import BILLING_CONTEXT_PROMPT
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
+
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantToolCallMessage, MaxBillingContext, SpendHistoryItem, UsageHistoryItem
+
 from posthog.clickhouse.client import sync_execute
+
+from ee.hogai.graph.base import AssistantNode
+from ee.hogai.graph.billing.prompts import BILLING_CONTEXT_PROMPT
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 # sync with frontend/src/scenes/billing/constants.ts
 USAGE_TYPES = [
     {"label": "Events", "value": "event_count_in_period"},
+    {"label": "Identified Events", "value": "enhanced_persons_event_count_in_period"},
+    {"label": "Group Analytics", "value": "group_analytics"},
     {"label": "Recordings", "value": "recording_count_in_period"},
     {"label": "Mobile Recordings", "value": "mobile_recording_count_in_period"},
     {"label": "Feature Flag Requests", "value": "billable_feature_flag_requests_count_in_period"},
     {"label": "Exceptions", "value": "exceptions_captured_in_period"},
-    {"label": "Synced Rows", "value": "rows_synced_in_period"},
-    {"label": "Identified Events", "value": "enhanced_persons_event_count_in_period"},
     {"label": "Survey Responses", "value": "survey_responses_count_in_period"},
-    {"label": "Data Pipelines", "value": "data_pipelines"},
-    {"label": "Group Analytics", "value": "group_analytics"},
+    {"label": "LLM Events", "value": "ai_event_count_in_period"},
+    {"label": "Synced Rows", "value": "rows_synced_in_period"},
+    {"label": "Data Pipelines (deprecated)", "value": "data_pipelines"},
+    {"label": "Destinations Trigger Events", "value": "cdp_billable_invocations_in_period"},
+    {"label": "Rows Exported", "value": "rows_exported_in_period"},
 ]
 
 

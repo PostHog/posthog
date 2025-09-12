@@ -74,16 +74,16 @@ class UnknownDatabaseField(DatabaseField):
 
 class StringJSONDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
-        from posthog.hogql.ast import StringType
+        from posthog.hogql.ast import StringJSONType
 
-        return StringType(nullable=self.is_nullable())
+        return StringJSONType(nullable=self.is_nullable())
 
 
 class StringArrayDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
-        from posthog.hogql.ast import StringType
+        from posthog.hogql.ast import StringArrayType
 
-        return StringType(nullable=self.is_nullable())
+        return StringArrayType(nullable=self.is_nullable())
 
 
 class FloatArrayDatabaseField(DatabaseField):

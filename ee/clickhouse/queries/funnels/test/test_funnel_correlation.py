@@ -1,33 +1,28 @@
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
 import unittest
-
-from rest_framework.exceptions import ValidationError
-
-from ee.clickhouse.queries.funnels.funnel_correlation import (
-    EventContingencyTable,
-    EventStats,
-    FunnelCorrelation,
-)
-from ee.clickhouse.queries.funnels.funnel_correlation_persons import (
-    FunnelCorrelationActors,
-)
-from posthog.constants import INSIGHT_FUNNELS
-from posthog.models.action import Action
-from posthog.models.element import Element
-from posthog.models.filters import Filter
-from posthog.models.group.util import create_group
-from posthog.models.instance_setting import override_instance_config
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
     _create_person,
     also_test_with_materialized_columns,
+    also_test_with_person_on_events_v2,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
-    also_test_with_person_on_events_v2,
 )
+
+from rest_framework.exceptions import ValidationError
+
+from posthog.constants import INSIGHT_FUNNELS
+from posthog.models.action import Action
+from posthog.models.element import Element
+from posthog.models.filters import Filter
+from posthog.models.group.util import create_group
+from posthog.models.instance_setting import override_instance_config
 from posthog.test.test_journeys import journeys_for
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from ee.clickhouse.queries.funnels.funnel_correlation import EventContingencyTable, EventStats, FunnelCorrelation
+from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 
 
 def _create_action(**kwargs):

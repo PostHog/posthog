@@ -1,13 +1,14 @@
 import abc
+from typing import Optional
+from urllib.parse import parse_qs, urlparse
 
-import posthoganalytics
+from django.conf import settings
+
+import snappy
 import structlog
+import posthoganalytics
 from boto3 import client as boto3_client
 from botocore.client import Config
-from django.conf import settings
-from urllib.parse import urlparse, parse_qs
-import snappy
-from typing import Optional
 
 logger = structlog.get_logger(__name__)
 

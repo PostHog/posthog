@@ -81,7 +81,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
             const hog = `
             let res := fetch(inputs.url, {
                 'headers': {
-                  'Authorization': f'Bearer {inputs.slack.access_token}',
+                  'Authorization': f'Bearer {inputs.oauth.access_token}',
                 },
                 'body': inputs.body,
                 'method': inputs.method
@@ -96,11 +96,11 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 bytecode: await compileHog(hog),
                 inputs_schema: [
                     ...(HOG_INPUTS_EXAMPLES.simple_fetch.inputs_schema ?? []),
-                    { key: 'slack', type: 'integration', label: 'Slack', secret: false, required: true },
+                    { key: 'oauth', type: 'integration', label: 'Slack', secret: false, required: true },
                 ],
                 inputs: {
                     ...HOG_INPUTS_EXAMPLES.simple_fetch.inputs,
-                    slack: {
+                    oauth: {
                         value: 1,
                     },
                 },
@@ -204,6 +204,17 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
             const metricsMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
 
             expect(metricsMessages).toMatchObject([
+                {
+                    topic: 'clickhouse_app_metrics2_test',
+                    value: {
+                        app_source: 'hog_function',
+                        app_source_id: fnFetchNoFilters.id.toString(),
+                        count: 1,
+                        metric_kind: 'other',
+                        metric_name: 'triggered',
+                        team_id: 2,
+                    },
+                },
                 {
                     topic: 'clickhouse_app_metrics2_test',
                     value: {

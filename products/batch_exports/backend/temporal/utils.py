@@ -1,10 +1,10 @@
-import asyncio
-import collections.abc
-import contextlib
-import functools
 import re
-import typing
 import uuid
+import typing
+import asyncio
+import functools
+import contextlib
+import collections.abc
 
 import orjson
 import pyarrow as pa
@@ -12,6 +12,7 @@ from structlog import get_logger
 
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import aupdate_batch_export_run
+
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 
 T = typing.TypeVar("T")

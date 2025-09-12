@@ -16,15 +16,14 @@ pub struct AppContext {
     // this points to the original (shared) CLOUD DB instance in prod deployments
     pub pool: PgPool,
 
+    // when true, the service will point group type mappings resolution
+    // to the new persons DB. if false, falls back to std cloud DB pool.
+    pub read_groups_from_persons_db: bool,
+
     // if populated, this pool will be used to read from the new, isolated
     // persons DB instance in production. call sites will fall back to the
     // std (shared) pool above if this is unset
     pub persons_pool: Option<PgPool>,
-
-    // if populated, this pool can be used to write to the new, isolated
-    // propdefs DB instance in production. call sites will fall back to the
-    // std (shared) pool above if this is unset
-    pub propdefs_pool: Option<PgPool>,
 
     pub query_manager: Manager,
     pub liveness: HealthRegistry,
@@ -43,11 +42,15 @@ pub struct AppContext {
 
 impl AppContext {
     pub async fn new(config: &Config, qmgr: Manager) -> Result<Self, sqlx::Error> {
+        // This is where writes to propdefs tables will be routed. Since we're not
+        // migrating these tables, this pool will always be used on the write path.
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let orig_pool = options.connect(&config.database_url).await?;
 
-        // only to be populated and used if DATABASE_PERSONS_URL is set in the deploy env
-        // indicating we should read posthog_grouptypemappings from the new persons DB
+        // this pool is only created if DATABASE_PERSONS_URL is set in the deploy env.
+        // if the read_groups_from_persons_db flag is set, we will use this pool to
+        // read posthog_grouptypemappings from the new persons DB. Otherwise, we
+        // fall back to the std. cloud DB pool above.
         let persons_options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let persons_pool: Option<PgPool> = if config.database_persons_url.is_some() {
             Some(
@@ -59,20 +62,6 @@ impl AppContext {
             None
         };
 
-        // only to be populated and used if config.enable_mirror is set, which
-        // assumes this is the new property-defs-rs-v2 deployment and always writes
-        // to the new isolated propdefs DB in production
-        let propdefs_options = PgPoolOptions::new().max_connections(config.max_pg_connections);
-        let propdefs_pool: Option<PgPool> =
-            match config.enable_mirror && config.database_propdefs_url.is_some() {
-                true => Some(
-                    propdefs_options
-                        .connect(config.database_propdefs_url.as_ref().unwrap())
-                        .await?,
-                ),
-                _ => None,
-            };
-
         let liveness: HealthRegistry = HealthRegistry::new("liveness");
         let worker_liveness = liveness
             .register("worker".to_string(), Duration::seconds(60))
@@ -82,8 +71,8 @@ impl AppContext {
 
         Ok(Self {
             pool: orig_pool,
+            read_groups_from_persons_db: config.read_groups_from_persons_db,
             persons_pool,
-            propdefs_pool,
             query_manager: qmgr,
             liveness,
             worker_liveness,
@@ -127,14 +116,20 @@ impl AppContext {
 
         // Batch resolve all uncached group types
         if !to_resolve.is_empty() {
-            metrics::counter!(GROUP_TYPE_READS).increment(to_resolve.len() as u64);
+            let tag_value = if self.read_groups_from_persons_db {
+                "persons"
+            } else {
+                "cloud"
+            };
+            metrics::counter!(GROUP_TYPE_READS, &[("src_db", tag_value)])
+                .increment(to_resolve.len() as u64);
 
             let (group_names, team_ids): (Vec<String>, Vec<i32>) = to_resolve
                 .iter()
                 .map(|(_, name, team_id)| (name.clone(), team_id))
                 .unzip();
 
-            let resolved_pool = if self.persons_pool.is_some() {
+            let resolved_pool = if self.read_groups_from_persons_db && self.persons_pool.is_some() {
                 self.persons_pool.as_ref().unwrap()
             } else {
                 &self.pool

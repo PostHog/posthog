@@ -1,30 +1,35 @@
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
-from pydantic import BaseModel, Field
-from posthog.schema import ErrorTrackingIssueFilteringToolOutput, ErrorTrackingIssueImpactToolOutput
-from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
-from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
-from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
-from ee.hogai.graph.taxonomy.tools import TaxonomyTool, base_final_answer, ask_user_for_help
-from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
-from ee.hogai.graph.taxonomy.prompts import HUMAN_IN_THE_LOOP_PROMPT
-from ee.hogai.tool import MaxTool
+import re
+import json
+from typing import Optional
+
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
+from pydantic import BaseModel, Field
+
+from posthog.schema import ErrorTrackingIssueFilteringToolOutput, ErrorTrackingIssueImpactToolOutput
+
 from posthog.models import Team, User
+
+from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
+from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
+from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from ee.hogai.graph.taxonomy.prompts import HUMAN_IN_THE_LOOP_PROMPT
+from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
+from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
+from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
+from ee.hogai.tool import MaxTool
+
 from .prompts import (
     ERROR_TRACKING_FILTER_INITIAL_PROMPT,
     ERROR_TRACKING_FILTER_PROPERTIES_PROMPT,
+    ERROR_TRACKING_ISSUE_IMPACT_DESCRIPTION_PROMPT,
+    ERROR_TRACKING_ISSUE_IMPACT_EVENT_PROMPT,
+    ERROR_TRACKING_ISSUE_IMPACT_TOOL_EXAMPLES,
+    ERROR_TRACKING_ISSUE_IMPACT_TOOL_USAGE_PROMPT,
     ERROR_TRACKING_SYSTEM_PROMPT,
     PREFER_FILTERS_PROMPT,
-    ERROR_TRACKING_ISSUE_IMPACT_DESCRIPTION_PROMPT,
-    ERROR_TRACKING_ISSUE_IMPACT_TOOL_USAGE_PROMPT,
-    ERROR_TRACKING_ISSUE_IMPACT_TOOL_EXAMPLES,
-    ERROR_TRACKING_ISSUE_IMPACT_EVENT_PROMPT,
 )
-from typing import Optional
-import json
-import re
 
 
 class UpdateIssueQueryArgs(BaseModel):

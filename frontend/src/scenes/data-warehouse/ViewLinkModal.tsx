@@ -11,6 +11,7 @@ import {
     LemonDivider,
     LemonInput,
     LemonModal,
+    LemonSearchableSelect,
     LemonSelect,
     LemonTag,
 } from '@posthog/lemon-ui'
@@ -37,8 +38,8 @@ export function ViewLinkModal({ mode }: ViewLinkModalProps): JSX.Element {
             description={
                 mode === 'revenue_analytics' ? (
                     <span>
-                        Define a join between the <code>persons</code> table and the <code>customer_revenue_view</code>{' '}
-                        Revenue analytics view. <br />
+                        Define a join between either the <code>persons</code> or <code>groups</code> table and the{' '}
+                        <code>customer_revenue_view</code> Revenue analytics view. <br />
                         <br />
                         <b>All</b> fields from the joined table or view will be accessible in queries at the top level
                         without needing to explicitly join the view. This will also enable you to see revenue for a
@@ -63,7 +64,7 @@ export function ViewLinkModal({ mode }: ViewLinkModalProps): JSX.Element {
 
 const HOGQL_EDITOR_PLACEHOLDER = 'Enter SQL expression, such as:\n- pdi.distinct_id\n- properties.email'
 const HOGQL_EDITOR_PLACEHOLDER_REVENUE_ANALYTICS =
-    "Enter SQL expression, such as:\n- extractJSONString(metadata, 'customer_id')\n- extractJSONString(metadata, 'organization_id')\n- concat(email, ',', customer_id)"
+    "Enter SQL expression, such as:\n- JSONExtractString(metadata, 'customer_id')\n- JSONExtractString(metadata, 'organization_id')\n- concat(email, ',', customer_id)"
 
 export function ViewLinkForm({ mode }: ViewLinkModalProps): JSX.Element {
     const {
@@ -124,7 +125,7 @@ export function ViewLinkForm({ mode }: ViewLinkModalProps): JSX.Element {
                                 (selectedJoiningTableName ?? '')
                             ) : (
                                 <Field name="joining_table_name">
-                                    <LemonSelect
+                                    <LemonSearchableSelect
                                         fullWidth
                                         options={tableOptions}
                                         onSelect={selectJoiningTable}

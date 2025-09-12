@@ -1,14 +1,16 @@
-import collections.abc
-import datetime as dt
-import json
 import os
+import json
 import uuid
+import datetime as dt
 import warnings
+import collections.abc
 
-import boto3
 import pytest
+
 from django.conf import settings
 from django.test import override_settings
+
+import boto3
 from google.cloud import bigquery
 
 from posthog.clickhouse.client import sync_execute

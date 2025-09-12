@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import Optional, TypeVar, Generic, Any
+from typing import Any, Generic, Optional, TypeVar
 
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectSetNode
@@ -222,6 +222,12 @@ class TraversingVisitor(Visitor[None]):
         pass
 
     def visit_string_type(self, node: ast.StringType):
+        pass
+
+    def visit_string_json_type(self, node: ast.StringJSONType):
+        pass
+
+    def visit_string_array_type(self, node: ast.StringArrayType):
         pass
 
     def visit_boolean_type(self, node: ast.BooleanType):

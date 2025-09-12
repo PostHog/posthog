@@ -22,6 +22,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
 import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
@@ -129,7 +130,7 @@ function DashboardScene(): JSX.Element {
                 <div>
                     <DashboardOverridesBanner />
 
-                    <div className={cn('Dashboard_filters', newSceneLayout && '-mt-2')}>
+                    <SceneStickyBar showBorderBottom={false}>
                         <div className="flex gap-2 justify-between">
                             {![
                                 DashboardPlacement.Public,
@@ -166,7 +167,7 @@ function DashboardScene(): JSX.Element {
                                 </div>
                             )}
                         </div>
-                    </div>
+                    </SceneStickyBar>
 
                     <DashboardItems />
                 </div>

@@ -1,4 +1,5 @@
 from django.contrib import admin
+
 from posthog.models.event_ingestion_restriction_config import RestrictionType
 
 

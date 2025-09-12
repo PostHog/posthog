@@ -47,7 +47,7 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
         description: string
     }
     /** Optional: When in context, the tool can add items to the pool of Max's suggested questions */
-    suggestions?: string[] // TODO: Suggestions aren't used yet, pending a refactor of maxLogic's allSuggestions
+    suggestions?: string[]
     /** The callback function that will be executed with the LLM's tool call output */
     callback?: (toolOutput: any) => void | Promise<void>
 }
@@ -112,7 +112,6 @@ export const TOOL_DEFINITIONS: Omit<
         name: 'Filter issues',
         description: 'Filter issues to dig into errors',
         product: Scene.ErrorTracking,
-        flag: FEATURE_FLAGS.ERROR_TRACKING_ISSUE_FILTERING_TOOL,
     },
     find_error_tracking_impactful_issue_event_list: {
         name: 'Find impactful issues',

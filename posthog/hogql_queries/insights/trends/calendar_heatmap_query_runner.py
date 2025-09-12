@@ -1,21 +1,40 @@
-from datetime import timedelta, datetime
+from datetime import datetime, timedelta
 from math import ceil
 from typing import Any, Optional, Union
 
 from django.db import models
 from django.db.models.functions import Coalesce
 
+from posthog.schema import (
+    ActionConversionGoal,
+    ActionsNode,
+    CachedCalendarHeatmapQueryResponse,
+    CalendarHeatmapQuery,
+    CalendarHeatmapResponse,
+    CustomEventConversionGoal,
+    DashboardFilter,
+    DataWarehouseNode,
+    EventsHeatMapColumnAggregationResult,
+    EventsHeatMapDataResult,
+    EventsHeatMapRowAggregationResult,
+    EventsHeatMapStructuredResult,
+    EventsNode,
+    HogQLQueryModifiers,
+    IntervalType,
+)
+
+from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.parser import parse_select
+from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.timings import HogQLTimings
+
 from posthog.caching.insights_api import (
     BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
     REAL_TIME_INSIGHT_REFRESH_INTERVAL,
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
 )
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.property import action_to_expr, property_to_expr
-from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -23,23 +42,6 @@ from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property_definition import PropertyDefinition
-from posthog.schema import (
-    ActionConversionGoal,
-    ActionsNode,
-    CachedCalendarHeatmapQueryResponse,
-    CustomEventConversionGoal,
-    DashboardFilter,
-    DataWarehouseNode,
-    EventsNode,
-    HogQLQueryModifiers,
-    IntervalType,
-    CalendarHeatmapQuery,
-    CalendarHeatmapResponse,
-    EventsHeatMapDataResult,
-    EventsHeatMapRowAggregationResult,
-    EventsHeatMapColumnAggregationResult,
-    EventsHeatMapStructuredResult,
-)
 
 SEPARATOR = "','"
 

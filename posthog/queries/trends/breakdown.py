@@ -1,22 +1,24 @@
-import json
 import re
+import json
 import urllib.parse
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Optional, Union
-from collections.abc import Callable
-
 from zoneinfo import ZoneInfo
+
 from django.forms import ValidationError
+
+from posthog.schema import PersonsOnEventsMode
 
 from posthog.constants import (
     MONTHLY_ACTIVE,
     NON_TIME_SERIES_DISPLAY_TYPES,
     TREND_FILTER_TYPE_ACTIONS,
+    TREND_FILTER_TYPE_EVENTS,
     TRENDS_CUMULATIVE,
     UNIQUE_USERS,
     WEEKLY_ACTIVE,
     PropertyOperatorType,
-    TREND_FILTER_TYPE_EVENTS,
 )
 from posthog.models.action.util import format_action_filter
 from posthog.models.entity import Entity
@@ -24,11 +26,7 @@ from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import PropertyGroup
-from posthog.models.property.util import (
-    get_property_string_expr,
-    normalize_url_breakdown,
-    parse_prop_grouped_clauses,
-)
+from posthog.models.property.util import get_property_string_expr, normalize_url_breakdown, parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.queries.breakdown_props import (
     ALL_USERS_COHORT_ID,
@@ -40,10 +38,9 @@ from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.event_query import EventQuery
 from posthog.queries.groups_join_query import GroupsJoinQuery
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
+from posthog.queries.person_on_events_v2_sql import PERSON_DISTINCT_ID_OVERRIDES_JOIN_SQL
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import TIME_IN_SECONDS, QueryDateRange
-from posthog.schema import PersonsOnEventsMode
-from posthog.session_recordings.queries.session_query import SessionQuery
 from posthog.queries.trends.sql import (
     BREAKDOWN_ACTIVE_USER_AGGREGATE_SQL,
     BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL,
@@ -54,12 +51,12 @@ from posthog.queries.trends.sql import (
     BREAKDOWN_HISTOGRAM_PROP_JOIN_SQL,
     BREAKDOWN_INNER_SQL,
     BREAKDOWN_PROP_JOIN_SQL,
+    BREAKDOWN_PROP_JOIN_WITH_OTHER_SQL,
     BREAKDOWN_QUERY_SQL,
     SESSION_DURATION_BREAKDOWN_AGGREGATE_SQL,
     SESSION_DURATION_BREAKDOWN_INNER_SQL,
     VOLUME_PER_ACTOR_BREAKDOWN_AGGREGATE_SQL,
     VOLUME_PER_ACTOR_BREAKDOWN_INNER_SQL,
-    BREAKDOWN_PROP_JOIN_WITH_OTHER_SQL,
 )
 from posthog.queries.trends.util import (
     COUNT_PER_ACTOR_MATH_FUNCTIONS,
@@ -77,8 +74,8 @@ from posthog.queries.util import (
     get_person_properties_mode,
     get_start_of_interval_sql,
 )
+from posthog.session_recordings.queries.session_query import SessionQuery
 from posthog.utils import encode_get_request_params, generate_short_id
-from posthog.queries.person_on_events_v2_sql import PERSON_DISTINCT_ID_OVERRIDES_JOIN_SQL
 
 BREAKDOWN_OTHER_DISPLAY = "Other (i.e. all remaining values)"
 BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"

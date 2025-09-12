@@ -13,7 +13,7 @@ import { isObject } from 'lib/utils'
 
 import { LLMInputOutput } from '../LLMInputOutput'
 import { SearchHighlight } from '../SearchHighlight'
-import { llmObservabilityTraceLogic } from '../llmObservabilityTraceLogic'
+import { llmAnalyticsTraceLogic } from '../llmAnalyticsTraceLogic'
 import { containsSearchQuery } from '../searchUtils'
 import { CompatMessage, VercelSDKImageMessage } from '../types'
 import { looksLikeXml } from '../utils'
@@ -43,9 +43,9 @@ export function ConversationMessagesDisplay({
         outputMessageShowStates,
         searchQuery: currentSearchQuery,
         displayOption,
-    } = useValues(llmObservabilityTraceLogic)
+    } = useValues(llmAnalyticsTraceLogic)
     const { initializeMessageStates, toggleMessage, showAllMessages, hideAllMessages, applySearchResults } =
-        useActions(llmObservabilityTraceLogic)
+        useActions(llmAnalyticsTraceLogic)
 
     // Initialize message states when component mounts or messages change or display option changes
     React.useEffect(() => {
@@ -250,8 +250,8 @@ export const LLMMessageDisplay = React.memo(
         searchQuery?: string
     }): JSX.Element => {
         const { role, content, ...additionalKwargs } = message
-        let { isRenderingMarkdown, isRenderingXml } = useValues(llmObservabilityTraceLogic)
-        const { toggleMarkdownRendering, toggleXmlRendering } = useActions(llmObservabilityTraceLogic)
+        let { isRenderingMarkdown, isRenderingXml } = useValues(llmAnalyticsTraceLogic)
+        const { toggleMarkdownRendering, toggleXmlRendering } = useActions(llmAnalyticsTraceLogic)
 
         if (minimal) {
             isRenderingMarkdown = true
@@ -483,7 +483,18 @@ export const LLMMessageDisplay = React.memo(
                 )}
             >
                 {!minimal && (
-                    <div className="flex items-center gap-1 w-full px-2 h-6 text-xs font-medium">
+                    <div
+                        className={clsx(
+                            'flex items-center gap-1 w-full px-2 h-6 text-xs font-medium select-none',
+                            onToggle && 'cursor-pointer'
+                        )}
+                        onClick={(e) => {
+                            const clickedButton = (e.target as Element).closest('button')
+                            if (!clickedButton) {
+                                onToggle?.()
+                            }
+                        }}
+                    >
                         <span className="grow">{role}</span>
                         {(content || Object.keys(additionalKwargsEntries).length > 0) && (
                             <>

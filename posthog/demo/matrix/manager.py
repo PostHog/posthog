@@ -1,11 +1,13 @@
-import datetime as dt
+# ruff: noqa: T201 allow print statements
+
 import json
+import datetime as dt
 from time import sleep
 from typing import Any, Literal, Optional, cast
 
 from django.conf import settings
 from django.core import exceptions
-from django.db import transaction, IntegrityError
+from django.db import IntegrityError, transaction
 
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
@@ -219,10 +221,7 @@ class MatrixManager:
     def _copy_analytics_data_from_master_team(self, target_team: Team):
         from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
         from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
-        from posthog.models.person.sql import (
-            COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS,
-            COPY_PERSONS_BETWEEN_TEAMS,
-        )
+        from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 
         if self.print_steps:
             print(f"Copying simulated data from master team...")
@@ -248,10 +247,7 @@ class MatrixManager:
     @classmethod
     def _sync_postgres_with_clickhouse_data(cls, source_team_id: int, target_team_id: int):
         from posthog.models.group.sql import SELECT_GROUPS_OF_TEAM
-        from posthog.models.person.sql import (
-            SELECT_PERSON_DISTINCT_ID2S_OF_TEAM,
-            SELECT_PERSONS_OF_TEAM,
-        )
+        from posthog.models.person.sql import SELECT_PERSON_DISTINCT_ID2S_OF_TEAM, SELECT_PERSONS_OF_TEAM
 
         list_params = {"source_team_id": source_team_id}
         # Persons
@@ -321,10 +317,7 @@ class MatrixManager:
     def _save_sim_person(self, team: Team, subject: SimPerson):
         # We only want to save directly if there are past events
         if subject.past_events:
-            from posthog.models.person.util import (
-                create_person,
-                create_person_distinct_id,
-            )
+            from posthog.models.person.util import create_person, create_person_distinct_id
 
             create_person(
                 uuid=str(subject.in_posthog_id),

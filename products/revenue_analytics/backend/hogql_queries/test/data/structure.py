@@ -1,4 +1,5 @@
 from posthog.schema import RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
+
 from posthog.warehouse.models import CLICKHOUSE_HOGQL_MAPPING
 
 

@@ -1,14 +1,15 @@
-import asyncio
-import collections.abc
-import contextlib
-import dataclasses
-import datetime as dt
 import io
 import json
 import typing
+import asyncio
+import datetime as dt
+import contextlib
+import dataclasses
+import collections.abc
+
+from django.conf import settings
 
 import pyarrow as pa
-from django.conf import settings
 from google.api_core.exceptions import Forbidden
 from google.cloud import bigquery
 from google.oauth2 import service_account
@@ -26,12 +27,11 @@ from posthog.batch_exports.service import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import (
-    get_produce_only_logger,
-    get_write_only_logger,
-)
+from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
+
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
+    OverBillingLimitError,
     StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
@@ -47,12 +47,8 @@ from products.batch_exports.backend.temporal.pipeline.consumer import (
     Consumer as ConsumerFromStage,
     run_consumer_from_stage,
 )
-from products.batch_exports.backend.temporal.pipeline.entrypoint import (
-    execute_batch_export_using_internal_stage,
-)
-from products.batch_exports.backend.temporal.pipeline.producer import (
-    Producer as ProducerFromInternalStage,
-)
+from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
+from products.batch_exports.backend.temporal.pipeline.producer import Producer as ProducerFromInternalStage
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
@@ -62,10 +58,7 @@ from products.batch_exports.backend.temporal.spmc import (
     run_consumer,
     wait_for_schema_or_producer,
 )
-from products.batch_exports.backend.temporal.temporary_file import (
-    BatchExportTemporaryFile,
-    WriterFormat,
-)
+from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile, WriterFormat
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
     handle_non_retryable_errors,
@@ -1171,17 +1164,20 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
         )
-        run_id = await workflow.execute_activity(
-            start_batch_export_run,
-            start_batch_export_run_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=0,
-                non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-            ),
-        )
+        try:
+            run_id = await workflow.execute_activity(
+                start_batch_export_run,
+                start_batch_export_run_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                ),
+            )
+        except OverBillingLimitError:
+            return
 
         finish_inputs = FinishBatchExportRunInputs(
             id=run_id,
@@ -1214,7 +1210,10 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             destination_default_fields=bigquery_default_fields(),
         )
 
-        if str(inputs.team_id) in settings.BATCH_EXPORT_BIGQUERY_USE_STAGE_TEAM_IDS:
+        if (
+            str(inputs.team_id) in settings.BATCH_EXPORT_BIGQUERY_USE_STAGE_TEAM_IDS
+            or inputs.team_id % 100 < settings.BATCH_EXPORT_BIGQUERY_USE_INTERNAL_STAGE_ROLLOUT_PERCENTAGE
+        ):
             await execute_batch_export_using_internal_stage(
                 insert_into_bigquery_activity_from_stage,
                 insert_inputs,

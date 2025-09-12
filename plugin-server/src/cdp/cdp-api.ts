@@ -5,20 +5,22 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { ModifiedRequest } from '~/api/router'
 
-import { Hub, PluginServerService } from '../types'
+import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
 import { UUID, UUIDT, delay } from '../utils/utils'
 import { CdpSourceWebhooksConsumer, SourceWebhookError } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
-import { HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
+import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
+import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
+import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
@@ -39,12 +41,14 @@ export class CdpApi {
     private recipientsManager: RecipientsManagerService
 
     private hogFlowExecutor: HogFlowExecutorService
+    private hogFlowFunctionsService: HogFlowFunctionsService
     private hogWatcher: HogWatcherService
     private hogTransformer: HogTransformerService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
     private emailTrackingService: EmailTrackingService
     private recipientPreferencesService: RecipientPreferencesService
+    private recipientTokensService: RecipientTokensService
 
     constructor(private hub: Hub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
@@ -52,12 +56,15 @@ export class CdpApi {
         this.hogFlowManager = new HogFlowManagerService(hub)
         this.recipientsManager = new RecipientsManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
-
-        this.recipientPreferencesService = new RecipientPreferencesService(this.recipientsManager)
-        this.hogFlowExecutor = new HogFlowExecutorService(
+        this.hogFlowFunctionsService = new HogFlowFunctionsService(
             hub,
-            this.hogExecutor,
             this.hogFunctionTemplateManager,
+            this.hogExecutor
+        )
+        this.recipientPreferencesService = new RecipientPreferencesService(this.recipientsManager)
+        this.recipientTokensService = new RecipientTokensService(hub)
+        this.hogFlowExecutor = new HogFlowExecutorService(
+            this.hogFlowFunctionsService,
             this.recipientPreferencesService
         )
         this.nativeDestinationExecutorService = new NativeDestinationExecutorService(hub)
@@ -78,7 +85,7 @@ export class CdpApi {
         return {
             id: 'cdp-api',
             onShutdown: async () => await this.stop(),
-            healthcheck: () => this.isHealthy() ?? false,
+            healthcheck: () => this.isHealthy() ?? new HealthCheckResultError('CDP API is not healthy', {}),
         }
     }
 
@@ -90,9 +97,9 @@ export class CdpApi {
         await Promise.all([this.cdpSourceWebhooksConsumer.stop()])
     }
 
-    isHealthy() {
+    isHealthy(): HealthCheckResult {
         // NOTE: There isn't really anything to check for here so we are just always healthy
-        return true
+        return new HealthCheckResultOk()
     }
 
     router(): express.Router {
@@ -109,6 +116,8 @@ export class CdpApi {
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_functions/states', asyncHandler(this.getFunctionStates()))
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
+        router.post('/api/messaging/generate_preferences_token', asyncHandler(this.generatePreferencesToken()))
+        router.get('/api/messaging/validate_preferences_token/:token', asyncHandler(this.validatePreferencesToken()))
         router.post('/public/webhooks/:webhook_id', asyncHandler(this.postWebhook()))
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.getWebhook()))
         router.get('/public/m/pixel', asyncHandler(this.getEmailTrackingPixel()))
@@ -396,14 +405,14 @@ export class CdpApi {
             console.error(e)
             res.status(500).json({ errors: [e.message] })
         } finally {
-            await this.hogFunctionMonitoringService.produceQueuedMessages()
+            await this.hogFunctionMonitoringService.flush()
         }
     }
 
     private postHogflowInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
             const { id, team_id } = req.params
-            const { clickhouse_event, configuration, invocation_id } = req.body
+            const { clickhouse_event, configuration, invocation_id, current_action_id } = req.body
 
             logger.info('⚡️', 'Received hogflow invocation', { id, team_id, body: req.body })
 
@@ -464,18 +473,22 @@ export class CdpApi {
                 groups: globals.groups,
             })
 
-            const invocation = this.hogFlowExecutor.createHogFlowInvocation(
-                triggerGlobals,
-                compoundConfiguration,
-                filterGlobals
-            )
-            const response = await this.hogFlowExecutor.executeTest(invocation)
+            const invocation = createHogFlowInvocation(triggerGlobals, compoundConfiguration, filterGlobals)
+
+            invocation.state.currentAction = current_action_id
+                ? {
+                      id: current_action_id,
+                      startedAtTimestamp: Date.now(),
+                  }
+                : undefined
+
+            const result = await this.hogFlowExecutor.executeCurrentAction(invocation)
 
             res.json({
-                result: null, // HogFlows don't have a result property like HogFunctions
-                status: response.error ? 'error' : 'success',
-                errors: response.error ? [response.error] : [],
-                logs: response.logs,
+                nextActionId: result.invocation.state.currentAction?.id,
+                status: result.error ? 'error' : 'success',
+                errors: result.error ? [result.error] : [],
+                logs: result.logs,
             })
         } catch (e) {
             console.error(e)
@@ -564,5 +577,48 @@ export class CdpApi {
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             await this.emailTrackingService.handleEmailTrackingRedirect(req, res)
+        }
+
+    private generatePreferencesToken =
+        () =>
+        (req: ModifiedRequest, res: express.Response): any => {
+            const { team_id, identifier } = req.body
+
+            if (!team_id || !identifier) {
+                return res.status(400).json({ error: 'Team ID and identifier are required' })
+            }
+
+            const token = this.recipientTokensService.generatePreferencesToken({
+                team_id,
+                identifier,
+            })
+            return res.status(200).json({ token })
+        }
+
+    private validatePreferencesToken =
+        () =>
+        (req: ModifiedRequest, res: express.Response): any => {
+            try {
+                const { token } = req.params
+
+                if (!token) {
+                    return res.status(400).json({ error: 'Token is required' })
+                }
+
+                const result = this.recipientTokensService.validatePreferencesToken(token)
+
+                if (!result.valid) {
+                    return res.status(400).json({ error: 'Invalid or expired token' })
+                }
+
+                return res.status(200).json({
+                    valid: result.valid,
+                    team_id: result.team_id,
+                    identifier: result.identifier,
+                })
+            } catch (error) {
+                logger.error('[CdpApi] Error validating preferences token', error)
+                return res.status(500).json({ error: 'Failed to validate token' })
+            }
         }
 }

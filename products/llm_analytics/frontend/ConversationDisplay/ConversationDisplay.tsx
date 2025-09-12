@@ -8,13 +8,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { EventType } from '~/types'
 
-import { llmObservabilityPlaygroundLogic } from '../llmObservabilityPlaygroundLogic'
+import { llmAnalyticsPlaygroundLogic } from '../llmAnalyticsPlaygroundLogic'
 import { normalizeMessages } from '../utils'
 import { ConversationMessagesDisplay } from './ConversationMessagesDisplay'
 import { MetadataHeader } from './MetadataHeader'
 
 export function ConversationDisplay({ eventProperties }: { eventProperties: EventType['properties'] }): JSX.Element {
-    const { setupPlaygroundFromEvent } = useActions(llmObservabilityPlaygroundLogic)
+    const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const handleTryInPlayground = (): void => {

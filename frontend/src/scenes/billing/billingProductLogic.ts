@@ -6,6 +6,7 @@ import React from 'react'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import {
@@ -17,9 +18,10 @@ import {
     SurveyEventName,
 } from '~/types'
 
-import { isAddonVisible } from './billing-utils'
+import { calculateFreeTier, createGaugeItems, isAddonVisible, isProductVariantPrimary } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
+import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 const DEFAULT_BILLING_LIMIT: number = 500
@@ -47,6 +49,16 @@ export const randomizeReasons = (reasons: UnsubscribeReason[]): UnsubscribeReaso
     shuffledReasons.push(reasons[reasons.length - 1])
     return shuffledReasons
 }
+
+export const TRIAL_CANCEL_REASONS: UnsubscribeReason[] = [
+    { reason: 'Too expensive', question: 'What budget would make sense?' },
+    { reason: 'Trial too short', question: 'How long would be enough to try the add-on features?' },
+    { reason: 'Complex setup', question: 'Which part of the setup was challenging?' },
+    { reason: 'Found a better alternative', question: 'Which alternative are you going with?' },
+    { reason: "Don't need add-on features", question: 'Which features did you not need?' },
+    { reason: 'Poor customer support', question: 'Please provide details on your support experience.' },
+    { reason: 'Other', question: 'What should we know?' },
+]
 
 export const isPlatformAndSupportAddon = (product: BillingProductV2Type | BillingProductV2AddonType): boolean => {
     return (
@@ -288,6 +300,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
             (s) => [s.customLimitUsd],
             (customLimitUsd) => (!!customLimitUsd || customLimitUsd === 0) && customLimitUsd >= 0,
         ],
+        isDataPipelinesDeprecated: [
+            (_s, p) => [p.product],
+            (product: BillingProductV2Type | BillingProductV2AddonType): boolean => {
+                return product.type === 'data_pipelines' && dayjs().isAfter(dayjs(DATA_PIPELINES_CUTOFF_DATE))
+            },
+        ],
         currentAndUpgradePlans: [
             (_s, p) => [p.product],
             (product) => {
@@ -302,18 +320,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 return { currentPlan, upgradePlan }
             },
         ],
-        freeTier: [
-            (_s, p) => [p.product],
-            (product) => {
-                return (
-                    (product.subscribed && product.tiered
-                        ? product.tiers?.[0]?.unit_amount_usd === '0'
-                            ? product.tiers?.[0]?.up_to
-                            : 0
-                        : product.free_allocation) || 0
-                )
-            },
-        ],
+        freeTier: [(_s, p) => [p.product], (product) => calculateFreeTier(product)],
         billingLimitAsUsage: [
             (_, p) => [p.product],
             (product) => {
@@ -331,36 +338,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
             },
         ],
         billingGaugeItems: [
-            (s, p) => [p.product, s.billing, s.freeTier, s.billingLimitAsUsage],
-            (product, billing, freeTier, billingLimitAsUsage): BillingGaugeItemType[] => {
-                return [
-                    billingLimitAsUsage && billing?.discount_percent !== 100
-                        ? {
-                              type: BillingGaugeItemKind.BillingLimit,
-                              text: 'Billing limit',
-                              value: billingLimitAsUsage || 0,
-                          }
-                        : (undefined as any),
-                    freeTier
-                        ? {
-                              type: BillingGaugeItemKind.FreeTier,
-                              text: 'Free tier limit',
-                              value: freeTier,
-                          }
-                        : undefined,
-                    product.projected_usage && product.projected_usage > (product.current_usage || 0)
-                        ? {
-                              type: BillingGaugeItemKind.ProjectedUsage,
-                              text: 'Projected',
-                              value: product.projected_usage || 0,
-                          }
-                        : undefined,
-                    {
-                        type: BillingGaugeItemKind.CurrentUsage,
-                        text: 'Current',
-                        value: product.current_usage || 0,
-                    },
-                ].filter(Boolean)
+            (s, p) => [p.product, s.billing, s.billingLimitAsUsage],
+            (product, billing, billingLimitAsUsage): BillingGaugeItemType[] => {
+                return createGaugeItems(product, {
+                    billing,
+                    billingLimitAsUsage,
+                })
             },
         ],
         isAddonProduct: [
@@ -379,10 +362,21 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     .join('\n')
             },
         ],
+        trialCancelReasonQuestions: [
+            (s) => [s.surveyResponse],
+            (surveyResponse): string => {
+                return surveyResponse['$survey_response_2']
+                    .map((reason) => {
+                        const reasonObject = TRIAL_CANCEL_REASONS.find((r) => r.reason === reason)
+                        return reasonObject?.question
+                    })
+                    .join('\n')
+            },
+        ],
         isProductWithVariants: [
             (_s, p) => [p.product],
             (product): boolean =>
-                product.type === 'session_replay' && 'addons' in product && product.addons?.length > 0,
+                isProductVariantPrimary(product.type) && 'addons' in product && product.addons?.length > 0,
         ],
         projectedAmountExcludingAddons: [
             (s, p) => [s.isProductWithVariants, p.product],
@@ -466,7 +460,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 }
             },
         ],
-        combinedGaugeItems: [
+        combinedMonetaryGaugeItems: [
             (s) => [s.combinedMonetaryData],
             (monetaryData: {
                 currentTotal: number
@@ -615,11 +609,15 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 actions.loadBilling()
             }
         },
-        cancelTrial: async () => {
+        cancelTrial: async (_, breakpoint) => {
             actions.setTrialLoading(true)
             try {
                 await api.create(`api/billing/trials/cancel`)
                 lemonToast.success('Your trial has been cancelled!')
+                if (values.surveyID) {
+                    actions.reportSurveySent(values.surveyID, values.surveyResponse)
+                }
+                await breakpoint(1000)
                 window.location.reload()
             } catch {
                 lemonToast.error('There was an error cancelling your trial. Please try again or contact support.')

@@ -176,8 +176,10 @@ async fn test_evaluate_feature_flags() {
         project_id: team.project_id,
         distinct_id: "user123".to_string(),
         feature_flags: feature_flag_list,
-        reader,
-        writer,
+        persons_reader: reader.clone(),
+        persons_writer: writer.clone(),
+        non_persons_reader: reader.clone(),
+        non_persons_writer: writer,
         cohort_cache,
         person_property_overrides: Some(person_properties),
         group_property_overrides: None,
@@ -258,8 +260,10 @@ async fn test_evaluate_feature_flags_with_errors() {
         project_id: team.project_id,
         distinct_id: "user123".to_string(),
         feature_flags: feature_flag_list,
-        reader,
-        writer,
+        persons_reader: reader.clone(),
+        persons_writer: writer.clone(),
+        non_persons_reader: reader.clone(),
+        non_persons_writer: writer,
         cohort_cache,
         person_property_overrides: Some(HashMap::new()),
         group_property_overrides: None,
@@ -652,8 +656,10 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         project_id: team.project_id,
         distinct_id: distinct_id.clone(),
         feature_flags: feature_flag_list,
-        reader,
-        writer,
+        persons_reader: reader.clone(),
+        persons_writer: writer.clone(),
+        non_persons_reader: reader.clone(),
+        non_persons_writer: writer,
         cohort_cache,
         person_property_overrides: None,
         group_property_overrides: None,
@@ -747,8 +753,10 @@ async fn test_evaluate_feature_flags_details() {
         project_id: team.project_id,
         distinct_id: distinct_id.clone(),
         feature_flags: feature_flag_list,
-        reader,
-        writer,
+        persons_reader: reader.clone(),
+        persons_writer: writer.clone(),
+        non_persons_reader: reader.clone(),
+        non_persons_writer: writer,
         cohort_cache,
         person_property_overrides: None,
         group_property_overrides: None,
@@ -893,8 +901,10 @@ async fn test_evaluate_feature_flags_with_overrides() {
         project_id: team.project_id,
         distinct_id: "user123".to_string(),
         feature_flags: feature_flag_list,
-        reader,
-        writer,
+        persons_reader: reader.clone(),
+        persons_writer: writer.clone(),
+        non_persons_reader: reader.clone(),
+        non_persons_writer: writer,
         cohort_cache,
         person_property_overrides: None,
         group_property_overrides: Some(group_property_overrides),
@@ -975,8 +985,10 @@ async fn test_long_distinct_id() {
         project_id: team.project_id,
         distinct_id: long_id,
         feature_flags: feature_flag_list,
-        reader,
-        writer,
+        persons_reader: reader.clone(),
+        persons_writer: writer.clone(),
+        non_persons_reader: reader.clone(),
+        non_persons_writer: writer,
         cohort_cache,
         person_property_overrides: None,
         group_property_overrides: None,
@@ -1185,9 +1197,15 @@ async fn test_fetch_and_filter_flags() {
         only_evaluate_survey_feature_flags: Some(true),
         ..Default::default()
     };
-    let (result, had_errors) = fetch_and_filter(&flag_service, team.project_id, &query_params)
-        .await
-        .unwrap();
+    let (result, had_errors) = fetch_and_filter(
+        &flag_service,
+        team.project_id,
+        &query_params,
+        &axum::http::HeaderMap::new(),
+        None,
+    )
+    .await
+    .unwrap();
     assert_eq!(result.flags.len(), 2);
     assert!(result
         .flags
@@ -1200,17 +1218,29 @@ async fn test_fetch_and_filter_flags() {
         only_evaluate_survey_feature_flags: Some(false),
         ..Default::default()
     };
-    let (result, had_errors) = fetch_and_filter(&flag_service, team.project_id, &query_params)
-        .await
-        .unwrap();
+    let (result, had_errors) = fetch_and_filter(
+        &flag_service,
+        team.project_id,
+        &query_params,
+        &axum::http::HeaderMap::new(),
+        None,
+    )
+    .await
+    .unwrap();
     assert_eq!(result.flags.len(), 4);
     assert!(!had_errors);
 
     // Test 3: only_evaluate_survey_feature_flags not set
     let query_params = FlagsQueryParams::default();
-    let (result, had_errors) = fetch_and_filter(&flag_service, team.project_id, &query_params)
-        .await
-        .unwrap();
+    let (result, had_errors) = fetch_and_filter(
+        &flag_service,
+        team.project_id,
+        &query_params,
+        &axum::http::HeaderMap::new(),
+        None,
+    )
+    .await
+    .unwrap();
     assert_eq!(result.flags.len(), 4);
     assert!(!had_errors);
     assert!(result
@@ -1224,9 +1254,15 @@ async fn test_fetch_and_filter_flags() {
         ..Default::default()
     };
 
-    let (result, had_errors) = fetch_and_filter(&flag_service, team.project_id, &query_params)
-        .await
-        .unwrap();
+    let (result, had_errors) = fetch_and_filter(
+        &flag_service,
+        team.project_id,
+        &query_params,
+        &axum::http::HeaderMap::new(),
+        None,
+    )
+    .await
+    .unwrap();
 
     // Should return all survey flags since flag_keys filtering now happens in evaluation logic
     // Survey filter keeps only survey flags, but flag_keys filtering is deferred to evaluation

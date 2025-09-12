@@ -1,15 +1,20 @@
 import json
+
+from freezegun import freeze_time
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    also_test_with_materialized_columns,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
 from unittest import mock
 from unittest.mock import patch
 
-from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.api.services.query import process_query_dict
-from posthog.hogql.constants import LimitContext
-from posthog.models.insight_variable import InsightVariable
-from posthog.models.property_definition import PropertyDefinition, PropertyType
-from posthog.models.utils import UUIDT
 from posthog.schema import (
     CachedEventsQueryResponse,
     CachedHogQLQueryResponse,
@@ -25,15 +30,13 @@ from posthog.schema import (
     PropertyOperator,
     RetentionQuery,
 )
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    also_test_with_materialized_columns,
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-)
+
+from posthog.hogql.constants import LimitContext
+
+from posthog.api.services.query import process_query_dict
+from posthog.models.insight_variable import InsightVariable
+from posthog.models.property_definition import PropertyDefinition, PropertyType
+from posthog.models.utils import UUIDT
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):

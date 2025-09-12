@@ -1,7 +1,7 @@
+import uuid
+import typing
 import asyncio
 import collections.abc
-import typing
-import uuid
 
 from asgiref.sync import sync_to_async
 from temporalio import activity
@@ -10,9 +10,8 @@ from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import create_batch_export_run
 from posthog.temporal.common.asyncpa import InvalidMessageFormat
 from posthog.temporal.common.clickhouse import ClickHouseClient
-from products.batch_exports.backend.temporal.batch_exports import (
-    StartBatchExportRunInputs,
-)
+
+from products.batch_exports.backend.temporal.batch_exports import StartBatchExportRunInputs
 from products.batch_exports.backend.temporal.spmc import slice_record_batch
 
 

@@ -5,7 +5,7 @@ import Papa from 'papaparse'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils'
+import { compactNumber, dateStringToDayJs } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
 import { OrganizationType } from '~/types'
@@ -13,17 +13,74 @@ import { BillingPeriod, BillingProductV2AddonType, BillingProductV2Type, Billing
 
 import { USAGE_TYPES } from './constants'
 import type { BillingFilters, BillingSeriesForCsv, BillingUsageInteractionProps, BuildBillingCsvOptions } from './types'
+import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
+
+export const isProductVariantPrimary = (productType: string): boolean =>
+    ['session_replay', 'realtime_destinations'].includes(productType)
+
+export const isProductVariantSecondary = (productType: string): boolean =>
+    ['mobile_replay', 'batch_exports'].includes(productType)
+
+export const calculateFreeTier = (product: BillingProductV2Type | BillingProductV2AddonType): number =>
+    (product.subscribed && product.tiered
+        ? product.tiers?.[0]?.unit_amount_usd === '0'
+            ? product.tiers?.[0]?.up_to
+            : 0
+        : product.free_allocation) || 0
+
+export const createGaugeItems = (
+    product: BillingProductV2Type | BillingProductV2AddonType,
+    options: {
+        billing?: BillingType | null
+        billingLimitAsUsage?: number
+    } = {}
+): BillingGaugeItemType[] => {
+    const freeTier = calculateFreeTier(product)
+
+    return [
+        // Billing limit (only for main products, excl. product variants setup)
+        options.billingLimitAsUsage &&
+        options.billing?.discount_percent !== 100 &&
+        !isProductVariantPrimary(product.type)
+            ? {
+                  type: BillingGaugeItemKind.BillingLimit,
+                  text: 'Billing limit',
+                  value: options.billingLimitAsUsage || 0,
+              }
+            : undefined,
+
+        // Free tier
+        freeTier
+            ? {
+                  type: BillingGaugeItemKind.FreeTier,
+                  text: 'Free tier limit',
+                  value: freeTier,
+              }
+            : undefined,
+
+        // Projected usage
+        product.projected_usage && product.projected_usage > (product.current_usage || 0)
+            ? {
+                  type: BillingGaugeItemKind.ProjectedUsage,
+                  text: 'Projected',
+                  value: product.projected_usage || 0,
+              }
+            : undefined,
+
+        // Current usage
+        {
+            type: BillingGaugeItemKind.CurrentUsage,
+            text: 'Current',
+            value: product.current_usage || 0,
+        },
+    ].filter(Boolean) as BillingGaugeItemType[]
+}
 
 export const summarizeUsage = (usage: number | null): string => {
     if (usage === null) {
         return ''
-    } else if (usage < 1000) {
-        return `${usage}`
-    } else if (Math.round(usage / 1000) < 1000) {
-        const thousands = usage / 1000
-        return `${Number.isInteger(thousands) ? thousands : thousands.toFixed(1)} thousand`
     }
-    return `${Math.round(usage / 1000000)} million`
+    return compactNumber(usage)
 }
 
 export const projectUsage = (usage: number | undefined, period: BillingType['billing_period']): number | undefined => {
@@ -437,7 +494,7 @@ export function calculateBillingPeriodMarkers(
 const sumSeries = (values: number[]): number => values.reduce((sum, v) => sum + v, 0)
 
 // Keep up to N decimals without trailing zeros
-const formatWithDecimals = (value: number, decimals?: number): string =>
+export const formatWithDecimals = (value: number, decimals?: number): string =>
     typeof decimals === 'number' ? String(Number(value.toFixed(decimals))) : String(value)
 
 /**

@@ -11,6 +11,43 @@ import { GroupType } from '~/types'
 
 import { groupAnalyticsConfigLogic } from './groupAnalyticsConfigLogic'
 
+export interface DeleteGroupTypeDialogProps {
+    onConfirm: () => void
+    groupTypeName: string
+}
+
+export function openDeleteGroupTypeDialog({ onConfirm, groupTypeName }: DeleteGroupTypeDialogProps): void {
+    const groupType = groupTypeName.toLowerCase()
+    LemonDialog.open({
+        title: `Delete ${groupType} group type`,
+        description: (
+            <div className="mt-2 w-150">
+                Deleting a group type is irreversible.
+                <br />
+                <br />
+                You will not be able to assign existing events from this group type to another group type created in the
+                future, only new events.
+                <br />
+                <br />
+                For more information about groups, see{' '}
+                <Link to="https://posthog.com/docs/product-analytics/group-analytics" target="_blank">
+                    the docs
+                </Link>
+            </div>
+        ),
+        secondaryButton: {
+            type: 'secondary',
+            children: 'Cancel',
+        },
+        primaryButton: {
+            type: 'primary',
+            status: 'danger',
+            onClick: onConfirm,
+            children: `Delete ${groupType}`,
+        },
+    })
+}
+
 export function GroupAnalyticsConfig(): JSX.Element | null {
     const { groupTypes, groupTypesLoading, singularChanges, pluralChanges, hasChanges } =
         useValues(groupAnalyticsConfigLogic)
@@ -76,41 +113,9 @@ export function GroupAnalyticsConfig(): JSX.Element | null {
                         size="small"
                         icon={<IconTrash />}
                         onClick={() =>
-                            LemonDialog.open({
-                                title: 'Delete group type',
-                                description: (
-                                    <div className="mt-2 w-150">
-                                        Deleting a group type makes it available for reuse, but group data will not be
-                                        deleted from existing events.
-                                        <br />
-                                        <br />
-                                        This means if a new event uses the deleted group type slot, any existing events
-                                        from the previous group will fall under the new definition.
-                                        <br />
-                                        <br />
-                                        Make sure to update the event triggers in your code before deleting the group
-                                        type.
-                                        <br />
-                                        <br />
-                                        For more information about groups, see{' '}
-                                        <Link
-                                            to="https://posthog.com/docs/product-analytics/group-analytics"
-                                            target="_blank"
-                                        >
-                                            the docs
-                                        </Link>
-                                    </div>
-                                ),
-                                secondaryButton: {
-                                    type: 'secondary',
-                                    children: 'Cancel',
-                                },
-                                primaryButton: {
-                                    type: 'primary',
-                                    status: 'danger',
-                                    onClick: () => deleteGroupType(groupType.group_type_index),
-                                    children: 'Delete',
-                                },
+                            openDeleteGroupTypeDialog({
+                                onConfirm: () => deleteGroupType(groupType.group_type_index),
+                                groupTypeName: groupType.group_type,
                             })
                         }
                     />

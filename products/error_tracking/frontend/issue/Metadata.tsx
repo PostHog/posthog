@@ -164,7 +164,9 @@ function renderMetric(name: string, value: number | undefined, loading: boolean,
 }
 
 function renderDate(date: Date): JSX.Element {
-    return <div className="text-xs text-muted whitespace-nowrap">{dayjs(date).format('D MMM YYYY HH:mm (UTC)')}</div>
+    return (
+        <div className="text-xs text-muted whitespace-nowrap">{dayjs(date).utc().format('D MMM YYYY HH:mm (UTC)')}</div>
+    )
 }
 
 function renderDataPoint(d: SparklineDatum): JSX.Element {

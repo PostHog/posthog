@@ -1,23 +1,40 @@
-from concurrent.futures import ThreadPoolExecutor
 import uuid
-from unittest import mock
+import functools
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
+
 import pytest
-from asgiref.sync import sync_to_async
+from unittest import mock
+
+from django.conf import settings
 from django.test import override_settings
 
-from posthog.temporal.data_imports.settings import import_data_activity_sync
+import boto3
+import psycopg
+import pytest_asyncio
+from asgiref.sync import sync_to_async
+from temporalio.common import RetryPolicy
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+
+from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
+from posthog.models import Team
 from posthog.temporal.data_imports.external_data_job import (
+    Any_Source_Errors,
+    ExternalDataJobWorkflow,
+    ExternalDataWorkflowInputs,
     UpdateExternalDataJobStatusInputs,
     create_source_templates,
     update_external_data_job_model,
 )
-from posthog.temporal.data_imports.external_data_job import (
-    ExternalDataJobWorkflow,
-    ExternalDataWorkflowInputs,
-    Any_Source_Errors,
-)
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
+from posthog.temporal.data_imports.settings import import_data_activity_sync
+from posthog.temporal.data_imports.sources.stripe.constants import (
+    BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+)
+from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
 from posthog.temporal.data_imports.workflow_activities.calculate_table_size import calculate_table_size_activity
 from posthog.temporal.data_imports.workflow_activities.check_billing_limits import check_billing_limits_activity
 from posthog.temporal.data_imports.workflow_activities.create_job_model import (
@@ -29,32 +46,8 @@ from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
     SyncNewSchemasActivityInputs,
     sync_new_schemas_activity,
 )
-from posthog.warehouse.models import (
-    get_latest_run_if_exists,
-    ExternalDataJob,
-    ExternalDataSource,
-    ExternalDataSchema,
-)
-
-from posthog.models import Team
-from temporalio.testing import WorkflowEnvironment
-from temporalio.common import RetryPolicy
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
-import pytest_asyncio
-import boto3
-import functools
-from django.conf import settings
-import psycopg
-
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource, get_latest_run_if_exists
 from posthog.warehouse.models.external_data_schema import get_all_schemas_for_source_id
-from posthog.temporal.data_imports.sources.stripe.constants import (
-    BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
-    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
-    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
-)
-from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
-
 
 BUCKET_NAME = "test-pipeline"
 SESSION = boto3.Session()

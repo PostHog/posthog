@@ -1,16 +1,17 @@
+from decimal import Decimal
+
+from freezegun import freeze_time
+from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
+
+from django.conf import settings
 from django.core import mail
 from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
-from freezegun import freeze_time
-from unittest.mock import patch, MagicMock
-from decimal import Decimal
 
-from posthog.email import EmailMessage, _send_email, sanitize_email_properties
+from posthog.email import CUSTOMER_IO_TEMPLATE_ID_MAP, EmailMessage, _send_email, sanitize_email_properties
 from posthog.models import MessagingRecord, Organization, Person, Team, User
 from posthog.models.instance_setting import override_instance_config
-from posthog.test.base import BaseTest
-from posthog.email import CUSTOMER_IO_TEMPLATE_ID_MAP
-from django.conf import settings
 
 
 class TestEmail(BaseTest):
