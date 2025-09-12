@@ -219,7 +219,7 @@ export const scene: SceneExport<HogFunctionConfigurationLogicProps> = {
 }
 
 function HogFunctionHeader(): JSX.Element {
-    const { configuration, logicProps, template, loading } = useValues(hogFunctionConfigurationLogic)
+    const { configuration, logicProps, loading } = useValues(hogFunctionConfigurationLogic)
     const { setConfigurationValue } = useActions(hogFunctionConfigurationLogic)
 
     return (
@@ -252,7 +252,6 @@ function HogFunctionHeader(): JSX.Element {
                 onNameChange={(value) => setConfigurationValue('name', value)}
                 onDescriptionChange={(value) => setConfigurationValue('description', value)}
                 canEdit
-                forceEdit={!!template}
             />
         </>
     )
@@ -273,15 +272,11 @@ export function HogFunctionScene(): JSX.Element {
         )
     }
 
-    if (!loaded) {
+    if (id && !loaded) {
         return <NotFound object="Hog function" />
     }
 
-    if (templateId) {
-        return <HogFunctionConfiguration templateId={templateId} />
-    }
-
-    if (!id) {
+    if (!templateId && !id) {
         return <NotFound object="Hog function" />
     }
 
@@ -325,7 +320,11 @@ export function HogFunctionScene(): JSX.Element {
             <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
                 <HogFunctionHeader />
                 <SceneDivider />
-                <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset={true} />
+                {templateId ? (
+                    <HogFunctionConfiguration templateId={templateId} />
+                ) : (
+                    <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset={true} />
+                )}
             </BindLogic>
         </SceneContent>
     )

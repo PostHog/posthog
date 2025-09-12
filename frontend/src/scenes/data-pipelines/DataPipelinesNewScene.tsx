@@ -3,13 +3,18 @@ import { kea, path, props, selectors, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
+import { humanizeHogFunctionType } from 'scenes/hog-functions/hog-function-utils'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Breadcrumb } from '~/types'
 
 import type { dataPipelinesNewSceneLogicType } from './DataPipelinesNewSceneType'
+import { DataPipelinesSceneTab } from './DataPipelinesScene'
 import { nonHogFunctionTemplatesLogic } from './utils/nonHogFunctionTemplatesLogic'
 
 export type DataPipelinesNewSceneKind = 'transformation' | 'destination' | 'source' | 'site_app'
@@ -35,7 +40,7 @@ export const dataPipelinesNewSceneLogic = kea<dataPipelinesNewSceneLogicType>([
                     {
                         key: [Scene.DataPipelines, kind],
                         name: capitalizeFirstLetter(kind) + 's',
-                        path: urls.dataPipelines(kind + 's'),
+                        path: urls.dataPipelines((kind + 's') as DataPipelinesSceneTab),
                     },
                     {
                         key: Scene.DataPipelinesNew,
@@ -66,25 +71,33 @@ export function DataPipelinesNewScene(): JSX.Element {
         })
     )
 
-    if (kind === 'transformation') {
-        return <HogFunctionTemplateList type="transformation" />
-    }
-    if (kind === 'destination') {
-        return <HogFunctionTemplateList type="destination" manualTemplates={hogFunctionTemplatesBatchExports} />
-    }
-    if (kind === 'site_app') {
-        return <HogFunctionTemplateList type="site_app" />
-    }
+    const humanizedKind = humanizeHogFunctionType(kind)
 
-    if (kind === 'source') {
-        return (
-            <HogFunctionTemplateList
-                type="source_webhook"
-                manualTemplates={hogFunctionTemplatesDataWarehouseSources}
-                manualTemplatesLoading={availableSourcesLoading}
+    return (
+        <SceneContent forceNewSpacing>
+            <SceneTitleSection
+                name={`New ${humanizedKind}`}
+                resourceType={{
+                    type: 'data_pipeline',
+                }}
             />
-        )
-    }
+            <SceneDivider />
 
-    return <NotFound object="Data pipeline new options" />
+            {kind === 'transformation' ? (
+                <HogFunctionTemplateList type="transformation" />
+            ) : kind === 'destination' ? (
+                <HogFunctionTemplateList type="destination" manualTemplates={hogFunctionTemplatesBatchExports} />
+            ) : kind === 'site_app' ? (
+                <HogFunctionTemplateList type="site_app" />
+            ) : kind === 'source' ? (
+                <HogFunctionTemplateList
+                    type="source_webhook"
+                    manualTemplates={hogFunctionTemplatesDataWarehouseSources}
+                    manualTemplatesLoading={availableSourcesLoading}
+                />
+            ) : (
+                <NotFound object="Data pipeline new options" />
+            )}
+        </SceneContent>
+    )
 }

@@ -86,6 +86,7 @@ export function DataPipelinesOverview(): JSX.Element {
                     )}
                     <DataWarehouseManagedSourcesTable />
                 </SceneSection>
+                <SceneDivider />
                 <SceneSection
                     title="Self-managed data warehouse sources"
                     actions={<Link to={urls.dataPipelines('sources')}>See all</Link>}
