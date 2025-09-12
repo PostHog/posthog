@@ -1,4 +1,4 @@
-import { connect, kea, path, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
 import { DataTableNode } from '~/queries/schema/schema-general'
@@ -14,6 +14,10 @@ import { ERROR_TRACKING_LISTING_RESOLUTION } from './utils'
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingSceneLogic']),
 
+    actions({
+        setActiveTab: (activeTab: string) => ({ activeTab }),
+    }),
+
     connect(() => ({
         values: [
             errorFiltersLogic,
@@ -28,6 +32,15 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             ['setSelectedIssueIds'],
         ],
     })),
+
+    reducers({
+        activeTab: [
+            'issues',
+            {
+                setActiveTab: (_, { activeTab }) => activeTab,
+            },
+        ],
+    }),
 
     selectors({
         query: [

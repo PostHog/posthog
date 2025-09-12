@@ -3,18 +3,16 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
-import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { ErrorTrackingCorrelatedIssue } from '~/queries/schema/schema-general'
-import { Breadcrumb } from '~/types'
 
-import { errorTrackingBulkSelectLogic } from '../errorTrackingBulkSelectLogic'
-import { errorTrackingIssueCorrelationQuery } from '../queries'
-import type { errorTrackingImpactSceneLogicType } from './errorTrackingImpactSceneLogicType'
+import { errorTrackingBulkSelectLogic } from 'products/error_tracking/frontend/errorTrackingBulkSelectLogic'
+import { errorTrackingIssueCorrelationQuery } from 'products/error_tracking/frontend/queries'
 
-export const errorTrackingImpactSceneLogic = kea<errorTrackingImpactSceneLogicType>([
-    path(['scenes', 'error-tracking', 'configuration', 'errorTrackingImpactSceneLogic']),
+import type { errorTrackingImpactListLogicType } from './errorTrackingImpactListLogicType'
+
+export const errorTrackingImpactListLogic = kea<errorTrackingImpactListLogicType>([
+    path(['products', 'error_tracking', 'tabs', 'impact', 'errorTrackingImpactListLogic']),
 
     connect(() => ({
         actions: [errorTrackingBulkSelectLogic, ['setSelectedIssueIds']],
@@ -56,27 +54,16 @@ export const errorTrackingImpactSceneLogic = kea<errorTrackingImpactSceneLogicTy
         ],
     })),
 
+    selectors({
+        initialState: [
+            (s) => [s.completedInitialLoad, s.issuesLoading],
+            (completedInitialLoad, issuesLoading) => !issuesLoading && !completedInitialLoad,
+        ],
+    }),
+
     listeners(({ actions }) => ({
         setEvents: () => actions.loadIssues(),
     })),
-
-    selectors({
-        breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => [
-                {
-                    key: Scene.ErrorTracking,
-                    path: urls.errorTracking(),
-                    name: 'Error tracking',
-                },
-                {
-                    key: Scene.ErrorTrackingImpact,
-                    path: urls.errorTrackingImpact(),
-                    name: 'Impact',
-                },
-            ],
-        ],
-    }),
 
     subscriptions(({ actions }) => ({
         events: () => actions.setSelectedIssueIds([]),
