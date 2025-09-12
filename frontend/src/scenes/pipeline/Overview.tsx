@@ -5,6 +5,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { cn } from 'lib/utils/css-classes'
 import { DataWarehouseManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
 import { DataWarehouseSelfManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseSelfManagedSourcesTable'
 import { urls } from 'scenes/urls'
@@ -33,7 +34,11 @@ export function Overview(): JSX.Element {
         <SceneContent forceNewSpacing>
             <PageHeader
                 buttons={
-                    <div className="flex items-center m-2 shrink-0">
+                    <div
+                        className={cn('flex items-center m-2 shrink-0', {
+                            'm-0': newSceneLayout,
+                        })}
+                    >
                         <LemonMenu items={menuItems}>
                             <LemonButton
                                 data-attr="new-pipeline-button"
