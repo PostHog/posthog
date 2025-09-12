@@ -1,0 +1,21 @@
+{
+    "identities": [
+        {
+            "name": "object_storage_root_user",
+            "credentials": [
+                {
+                    "accessKey": "object_storage_root_user",
+                    "secretKey": "object_storage_root_password"
+                }
+            ],
+            "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+        }
+    ],
+    "accounts": [
+        {
+            "id": "posthog",
+            "displayName": "PostHog",
+            "emailAddress": "posthog@example.com"
+        }
+    ]
+}
