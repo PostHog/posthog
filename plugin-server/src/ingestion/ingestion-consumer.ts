@@ -16,6 +16,7 @@ import {
     HealthCheckResult,
     HealthCheckResultError,
     Hub,
+    IncomingEvent,
     IncomingEventWithTeam,
     KafkaConsumerBreadcrumb,
     KafkaConsumerBreadcrumbSchema,
@@ -68,6 +69,13 @@ type IncomingEventsByDistinctId = {
     [key: string]: EventsForDistinctId
 }
 
+type PreprocessedEvent = {
+    message: Message
+    headers: EventHeaders
+    event: IncomingEvent
+    eventWithTeam: IncomingEventWithTeam
+}
+
 const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
 const KNOWN_SET_EVENTS = new Set([
     '$feature_interaction',
@@ -109,7 +117,7 @@ export class IngestionConsumer {
     private deduplicationRedis: DeduplicationRedis
     public readonly promiseScheduler = new PromiseScheduler()
 
-    private preprocessingPipeline: (message: Message) => Promise<IncomingEventWithTeam | null>
+    private preprocessingPipeline: (message: Message) => Promise<PreprocessedEvent | null>
 
     constructor(
         private hub: Hub,
@@ -197,7 +205,7 @@ export class IngestionConsumer {
                     .pipe(createApplyPersonProcessingRestrictionsStep(this.eventIngestionRestrictionManager))
                     .pipeAsync(createValidateEventUuidStep(this.hub))
 
-                return (await pipeline.unwrap()) as IncomingEventWithTeam | null
+                return await pipeline.unwrap()
             } catch (error) {
                 console.error('Error processing message in pipeline:', error)
                 throw error
@@ -348,9 +356,14 @@ export class IngestionConsumer {
 
         const preprocessedEvents = await this.runInstrumented('preprocessEvents', () => this.preprocessEvents(messages))
         // Fire-and-forget deduplication call
-        void this.promiseScheduler.schedule(deduplicateEvents(this.deduplicationRedis, preprocessedEvents))
+        void this.promiseScheduler.schedule(
+            deduplicateEvents(
+                this.deduplicationRedis,
+                preprocessedEvents.map((x) => x.event)
+            )
+        )
         const postCookielessMessages = await this.runInstrumented('cookielessProcessing', () =>
-            this.hub.cookielessManager.doBatch(preprocessedEvents)
+            this.hub.cookielessManager.doBatch(preprocessedEvents.map((x) => x.eventWithTeam))
         )
         const eventsPerDistinctId = this.groupEventsByDistinctId(postCookielessMessages)
 
@@ -657,13 +670,13 @@ export class IngestionConsumer {
         )
     }
 
-    private async preprocessEvents(messages: Message[]): Promise<IncomingEventWithTeam[]> {
+    private async preprocessEvents(messages: Message[]): Promise<PreprocessedEvent[]> {
         const pipelinePromises = messages.map(async (message) => {
             return await this.preprocessingPipeline(message)
         })
 
         const results = await Promise.all(pipelinePromises)
-        return results.filter((result): result is IncomingEventWithTeam => result !== null)
+        return results.filter((result): result is PreprocessedEvent => result !== null)
     }
 
     private groupEventsByDistinctId(messages: IncomingEventWithTeam[]): IncomingEventsByDistinctId {

@@ -26,6 +26,8 @@ exports[`IngestionConsumer general overflow force overflow should force events w
     "headers": {
       "distinct_id": "team1-user",
       "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":0,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+      "redirect-step": "async_pipeline_result_handler",
+      "redirect-timestamp": "2025-01-01T00:00:00.000Z",
       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
     },
     "key": "THIS IS NOT A TOKEN FOR TEAM 2:team1-user",
@@ -48,6 +50,8 @@ exports[`IngestionConsumer general overflow force overflow should handle multipl
     "headers": {
       "distinct_id": "user1",
       "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":0,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+      "redirect-step": "async_pipeline_result_handler",
+      "redirect-timestamp": "2025-01-01T00:00:00.000Z",
       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
     },
     "key": "THIS IS NOT A TOKEN FOR TEAM 2:user1",
@@ -65,6 +69,8 @@ exports[`IngestionConsumer general overflow force overflow should handle multipl
     "headers": {
       "distinct_id": "user2",
       "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":2,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+      "redirect-step": "async_pipeline_result_handler",
+      "redirect-timestamp": "2025-01-01T00:00:00.000Z",
       "token": "<REPLACED-UUID-1>",
     },
     "key": "<REPLACED-UUID-1>:user2",
