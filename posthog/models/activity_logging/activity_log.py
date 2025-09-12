@@ -129,6 +129,11 @@ class ActivityLog(UUIDTModel):
                 name="idx_alog_org_scope_created_at",
                 condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
             ),
+            models.Index(
+                fields=["organization_id"],
+                name="idx_alog_org_detail_exists",
+                condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
+            ),
         ]
 
     team_id = models.PositiveIntegerField(null=True)

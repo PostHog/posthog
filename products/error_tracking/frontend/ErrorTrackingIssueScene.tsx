@@ -94,9 +94,11 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                         label={tagRenderer(selectedEvent)}
                     />
                     <ErrorFilters.Root>
-                        <ErrorFilters.DateRange />
+                        <div className="flex gap-2 justify-between">
+                            <ErrorFilters.DateRange />
+                            <ErrorFilters.InternalAccounts />
+                        </div>
                         <ErrorFilters.FilterGroup />
-                        <ErrorFilters.InternalAccounts />
                     </ErrorFilters.Root>
                     <Metadata>
                         <EventsTable

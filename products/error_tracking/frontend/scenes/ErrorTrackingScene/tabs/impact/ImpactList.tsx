@@ -1,50 +1,41 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumns, Spinner } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ErrorTrackingCorrelatedIssue } from '~/queries/schema/schema-general'
 
-import { EventName } from 'products/actions/frontend/components/EventName'
-
-import { ErrorTrackingSetupPrompt } from '../components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
-import { BulkActions } from '../components/IssueActions/BulkActions'
-import { ErrorTrackingIssueImpactTool } from '../components/IssueImpactTool'
-import { IssueListTitleColumn, IssueListTitleHeader } from '../components/TableColumns'
-import { errorTrackingBulkSelectLogic } from '../errorTrackingBulkSelectLogic'
-import { errorTrackingImpactSceneLogic } from './errorTrackingImpactSceneLogic'
+import { BulkActions } from '../../../../components/IssueActions/BulkActions'
+import { IssueListTitleColumn, IssueListTitleHeader } from '../../../../components/TableColumns'
+import { errorTrackingBulkSelectLogic } from '../../../../errorTrackingBulkSelectLogic'
+import { errorTrackingImpactListLogic } from './errorTrackingImpactListLogic'
 
 export const scene: SceneExport = {
-    component: ErrorTrackingImpactScene,
-    logic: errorTrackingImpactSceneLogic,
+    component: ImpactList,
+    logic: errorTrackingImpactListLogic,
 }
 
-export function ErrorTrackingImpactScene(): JSX.Element | null {
-    const { completedInitialLoad, issuesLoading } = useValues(errorTrackingImpactSceneLogic)
-    const hasIssueCorrelation = useFeatureFlag('ERROR_TRACKING_ISSUE_CORRELATION')
+export function ImpactList(): JSX.Element | null {
+    const { initialState } = useValues(errorTrackingImpactListLogic)
 
-    return hasIssueCorrelation ? (
-        <ErrorTrackingSetupPrompt>
-            <ErrorTrackingIssueImpactTool />
+    if (initialState) {
+        return null
+    }
 
-            {!issuesLoading && !completedInitialLoad ? (
-                <InitialState />
-            ) : (
-                <div className="px-4">
-                    <Options />
-                    <Table />
-                </div>
-            )}
-        </ErrorTrackingSetupPrompt>
-    ) : null
+    return (
+        <div>
+            <Options />
+            <Table />
+        </div>
+    )
 }
 
 const Table = (): JSX.Element => {
-    const { issues, issuesLoading } = useValues(errorTrackingImpactSceneLogic)
+    const { issues, issuesLoading } = useValues(errorTrackingImpactListLogic)
 
     const columns: LemonTableColumns<ErrorTrackingCorrelatedIssue> = [
         {
@@ -120,46 +111,31 @@ const Table = (): JSX.Element => {
     )
 }
 
-const InitialState = (): JSX.Element => {
-    return (
-        <div className="flex flex-col flex-1 items-center mt-24 text-center mb-1">
-            <h2 className="text-xl font-bold">Understand the impact of issues</h2>
-            <div className="text-sm text-secondary mb-2">
-                See what issues are causing the most impact on your conversion, activation or any other event you're
-                tracking in PostHog.
-            </div>
-
-            <EventSelector />
-        </div>
-    )
-}
-
 export const Options = (): JSX.Element => {
     const { selectedIssueIds } = useValues(errorTrackingBulkSelectLogic)
-    const { issues } = useValues(errorTrackingImpactSceneLogic)
+    const { issues } = useValues(errorTrackingImpactListLogic)
 
     return (
         <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-primary">
-            {selectedIssueIds.length > 0 ? (
-                <BulkActions issues={issues} selectedIds={selectedIssueIds} />
-            ) : (
-                <EventSelector />
-            )}
+            {selectedIssueIds.length > 0 ? <BulkActions issues={issues} selectedIds={selectedIssueIds} /> : <Reload />}
         </div>
     )
 }
 
-const EventSelector = (): JSX.Element => {
-    const { events } = useValues(errorTrackingImpactSceneLogic)
-    const { setEvents } = useActions(errorTrackingImpactSceneLogic)
+const Reload = (): JSX.Element => {
+    const { issuesLoading } = useValues(errorTrackingImpactListLogic)
+    const { loadIssues } = useActions(errorTrackingImpactListLogic)
 
     return (
-        <EventName
-            value={events && events.length > 0 ? events[0] : null}
-            onChange={(event) => setEvents(event ? [event] : [])}
-            allEventsOption="clear"
-            placement="bottom"
-        />
+        <LemonButton
+            type="secondary"
+            size="small"
+            onClick={() => loadIssues()}
+            disabledReason={issuesLoading ? 'Loading issues...' : undefined}
+            icon={issuesLoading ? <Spinner textColored /> : <IconRefresh />}
+        >
+            {issuesLoading ? 'Cancel' : 'Reload'}
+        </LemonButton>
     )
 }
 
