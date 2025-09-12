@@ -1,11 +1,15 @@
-from datetime import timedelta
 import time
-import dagster
+from datetime import timedelta
+
 from django.conf import settings
-from django.db.models import QuerySet, Model, Q
+from django.db.models import Model, Q, QuerySet
 from django.utils import timezone
-from dags.common import JobOwners
+
+import dagster
+
 from posthog.models.oauth import OAuthAccessToken, OAuthGrant, OAuthIDToken, OAuthRefreshToken
+
+from dags.common import JobOwners
 
 
 def batch_delete_model(queryset: QuerySet, query: Q, context: dagster.OpExecutionContext, token_type: str) -> int:

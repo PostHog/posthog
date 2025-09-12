@@ -1,5 +1,7 @@
-import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils'

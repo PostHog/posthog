@@ -1,12 +1,14 @@
 import './PlanCards.scss'
 
-import { IconCheck, IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import React, { useState } from 'react'
+
+import { IconCheck, IconX } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { HeartHog } from 'lib/components/hedgehogs'
-import React, { useState } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'

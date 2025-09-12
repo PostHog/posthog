@@ -1,5 +1,8 @@
+import '@playwright/test'
+
 import { urls } from 'scenes/urls'
-import { test as coreTest, LOGIN_USERNAME, LOGIN_PASSWORD } from './playwright-test-core'
+
+import { LOGIN_PASSWORD, LOGIN_USERNAME, test as coreTest } from './playwright-test-core'
 
 /**
  * Legacy Playwright test base with automatic login

@@ -1,6 +1,7 @@
 import equal from 'fast-deep-equal'
 import { actions, kea, path, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
 import { Params } from 'scenes/sceneTypes'
 
 import { ErrorTrackingIssue, ErrorTrackingQuery } from '~/queries/schema/schema-general'

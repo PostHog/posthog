@@ -1,14 +1,18 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic as enabledFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { allOperatorsMapping, dateStringToDayJs, debounce, hasFormErrors, isObject } from 'lib/utils'
+import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
+import { allOperatorsMapping, debounce, hasFormErrors, isObject } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { Scene } from 'scenes/sceneTypes'
 import {
     branchingConfigToDropdownValue,
@@ -16,10 +20,12 @@ import {
     createBranchingConfig,
     getDefaultBranchingType,
 } from 'scenes/surveys/components/question-branching/utils'
+import { getDemoDataForSurvey } from 'scenes/surveys/utils/demoDataGenerator'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
-import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
 import { CompareFilter, DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
@@ -58,25 +64,22 @@ import {
     SurveyStats,
 } from '~/types'
 
-import { ProductIntentContext } from 'lib/utils/product-intents'
-import posthog from 'posthog-js'
-import { getDemoDataForSurvey } from 'scenes/surveys/utils/demoDataGenerator'
-import { userLogic } from 'scenes/userLogic'
 import {
-    defaultSurveyAppearance,
-    defaultSurveyFieldValues,
     NEW_SURVEY,
     NewSurvey,
     SURVEY_CREATED_SOURCE,
     SURVEY_RATING_SCALE,
+    defaultSurveyAppearance,
+    defaultSurveyFieldValues,
 } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
 import { surveysLogic } from './surveysLogic'
 import {
+    DATE_FORMAT,
     buildPartialResponsesFilter,
+    buildSurveyTimestampFilter,
     calculateSurveyRates,
     createAnswerFilterHogQLExpression,
-    DATE_FORMAT,
     getResponseFieldWithId,
     getSurveyEndDateForQuery,
     getSurveyResponse,
@@ -218,18 +221,18 @@ function extractPersonData(row: SurveyResponseRow): {
 } {
     const distinctId = row.at(-2) as string
     const timestamp = row.at(-1) as string
-    const unparsedPersonProperties = row.at(-3)
-    let personProperties: Record<string, any> | undefined
-
-    if (unparsedPersonProperties && unparsedPersonProperties !== null) {
-        try {
-            personProperties = JSON.parse(unparsedPersonProperties as string)
-        } catch {
-            // Ignore parsing errors for person properties
+    // now, we're querying for all PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES, starting from the third last value, so build our person properties object
+    // from those values. We use them to have a display name for the person
+    const personProperties: Record<string, any> = {}
+    let hasAnyProperties = false
+    for (let i = 0; i < PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES.length; i++) {
+        const value = row.at(-3 - i) as string
+        if (value && value !== null && value !== '') {
+            personProperties[PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES[i]] = value
+            hasAnyProperties = true
         }
     }
-
-    return { distinctId, personProperties, timestamp }
+    return { distinctId, personProperties: hasAnyProperties ? personProperties : undefined, timestamp }
 }
 
 // Helper to count a choice and store person data for latest occurrence
@@ -469,30 +472,38 @@ export const surveyLogic = kea<surveyLogicType>([
             teamLogic,
             ['addProductIntent'],
         ],
-        values: [enabledFlagLogic, ['featureFlags as enabledFlags'], surveysLogic, ['data'], userLogic, ['user']],
+        values: [
+            enabledFlagLogic,
+            ['featureFlags as enabledFlags'],
+            surveysLogic,
+            ['data'],
+            userLogic,
+            ['user'],
+            teamLogic,
+            ['currentTeam'],
+        ],
     })),
     actions({
         setSurveyMissing: true,
         editingSurvey: (editing: boolean) => ({ editing }),
-        setDefaultForQuestionType: (
-            idx: number,
-            surveyQuestion: SurveyQuestion,
-            type: SurveyQuestionType,
-            isEditingQuestion: boolean,
-            isEditingDescription: boolean,
-            isEditingThankYouMessage: boolean
-        ) => ({
+        setDefaultForQuestionType: (idx: number, surveyQuestion: SurveyQuestion, type: SurveyQuestionType) => ({
             idx,
             surveyQuestion,
             type,
-            isEditingQuestion,
-            isEditingDescription,
-            isEditingThankYouMessage,
         }),
         setQuestionBranchingType: (questionIndex, type, specificQuestionIndex) => ({
             questionIndex,
             type,
             specificQuestionIndex,
+        }),
+        setMultipleSurveyQuestion: (
+            questionIndex: number,
+            question: MultipleSurveyQuestion,
+            type: SurveyQuestionType.MultipleChoice | SurveyQuestionType.SingleChoice
+        ) => ({
+            questionIndex,
+            question,
+            type,
         }),
         setResponseBasedBranchingForQuestion: (questionIndex, responseValue, nextStep, specificQuestionIndex) => ({
             questionIndex,
@@ -687,8 +698,8 @@ export const surveyLogic = kea<surveyLogicType>([
                     })
                     return survey
                 } catch (error) {
-                    posthog.captureException('Error duplicating survey', {
-                        error,
+                    posthog.captureException(error, {
+                        action: 'duplicate-survey',
                         survey: payload,
                     })
                     lemonToast.error('Error while duplicating survey. Please try again.')
@@ -843,7 +854,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     -- QUERYING ALL SURVEY RESPONSES IN ONE GO
                     SELECT
                         ${questionFields.join(',\n')},
-                        person.properties,
+                        ${PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES.map((property) => `person.properties.${property}`).join(',\n')},
                         events.distinct_id,
                         events.timestamp
                     FROM events
@@ -1026,19 +1037,21 @@ export const surveyLogic = kea<surveyLogicType>([
         survey: [
             { ...NEW_SURVEY } as NewSurvey | Survey,
             {
-                setDefaultForQuestionType: (
-                    state,
-                    { idx, type, surveyQuestion, isEditingQuestion, isEditingDescription, isEditingThankYouMessage }
-                ) => {
-                    const question = isEditingQuestion
-                        ? surveyQuestion.question
-                        : defaultSurveyFieldValues[type].questions[0].question
-                    const description = isEditingDescription
-                        ? surveyQuestion.description
-                        : defaultSurveyFieldValues[type].questions[0].description
-                    const thankYouMessageHeader = isEditingThankYouMessage
-                        ? state.appearance?.thankYouMessageHeader
-                        : defaultSurveyFieldValues[type].appearance.thankYouMessageHeader
+                setDefaultForQuestionType: (state, { idx, type, surveyQuestion }) => {
+                    const question =
+                        defaultSurveyFieldValues[surveyQuestion.type].questions[0].question !== surveyQuestion.question
+                            ? surveyQuestion.question
+                            : defaultSurveyFieldValues[type].questions[0].question
+                    const description =
+                        defaultSurveyFieldValues[surveyQuestion.type].questions[0].description !==
+                        surveyQuestion.description
+                            ? surveyQuestion.description
+                            : defaultSurveyFieldValues[type].questions[0].description
+                    const thankYouMessageHeader =
+                        defaultSurveyFieldValues[surveyQuestion.type].appearance.thankYouMessageHeader !==
+                        state.appearance?.thankYouMessageHeader
+                            ? state.appearance?.thankYouMessageHeader
+                            : defaultSurveyFieldValues[type].appearance.thankYouMessageHeader
                     const newQuestions = [...state.questions]
 
                     const q = {
@@ -1155,6 +1168,18 @@ export const surveyLogic = kea<surveyLogicType>([
                         questions: newQuestions,
                     }
                 },
+                setMultipleSurveyQuestion: (state, { questionIndex, question, type }) => {
+                    const newQuestions = [...state.questions]
+                    const newQuestion: MultipleSurveyQuestion = {
+                        ...question,
+                        type,
+                    }
+                    newQuestions[questionIndex] = newQuestion
+                    return {
+                        ...state,
+                        questions: newQuestions,
+                    }
+                },
             },
         ],
         selectedPageIndex: [
@@ -1227,38 +1252,7 @@ export const surveyLogic = kea<surveyLogicType>([
         timestampFilter: [
             (s) => [s.survey, s.dateRange],
             (survey: Survey, dateRange: SurveyDateRange): string => {
-                // If no date range provided, use the survey's default date range
-                if (!dateRange) {
-                    return `AND timestamp >= '${getSurveyStartDateForQuery(survey)}'
-                AND timestamp <= '${getSurveyEndDateForQuery(survey)}'`
-                }
-
-                // ----- Handle FROM date -----
-                // Parse the date string to a dayjs object
-                let fromDateDayjs = dateStringToDayJs(dateRange.date_from)
-
-                // Use survey creation date as lower bound if needed
-                const surveyStartDayjs = dayjs(getSurveyStartDateForQuery(survey))
-                if (surveyStartDayjs && fromDateDayjs && fromDateDayjs.isBefore(surveyStartDayjs)) {
-                    fromDateDayjs = surveyStartDayjs
-                }
-
-                // Fall back to survey start date if no valid from date
-                const fromDate = fromDateDayjs
-                    ? fromDateDayjs.utc().format(DATE_FORMAT)
-                    : getSurveyStartDateForQuery(survey)
-
-                // ----- Handle TO date -----
-                // Parse the date string or use current time
-                const toDateDayjs = dateStringToDayJs(dateRange.date_to) || dayjs()
-
-                // Use survey end date as upper bound if it exists
-                const toDate = survey.end_date
-                    ? getSurveyEndDateForQuery(survey)
-                    : toDateDayjs.utc().format(DATE_FORMAT)
-
-                return `AND timestamp >= '${fromDate}'
-                AND timestamp <= '${toDate}'`
+                return buildSurveyTimestampFilter(survey, dateRange)
             },
         ],
         partialResponsesFilter: [
@@ -1657,7 +1651,7 @@ export const surveyLogic = kea<surveyLogicType>([
         defaultInterval: [
             (s) => [s.survey],
             (survey: Survey): IntervalType => {
-                const start = getSurveyStartDateForQuery(survey)
+                const start = dayjs(survey.created_at).utc().startOf('day').format(DATE_FORMAT)
                 const end = getSurveyEndDateForQuery(survey)
                 const diffInDays = dayjs(end).diff(dayjs(start), 'days')
                 const diffInWeeks = dayjs(end).diff(dayjs(start), 'weeks')

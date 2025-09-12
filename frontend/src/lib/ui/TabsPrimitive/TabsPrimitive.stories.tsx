@@ -1,5 +1,6 @@
-import { IconLogomark } from '@posthog/icons'
 import type { Meta } from '@storybook/react'
+
+import { IconLogomark } from '@posthog/icons'
 
 import { TabsPrimitive, TabsPrimitiveContent, TabsPrimitiveList, TabsPrimitiveTrigger } from './TabsPrimitive'
 

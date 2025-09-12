@@ -1,14 +1,16 @@
-import { IconCheck } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
+import { IconCheck } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
-import { IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 

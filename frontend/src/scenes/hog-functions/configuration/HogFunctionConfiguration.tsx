@@ -1,3 +1,7 @@
+import clsx from 'clsx'
+import { BindLogic, useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+
 import {
     LemonBanner,
     LemonButton,
@@ -7,9 +11,7 @@ import {
     LemonTag,
     SpinnerOverlay,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
@@ -19,19 +21,19 @@ import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuratio
 import { HogFunctionFilters } from 'scenes/hog-functions/filters/HogFunctionFilters'
 import { HogFunctionMappings } from 'scenes/hog-functions/mapping/HogFunctionMappings'
 import { HogFunctionEventEstimates } from 'scenes/hog-functions/metrics/HogFunctionEventEstimates'
-import { HogFunctionInputs } from './components/HogFunctionInputs'
 
 import { AvailableFeature } from '~/types'
 
+import { humanizeHogFunctionType } from '../hog-function-utils'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
 import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
-import { HogFunctionSourceWebhookInfo } from './components/HogFunctionSourceWebhookInfo'
-import { HogFunctionSourceWebhookTest } from './components/HogFunctionSourceWebhookTest'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionTest } from './HogFunctionTest'
 import { HogFunctionCode } from './components/HogFunctionCode'
+import { HogFunctionInputs } from './components/HogFunctionInputs'
+import { HogFunctionSourceWebhookInfo } from './components/HogFunctionSourceWebhookInfo'
+import { HogFunctionSourceWebhookTest } from './components/HogFunctionSourceWebhookTest'
 import { HogFunctionTemplateOptions } from './components/HogFunctionTemplateOptions'
-import { humanizeHogFunctionType } from '../hog-function-utils'
 import { InlineEditableField } from './components/InlineEditableField'
 
 export interface HogFunctionConfigurationProps {

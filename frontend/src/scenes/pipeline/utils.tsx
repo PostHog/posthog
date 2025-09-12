@@ -1,11 +1,13 @@
-import { LemonMenuItem, LemonSkeleton, LemonTableColumn, lemonToast } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
+
+import { LemonMenuItem, LemonSkeleton, LemonTableColumn, lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 
 import {
@@ -17,8 +19,8 @@ import {
     PluginType,
 } from '~/types'
 
-import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { PluginImage, PluginImageSize } from './PipelinePluginImage'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
 import {
     Destination,
     ImportApp,

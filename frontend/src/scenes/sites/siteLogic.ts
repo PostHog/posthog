@@ -1,4 +1,5 @@
 import { kea, path, props, selectors } from 'kea'
+
 import { Scene } from 'scenes/sceneTypes'
 
 import { Breadcrumb } from '~/types'

@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconX } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
@@ -10,13 +12,13 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { OrganizationInviteType } from '~/types'
 
-import { inviteLogic } from './inviteLogic'
 import { EmailUnavailableForInvitesBanner } from './InviteModal'
+import { inviteLogic } from './inviteLogic'
 
 function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.Element {
     const url = new URL(`/signup/${id}`, document.baseURI).href

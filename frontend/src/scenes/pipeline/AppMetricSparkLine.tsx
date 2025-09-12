@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
 import { useEffect } from 'react'
 import { useInView } from 'react-intersection-observer'
+
+import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
 
 import { pipelineNodeMetricsLogic } from './pipelineNodeMetricsLogic'
 import { PipelineNode } from './types'

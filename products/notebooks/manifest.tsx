@@ -1,4 +1,3 @@
-import { IconNotebook } from '@posthog/icons'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
@@ -13,7 +12,7 @@ export const manifest: ProductManifest = {
     fileSystemTypes: {
         notebook: {
             name: 'Notebook',
-            icon: <IconNotebook />,
+            iconType: 'notebook',
             href: (ref: string) => urls.notebook(ref),
             filterKey: 'notebook',
         },
@@ -23,6 +22,7 @@ export const manifest: ProductManifest = {
             path: `Notebook`,
             type: 'notebook',
             href: urls.notebook('new'),
+            iconType: 'notebook',
         },
     ],
 }

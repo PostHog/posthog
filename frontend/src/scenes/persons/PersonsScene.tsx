@@ -1,17 +1,22 @@
+import { useActions, useAsyncActions, useValues } from 'kea'
+
 import { IconEllipsis, IconPeople } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonMenu } from '@posthog/lemon-ui'
-import { useActions, useAsyncActions, useValues } from 'kea'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
-import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
-import { personsSceneLogic } from './personsSceneLogic'
-
 import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
 import { SceneExport } from 'scenes/sceneTypes'
-import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { OnboardingStepKey, ProductKey } from '~/types'
+
+import { personsSceneLogic } from './personsSceneLogic'
 
 export const scene: SceneExport = {
     component: PersonsScene,
@@ -75,10 +80,8 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                 description="A catalog of all the people behind your events"
                 resourceType={{
                     type: 'person',
-                    typePlural: 'persons',
                     forceIcon: <IconPeople />,
                 }}
-                docsURL="https://posthog.com/docs/data/persons"
             />
             <SceneDivider />
 

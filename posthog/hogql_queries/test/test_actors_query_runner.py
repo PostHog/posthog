@@ -1,50 +1,47 @@
+from datetime import UTC, datetime
 from typing import cast
 
 import pytest
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
-from posthog.hogql import ast
-from posthog.hogql.test.utils import pretty_print_in_tests
-from posthog.hogql.visitor import clear_locations
-from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.group.util import create_group
-from posthog.models.utils import UUIDT
+from django.test import override_settings
+
 from posthog.schema import (
     ActorsQuery,
     BaseMathType,
     BreakdownFilter,
     BreakdownType,
-    EventPropertyFilter,
-    PersonPropertyFilter,
-    HogQLPropertyFilter,
-    PropertyOperator,
-    HogQLQuery,
-    LifecycleQuery,
     DateRange,
+    EventPropertyFilter,
     EventsNode,
-    IntervalType,
-    InsightActorsQuery,
-    TrendsQuery,
-    FunnelsQuery,
-    HogQLQueryModifiers,
     FunnelsActorsQuery,
+    FunnelsQuery,
+    HogQLPropertyFilter,
+    HogQLQuery,
+    HogQLQueryModifiers,
+    InsightActorsQuery,
+    IntervalType,
+    LifecycleQuery,
+    PersonPropertyFilter,
+    PersonsArgMaxVersion,
     PersonsOnEventsMode,
+    PropertyOperator,
+    TrendsQuery,
 )
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_person,
-    flush_persons_and_events,
-    _create_event,
-)
-from freezegun import freeze_time
-from django.test import override_settings
-from unittest.mock import patch
+
+from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
-from posthog.models.property_definition import PropertyDefinition, PropertyType
-from posthog.schema import PersonsArgMaxVersion
+from posthog.hogql.test.utils import pretty_print_in_tests
+from posthog.hogql.visitor import clear_locations
+
 from posthog.clickhouse.client import sync_execute
-from datetime import datetime, UTC
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.models.group.util import create_group
+from posthog.models.property_definition import PropertyDefinition, PropertyType
+from posthog.models.utils import UUIDT
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -514,7 +511,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 3
 
     def test_default_group_actors_query(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 

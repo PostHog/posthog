@@ -1,7 +1,8 @@
 import io
 
-import paramiko
 import pytest
+
+import paramiko
 
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
     InvalidPrivateKeyError,

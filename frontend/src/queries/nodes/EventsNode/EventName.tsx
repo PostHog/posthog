@@ -1,6 +1,6 @@
-import { EventName as EventNameComponent } from 'products/actions/frontend/components/EventName'
-
 import { EventsNode, EventsQuery } from '~/queries/schema/schema-general'
+
+import { EventName as EventNameComponent } from 'products/actions/frontend/components/EventName'
 
 interface EventNameProps {
     query: EventsNode | EventsQuery

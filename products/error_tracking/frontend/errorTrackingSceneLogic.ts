@@ -6,10 +6,10 @@ import { DataTableNode } from '~/queries/schema/schema-general'
 import { errorFiltersLogic } from './components/ErrorFilters/errorFiltersLogic'
 import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
 import { issueQueryOptionsLogic } from './components/IssueQueryOptions/issueQueryOptionsLogic'
+import { errorTrackingBulkSelectLogic } from './errorTrackingBulkSelectLogic'
 import type { errorTrackingSceneLogicType } from './errorTrackingSceneLogicType'
 import { errorTrackingQuery } from './queries'
 import { ERROR_TRACKING_LISTING_RESOLUTION } from './utils'
-import { errorTrackingBulkSelectLogic } from './errorTrackingBulkSelectLogic'
 
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingSceneLogic']),

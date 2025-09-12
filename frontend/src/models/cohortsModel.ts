@@ -1,9 +1,10 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import { v4 as uuidv4 } from 'uuid'
+
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { v4 as uuidv4 } from 'uuid'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { COHORT_EVENT_TYPES_WITH_EXPLICIT_DATETIME } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'

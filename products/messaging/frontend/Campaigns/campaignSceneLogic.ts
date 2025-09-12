@@ -1,5 +1,6 @@
 import { actions, kea, path, props, reducers, selectors } from 'kea'
-import { actionToUrl, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -35,11 +36,6 @@ export const campaignSceneLogic = kea<campaignSceneLogicType>([
             (id): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.Messaging,
-                        name: 'Messaging',
-                        path: urls.messaging('campaigns'),
-                    },
-                    {
                         key: [Scene.Messaging, 'campaigns'],
                         name: 'Campaigns',
                         path: urls.messaging('campaigns'),
@@ -53,7 +49,13 @@ export const campaignSceneLogic = kea<campaignSceneLogicType>([
         ],
     }),
     actionToUrl(({ props, values }) => ({
-        setCurrentTab: () => [urls.messagingCampaign(props.id || 'new', values.currentTab)],
+        setCurrentTab: () => {
+            return [
+                urls.messagingCampaign(props.id || 'new', values.currentTab),
+                router.values.searchParams,
+                router.values.hashParams,
+            ]
+        },
     })),
     urlToAction(({ actions, values }) => ({
         '/messaging/campaigns/:id/:tab': ({ tab }) => {

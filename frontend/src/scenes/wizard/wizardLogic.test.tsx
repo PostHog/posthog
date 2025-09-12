@@ -1,10 +1,13 @@
-import { initKeaTests } from '~/test/init'
-import { wizardLogic } from './wizardLogic'
-import { expectLogic } from 'kea-test-utils'
-import { router } from 'kea-router'
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
-import { AppContext } from '~/types'
+
+import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
+
 import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import { AppContext } from '~/types'
+
+import { wizardLogic } from './wizardLogic'
 
 const MOCK_HASH = 'mock-hash'
 

@@ -1,4 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
 import { dayjs } from 'lib/dayjs'
 
 import { AnyScaleOptions, Sparkline } from './Sparkline'

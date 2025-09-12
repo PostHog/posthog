@@ -1,11 +1,12 @@
 import { Meta } from '@storybook/react'
 
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
+
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
 import { InviteSignup } from './InviteSignup'
 import { inviteSignupLogic } from './inviteSignupLogic'
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const meta: Meta = {
     title: 'Scenes-Other/InviteSignup',

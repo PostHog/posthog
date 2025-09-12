@@ -1,10 +1,11 @@
 import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { userLogic } from 'scenes/userLogic'
+import { urlToAction } from 'kea-router'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { urlToAction } from 'kea-router'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import type { appLogicType } from './appLogicType'
 

@@ -1,7 +1,10 @@
 import { combineUrl } from 'kea-router'
+
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
+
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Error tracking',
@@ -16,6 +19,11 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/ErrorTrackingIssueScene'),
             projectBased: true,
             name: 'Error tracking issue',
+        },
+        ErrorTrackingIssueFingerprints: {
+            import: () => import('./frontend/ErrorTrackingIssueFingerprintsScene'),
+            projectBased: true,
+            name: 'Error tracking issue fingerprints',
         },
         ErrorTrackingConfiguration: {
             import: () => import('./frontend/configuration/ErrorTrackingConfigurationScene'),
@@ -34,6 +42,7 @@ export const manifest: ProductManifest = {
         '/error_tracking/configuration': ['ErrorTrackingConfiguration', 'errorTrackingConfiguration'],
         '/error_tracking/impact': ['ErrorTrackingImpact', 'errorTrackingImpact'],
         '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
+        '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
         '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
         '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
     },
@@ -45,6 +54,7 @@ export const manifest: ProductManifest = {
         /** @param id A UUID or 'new'. ':id' for routing. */
         errorTrackingIssue: (id: string, params: { timestamp?: string; fingerprint?: string } = {}): string =>
             combineUrl(`/error_tracking/${id}`, params).url,
+        errorTrackingIssueFingerprints: (id: string): string => `/error_tracking/${id}/fingerprints`,
         errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
         errorTrackingAlertNew: (templateId: string): string => `/error_tracking/alerts/new/${templateId}`,
     },
@@ -54,7 +64,12 @@ export const manifest: ProductManifest = {
         {
             path: 'Error tracking',
             category: 'Behavior',
-            iconType: 'errorTracking',
+            type: 'error_tracking',
+            iconType: 'error_tracking' as FileSystemIconType,
+            iconColor: [
+                'var(--color-product-error-tracking-light)',
+                'var(--color-product-error-tracking-dark)',
+            ] as FileSystemIconColor,
             href: urls.errorTracking(),
         },
     ],

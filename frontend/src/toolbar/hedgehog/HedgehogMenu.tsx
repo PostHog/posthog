@@ -1,5 +1,7 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { HedgehogOptions } from 'lib/components/HedgehogBuddy/HedgehogOptions'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'

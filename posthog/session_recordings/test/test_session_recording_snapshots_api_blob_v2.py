@@ -1,24 +1,16 @@
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import MagicMock, patch
 
-from freezegun import freeze_time
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Person, SessionRecording, PersonalAPIKey
+from posthog.models import Person, PersonalAPIKey, SessionRecording
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal, uuid7
-from posthog.session_recordings.models.session_recording_event import (
-    SessionRecordingViewed,
-)
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    QueryMatchingTest,
-)
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 
 class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
@@ -348,7 +340,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             "sources": [
                 {
                     "source": "blob_v2",
-                    "blob_key": "/the_lts_path/the_session_uuid",
+                    "blob_key": "the_lts_path/the_session_uuid",
                     # it's ok for these to be None, since we don't use the data anyway
                     # and this key is the whole session
                     "start_timestamp": None,

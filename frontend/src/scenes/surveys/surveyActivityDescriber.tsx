@@ -1,17 +1,18 @@
+import { P, match } from 'ts-pattern'
+
 import {
     ActivityChange,
     ActivityLogItem,
     ChangeMapping,
-    defaultDescriber,
     Description,
-    detectBoolean,
     HumanizedChange,
+    defaultDescriber,
+    detectBoolean,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/lemon-ui/Link'
 import { truncate } from 'lib/utils'
 import { urls } from 'scenes/urls'
-import { match, P } from 'ts-pattern'
 
 import {
     BasicSurveyQuestion,

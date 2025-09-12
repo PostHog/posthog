@@ -1,23 +1,37 @@
 import { DndContext, DragEndEvent } from '@dnd-kit/core'
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
-import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { LemonTable, LemonTableColumn, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
-import { LemonBadge, LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { clsx } from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
+import {
+    LemonBadge,
+    LemonButton,
+    LemonModal,
+    LemonTable,
+    LemonTableColumn,
+    LemonTag,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
+
+import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { useEffect, useState } from 'react'
+import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { RenderBatchExportIcon } from 'scenes/data-pipelines/batch-exports/BatchExportIcon'
-import { HogFunctionMetricSparkLine } from 'scenes/hog-functions/metrics/HogFunctionMetricsSparkline'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { AvailableFeature, HogFunctionTypeType, PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
 
 import { HogFunctionIcon } from '../../hog-functions/configuration/HogFunctionIcon'
@@ -28,11 +42,11 @@ import { FrontendApps } from '../FrontendApps'
 import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { Destination, FunctionDestination, PipelineBackend, SiteApp, Transformation } from '../types'
-import { usePipelineNodeMenuCommonItems, RenderApp } from '../utils'
+import { RenderApp, usePipelineNodeMenuCommonItems } from '../utils'
 import { DestinationsFilters } from './DestinationsFilters'
+import { DestinationOptionsTable } from './NewDestinations'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import { pipelineDestinationsLogic } from './destinationsLogic'
-import { DestinationOptionsTable } from './NewDestinations'
 
 export interface DestinationsProps {
     types: HogFunctionTypeType[]
@@ -40,30 +54,44 @@ export interface DestinationsProps {
 
 export function Destinations({ types }: DestinationsProps): JSX.Element {
     const { destinations, loading } = useValues(pipelineDestinationsLogic({ types }))
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
+    const hasNewPricing = !!useFeatureFlag('CDP_NEW_PRICING')
+
+    const productIntro = (
+        <ProductIntroduction
+            productName="Pipeline destinations"
+            thingName="destination"
+            productKey={ProductKey.PIPELINE_DESTINATIONS}
+            description="Pipeline destinations allow you to export data outside of PostHog, such as webhooks to Slack."
+            docsURL="https://posthog.com/docs/cdp"
+            actionElementOverride={<NewButton stage={PipelineStage.Destination} />}
+            isEmpty={destinations.length === 0 && !loading}
+        />
+    )
 
     return (
-        <>
+        <SceneContent forceNewSpacing>
             {types.includes('destination') ? (
                 <>
                     <PageHeader
-                        caption="Send your data in real time or in batches to destinations outside of PostHog."
+                        caption={
+                            !newSceneLayout
+                                ? 'Send your data in real time or in batches to destinations outside of PostHog.'
+                                : undefined
+                        }
                         buttons={<NewButton stage={PipelineStage.Destination} />}
                     />
-                    <PayGateMini feature={AvailableFeature.DATA_PIPELINES} className="mb-2">
-                        <ProductIntroduction
-                            productName="Pipeline destinations"
-                            thingName="destination"
-                            productKey={ProductKey.PIPELINE_DESTINATIONS}
-                            description="Pipeline destinations allow you to export data outside of PostHog, such as webhooks to Slack."
-                            docsURL="https://posthog.com/docs/cdp"
-                            actionElementOverride={<NewButton stage={PipelineStage.Destination} />}
-                            isEmpty={destinations.length === 0 && !loading}
-                        />
-                    </PayGateMini>
+                    {hasNewPricing ? (
+                        productIntro
+                    ) : (
+                        <PayGateMini feature={AvailableFeature.DATA_PIPELINES} className="mb-2">
+                            {productIntro}
+                        </PayGateMini>
+                    )}
                 </>
             ) : types.includes('site_app') ? (
                 <PageHeader
-                    caption="Run custom scripts on your website."
+                    caption={!newSceneLayout ? 'Run custom scripts on your website.' : undefined}
                     buttons={<NewButton stage={PipelineStage.SiteApp} />}
                 />
             ) : types.includes('transformation') ? (
@@ -72,21 +100,61 @@ export function Destinations({ types }: DestinationsProps): JSX.Element {
                 </>
             ) : null}
 
+            {newSceneLayout && (
+                <>
+                    <>
+                        {types.includes('destination') ? (
+                            <>
+                                <p className="m-0">
+                                    Send your data in real time or in batches to destinations outside of PostHog.
+                                </p>
+                            </>
+                        ) : types.includes('site_app') ? (
+                            <p className="m-0">Run custom scripts on your website.</p>
+                        ) : null}
+                    </>
+                </>
+            )}
+
             <DestinationsTable types={types} />
-            <div className="mt-4" />
-            <h2>
-                {types.includes('destination')
-                    ? 'New destinations'
-                    : types.includes('site_app')
-                      ? 'New site app'
-                      : types.includes('transformation')
-                        ? 'New transformation'
-                        : 'New'}
-            </h2>
-            <DestinationOptionsTable types={types} />
+            <SceneDivider />
+            <SceneSection
+                title={
+                    <span className="flex items-center gap-2">
+                        {types.includes('destination')
+                            ? 'New destinations'
+                            : types.includes('site_app')
+                              ? 'New site app'
+                              : types.includes('transformation')
+                                ? 'New transformation'
+                                : 'New'}
+                    </span>
+                }
+                hideTitleAndDescription={!newSceneLayout}
+            >
+                <>
+                    {!newSceneLayout && (
+                        <h2>
+                            {types.includes('destination')
+                                ? 'New destinations'
+                                : types.includes('site_app')
+                                  ? 'New site app'
+                                  : types.includes('transformation')
+                                    ? 'New transformation'
+                                    : 'New'}
+                        </h2>
+                    )}
+                    <DestinationOptionsTable types={types} />
+                </>
+            </SceneSection>
             {/* Old site-apps until we migrate everyone onto the new ones */}
-            {types.includes('site_app') ? <FrontendApps asLegacyList /> : null}
-        </>
+            {types.includes('site_app') ? (
+                <>
+                    <SceneDivider />
+                    <FrontendApps asLegacyList />
+                </>
+            ) : null}
+        </SceneContent>
     )
 }
 
@@ -262,7 +330,17 @@ export function DestinationsTable({
                                               )}
                                           >
                                               {destination.backend === PipelineBackend.HogFunction ? (
-                                                  <HogFunctionMetricSparkLine id={destination.hog_function.id} />
+                                                  <AppMetricsSparkline
+                                                      logicKey={destination.hog_function.id}
+                                                      forceParams={{
+                                                          appSource: 'hog_function',
+                                                          appSourceId: destination.hog_function.id,
+                                                          metricKind: ['success', 'failure'],
+                                                          breakdownBy: 'metric_kind',
+                                                          interval: 'day',
+                                                          dateFrom: '-7d',
+                                                      }}
+                                                  />
                                               ) : (
                                                   <AppMetricSparkLine pipelineNode={destination} />
                                               )}

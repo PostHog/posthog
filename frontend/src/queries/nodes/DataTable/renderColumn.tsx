@@ -1,10 +1,11 @@
 import { combineUrl, router } from 'kea-router'
+
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { Property } from 'lib/components/Property'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -35,6 +36,7 @@ import {
     trimQuotes,
 } from '~/queries/utils'
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
+
 import { extractExpressionComment, removeExpressionComment } from './utils'
 
 export function getContextColumn(
@@ -146,7 +148,13 @@ export function renderColumn(
         const eventRecord = query.source.select.includes('*') ? resultRow[query.source.select.indexOf('*')] : null
 
         if (value === '$autocapture' && eventRecord) {
-            return autoCaptureEventToDescription(eventRecord)
+            return (
+                <PropertyKeyInfo
+                    value={value}
+                    displayText={autoCaptureEventToDescription(eventRecord)}
+                    type={TaxonomicFilterGroupType.Events}
+                />
+            )
         }
         const content = <PropertyKeyInfo value={value} type={TaxonomicFilterGroupType.Events} />
         const $sentry_url = eventRecord?.properties?.$sentry_url

@@ -1,8 +1,10 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
+
 import { dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -19,7 +21,6 @@ import {
 import { ExternalDataSource } from '~/types'
 
 import type { revenueAnalyticsSettingsLogicType } from './revenueAnalyticsSettingsLogicType'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 const createEmptyConfig = (): RevenueAnalyticsConfig => ({
     events: [],
@@ -61,11 +62,16 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
             teamLogic,
             ['currentTeam', 'currentTeamId'],
             dataWarehouseSettingsLogic,
-            ['dataWarehouseSources'],
+            ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
             databaseTableListLogic,
             ['database'],
         ],
-        actions: [teamLogic, ['updateCurrentTeam'], dataWarehouseSettingsLogic, ['updateSource']],
+        actions: [
+            teamLogic,
+            ['updateCurrentTeam'],
+            dataWarehouseSettingsLogic,
+            ['updateSourceRevenueAnalyticsConfig', 'deleteJoin'],
+        ],
     })),
     actions({
         addEvent: (eventName: string, revenueCurrency: CurrencyCode) => ({ eventName, revenueCurrency }),
@@ -233,8 +239,8 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
 
         enabledDataWarehouseSources: [
             (s) => [s.dataWarehouseSources],
-            (dataWarehouseSources: ExternalDataSource[]): ExternalDataSource[] => {
-                return dataWarehouseSources?.filter((source) => source.revenue_analytics_enabled) ?? []
+            (dataWarehouseSources): ExternalDataSource[] => {
+                return dataWarehouseSources?.results?.filter((source) => source.revenue_analytics_config.enabled) ?? []
             },
         ],
 

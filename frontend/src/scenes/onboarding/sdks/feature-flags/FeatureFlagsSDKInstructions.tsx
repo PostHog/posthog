@@ -1,9 +1,7 @@
-import { SDKInstructionsMap, SDKKey } from '~/types'
-
 import {
+    FeatureFlagsAPIInstructions,
     FeatureFlagsAndroidInstructions,
     FeatureFlagsAngularInstructions,
-    FeatureFlagsAPIInstructions,
     FeatureFlagsAstroInstructions,
     FeatureFlagsBubbleInstructions,
     FeatureFlagsDjangoInstructions,
@@ -18,14 +16,16 @@ import {
     FeatureFlagsNuxtJSInstructions,
     FeatureFlagsPHPInstructions,
     FeatureFlagsPythonInstructions,
+    FeatureFlagsRNInstructions,
     FeatureFlagsReactInstructions,
     FeatureFlagsRemixJSInstructions,
-    FeatureFlagsRNInstructions,
     FeatureFlagsRubyInstructions,
     FeatureFlagsSvelteInstructions,
     FeatureFlagsVueInstructions,
     FeatureFlagsWebflowInstructions,
 } from '.'
+
+import { SDKInstructionsMap, SDKKey } from '~/types'
 
 export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: FeatureFlagsJSWebInstructions,

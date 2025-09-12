@@ -1,3 +1,7 @@
+import { useValues } from 'kea'
+import { Group } from 'kea-forms'
+import { memo, useEffect, useState } from 'react'
+
 import { IconArrowRight, IconEllipsis, IconFilter, IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
@@ -11,12 +15,10 @@ import {
     LemonTag,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
-import { Group } from 'kea-forms'
+
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { memo, useEffect, useState } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
@@ -112,7 +114,7 @@ export function HogFunctionMapping({
                 <ActionFilter
                     filters={mapping.filters ?? ({} as any)}
                     setFilters={(f: any) => onChange({ ...mapping, filters: f })}
-                    typeKey="match-group"
+                    typeKey={`match-group-${index}`}
                     mathAvailability={MathAvailability.None}
                     hideRename
                     hideDuplicate

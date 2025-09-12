@@ -1,11 +1,14 @@
 import abc
+from typing import Optional
+from urllib.parse import parse_qs, urlparse
+
+from django.conf import settings
+
+import snappy
 import structlog
+import posthoganalytics
 from boto3 import client as boto3_client
 from botocore.client import Config
-from django.conf import settings
-from urllib.parse import urlparse, parse_qs
-import snappy
-from typing import Optional
 
 logger = structlog.get_logger(__name__)
 
@@ -132,6 +135,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             return snappy.decompress(file_body).decode("utf-8")
 
         except Exception as e:
+            posthoganalytics.tag("bucket", self.bucket)
             logger.exception("Failed to read and decompress file", error=e)
             raise FileFetchError(f"Failed to read and decompress file: {str(e)}")
 

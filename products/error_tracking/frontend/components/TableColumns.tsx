@@ -1,25 +1,27 @@
+import { useActions, useValues } from 'kea'
+
+import { IconChevronDown, IconMinus } from '@posthog/icons'
 import { LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-ui'
+
+import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
-import { IconChevronDown, IconMinus } from '@posthog/icons'
-import { AssigneeIconDisplay, AssigneeLabelDisplay } from './Assignee/AssigneeDisplay'
-import { IssueStatusSelect } from './IssueStatusSelect'
-import { AssigneeSelect } from './Assignee/AssigneeSelect'
-import { RuntimeIcon } from './RuntimeIcon'
-import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 import { urls } from 'scenes/urls'
-import { getRuntimeFromLib } from 'lib/components/Errors/utils'
+
 import { ErrorTrackingCorrelatedIssue, ErrorTrackingIssue } from '~/queries/schema/schema-general'
-import { useActions, useValues } from 'kea'
-import { issueActionsLogic } from './IssueActions/issueActionsLogic'
+
 import { errorTrackingBulkSelectLogic } from '../errorTrackingBulkSelectLogic'
+import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
+import { AssigneeIconDisplay, AssigneeLabelDisplay } from './Assignee/AssigneeDisplay'
+import { AssigneeSelect } from './Assignee/AssigneeSelect'
+import { issueActionsLogic } from './IssueActions/issueActionsLogic'
+import { IssueStatusSelect } from './IssueStatusSelect'
+import { RuntimeIcon } from './RuntimeIcon'
 
 export const IssueListTitleHeader = ({
     results,
-    columnName,
 }: {
     results: (ErrorTrackingIssue | ErrorTrackingCorrelatedIssue)[]
-    columnName: string
 }): JSX.Element => {
     const { selectedIssueIds } = useValues(errorTrackingBulkSelectLogic)
     const { setSelectedIssueIds } = useActions(errorTrackingBulkSelectLogic)
@@ -31,7 +33,7 @@ export const IssueListTitleHeader = ({
                 checked={allSelected}
                 onChange={() => (allSelected ? setSelectedIssueIds([]) : setSelectedIssueIds(results.map((r) => r.id)))}
             />
-            {columnName}
+            <span>Issue</span>
         </div>
     )
 }

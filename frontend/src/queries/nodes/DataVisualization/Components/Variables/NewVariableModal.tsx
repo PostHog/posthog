@@ -1,3 +1,5 @@
+import { useActions, useValues } from 'kea'
+
 import {
     LemonButton,
     LemonDialog,
@@ -7,7 +9,7 @@ import {
     LemonSegmentedButton,
     LemonSelect,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -15,6 +17,17 @@ import { Variable, VariableType } from '../../types'
 import { VariableCalendar } from './VariableCalendar'
 import { variableDataLogic } from './variableDataLogic'
 import { variableModalLogic } from './variableModalLogic'
+
+const getCodeName = (name: string): string => {
+    return (
+        name
+            .trim()
+            //  Filter out all characters that is not a letter, number or space
+            .replace(/[^a-zA-Z0-9\s]/g, '')
+            .replace(/\s/g, '_')
+            .toLowerCase()
+    )
+}
 
 const renderVariableSpecificFields = (
     variable: Variable,
@@ -173,6 +186,9 @@ export const NewVariableModal = (): JSX.Element => {
                         value={variable.name}
                         onChange={(value) => updateVariable({ ...variable, name: value })}
                     />
+                    {modalType === 'new' && variable.name.length > 0 && (
+                        <span className="text-xs">{`Use this variable by referencing {variables.${getCodeName(variable.name)}}.`}</span>
+                    )}
                 </LemonField.Pure>
                 <LemonField.Pure label="Type" className="gap-1">
                     <LemonSelect

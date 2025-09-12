@@ -133,6 +133,8 @@ const NO_PLURAL_SCOPES: ActivityScope[] = [
 
 const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plural: string }>> = {
     [ActivityScope.ALERT_CONFIGURATION]: { singular: 'Alert', plural: 'Alerts' },
+    [ActivityScope.BATCH_EXPORT]: { singular: 'Destination', plural: 'Destinations' },
+    [ActivityScope.EXTERNAL_DATA_SOURCE]: { singular: 'Source', plural: 'Sources' },
 }
 
 export function humanizeScope(scope: ActivityScope | string, singular = false): string {
@@ -151,6 +153,12 @@ export function humanizeScope(scope: ActivityScope | string, singular = false): 
     return output
 }
 
+export function humanizeActivity(activity: string): string {
+    activity = activity.replace('_', ' ')
+
+    return activity.charAt(0).toUpperCase() + activity.slice(1)
+}
+
 export function defaultDescriber(
     logItem: ActivityLogItem,
     asNotification = false,
@@ -163,6 +171,26 @@ export function defaultDescriber(
             description: (
                 <>
                     <strong>{userNameForLogItem(logItem)}</strong> deleted <b>{resource}</b>
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'created') {
+        return {
+            description: (
+                <>
+                    <strong>{userNameForLogItem(logItem)}</strong> created <b>{resource}</b>
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'updated') {
+        return {
+            description: (
+                <>
+                    <strong>{userNameForLogItem(logItem)}</strong> updated <b>{resource}</b>
                 </>
             ),
         }

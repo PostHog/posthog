@@ -1,14 +1,15 @@
 import './PanelSettings.scss'
 
+import { PropsWithChildren } from 'react'
+
 import {
     LemonButton,
-    LemonButtonWithoutSideActionProps,
     LemonButtonWithSideActionProps,
+    LemonButtonWithoutSideActionProps,
 } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem, LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
-import { PropsWithChildren } from 'react'
 
 /**
  * TODO the lemon button font only has 700 and 800 weights available.

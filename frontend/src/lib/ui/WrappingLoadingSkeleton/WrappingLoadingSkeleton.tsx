@@ -1,5 +1,6 @@
-import { cn } from 'lib/utils/css-classes'
 import './WrappingLoadingSkeleton.scss'
+
+import { cn } from 'lib/utils/css-classes'
 
 interface WrappingLoadingSkeletonProps {
     fullWidth?: boolean

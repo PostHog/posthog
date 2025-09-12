@@ -1,12 +1,16 @@
-import { LemonBanner, LemonDivider, LemonFileInput, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
+
+import { IconCopy, IconInfo, IconTrash } from '@posthog/icons'
+import { LemonBanner, LemonDivider, LemonFileInput, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
+
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
+import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { TZLabel } from 'lib/components/TZLabel'
 import { CohortTypeEnum, FEATURE_FLAGS } from 'lib/constants'
-import { IconErrorOutline, IconUploadFile } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -15,33 +19,40 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconErrorOutline, IconUploadFile } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { pluralize } from 'lib/utils'
-import { cohortEditLogic, CohortLogicProps } from 'scenes/cohorts/cohortEditLogic'
+import { cn } from 'lib/utils/css-classes'
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
+import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { urls } from 'scenes/urls'
+
 import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
-
-import { SceneAddToDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDropdownMenu'
-import { SceneFile } from 'lib/components/Scenes/SceneFile'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
+import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 
-import { IconCopy, IconTrash } from '@posthog/icons'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { AddPersonToCohortModal } from './AddPersonToCohortModal'
+import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 import { createCohortDataNodeLogicKey } from './cohortUtils'
-import { SceneContent, SceneDivider, SceneSection, SceneTitleSection } from '~/layout/scenes/SceneContent'
-import { cn } from 'lib/utils/css-classes'
-import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
+
 const RESOURCE_TYPE = 'cohort'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
+
     const logic = cohortEditLogic(logicProps)
     const { deleteCohort, setOuterGroupsType, setQuery, duplicateCohort, setCohortValue } = useActions(logic)
+    const modalLogic = addPersonToCohortModalLogic(logicProps)
+    const { showAddPersonToCohortModal } = useActions(modalLogic)
     const { cohort, cohortLoading, cohortMissing, query, duplicatedCohortLoading } = useValues(logic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const { featureFlags } = useValues(featureFlagLogic)
@@ -64,6 +75,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     }
     return (
         <div className="cohort">
+            <AddPersonToCohortModal id={id} />
             <PageHeader
                 buttons={
                     <div className="flex items-center gap-2">
@@ -157,8 +169,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                 <ScenePanelDivider />
 
                 <ScenePanelActions>
-                    <SceneAddToDropdownMenu
-                        notebook={true}
+                    <SceneAddToNotebookDropdownMenu
                         dataAttrKey={RESOURCE_TYPE}
                         disabledReasons={{
                             'Save the cohort first': isNewCohort,
@@ -209,21 +220,20 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                 <SceneContent>
                     <SceneTitleSection
                         name={cohort.name}
-                        description={cohort.description}
+                        description={cohort.description || ''}
                         resourceType={{
                             to: urls.cohorts(),
                             type: RESOURCE_TYPE,
-                            typePlural: 'cohorts',
-                            tooltip: 'Go to all cohorts',
                         }}
                         isLoading={cohortLoading}
-                        onNameBlur={(value) => {
+                        onNameChange={(value) => {
                             setCohortValue('name', value)
                         }}
-                        onDescriptionBlur={(value) => {
+                        onDescriptionChange={(value) => {
                             setCohortValue('description', value)
                         }}
-                        docsURL="https://posthog.com/docs/data/cohorts"
+                        canEdit
+                        forceEdit={isNewCohort}
                     />
 
                     <SceneDivider />
@@ -336,27 +346,70 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             <SceneDivider />
                             <SceneSection
                                 title={isNewCohort ? 'Upload users' : 'Add users'}
-                                description="Upload a CSV file to add users to your cohort. The CSV file only requires a single column with the user's distinct ID. The very first row (the header) will be skipped during import."
+                                description={
+                                    isNewCohort
+                                        ? `Upload a CSV file to add users to your cohort. For single-column files, include
+                                        one distinct ID per row (all rows will be processed as data). For multi-column
+                                        files, include a header row with a 'distinct_id' column containing the user
+                                        identifiers.`
+                                        : undefined
+                                }
                                 className={cn('ph-ignore-input', !newSceneLayout && 'mt-4')}
                             >
+                                {!isNewCohort && newSceneLayout && (
+                                    <div className="flex flex-col gap-y-0 flex-1 justify-center">
+                                        <h3 className="text-sm">Upload a CSV</h3>
+                                        <span className="max-w-prose">
+                                            Upload a CSV file to add users to your cohort. For single-column files,
+                                            include one distinct ID per row (all rows will be processed as data). For
+                                            multi-column files, include a header row with a 'distinct_id' column
+                                            containing the user identifiers.
+                                        </span>
+                                    </div>
+                                )}
                                 {/* TODO: @adamleithp Allow users to download a template CSV file */}
                                 {/* TODO: @adamleithp Tell users that adding ANOTHER file will NOT(?) replace the current one */}
                                 {/* TODO: @adamleithp Render the csv file and validate it */}
                                 {/* TODO: @adamleithp Adding a csv file doesn't show up with cohort.csv... */}
-
                                 <LemonField
                                     name="csv"
-                                    label={newSceneLayout ? null : isNewCohort ? 'Upload users' : 'Add users'}
+                                    label={newSceneLayout ? null : isNewCohort ? null : 'Upload users'}
                                     data-attr="cohort-csv"
                                 >
                                     {({ onChange }) => (
                                         <>
-                                            {!newSceneLayout && (
-                                                <span>
-                                                    Upload a CSV file to add users to your cohort. The CSV file only
-                                                    requires a single column with the user's distinct ID. The very first
-                                                    row (the header) will be skipped during import.
-                                                </span>
+                                            {!newSceneLayout && !isNewCohort && (
+                                                <div className="flex items-center gap-2">
+                                                    <span>
+                                                        Upload a CSV file to add users to your cohort using distinct IDs
+                                                        or person UUIDs.
+                                                    </span>
+                                                    <Tooltip
+                                                        title={
+                                                            <>
+                                                                <div className="space-y-2">
+                                                                    <div>
+                                                                        <strong>Distinct IDs:</strong> Use "
+                                                                        <code>distinct_id</code>" (or "
+                                                                        <code>distinct-id</code>") as the column header
+                                                                        (for multi-column CSV uploads) or include one
+                                                                        distinct ID per row (no header needed) for a
+                                                                        single-column CSV.
+                                                                    </div>
+                                                                    <div>
+                                                                        <strong>Person UUIDs:</strong> Use "
+                                                                        <code>person_id</code>" (or "
+                                                                        <code>person-id</code>" or "
+                                                                        <code>Person .id</code>") as the column header
+                                                                        (for single-column or multi-column CSV uploads).
+                                                                    </div>
+                                                                </div>
+                                                            </>
+                                                        }
+                                                    >
+                                                        <IconInfo className="text-secondary text-lg" />
+                                                    </Tooltip>
+                                                </div>
                                             )}
                                             <LemonFileInput
                                                 accept=".csv"
@@ -412,6 +465,24 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     )}
                                 </LemonField>
                             </SceneSection>
+                            {!isNewCohort && (
+                                <>
+                                    <LemonDivider label="OR" />
+                                    <div>
+                                        <h3 className="text-sm">Add users manually</h3>
+                                        <span className="max-w-prose">
+                                            Select the users that you would like to add to the cohort.
+                                        </span>
+                                        <LemonButton
+                                            className="w-fit mt-4"
+                                            type="primary"
+                                            onClick={showAddPersonToCohortModal}
+                                        >
+                                            Add Users
+                                        </LemonButton>
+                                    </div>
+                                </>
+                            )}
                         </>
                     ) : (
                         <>

@@ -1,5 +1,5 @@
-import { IconPreview } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
+import { IconPreview } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { Node } from '~/queries/schema/schema-general'

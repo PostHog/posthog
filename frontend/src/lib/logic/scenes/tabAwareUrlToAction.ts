@@ -1,7 +1,8 @@
 import { BuiltLogic, Logic } from 'kea'
-import { UrlToActionPayload } from 'kea-router/lib/types'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { urlToAction } from 'kea-router'
+import { UrlToActionPayload } from 'kea-router/lib/types'
+
+import { sceneLogic } from 'scenes/sceneLogic'
 
 export const tabAwareUrlToAction = <L extends Logic = Logic>(
     input: UrlToActionPayload<L> | ((logic: BuiltLogic<L>) => UrlToActionPayload<L>)

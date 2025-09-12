@@ -1,5 +1,7 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { IntegrationEmailDomainView } from './IntegrationEmailDomainView'

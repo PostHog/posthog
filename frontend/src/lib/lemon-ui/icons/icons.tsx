@@ -2,8 +2,9 @@
 import './icons.scss'
 
 import clsx from 'clsx'
-import { LemonBadge, LemonBadgeProps } from 'lib/lemon-ui/LemonBadge'
 import { CSSProperties, PropsWithChildren, SVGAttributes } from 'react'
+
+import { LemonBadge, LemonBadgeProps } from 'lib/lemon-ui/LemonBadge'
 
 interface IconWithBadgeProps {
     content: LemonBadgeProps['content']
@@ -1842,6 +1843,70 @@ export function IconVerticalAlignCenter(props: LemonIconProps): JSX.Element {
                 d="M11.8214 24V17.0667L8.97143 19.8667L8.01091 18.923L12.5 14.5127L16.9891 18.923L16.0286 19.8667L13.1786 17.0667V24H11.8214ZM3 12.6667V11.3333H22V12.6667H3ZM12.5 9.48733L8.01091 5.077L8.97143 4.13333L11.8214 6.93333V0H13.1786V6.93333L16.0286 4.13333L16.9891 5.077L12.5 9.48733Z"
                 fill="currentColor"
             />
+        </LemonIconBase>
+    )
+}
+
+/** @deprecated and will be replaced soon*/
+export function IconRecordingClip(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 24 24" {...props}>
+            {/* Film frame, scaled down and shifted right */}
+            <g transform="translate(9 6) scale(0.66)">
+                <path d="M0 0h24v24H0z" fill="none" />
+                <path
+                    d="M4 6a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2z"
+                    stroke="currentColor"
+                    strokeWidth="1"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                />
+                <path d="M8 4v16" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+                <path d="M16 4v16" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+                <path d="M4 8h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+                <path d="M4 12h16" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+                <path d="M4 16h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+                <path d="M16 8h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+                <path d="M16 16h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+            </g>
+
+            {/* Scissors, shifted left */}
+            <g transform="translate(-2 0)">
+                <path d="M0 0h24v24H0z" fill="none" />
+                <path
+                    d="M6 7a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                />
+                <path
+                    d="M6 17a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                />
+                <path
+                    d="M8.6 8.6l10.4 10.4"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                />
+                <path
+                    d="M8.6 15.4l10.4 -10.4"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                />
+            </g>
         </LemonIconBase>
     )
 }

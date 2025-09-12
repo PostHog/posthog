@@ -1,13 +1,16 @@
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-
-import { IconWarning } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { IconWarning } from '@posthog/icons'
+
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { urls } from 'scenes/urls'
+
 import { InsightLogicProps, InsightShortId } from '~/types'
+
 import { insightAlertsLogic } from '../Alerts/insightAlertsLogic'
 import { SceneDataAttrKeyProps } from './utils'
-import { urls } from 'scenes/urls'
 
 interface SceneAlertsButtonProps extends SceneDataAttrKeyProps {
     insightId: number

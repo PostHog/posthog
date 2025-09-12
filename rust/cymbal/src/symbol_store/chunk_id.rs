@@ -86,23 +86,27 @@ where
         // If we failed to parse this chunk's data in the past, we should not try again.
         // Note that in situations where we're running beneath a `Saving` layer, we'll
         // never reach this point, but we still handle the case for correctness sake
-        if let Some(failure_reason) = record.failure_reason {
+        if let Some(failure_reason) = &record.failure_reason {
             counter!(CHUNK_ID_FAILURE_FETCHED).increment(1);
             let error: FrameError =
-                serde_json::from_str(&failure_reason).map_err(UnhandledError::from)?;
+                serde_json::from_str(failure_reason).map_err(UnhandledError::from)?;
             return Err(error.into());
         }
 
-        let Some(storage_ptr) = record.storage_ptr else {
+        let Some(storage_ptr) = &record.storage_ptr else {
             // It's never valid to have no failure reason and no storage pointer - if we hit this case, just panic
             error!("No storage pointer found for chunk id {}", id);
             panic!("No storage pointer found for chunk id {id}");
         };
 
-        self.client
-            .get(&self.bucket, &storage_ptr)
-            .await
-            .map_err(|e| e.into())
+        let Ok(data) = self.client.get(&self.bucket, storage_ptr).await else {
+            let mut record = record;
+            record.delete(&self.pool).await?;
+            // This is kind-of false - the actual problem is missing data in s3, with a record that exists, rather than no record being found for
+            // a given chunk id - but it's close enough that it's fine for a temporary fix.
+            return Err(FrameError::MissingChunkIdData(record.set_ref).into());
+        };
+        Ok(data)
     }
 }
 

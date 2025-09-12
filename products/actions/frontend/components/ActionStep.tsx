@@ -1,21 +1,22 @@
+import { useValues } from 'kea'
+
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSegmentedButton, Link } from '@posthog/lemon-ui'
+
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { OperandTag } from 'lib/components/PropertyFilters/components/OperandTag'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { IconOpenInApp } from 'lib/lemon-ui/icons'
-
+import { OperandTag } from 'lib/components/PropertyFilters/components/OperandTag'
+import { DEFAULT_TAXONOMIC_GROUP_TYPES } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { URL_MATCHING_HINTS } from '../utils/hints'
-import { useValues } from 'kea'
-import { groupsModel } from '~/models/groupsModel'
+import { IconOpenInApp } from 'lib/lemon-ui/icons'
 
+import { groupsModel } from '~/models/groupsModel'
 import { ActionStepStringMatching, ActionStepType } from '~/types'
 
+import { URL_MATCHING_HINTS } from '../utils/hints'
 import { EventName } from './EventName'
-import { DEFAULT_TAXONOMIC_GROUP_TYPES } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 
 const learnMoreLink = 'https://posthog.com/docs/data/actions?utm_medium=in-product&utm_campaign=action-page'
 

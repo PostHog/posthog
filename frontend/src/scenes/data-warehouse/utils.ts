@@ -1,4 +1,4 @@
-import { DatabaseSchemaField, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, DatabaseSchemaField, NodeKind } from '~/queries/schema/schema-general'
 import { DataWarehouseSyncInterval, ExternalDataSourceSyncSchema } from '~/types'
 
 export const DATAWAREHOUSE_EDITOR_ITEM_ID = 'new-SQL'

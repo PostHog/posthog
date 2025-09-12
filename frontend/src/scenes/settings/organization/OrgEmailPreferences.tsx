@@ -1,5 +1,7 @@
-import { LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonSwitch } from '@posthog/lemon-ui'
+
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'

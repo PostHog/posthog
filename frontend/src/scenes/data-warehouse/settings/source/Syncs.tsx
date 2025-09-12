@@ -1,11 +1,13 @@
-import { LemonButton, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
+
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { ExternalDataJob, ExternalDataJobStatus } from '~/types'
 
-import { dataWarehouseSourceSettingsLogic } from './dataWarehouseSourceSettingsLogic'
 import { LogsView } from './Logs'
+import { dataWarehouseSourceSettingsLogic } from './dataWarehouseSourceSettingsLogic'
 
 const StatusTagSetting: Record<ExternalDataJob['status'], LemonTagType> = {
     Running: 'primary',
@@ -20,8 +22,10 @@ interface SyncsProps {
 }
 
 export const Syncs = ({ id }: SyncsProps): JSX.Element => {
-    const { jobs, jobsLoading, canLoadMoreJobs } = useValues(dataWarehouseSourceSettingsLogic({ id }))
-    const { loadMoreJobs } = useActions(dataWarehouseSourceSettingsLogic({ id }))
+    const { jobs, jobsLoading, canLoadMoreJobs } = useValues(
+        dataWarehouseSourceSettingsLogic({ id, availableSources: {} })
+    )
+    const { loadMoreJobs } = useActions(dataWarehouseSourceSettingsLogic({ id, availableSources: {} }))
 
     return (
         <LemonTable

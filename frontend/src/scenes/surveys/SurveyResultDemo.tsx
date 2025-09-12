@@ -1,12 +1,14 @@
+import { useValues } from 'kea'
+import { useMemo } from 'react'
+
 import { IconGraph, IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTable } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+
 import { TZLabel } from 'lib/components/TZLabel'
-import { useMemo } from 'react'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { SurveyStatsSummaryWithData } from 'scenes/surveys/SurveyStatsSummary'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { SurveyStatsSummaryWithData } from 'scenes/surveys/SurveyStatsSummary'
 
 import { SurveyQuestionType } from '~/types'
 

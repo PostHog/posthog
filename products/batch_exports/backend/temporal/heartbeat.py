@@ -1,9 +1,7 @@
-import collections.abc
-import dataclasses
-import datetime as dt
 import typing
-
-import structlog
+import datetime as dt
+import dataclasses
+import collections.abc
 
 from posthog.temporal.common.heartbeat import (
     EmptyHeartbeatError,
@@ -11,10 +9,11 @@ from posthog.temporal.common.heartbeat import (
     HeartbeatParseError,
     NotEnoughHeartbeatValuesError,
 )
+from posthog.temporal.common.logger import get_write_only_logger
 
 DateRange = tuple[dt.datetime, dt.datetime]
 
-logger = structlog.get_logger()
+logger = get_write_only_logger()
 
 
 @dataclasses.dataclass

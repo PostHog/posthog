@@ -1,12 +1,12 @@
 import { useValues } from 'kea'
+
 import { PageHeader } from 'lib/components/PageHeader'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 import { groupsModel } from '~/models/groupsModel'
 
 import { personsManagementSceneLogic } from './personsManagementSceneLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export interface PersonsManagementSceneTabsProps {
     tabKey: string
@@ -15,8 +15,7 @@ export interface PersonsManagementSceneTabsProps {
 export function PersonsManagementSceneTabs({ tabKey, buttons }: PersonsManagementSceneTabsProps): JSX.Element {
     const { lemonTabs } = useValues(personsManagementSceneLogic)
     const { showGroupsOptions } = useValues(groupsModel)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     return (
         <>
@@ -31,7 +30,7 @@ export function PersonsManagementSceneTabs({ tabKey, buttons }: PersonsManagemen
                 buttons={buttons}
             />
 
-            <LemonTabs activeKey={tabKey} tabs={lemonTabs} className="-mt-4 -mx-4 [&>ul]:px-4 [&>ul]:mb-0" />
+            <LemonTabs activeKey={tabKey} tabs={lemonTabs} sceneInset={newSceneLayout} className="[&>ul]:mb-0" />
         </>
     )
 }

@@ -1,11 +1,13 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
+import { useCallback } from 'react'
+
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
 import { FingerprintRecordPartDisplay } from 'lib/components/Errors/FingerprintRecordPartDisplay'
 import { ChainedStackTraces, ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
+import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
-import { useCallback } from 'react'
 
 import { cancelEvent } from '../../../utils'
 import { RuntimeIcon } from '../../RuntimeIcon'

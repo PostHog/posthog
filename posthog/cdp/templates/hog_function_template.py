@@ -1,9 +1,8 @@
 import dataclasses
-from typing import Literal, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, Optional
 
 from posthog.api.hog_function_template import HogFunctionTemplateSerializer
 from posthog.models.hog_function_template import HogFunctionTemplate
-
 
 if TYPE_CHECKING:
     from posthog.models.plugin import PluginConfig

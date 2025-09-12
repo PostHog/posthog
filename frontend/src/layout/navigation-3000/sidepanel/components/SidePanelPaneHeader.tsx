@@ -1,7 +1,8 @@
-import { IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
+import { IconX } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 

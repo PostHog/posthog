@@ -100,8 +100,6 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
 
             .funnel-step-title {
                 font-weight: bold;
-
-                @extend %mixin-text-ellipsis;
             }
 
             button {

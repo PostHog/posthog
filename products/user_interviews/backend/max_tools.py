@@ -1,7 +1,10 @@
-from ee.hogai.tool import MaxTool
-from pydantic import BaseModel, Field
-from openai import OpenAI
 from typing import Any
+
+from openai import OpenAI
+from pydantic import BaseModel, Field
+
+from ee.hogai.tool import MaxTool
+
 from .models import UserInterview
 
 

@@ -1,16 +1,18 @@
-import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { DashboardTemplateChooser } from 'scenes/dashboard/DashboardTemplateChooser'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 import { OnboardingStepKey, TemplateAvailabilityContext } from '~/types'
 
-import { onboardingLogic } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
+import { onboardingLogic } from '../onboardingLogic'
 import { onboardingTemplateConfigLogic } from './onboardingTemplateConfigLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export const OnboardingDashboardTemplateSelectStep = ({
     stepKey = OnboardingStepKey.DASHBOARD_TEMPLATE,

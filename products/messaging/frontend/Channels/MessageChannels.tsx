@@ -1,17 +1,19 @@
+import { useActions, useValues } from 'kea'
+
 import { IconLetter, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
-import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
-import { useActions, useValues } from 'kea'
+
+import api from 'lib/api'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { EmailIntegrationsList } from 'lib/integrations/EmailIntegrationsList'
+import { IntegrationsList } from 'lib/integrations/IntegrationsList'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons/icons'
+import { urls } from 'scenes/urls'
 
 import { ChannelSetupModal } from './ChannelSetupModal'
-import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons/icons'
-import { IntegrationsList } from 'lib/integrations/IntegrationsList'
-import api from 'lib/api'
-import { urls } from 'scenes/urls'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { EmailIntegrationsList } from 'lib/integrations/EmailIntegrationsList'
 
 const MESSAGING_CHANNEL_TYPES = ['email', 'slack', 'twilio'] as const
 export type ChannelType = (typeof MESSAGING_CHANNEL_TYPES)[number]
@@ -61,7 +63,7 @@ export function MessageChannels(): JSX.Element {
         <>
             <PageHeader
                 buttons={
-                    <div className="flex items-center m-2 shrink-0">
+                    <div className="flex items-center shrink-0">
                         <LemonMenu items={menuItems}>
                             <LemonButton
                                 data-attr="new-channel-button"

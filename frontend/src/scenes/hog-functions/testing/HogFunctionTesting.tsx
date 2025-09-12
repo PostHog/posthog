@@ -1,3 +1,9 @@
+import clsx from 'clsx'
+import { BindLogic, useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+import { router } from 'kea-router'
+import { useState } from 'react'
+
 import { IconEllipsis } from '@posthog/icons'
 import {
     LemonBanner,
@@ -12,20 +18,16 @@ import {
     SpinnerOverlay,
     Tooltip,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
-import { router } from 'kea-router'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { useState } from 'react'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
@@ -41,8 +43,8 @@ import { HogFunctionFilters } from '../filters/HogFunctionFilters'
 import { tagTypeForLevel } from '../logs/LogsViewer'
 import {
     CyclotronJobTestInvocationResultWithEventId,
-    hogFunctionTestingLogic,
     HogFunctionTestingLogicProps,
+    hogFunctionTestingLogic,
 } from './hogFunctionTestingLogic'
 
 const buildGlobals = (

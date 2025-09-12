@@ -1,5 +1,7 @@
-import { LemonCard } from '@posthog/lemon-ui'
 import { Meta } from '@storybook/react'
+
+import { LemonCard } from '@posthog/lemon-ui'
+
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { mswDecorator } from '~/mocks/browser'

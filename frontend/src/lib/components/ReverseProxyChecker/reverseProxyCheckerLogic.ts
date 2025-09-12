@@ -1,5 +1,6 @@
 import { kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 
 import { ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'

@@ -1,5 +1,7 @@
-import { TAILWIND_BREAKPOINTS } from 'lib/constants'
 import { useCallback, useState } from 'react'
+
+import { TAILWIND_BREAKPOINTS } from 'lib/constants'
+
 import { useOnMountEffect } from './useOnMountEffect'
 
 type WindowSize = {

@@ -1,18 +1,23 @@
-import { actions, connect, kea, path, reducers, selectors, listeners } from 'kea'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actionToUrl, urlToAction } from 'kea-router'
+
+import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval } from 'lib/utils'
+import { uuid } from 'lib/utils'
 import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
-    CurrencyCode,
-    DatabaseSchemaDataWarehouseTable,
-    DataWarehouseNode,
-    SourceMap,
-    ConversionGoalFilter,
-    MarketingAnalyticsColumnsSchemaNames,
     CompareFilter,
+    ConversionGoalFilter,
+    CurrencyCode,
+    DataWarehouseNode,
+    DatabaseSchemaDataWarehouseTable,
+    MarketingAnalyticsColumnsSchemaNames,
+    SourceMap,
 } from '~/queries/schema/schema-general'
+import { MARKETING_ANALYTICS_SCHEMA } from '~/queries/schema/schema-general'
 import {
     ChartDisplayType,
     DataWarehouseSettingsTab,
@@ -22,21 +27,17 @@ import {
     PipelineStage,
 } from '~/types'
 
-import { MARKETING_ANALYTICS_SCHEMA } from '~/queries/schema/schema-general'
+import { defaultConversionGoalFilter } from '../components/settings/constants'
 import type { marketingAnalyticsLogicType } from './marketingAnalyticsLogicType'
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
-import { defaultConversionGoalFilter } from '../components/settings/constants'
 import { externalAdsCostTile } from './marketingCostTile'
 import {
     MarketingDashboardMapper,
-    NativeMarketingSource,
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
+    NativeMarketingSource,
     VALID_NATIVE_MARKETING_SOURCES,
     generateUniqueName,
 } from './utils'
-import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval } from 'lib/utils'
-import { uuid } from 'lib/utils'
-import { actionToUrl, urlToAction } from 'kea-router'
 
 export type ExternalTable = {
     name: string

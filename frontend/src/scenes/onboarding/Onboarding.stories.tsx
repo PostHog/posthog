@@ -1,21 +1,22 @@
 import { Meta } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { router } from 'kea-router'
+
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
+import empty from 'scenes/pipeline/__mocks__/empty.json'
 import pluginConfigs from 'scenes/pipeline/__mocks__/pluginConfigs.json'
 import plugins from 'scenes/pipeline/__mocks__/plugins.json'
-import empty from 'scenes/pipeline/__mocks__/empty.json'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import billingUnsubscribedJson from '~/mocks/fixtures/_billing_unsubscribed.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { OnboardingProduct, ProductKey, OnboardingStepKey } from '~/types'
+import { OnboardingProduct, OnboardingStepKey, ProductKey } from '~/types'
 
 import { onboardingLogic } from './onboardingLogic'
 import { availableOnboardingProducts } from './utils'
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const meta: Meta = {
     title: 'Scenes-Other/Onboarding',

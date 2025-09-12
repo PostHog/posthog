@@ -1,13 +1,13 @@
 import {
     ActivityLogItem,
-    defaultDescriber,
     HumanizedChange,
+    defaultDescriber,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
-import { membershipLevelToName } from 'lib/utils/permissioning'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { Link } from 'lib/lemon-ui/Link'
+import { membershipLevelToName } from 'lib/utils/permissioning'
+import { urls } from 'scenes/urls'
 
 const nameOrLinkToOrganization = (name?: string | null): string | JSX.Element => {
     let displayName = name || 'Organization'

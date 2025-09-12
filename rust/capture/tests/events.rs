@@ -162,6 +162,40 @@ async fn it_drops_events_if_dropper_enabled() -> Result<()> {
 }
 
 #[tokio::test]
+async fn it_redacts_ip_address_of_capture_internal_events() -> Result<()> {
+    setup_tracing();
+    let token = random_string("token", 16);
+    let distinct_id = random_string("id", 16);
+
+    let main_topic = EphemeralTopic::new().await;
+    let histo_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
+
+    let event = json!({
+        "token": token,
+        "event": "test_event_from_capture_internal",
+        "distinct_id": distinct_id,
+        "properties": {
+            "capture_internal": true
+        }
+    });
+    let res = server.capture_events(event.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let event = main_topic.next_event()?;
+    assert_json_include!(
+        actual: event,
+        expected: json!({
+            "token": token,
+            "distinct_id": distinct_id,
+            "ip": "127.0.0.1",
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn it_captures_a_posthogjs_array() -> Result<()> {
     setup_tracing();
     let token = random_string("token", 16);
@@ -1292,11 +1326,12 @@ async fn it_returns_200() -> Result<()> {
     let histo_topic = EphemeralTopic::new().await;
     let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
 
-    let event = json!({
+    let event_payload = json!({
         "token": token,
         "event": "testing",
         "distinct_id": distinct_id
-    });
+    })
+    .to_string();
 
     let client = reqwest::Client::builder()
         .timeout(StdDuration::from_millis(3000))
@@ -1304,16 +1339,21 @@ async fn it_returns_200() -> Result<()> {
         .unwrap();
     let timestamp = Utc::now().timestamp_millis();
     let url = format!(
-        "http://{:?}/i/v0/e/?_={}&ver=1.240.6&compression=gzip-js",
+        "http://{:?}/i/v0/e/?_={}&ver=1.240.6",
         server.addr, timestamp
     );
     let res = client
         .post(url)
-        .body(event.to_string())
+        .body(event_payload)
         .send()
         .await
         .expect("failed to send request");
-    assert_eq!(StatusCode::OK, res.status());
+    assert_eq!(
+        StatusCode::OK,
+        res.status(),
+        "error response: {}",
+        res.text().await.unwrap()
+    );
 
     Ok(())
 }
@@ -1328,11 +1368,12 @@ async fn it_returns_204_when_beacon_is_1() -> Result<()> {
     let histo_topic = EphemeralTopic::new().await;
     let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
 
-    let event = json!({
+    let event_payload = json!({
         "token": token,
         "event": "testing",
         "distinct_id": distinct_id
-    });
+    })
+    .to_string();
 
     let client = reqwest::Client::builder()
         .timeout(StdDuration::from_millis(3000))
@@ -1340,16 +1381,21 @@ async fn it_returns_204_when_beacon_is_1() -> Result<()> {
         .unwrap();
     let timestamp = Utc::now().timestamp_millis();
     let url = format!(
-        "http://{:?}/i/v0/e/?_={}&ver=1.240.6&compression=gzip-js&beacon=1",
+        "http://{:?}/i/v0/e/?_={}&ver=1.240.6&beacon=1",
         server.addr, timestamp
     );
     let res = client
         .post(url)
-        .body(event.to_string())
+        .body(event_payload)
         .send()
         .await
         .expect("failed to send request");
-    assert_eq!(StatusCode::NO_CONTENT, res.status());
+    assert_eq!(
+        StatusCode::NO_CONTENT,
+        res.status(),
+        "error response: {}",
+        res.text().await.unwrap()
+    );
 
     Ok(())
 }

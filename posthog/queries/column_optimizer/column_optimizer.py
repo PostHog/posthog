@@ -7,5 +7,5 @@ if EE_AVAILABLE:
     )
 else:
     from posthog.queries.column_optimizer.foss_column_optimizer import (  # type: ignore
-        FOSSColumnOptimizer as ColumnOptimizer,
+        FOSSColumnOptimizer as ColumnOptimizer,  # noqa: F401
     )

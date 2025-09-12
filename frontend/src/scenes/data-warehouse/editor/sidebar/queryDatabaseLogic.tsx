@@ -1,15 +1,18 @@
-import { IconDatabase, IconDocument, IconPlug, IconPlus } from '@posthog/icons'
-import { LemonMenuItem, lemonToast } from '@posthog/lemon-ui'
-import { Spinner } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-import api from 'lib/api'
+
+import { IconDatabase, IconDocument, IconPlug, IconPlus } from '@posthog/icons'
+import { LemonMenuItem } from '@posthog/lemon-ui'
+import { Spinner } from '@posthog/lemon-ui'
+
 import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { DataWarehouseSourceIcon, mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 
 import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
 import {
@@ -23,10 +26,8 @@ import { DataWarehouseSavedQuery, DataWarehouseSavedQueryDraft, DataWarehouseVie
 import { dataWarehouseJoinsLogic } from '../../external/dataWarehouseJoinsLogic'
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { viewLinkLogic } from '../../viewLinkLogic'
-import type { queryDatabaseLogicType } from './queryDatabaseLogicType'
 import { draftsLogic } from '../draftsLogic'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import type { queryDatabaseLogicType } from './queryDatabaseLogicType'
 
 export type EditorSidebarTreeRef = React.RefObject<LemonTreeRef> | null
 
@@ -139,7 +140,7 @@ const createViewNode = (
     isSearch = false
 ): TreeDataItem => {
     const viewChildren: TreeDataItem[] = []
-    const isMaterializedView = 'sync_frequency' in view && view.sync_frequency !== null
+    const isMaterializedView = view.is_materialized === true
     const isManagedView = 'type' in view && view.type === 'managed_view'
 
     Object.values(view.columns).forEach((column: DatabaseSchemaField) => {
@@ -346,10 +347,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         actions: [
             viewLinkLogic,
             ['toggleEditJoinModal', 'toggleJoinTableModal'],
-            databaseTableListLogic,
-            ['loadDatabase'],
-            dataWarehouseJoinsLogic,
-            ['loadJoins'],
+            dataWarehouseSettingsLogic,
+            ['deleteJoin'],
             draftsLogic,
             ['loadDrafts', 'renameDraft', 'loadMoreDrafts'],
         ],
@@ -806,19 +805,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                                   status: 'danger',
                                   onClick: () => {
                                       const join = joinsByFieldName[`${tableName}.${field.name}`]
-                                      void deleteWithUndo({
-                                          endpoint: api.dataWarehouseViewLinks.determineDeleteEndpoint(),
-                                          object: {
-                                              id: join.id,
-                                              name: `${join.field_name} on ${join.source_table_name}`,
-                                          },
-                                          callback: () => {
-                                              actions.loadDatabase()
-                                              actions.loadJoins()
-                                          },
-                                      }).catch((e) => {
-                                          lemonToast.error(`Failed to delete warehouse view link: ${e.detail}`)
-                                      })
+                                      actions.deleteJoin(join)
                                   },
                               },
                           ]

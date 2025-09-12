@@ -1,19 +1,21 @@
 import './index.scss'
 
-import { IconCopy, IconGear, IconHome, IconLaptop } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonDropdownProps } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import React, { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
+
+import { IconCopy, IconGear, IconHome, IconLaptop } from '@posthog/icons'
+import { LemonButton, LemonDropdown, LemonDropdownProps } from '@posthog/lemon-ui'
+
 import { dayjs } from 'lib/dayjs'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconWeb } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime, shortTimeZone } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import React, { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { teamLogic } from '../../../scenes/teamLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY h:mm A'
 const BASE_OUTPUT_FORMAT_WITH_SECONDS = 'ddd, MMM D, YYYY h:mm:ss A'

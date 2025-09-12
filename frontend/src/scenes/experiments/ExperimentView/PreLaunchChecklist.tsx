@@ -1,6 +1,7 @@
+import { useActions, useValues } from 'kea'
+
 import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'

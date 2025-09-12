@@ -1,5 +1,6 @@
-import api, { ApiRequest } from 'lib/api'
 import posthog from 'posthog-js'
+
+import api, { ApiRequest } from 'lib/api'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 

@@ -1,5 +1,6 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+
+import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { Person, Team } from '~/types'
 
@@ -8,6 +9,7 @@ import { PersonEventProcessor } from '../persons/person-event-processor'
 import { PersonMergeService } from '../persons/person-merge-service'
 import { PersonPropertyService } from '../persons/person-property-service'
 import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'
+import { PipelineStepResult, isSuccessResult, success } from './pipeline-step-result'
 import { EventPipelineRunner } from './runner'
 
 export async function processPersonsStep(
@@ -17,7 +19,7 @@ export async function processPersonsStep(
     timestamp: DateTime,
     processPerson: boolean,
     personStoreBatch: PersonsStoreForBatch
-): Promise<[PluginEvent, Person, Promise<void>]> {
+): Promise<PipelineStepResult<[PluginEvent, Person, Promise<void>]>> {
     const context = new PersonContext(
         event,
         team,
@@ -26,7 +28,8 @@ export async function processPersonsStep(
         processPerson,
         runner.hub.db.kafkaProducer,
         personStoreBatch,
-        runner.hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE
+        runner.hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
+        runner.mergeMode
     )
 
     const processor = new PersonEventProcessor(
@@ -34,7 +37,11 @@ export async function processPersonsStep(
         new PersonPropertyService(context),
         new PersonMergeService(context)
     )
-    const [person, kafkaAck] = await processor.processEvent()
+    const [result, kafkaAck] = await processor.processEvent()
 
-    return [event, person, kafkaAck]
+    if (isSuccessResult(result)) {
+        return success([event, result.value, kafkaAck])
+    } else {
+        return result
+    }
 }

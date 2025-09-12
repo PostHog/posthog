@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 

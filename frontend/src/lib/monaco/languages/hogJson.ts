@@ -1,8 +1,9 @@
 /* oxlint-disable no-useless-escape */
 import { Monaco } from '@monaco-editor/react'
+import { languages } from 'monaco-editor'
+
 import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
 import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
-import { languages } from 'monaco-editor'
 
 import { HogLanguage } from '~/queries/schema/schema-general'
 

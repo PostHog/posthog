@@ -1,7 +1,9 @@
-import { IconCheckCircle, IconPlus, IconX } from '@posthog/icons'
-import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { IconCheckCircle, IconPlus, IconX } from '@posthog/icons'
+import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -27,9 +29,9 @@ import {
     BatchExportService,
 } from '~/types'
 
-import { batchExportConfigurationLogic, getDefaultConfiguration } from './batchExportConfigurationLogic'
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
 import { RenderBatchExportIcon } from './BatchExportIcon'
+import { batchExportConfigurationLogic, getDefaultConfiguration } from './batchExportConfigurationLogic'
 import { BatchExportConfigurationForm } from './types'
 import { humanizeBatchExportName, normalizeBatchExportService } from './utils'
 

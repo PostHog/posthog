@@ -1,20 +1,29 @@
-import { IconCalendar, IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonDivider, LemonInput, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
+import { IconCalendar, IconPin, IconPinFilled } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonDivider, LemonInput, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconArrowUp } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { IconArrowUp } from 'lib/lemon-ui/icons'
 import { isObject } from 'lib/utils'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { SavedSessionRecordingPlaylistsEmptyState } from 'scenes/session-recordings/saved-playlists/SavedSessionRecordingPlaylistsEmptyState'
 import { urls } from 'scenes/urls'
 
-import { PlaylistRecordingsCounts, ReplayTabs, SessionRecordingPlaylistType } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    PlaylistRecordingsCounts,
+    ReplayTabs,
+    SessionRecordingPlaylistType,
+} from '~/types'
 
 import { PLAYLISTS_PER_PAGE, savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlaylistsLogic'
 
@@ -156,6 +165,12 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                         size="small"
                         onClick={() => updatePlaylist(short_id, { pinned: !pinned })}
                         icon={pinned ? <IconPinFilled /> : <IconPin />}
+                        accessControl={{
+                            resourceType: AccessControlResourceType.SessionRecording,
+                            minAccessLevel: AccessControlLevel.Editor,
+                            userAccessLevel:
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                        }}
                     />
                 )
             },
@@ -200,6 +215,14 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                                     fullWidth
                                     data-attr="duplicate-playlist"
                                     loading={playlistsLoading}
+                                    accessControl={{
+                                        resourceType: AccessControlResourceType.SessionRecording,
+                                        minAccessLevel: AccessControlLevel.Editor,
+                                        userAccessLevel:
+                                            getAppContext()?.resource_access_control?.[
+                                                AccessControlResourceType.SessionRecording
+                                            ],
+                                    }}
                                 >
                                     Duplicate
                                 </LemonButton>
@@ -210,6 +233,14 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                                     onClick={() => deletePlaylist(playlist)}
                                     fullWidth
                                     loading={playlistsLoading}
+                                    accessControl={{
+                                        resourceType: AccessControlResourceType.SessionRecording,
+                                        minAccessLevel: AccessControlLevel.Editor,
+                                        userAccessLevel:
+                                            getAppContext()?.resource_access_control?.[
+                                                AccessControlResourceType.SessionRecording
+                                            ],
+                                    }}
                                 >
                                     Delete collection
                                 </LemonButton>
@@ -222,8 +253,8 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
     ]
 
     return (
-        <div className="deprecated-space-y-4">
-            <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
+        <>
+            <div className="flex justify-between gap-2 items-center flex-wrap">
                 <LemonInput
                     type="search"
                     placeholder="Search for collections"
@@ -295,6 +326,6 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     nouns={['playlist', 'playlists']}
                 />
             )}
-        </div>
+        </>
     )
 }

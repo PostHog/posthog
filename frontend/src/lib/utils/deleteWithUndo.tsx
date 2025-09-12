@@ -1,4 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'

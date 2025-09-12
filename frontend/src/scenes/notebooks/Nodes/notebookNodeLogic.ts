@@ -1,8 +1,8 @@
 import {
+    BuiltLogic,
     actions,
     afterMount,
     beforeUnmount,
-    BuiltLogic,
     connect,
     kea,
     key,
@@ -12,11 +12,11 @@ import {
     reducers,
     selectors,
 } from 'kea'
-import type { notebookNodeLogicType } from './notebookNodeLogicType'
-import { notebookLogicType } from '../Notebook/notebookLogicType'
 import posthog from 'posthog-js'
-import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
+
 import { JSONContent, RichContentNode } from 'lib/components/RichContentEditor/types'
+
+import { notebookLogicType } from '../Notebook/notebookLogicType'
 import {
     CustomNotebookNodeAttributes,
     NotebookNodeAction,
@@ -26,6 +26,8 @@ import {
     NotebookNodeSettings,
     NotebookNodeType,
 } from '../types'
+import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
+import type { notebookNodeLogicType } from './notebookNodeLogicType'
 
 export type NotebookNodeLogicProps = {
     nodeType: NotebookNodeType

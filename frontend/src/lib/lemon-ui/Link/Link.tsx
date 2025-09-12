@@ -1,16 +1,18 @@
 import './Link.scss'
 
-import { IconExternal, IconOpenSidebar } from '@posthog/icons'
 import { router } from 'kea-router'
+import React, { useContext } from 'react'
+
+import { IconExternal, IconOpenSidebar, IconSend } from '@posthog/icons'
+
 import { ButtonPrimitiveProps, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { isExternalLink } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
-import React, { useContext } from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
-import { sidePanelStateLogic, WithinSidePanelContext } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { WithinSidePanelContext, sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
 import { Tooltip, TooltipProps } from '../Tooltip'
@@ -26,6 +28,7 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
     disableDocsPanel?: boolean
     preventClick?: boolean
     onClick?: (event: React.MouseEvent<HTMLElement>) => void
+    onAuxClick?: (event: React.MouseEvent<HTMLElement>) => void
     onDoubleClick?: (event: React.MouseEvent<HTMLElement>) => void
     onMouseDown?: (event: React.MouseEvent<HTMLElement>) => void
     onMouseEnter?: (event: React.MouseEvent<HTMLElement>) => void
@@ -107,6 +110,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             disableDocsPanel = false,
             preventClick = false,
             onClick: onClickRaw,
+            onAuxClick,
             className,
             children,
             disabled,
@@ -201,6 +205,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 ref={ref as any}
                 className={cn(elementClasses, className)}
                 onClick={onClick}
+                onAuxClick={onAuxClick}
                 href={href}
                 target={target}
                 rel={target === '_blank' ? rel : undefined}
@@ -213,6 +218,8 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 {targetBlankIcon &&
                     (shouldOpenInDocsPanel && sidePanelStateLogic.isMounted() ? (
                         <IconOpenSidebar />
+                    ) : href?.startsWith('mailto:') ? (
+                        <IconSend />
                     ) : target === '_blank' ? (
                         <IconExternal className={buttonProps ? 'size-3' : ''} />
                     ) : null)}

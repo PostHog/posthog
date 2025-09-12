@@ -1,15 +1,18 @@
 import Fuse from 'fuse.js'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { userLogic } from 'scenes/userLogic'
 import { subscriptions } from 'kea-subscriptions'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
 import { actionsModel } from '~/models/actionsModel'
 import { ActionType, Breadcrumb } from '~/types'
-import { Scene } from 'scenes/sceneTypes'
-import type { actionsLogicType } from './actionsLogicType'
-import { urls } from 'scenes/urls'
 
-import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
+import type { actionsLogicType } from './actionsLogicType'
 
 export type ActionsFilterType = 'all' | 'me'
 
@@ -72,14 +75,18 @@ export const actionsLogic = kea<actionsLogicType>([
             },
         ],
         breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => {
+            (s) => [s.featureFlags],
+            (featureFlags): Breadcrumb[] => {
                 return [
-                    {
-                        key: Scene.DataManagement,
-                        name: `Data management`,
-                        path: urls.eventDefinitions(),
-                    },
+                    ...(!featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+                        ? [
+                              {
+                                  key: Scene.DataManagement,
+                                  name: `Data management`,
+                                  path: urls.eventDefinitions(),
+                              },
+                          ]
+                        : []),
                     {
                         key: DataManagementTab.Actions,
                         name: 'Actions',

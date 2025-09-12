@@ -1,6 +1,7 @@
-import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
+
+import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
 import { setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
 import {

@@ -3,8 +3,8 @@ from zoneinfo import ZoneInfo
 
 from django.db.models import F
 
-from posthog.warehouse.types import IncrementalFieldType
 from posthog.sync import database_sync_to_async
+from posthog.warehouse.types import IncrementalFieldType
 
 
 @database_sync_to_async

@@ -1,6 +1,7 @@
-import { cva, type VariantProps } from 'cva'
-import { cn } from 'lib/utils/css-classes'
+import { type VariantProps, cva } from 'cva'
 import { forwardRef } from 'react'
+
+import { cn } from 'lib/utils/css-classes'
 
 const iconWrapperVariants = cva({
     base: 'flex place-items-center aspect-square',

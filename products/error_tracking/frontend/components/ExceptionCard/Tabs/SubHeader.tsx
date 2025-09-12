@@ -1,5 +1,6 @@
-import { cn } from 'lib/utils/css-classes'
 import { HTMLProps } from 'react'
+
+import { cn } from 'lib/utils/css-classes'
 
 export function SubHeader({ className, ...props }: HTMLProps<HTMLDivElement>): JSX.Element {
     return (

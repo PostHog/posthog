@@ -1,5 +1,10 @@
 import './Toolbar.scss'
 
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { PostHog } from 'posthog-js'
+import { useEffect, useRef, useState } from 'react'
+
 import {
     IconBolt,
     IconCheck,
@@ -17,15 +22,12 @@ import {
     IconX,
 } from '@posthog/icons'
 import { LemonBadge, Spinner } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
+import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
-import { PostHog } from 'posthog-js'
-import { useEffect, useRef, useState } from 'react'
 
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'

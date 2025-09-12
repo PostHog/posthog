@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -13,9 +14,7 @@ export function OverlayForNewInsightMenu({ dataAttr }: { dataAttr: string }): JS
 
     const menuEntries = Object.entries(INSIGHT_TYPES_METADATA).filter(
         ([insightType]) =>
-            insightType !== InsightType.JSON &&
-            (featureFlags[FEATURE_FLAGS.HOG] || insightType !== InsightType.HOG) &&
-            (featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT] || insightType !== InsightType.CALENDAR_HEATMAP)
+            insightType !== InsightType.JSON && (featureFlags[FEATURE_FLAGS.HOG] || insightType !== InsightType.HOG)
     )
 
     return (

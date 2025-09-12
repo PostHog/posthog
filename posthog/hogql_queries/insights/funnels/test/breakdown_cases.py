@@ -4,7 +4,16 @@ from dataclasses import dataclass
 from datetime import datetime
 from string import ascii_lowercase
 from typing import Any, Literal, Optional, Union, cast
+
+from posthog.test.base import (
+    APIBaseTest,
+    also_test_with_materialized_columns,
+    also_test_with_person_on_events_v2,
+    snapshot_clickhouse_queries,
+)
 from unittest import skip
+
+from posthog.schema import BaseMathType, FunnelsQuery
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -13,18 +22,11 @@ from posthog.models.action.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.person.person import Person
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
-from posthog.schema import BaseMathType, FunnelsQuery
-from posthog.test.base import (
-    APIBaseTest,
-    also_test_with_materialized_columns,
-    also_test_with_person_on_events_v2,
-    snapshot_clickhouse_queries,
-)
 from posthog.test.test_journeys import journeys_for
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 @dataclass(frozen=True)
@@ -2751,10 +2753,10 @@ def funnel_breakdown_group_test_factory(funnel_order_type: FunnelOrderType, Funn
             return [val["id"] for val in serialized_result]
 
         def _create_groups(self):
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
             )
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
             )
 

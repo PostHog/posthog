@@ -1,16 +1,17 @@
-import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, HogQLPropertyFilter, PropertyFilterType, UniversalFiltersGroup } from '~/types'
 
+import { errorTrackingBulkSelectLogic } from '../../errorTrackingBulkSelectLogic'
 import { AssigneeLabelDisplay } from '../Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../Assignee/AssigneeSelect'
 import { errorFiltersLogic } from '../ErrorFilters/errorFiltersLogic'
 import { GenericSelect } from '../GenericSelect'
 import { IssueStatus, StatusIndicator } from '../Indicator'
 import { issueActionsLogic } from './issueActionsLogic'
-import { errorTrackingBulkSelectLogic } from '../../errorTrackingBulkSelectLogic'
 
 export interface BulkActionsProps {
     issues: ErrorTrackingIssue[]

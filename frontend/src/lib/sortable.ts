@@ -2,7 +2,6 @@
 // height items in a sortable container were not always firing collisions correctly.
 // Should be possible to remove this custom collision detection algorithm once a proper fix
 // is merged into dnd-kit.
-
 import { CollisionDetection, DroppableContainer, UniqueIdentifier } from '@dnd-kit/core'
 
 export const verticalSortableListCollisionDetection: CollisionDetection = (args) => {

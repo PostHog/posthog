@@ -1,13 +1,15 @@
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { useEffect } from 'react'
 import { humanizeHogFunctionType } from 'scenes/hog-functions/hog-function-utils'
+import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
 import { hogFunctionsListLogic } from 'scenes/hog-functions/list/hogFunctionsListLogic'
-import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionTypeType, ProductKey } from '~/types'

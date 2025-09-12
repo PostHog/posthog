@@ -1,8 +1,10 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import FuseClass from 'fuse.js'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
@@ -161,13 +163,13 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             },
         ],
         enabledHogFunctions: [
-            (s) => [s.hogFunctions],
+            (s) => [s.sortedHogFunctions],
             (hogFunctions): HogFunctionType[] => {
                 return hogFunctions.filter((hogFunction) => hogFunction.enabled)
             },
         ],
         hogFunctionsFuse: [
-            (s) => [s.hogFunctions],
+            (s) => [s.sortedHogFunctions],
             (hogFunctions): Fuse => {
                 return new FuseClass(hogFunctions || [], {
                     keys: ['name', 'description'],

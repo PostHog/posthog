@@ -1,5 +1,6 @@
 import { actions, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
+
 import { NotFound } from 'lib/components/NotFound'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { DataPipelinesSelfManagedSource } from 'scenes/data-pipelines/DataPipelinesSelfManagedSource'
@@ -92,10 +93,10 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
     }),
 ])
 
-export const scene: SceneExport = {
+export const scene: SceneExport<(typeof dataWarehouseSourceSceneLogic)['props']> = {
     component: DataWarehouseSourceScene,
     logic: dataWarehouseSourceSceneLogic,
-    paramsToProps: ({ params: { id } }): (typeof dataWarehouseSourceSceneLogic)['props'] => ({ id }),
+    paramsToProps: ({ params: { id } }) => ({ id }),
 }
 
 export function DataWarehouseSourceScene(): JSX.Element {

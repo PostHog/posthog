@@ -2,33 +2,39 @@ import './DataTable.scss'
 
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
+import { useCallback, useState } from 'react'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { useCallback, useState } from 'react'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
+import { groupViewLogic } from 'scenes/groups/groupViewLogic'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
+import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadNext } from '~/queries/nodes/DataNode/LoadNext'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
 import { TestAccountFilters } from '~/queries/nodes/DataNode/TestAccountFilters'
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BackToSource } from '~/queries/nodes/DataTable/BackToSource'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
-import { dataTableLogic, DataTableLogicProps, DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
+import { DataTableSavedFilters } from '~/queries/nodes/DataTable/DataTableSavedFilters'
+import { DataTableSavedFiltersButton } from '~/queries/nodes/DataTable/DataTableSavedFiltersButton'
 import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
 import { InsightActorsQueryOptions } from '~/queries/nodes/DataTable/InsightActorsQueryOptions'
+import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
+import { DataTableLogicProps, DataTableRow, dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { getContextColumn, renderColumn } from '~/queries/nodes/DataTable/renderColumn'
 import { renderColumnMeta } from '~/queries/nodes/DataTable/renderColumnMeta'
-import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import {
     extractExpressionComment,
     getDataNodeDefaultColumns,
@@ -75,9 +81,6 @@ import { EventType, InsightLogicProps } from '~/types'
 import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'
 import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
 import { DataTableOpenEditor } from './DataTableOpenEditor'
-import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
-import { groupViewLogic } from 'scenes/groups/groupViewLogic'
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
 export enum ColumnFeature {
     canSort = 'canSort',
@@ -148,6 +151,7 @@ export function DataTable({
         cachedResults: cachedResults,
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
         refresh: context?.refresh,
+        maxPaginationLimit: context?.dataTableMaxPaginationLimit,
     }
     const {
         response,
@@ -198,6 +202,7 @@ export function DataTable({
         showColumnConfigurator,
         showPersistentColumnConfigurator,
         showSavedQueries,
+        showSavedFilters,
         expandable,
         embedded,
         showOpenEditorButton,
@@ -630,6 +635,14 @@ export function DataTable({
                 taxonomicGroupTypes={Array.isArray(showPropertyFilter) ? showPropertyFilter : undefined}
             />
         ) : null,
+        showSavedFilters && uniqueKey ? (
+            <DataTableSavedFiltersButton
+                key="saved-filters-button"
+                uniqueKey={String(uniqueKey)}
+                query={query}
+                setQuery={setQuery}
+            />
+        ) : null,
         showPropertyFilter && sourceFeatures.has(QueryFeature.personPropertyFilters) ? (
             <PersonPropertyFilters
                 key="person-property"
@@ -722,6 +735,9 @@ export function DataTable({
                             {firstRowLeft.length > 0 && firstRowRight.length > 0 ? <div className="flex-1" /> : null}
                             {firstRowRight}
                         </div>
+                    )}
+                    {showSavedFilters && uniqueKey && (
+                        <DataTableSavedFilters uniqueKey={String(uniqueKey)} query={query} setQuery={setQuery} />
                     )}
                     {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
                     {showSecondRow && (

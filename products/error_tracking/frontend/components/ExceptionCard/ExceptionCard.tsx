@@ -1,18 +1,21 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { IconLogomark } from '@posthog/icons'
 import { LemonCard } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
-import { errorPropertiesLogic, ErrorPropertiesLogicProps } from 'lib/components/Errors/errorPropertiesLogic'
+
+import { ErrorPropertiesLogicProps, errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
-import { useEffect } from 'react'
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
-import { exceptionCardLogic } from './exceptionCardLogic'
+import { releasePreviewLogic } from '../ExceptionAttributesPreview/ReleasesPreview/releasePreviewLogic'
 import { PropertiesTab } from './Tabs/PropertiesTab'
-import { StacktraceTab } from './Tabs/StacktraceTab'
 import { SessionTab } from './Tabs/SessionTab'
+import { StacktraceTab } from './Tabs/StacktraceTab'
+import { exceptionCardLogic } from './exceptionCardLogic'
 
 interface ExceptionCardContentProps {
     issue?: ErrorTrackingRelationalIssue
@@ -33,22 +36,21 @@ export function ExceptionCard({ issue, issueLoading, event, eventLoading, label 
         setLoading(eventLoading)
     }, [setLoading, eventLoading])
 
+    const props = {
+        properties: event?.properties,
+        id: event?.uuid ?? issue?.id ?? 'error',
+    } as ErrorPropertiesLogicProps
+
     return (
-        <BindLogic
-            logic={errorPropertiesLogic}
-            props={
-                {
-                    properties: event?.properties,
-                    id: event?.uuid ?? issue?.id ?? 'error',
-                } as ErrorPropertiesLogicProps
-            }
-        >
-            <ExceptionCardContent
-                issue={issue}
-                timestamp={event?.timestamp}
-                issueLoading={issueLoading}
-                label={label}
-            />
+        <BindLogic logic={errorPropertiesLogic} props={props}>
+            <BindLogic logic={releasePreviewLogic} props={props}>
+                <ExceptionCardContent
+                    issue={issue}
+                    timestamp={event?.timestamp}
+                    issueLoading={issueLoading}
+                    label={label}
+                />
+            </BindLogic>
         </BindLogic>
     )
 }
@@ -56,6 +58,7 @@ export function ExceptionCard({ issue, issueLoading, event, eventLoading, label 
 function ExceptionCardContent({ issue, issueLoading, timestamp, label }: ExceptionCardContentProps): JSX.Element {
     const { currentTab } = useValues(exceptionCardLogic)
     const { setCurrentTab } = useActions(exceptionCardLogic)
+
     return (
         <LemonCard hoverEffect={false} className="p-0 relative overflow-hidden">
             <TabsPrimitive value={currentTab} onValueChange={setCurrentTab}>

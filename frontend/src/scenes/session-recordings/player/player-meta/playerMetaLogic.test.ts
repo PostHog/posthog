@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
@@ -6,6 +7,7 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { SessionRecordingType } from '~/types'
 
 import recordingEventsJson from '../../__mocks__/recording_events_query'
 import { recordingMetaJson } from '../../__mocks__/recording_meta'
@@ -42,18 +44,22 @@ describe('playerMetaLogic', () => {
         })
         it('starts with loading state', () => {
             expectLogic(logic).toMatchValues({
-                sessionPlayerMetaDataLoading: true,
+                loading: true,
             })
         })
     })
 
     describe('loading state', () => {
         it('stops loading after meta load is successful', async () => {
+            const session: SessionRecordingType = {
+                id: '1',
+            } as SessionRecordingType
             await expectLogic(logic, () => {
                 sessionRecordingDataLogic(playerProps).actions.loadRecordingMeta()
+                logic.actions.maybeLoadPropertiesForSessions([session])
             })
-                .toDispatchActions(['loadRecordingMetaSuccess'])
-                .toMatchValues({ sessionPlayerMetaDataLoading: false })
+                .toDispatchActions(['loadRecordingMetaSuccess', 'loadPropertiesForSessionsSuccess'])
+                .toMatchValues({ loading: false })
         })
     })
 })

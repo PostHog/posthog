@@ -1,13 +1,17 @@
-import { PropertyDefinitionType } from '~/types'
-import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { useValues } from 'kea'
-import { personLogic } from 'scenes/persons/personLogic'
+
+import { LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
+
 import { NotFound } from 'lib/components/NotFound'
-import { notebookNodeLogic } from './notebookNodeLogic'
+import { PropertiesTable } from 'lib/components/PropertiesTable'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { personLogic } from 'scenes/persons/personLogic'
+
+import { PropertyDefinitionType } from '~/types'
+
 import { NotebookNodeProps, NotebookNodeType } from '../types'
+import { notebookNodeLogic } from './notebookNodeLogic'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodePropertiesAttributes>): JSX.Element | null => {
     const { id } = attributes

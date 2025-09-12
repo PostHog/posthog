@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconBell, IconGraph, IconRocket, IconTarget } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { ProfessorHog } from 'lib/components/hedgehogs'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyEditSection, surveyLogic } from 'scenes/surveys/surveyLogic'

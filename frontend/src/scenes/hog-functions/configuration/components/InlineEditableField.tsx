@@ -1,3 +1,6 @@
+import clsx from 'clsx'
+import { useEffect, useState } from 'react'
+
 import {
     LemonButton,
     LemonDivider,
@@ -6,8 +9,7 @@ import {
     LemonInputPropsText,
     LemonTextArea,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useEffect, useState } from 'react'
+
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 export interface InlineEditableFieldProps extends Pick<LemonInputPropsText, 'value' | 'onChange'> {

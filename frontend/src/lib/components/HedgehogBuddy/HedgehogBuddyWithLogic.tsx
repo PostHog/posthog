@@ -2,6 +2,7 @@ import './HedgehogBuddy.scss'
 
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
+
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 

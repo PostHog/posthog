@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { HedgehogBuddy } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { hedgehogBuddyLogic } from 'lib/components/HedgehogBuddy/hedgehogBuddyLogic'
-import { useEffect } from 'react'
 
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 

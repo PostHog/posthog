@@ -2,29 +2,30 @@
 
 import json
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch
 from decimal import Decimal
 
 import pytest
-from dagster import build_op_context
 from freezegun import freeze_time
+from unittest.mock import MagicMock, patch
+
+from dagster import build_op_context
 
 from dags.postgres_to_clickhouse_etl import (
     ETLState,
     create_clickhouse_tables,
     fetch_organizations,
     fetch_teams,
-    transform_organization_row,
-    transform_team_row,
     insert_organizations_to_clickhouse,
     insert_teams_to_clickhouse,
-    sync_organizations,
-    sync_teams,
-    verify_sync,
+    organizations_in_clickhouse,
     postgres_to_clickhouse_etl_job,
     postgres_to_clickhouse_hourly_schedule,
-    organizations_in_clickhouse,
+    sync_organizations,
+    sync_teams,
     teams_in_clickhouse,
+    transform_organization_row,
+    transform_team_row,
+    verify_sync,
 )
 
 

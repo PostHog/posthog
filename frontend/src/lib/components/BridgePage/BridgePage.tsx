@@ -4,13 +4,14 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useState } from 'react'
 import { CSSTransition } from 'react-transition-group'
-import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
 
 import { Region } from '~/types'
 
 import { LaptopHog4, LaptopHogEU } from '../hedgehogs'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export type BridgePageCommonProps = {
     children?: React.ReactNode

@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconChevronDown, IconCopy, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
@@ -15,31 +17,32 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { openInAdminPanel } from 'lib/utils/person-actions'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { Query } from '~/queries/Query/Query'
-
-import { ActivityScope, PersonsTabType, PersonType, ProductKey, PropertyDefinitionType } from '~/types'
+import { ActivityScope, PersonType, PersonsTabType, ProductKey, PropertyDefinitionType } from '~/types'
 
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import PersonFeedCanvas from './PersonFeedCanvas'
-import { personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
-import { NotebookNodeType } from 'scenes/notebooks/types'
+import { PersonsLogicProps, personsLogic } from './personsLogic'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<PersonsLogicProps> = {
     component: PersonScene,
     logic: personsLogic,
-    paramsToProps: ({ params: { _: rawUrlId } }): (typeof personsLogic)['props'] => ({
+    paramsToProps: ({ params: { _: rawUrlId } }) => ({
         syncWithUrl: true,
         urlId: decodeURIComponent(rawUrlId),
     }),
@@ -119,6 +122,7 @@ export function PersonScene(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
+    const { user } = useValues(userLogic)
 
     if (personError) {
         throw new Error(personError)
@@ -150,6 +154,7 @@ export function PersonScene(): JSX.Element | null {
                             }}
                             type="secondary"
                         />
+                        {user?.is_staff && <OpenInAdminPanelButton />}
                         <LemonButton
                             onClick={() => showPersonDeleteModal(person, () => loadPersons())}
                             disabled={deletedPersonLoading}
@@ -343,5 +348,20 @@ export function PersonScene(): JSX.Element | null {
 
             {splitMergeModalShown && person && <MergeSplitPerson person={person} />}
         </>
+    )
+}
+
+function OpenInAdminPanelButton(): JSX.Element {
+    const { person } = useValues(personsLogic)
+    const disabledReason = !person?.properties.email ? 'Person has no email' : undefined
+
+    return (
+        <LemonButton
+            type="secondary"
+            onClick={() => openInAdminPanel(person?.properties.email)}
+            disabledReason={disabledReason}
+        >
+            Open in Admin Panel
+        </LemonButton>
     )
 }

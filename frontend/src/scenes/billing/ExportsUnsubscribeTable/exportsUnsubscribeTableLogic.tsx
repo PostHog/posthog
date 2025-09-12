@@ -1,6 +1,8 @@
-import { IconDatabase } from '@posthog/icons'
 import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { IconDatabase } from '@posthog/icons'
+
 import api from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'

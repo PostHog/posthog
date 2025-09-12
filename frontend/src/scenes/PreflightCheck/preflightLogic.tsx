@@ -1,9 +1,10 @@
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
 import api from 'lib/api'
 import { getAppContext } from 'lib/utils/getAppContext'
-import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 
 import { PreflightStatus, Realm } from '~/types'

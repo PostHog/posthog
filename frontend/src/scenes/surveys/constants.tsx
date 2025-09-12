@@ -624,9 +624,14 @@ export enum SURVEY_CREATED_SOURCE {
     MAX_AI = 'max_ai',
     SURVEY_FORM = 'survey_form',
     SURVEY_EMPTY_STATE = 'survey_empty_state',
+    EXPERIMENTS = 'experiments',
 }
 
 export enum SURVEY_EMPTY_STATE_EXPERIMENT_VARIANT {
     TEST = 'test', // new experience
     CONTROL = 'control', // current state
+}
+
+export enum SURVEY_FORM_INPUT_IDS {
+    WAIT_PERIOD_INPUT = 'survey-wait-period-input',
 }

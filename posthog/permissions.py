@@ -1,11 +1,12 @@
-from typing import Optional, cast
 import time
+from typing import Optional, cast
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.db.models import Model
+
 import posthoganalytics
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import AuthenticationFailed, NotFound, PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.views import APIView
@@ -16,16 +17,15 @@ from posthog.auth import (
     ProjectSecretAPIKeyAuthentication,
     SessionAuthentication,
     SharingAccessTokenAuthentication,
+    SharingPasswordProtectedAuthentication,
 )
 from posthog.cloud_utils import is_cloud
+from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.scopes import APIScopeObject, APIScopeObjectOrNotSupported
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
+from posthog.scopes import APIScopeObject, APIScopeObjectOrNotSupported
 from posthog.utils import get_can_create_org
-from rest_framework.exceptions import AuthenticationFailed
-from posthog.constants import AvailableFeature
-
 
 CREATE_ACTIONS = ["create", "update"]
 
@@ -180,7 +180,7 @@ class TeamMemberAccessPermission(BasePermission):
     message = "You don't have access to the project."
 
     def has_permission(self, request, view) -> bool:
-        if isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication):
+        if is_authenticated_via_project_secret_api_token(request):
             # Ignore the team check for project secret API keys. It's handled by the ProjectSecretAPITokenPermission
             return True
 
@@ -195,6 +195,10 @@ class TeamMemberAccessPermission(BasePermission):
         return requesting_level is not None
 
 
+def is_authenticated_via_project_secret_api_token(request: Request) -> bool:
+    return isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication)
+
+
 def _is_request_for_project_secret_api_token_secured_endpoint(request: Request) -> bool:
     return bool(
         request.resolver_match
@@ -202,6 +206,7 @@ def _is_request_for_project_secret_api_token_secured_endpoint(request: Request) 
         in {
             "featureflag-local-evaluation",
             "project_feature_flags-remote-config",
+            "project_feature_flags-local-evaluation",
         }
     )
 
@@ -279,8 +284,12 @@ class SharingTokenPermission(BasePermission):
     """
 
     def has_object_permission(self, request, view, object) -> bool:
-        if not isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
-            raise ValueError("SharingTokenPermission only works if SharingAccessTokenAuthentication succeeded")
+        if not isinstance(
+            request.successful_authenticator, SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication
+        ):
+            raise ValueError(
+                "SharingTokenPermission only works if SharingAccessTokenAuthentication or SharingPasswordProtectedAuthentication succeeded"
+            )
         return request.successful_authenticator.sharing_configuration.can_access_object(object)
 
     def has_permission(self, request, view) -> bool:
@@ -288,7 +297,9 @@ class SharingTokenPermission(BasePermission):
             view, "sharing_enabled_actions"
         ), "SharingTokenPermission requires the `sharing_enabled_actions` attribute to be set in the view"
 
-        if isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
+        if isinstance(
+            request.successful_authenticator, SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication
+        ):
             try:
                 view.team  # noqa: B018
                 if request.successful_authenticator.sharing_configuration.team != view.team:
@@ -555,7 +566,7 @@ class AccessControlPermission(ScopeBasePermission):
         # Primarily we are checking the user's access to the parent resource type (i.e. project, organization)
         # as well as enforcing any global restrictions (e.g. generically only editing of a flag is allowed)
 
-        if isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication):
+        if is_authenticated_via_project_secret_api_token(request):
             # Ignore the team check for project secret API keys. It's handled by the ProjectSecretAPITokenPermission
             return True
 
@@ -662,11 +673,7 @@ class ProjectSecretAPITokenPermission(BasePermission):
             return True
 
         # Check that the endpoint is allowed for secret API keys
-        if request.resolver_match.view_name not in (
-            "featureflag-local-evaluation",
-            "project_feature_flags-remote-config",
-            "project_feature_flags-local-evaluation",
-        ):
+        if not _is_request_for_project_secret_api_token_secured_endpoint(request):
             return False
 
         # Check team consistency: authenticated team must match resolved team

@@ -1,14 +1,14 @@
 use std::{
     collections::{HashMap, HashSet},
-    time::Duration,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
-use common_database::{PostgresReader, PostgresWriter};
+use crate::database::PostgresRouter;
+use common_database::PostgresReader;
 use common_types::{PersonId, ProjectId, TeamId};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
-use sqlx::{postgres::PgQueryResult, Acquire, Row};
+use sqlx::{Acquire, Row};
 use tokio::time::{sleep, timeout};
 use tracing::{info, instrument, warn};
 
@@ -22,8 +22,8 @@ use crate::{
     flags::flag_models::FeatureFlagId,
     metrics::consts::{
         FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME, FLAG_DB_CONNECTION_TIME,
-        FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME, FLAG_PERSON_PROCESSING_TIME,
-        FLAG_PERSON_QUERY_TIME,
+        FLAG_DEFINITION_QUERY_TIME, FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME,
+        FLAG_PERSON_PROCESSING_TIME, FLAG_PERSON_QUERY_TIME,
     },
     properties::{
         property_matching::match_property,
@@ -94,6 +94,17 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         ),
     ];
     let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
+
+    // Log pool stats before attempting connection
+    if let Some(stats) = reader.as_ref().get_pool_stats() {
+        info!(
+            pool_size = stats.size,
+            pool_idle = stats.num_idle,
+            pool_in_use = stats.size.saturating_sub(stats.num_idle as u32),
+            "Connection pool stats before acquiring connection"
+        );
+    }
+
     let conn_acquisition_start = Instant::now();
     let conn_result = reader.as_ref().get_connection().await;
     let conn_acquisition_duration = conn_acquisition_start.elapsed();
@@ -107,8 +118,22 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             conn
         }
         Err(e) => {
+            let (pool_size, pool_idle, pool_in_use) =
+                if let Some(stats) = reader.as_ref().get_pool_stats() {
+                    (
+                        stats.size,
+                        stats.num_idle as u32,
+                        stats.size.saturating_sub(stats.num_idle as u32),
+                    )
+                } else {
+                    (0, 0, 0) // Default values if stats unavailable
+                };
+
             warn!(
                 conn_acquisition_ms = conn_acquisition_duration.as_millis(),
+                pool_size = pool_size,
+                pool_idle = pool_idle,
+                pool_in_use = pool_in_use,
                 error = ?e,
                 "Failed to acquire database connection"
             );
@@ -495,7 +520,7 @@ pub async fn get_feature_flag_hash_key_overrides(
 /// experience continuity enabled. It includes retry logic for handling race conditions
 /// with person deletions.
 pub async fn set_feature_flag_hash_key_overrides(
-    writer: PostgresWriter,
+    router: &PostgresRouter,
     team_id: TeamId,
     distinct_ids: Vec<String>,
     project_id: ProjectId,
@@ -505,50 +530,192 @@ pub async fn set_feature_flag_hash_key_overrides(
     const RETRY_DELAY: Duration = Duration::from_millis(100);
 
     for retry in 0..MAX_RETRIES {
-        let mut conn = writer.get_connection().await?;
-        let mut transaction = conn.begin().await?;
+        // Get connection from persons writer for the transaction
+        let persons_labels = [
+            ("pool".to_string(), "persons_writer".to_string()),
+            (
+                "operation".to_string(),
+                "set_feature_flag_hash_key_overrides".to_string(),
+            ),
+        ];
+        let persons_conn_timer =
+            common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &persons_labels);
+        let mut persons_conn = router.get_persons_writer().get_connection().await?;
+        persons_conn_timer.fin();
+        let mut transaction = persons_conn.begin().await?;
 
-        let query = r#"
-            WITH target_person_ids AS (
-                SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = $1 AND
-                distinct_id = ANY($2)
-            ),
-            existing_overrides AS (
-                SELECT team_id, person_id, feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride
-                WHERE team_id = $1 AND person_id IN (SELECT person_id FROM target_person_ids)
-            ),
-            flags_to_override AS (
-                SELECT flag.key FROM posthog_featureflag flag
-                JOIN posthog_team team ON flag.team_id = team.id
-                WHERE team.project_id = $3 
+        // Query 1: Get all person data - person_ids + existing overrides + validation (person pool)
+        let person_data_query = r#"
+            SELECT DISTINCT 
+                p.person_id, 
+                p.distinct_id,
+                existing.feature_flag_key
+            FROM posthog_persondistinctid p
+            LEFT JOIN posthog_featureflaghashkeyoverride existing 
+                ON existing.person_id = p.person_id AND existing.team_id = p.team_id
+            WHERE p.team_id = $1 
+                AND p.distinct_id = ANY($2)
+                AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
+        "#;
+
+        // Query 2: Get all active feature flags with experience continuity (non-person pool)
+        let flags_query = r#"
+            SELECT flag.key 
+            FROM posthog_featureflag flag
+            JOIN posthog_team team ON flag.team_id = team.id
+            WHERE team.project_id = $1 
                 AND flag.ensure_experience_continuity = TRUE 
                 AND flag.active = TRUE 
                 AND flag.deleted = FALSE
-                AND flag.key NOT IN (SELECT feature_flag_key FROM existing_overrides)
-            )
+        "#;
+
+        // Query 3: Bulk insert hash key overrides (person pool)
+        let bulk_insert_query = r#"
             INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-                SELECT team_id, person_id, key, $4
-                FROM flags_to_override, target_person_ids
-                WHERE EXISTS (SELECT 1 FROM posthog_person WHERE id = person_id AND team_id = $1)
+            SELECT $1, person_id, flag_key, $2
+            FROM UNNEST($3::bigint[], $4::text[]) AS t(person_id, flag_key)
             ON CONFLICT DO NOTHING
         "#;
 
-        let result: Result<PgQueryResult, sqlx::Error> = sqlx::query(query)
-            .bind(team_id)
-            .bind(&distinct_ids)
-            .bind(project_id)
-            .bind(&hash_key_override)
-            .execute(&mut *transaction)
-            .await;
+        let result: Result<u64, sqlx::Error> = async {
+            // Step 1: Get all person data (person_ids + existing overrides + validation)
+            let person_query_labels = [
+                (
+                    "query".to_string(),
+                    "person_data_with_overrides".to_string(),
+                ),
+                (
+                    "operation".to_string(),
+                    "set_hash_key_overrides".to_string(),
+                ),
+            ];
+            let person_query_timer =
+                common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &person_query_labels);
+            let person_data_rows = sqlx::query(person_data_query)
+                .bind(team_id)
+                .bind(&distinct_ids)
+                .fetch_all(&mut *transaction)
+                .await?;
+            person_query_timer.fin();
+
+            if person_data_rows.is_empty() {
+                return Ok(0); // No persons found, nothing to insert
+            }
+
+            // Process person data - collect person_ids and existing overrides
+            let mut person_ids = HashSet::new();
+            let mut existing_overrides = HashSet::new();
+
+            for row in person_data_rows {
+                let person_id: i64 = row.get("person_id");
+                person_ids.insert(person_id);
+
+                // Handle existing overrides (can be NULL from LEFT JOIN)
+                if let Ok(flag_key) = row.try_get::<String, _>("feature_flag_key") {
+                    existing_overrides.insert((person_id, flag_key));
+                }
+            }
+
+            let person_ids_vec: Vec<i64> = person_ids.into_iter().collect();
+
+            // Step 2: Get active feature flags (from non-person pool)
+            // Get separate connection for non-persons query
+            let non_persons_labels = [
+                ("pool".to_string(), "non_persons_reader".to_string()),
+                (
+                    "operation".to_string(),
+                    "set_feature_flag_hash_key_overrides".to_string(),
+                ),
+            ];
+            let non_persons_conn_timer =
+                common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &non_persons_labels);
+            let mut non_persons_conn = router
+                .get_non_persons_reader()
+                .get_connection()
+                .await
+                .map_err(|e| {
+                    sqlx::Error::Configuration(
+                        format!("Failed to acquire non-persons connection: {e}").into(),
+                    )
+                })?;
+            non_persons_conn_timer.fin();
+
+            let flags_labels = [
+                (
+                    "query".to_string(),
+                    "active_flags_with_continuity".to_string(),
+                ),
+                (
+                    "operation".to_string(),
+                    "set_hash_key_overrides".to_string(),
+                ),
+            ];
+            let flags_query_timer =
+                common_metrics::timing_guard(FLAG_DEFINITION_QUERY_TIME, &flags_labels);
+            let flag_rows = sqlx::query(flags_query)
+                .bind(project_id)
+                .fetch_all(&mut *non_persons_conn)
+                .await?;
+            flags_query_timer.fin();
+
+            let flag_keys: Vec<String> = flag_rows
+                .iter()
+                .map(|row| row.get::<String, _>("key"))
+                .collect();
+
+            if flag_keys.is_empty() {
+                return Ok(0); // No flags to override
+            }
+
+            // Step 3: Build values for bulk insert
+            // Create all person-flag combinations that need to be inserted
+            let values_to_insert: Vec<(i64, String)> = person_ids_vec
+                .iter()
+                .flat_map(|pid| flag_keys.iter().map(move |fk| (*pid, fk.clone())))
+                .filter(|(pid, fk)| {
+                    // Skip if override already exists
+                    !existing_overrides.contains(&(*pid, fk.clone()))
+                })
+                .collect();
+
+            if values_to_insert.is_empty() {
+                return Ok(0); // Nothing to insert
+            }
+
+            // Separate the tuples into parallel arrays for UNNEST
+            let (person_ids_to_insert, flag_keys_to_insert): (Vec<i64>, Vec<String>) =
+                values_to_insert.into_iter().unzip();
+
+            // Step 4: Bulk insert (person pool)
+            let insert_labels = [
+                ("query".to_string(), "bulk_insert_overrides".to_string()),
+                (
+                    "operation".to_string(),
+                    "set_hash_key_overrides".to_string(),
+                ),
+            ];
+            let insert_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &insert_labels);
+            let result = sqlx::query(bulk_insert_query)
+                .bind(team_id)
+                .bind(&hash_key_override)
+                .bind(&person_ids_to_insert)
+                .bind(&flag_keys_to_insert)
+                .execute(&mut *transaction)
+                .await?;
+            insert_timer.fin();
+
+            Ok(result.rows_affected())
+        }
+        .await;
 
         match result {
-            Ok(query_result) => {
+            Ok(rows_affected) => {
                 // Commit the transaction if successful
                 transaction
                     .commit()
                     .await
                     .map_err(|e| FlagError::DatabaseError(e.to_string()))?;
-                return Ok(query_result.rows_affected() > 0);
+                return Ok(rows_affected > 0);
             }
             Err(e) => {
                 // Rollback the transaction on error
@@ -583,7 +750,7 @@ pub async fn set_feature_flag_hash_key_overrides(
 /// continuity enabled that don't already have hash key overrides for the given
 /// distinct ID.
 pub async fn should_write_hash_key_override(
-    reader: PostgresReader,
+    router: &PostgresRouter,
     team_id: TeamId,
     distinct_id: String,
     project_id: ProjectId,
@@ -595,48 +762,128 @@ pub async fn should_write_hash_key_override(
 
     let distinct_ids = vec![distinct_id, hash_key_override.clone()];
 
-    let query = r#"
-        WITH target_person_ids AS (
-            SELECT team_id, person_id 
-            FROM posthog_persondistinctid 
-            WHERE team_id = $1 AND distinct_id = ANY($2)
-        ),
-        existing_overrides AS (
-            SELECT team_id, person_id, feature_flag_key, hash_key 
-            FROM posthog_featureflaghashkeyoverride
-            WHERE team_id = $1 AND person_id IN (SELECT person_id FROM target_person_ids)
-        )
+    // Query 1: Get person_ids and existing overrides from person pool in one shot
+    let person_data_query = r#"
+        SELECT DISTINCT 
+            p.person_id,
+            existing.feature_flag_key
+        FROM posthog_persondistinctid p
+        LEFT JOIN posthog_featureflaghashkeyoverride existing
+            ON existing.person_id = p.person_id AND existing.team_id = p.team_id
+        WHERE p.team_id = $1 AND p.distinct_id = ANY($2)
+    "#;
+
+    // Query 2: Get feature flags from non-person pool
+    let flags_query = r#"
         SELECT key FROM posthog_featureflag flag
         JOIN posthog_team team ON flag.team_id = team.id
-        WHERE team.project_id = $3
-            AND flag.ensure_experience_continuity = TRUE AND flag.active = TRUE AND flag.deleted = FALSE
-            AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
+        WHERE team.project_id = $1
+            AND flag.ensure_experience_continuity = TRUE 
+            AND flag.active = TRUE 
+            AND flag.deleted = FALSE
     "#;
 
     for retry in 0..MAX_RETRIES {
         let result = timeout(QUERY_TIMEOUT, async {
-            let labels = [
-                ("pool".to_string(), "reader".to_string()),
+            // Get connection from persons pool for person data
+            let persons_labels = [
+                ("pool".to_string(), "persons_reader".to_string()),
                 (
                     "operation".to_string(),
                     "should_write_hash_key_override".to_string(),
                 ),
             ];
-            let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
-            let mut conn = reader.get_connection().await.map_err(|e| {
-                FlagError::DatabaseError(format!("Failed to acquire connection: {e}"))
-            })?;
-            conn_timer.fin();
+            let persons_conn_timer =
+                common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &persons_labels);
+            let mut persons_conn =
+                router
+                    .get_persons_reader()
+                    .get_connection()
+                    .await
+                    .map_err(|e| {
+                        FlagError::DatabaseError(format!(
+                            "Failed to acquire persons connection: {e}"
+                        ))
+                    })?;
+            persons_conn_timer.fin();
 
-            let rows = sqlx::query(query)
+            // Step 1: Get person data and existing overrides
+            let person_query_labels = [
+                (
+                    "query".to_string(),
+                    "person_data_with_overrides".to_string(),
+                ),
+                ("operation".to_string(), "should_write_check".to_string()),
+            ];
+            let person_query_timer =
+                common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &person_query_labels);
+            let person_data_rows = sqlx::query(person_data_query)
                 .bind(team_id)
                 .bind(&distinct_ids)
-                .bind(project_id)
-                .fetch_all(&mut *conn)
+                .fetch_all(&mut *persons_conn)
                 .await
-                .map_err(|e| FlagError::DatabaseError(format!("Query execution failed: {e}")))?;
+                .map_err(|e| {
+                    FlagError::DatabaseError(format!("Failed to fetch person data: {e}"))
+                })?;
+            person_query_timer.fin();
 
-            Ok::<bool, FlagError>(!rows.is_empty())
+            // If no person_ids found, there's nothing to check
+            if person_data_rows.is_empty() {
+                return Ok(false);
+            }
+
+            // Extract existing flag keys from overrides
+            let existing_flag_keys: HashSet<String> = person_data_rows
+                .iter()
+                .filter_map(|row| row.try_get::<String, _>("feature_flag_key").ok())
+                .collect();
+
+            // Step 2: Get active feature flags with experience continuity from non-persons pool
+            // Get connection from non-persons pool for flag data
+            let non_persons_labels = [
+                ("pool".to_string(), "non_persons_reader".to_string()),
+                (
+                    "operation".to_string(),
+                    "should_write_hash_key_override".to_string(),
+                ),
+            ];
+            let non_persons_conn_timer =
+                common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &non_persons_labels);
+            let mut non_persons_conn = router
+                .get_non_persons_reader()
+                .get_connection()
+                .await
+                .map_err(|e| {
+                    FlagError::DatabaseError(format!(
+                        "Failed to acquire non-persons connection: {e}"
+                    ))
+                })?;
+            non_persons_conn_timer.fin();
+            let flags_labels = [
+                (
+                    "query".to_string(),
+                    "active_flags_with_continuity".to_string(),
+                ),
+                ("operation".to_string(), "should_write_check".to_string()),
+            ];
+            let flags_query_timer =
+                common_metrics::timing_guard(FLAG_DEFINITION_QUERY_TIME, &flags_labels);
+            let flag_rows = sqlx::query(flags_query)
+                .bind(project_id)
+                .fetch_all(&mut *non_persons_conn)
+                .await
+                .map_err(|e| FlagError::DatabaseError(format!("Failed to fetch flags: {e}")))?;
+            flags_query_timer.fin();
+
+            // Check if there are any flags that don't have overrides
+            for row in flag_rows {
+                let flag_key: String = row.get("key");
+                if !existing_flag_keys.contains(&flag_key) {
+                    return Ok(true); // Found a flag without override
+                }
+            }
+
+            Ok::<bool, FlagError>(false) // All flags have overrides
         })
         .await;
 
@@ -750,8 +997,14 @@ mod tests {
             .unwrap();
 
         // Set hash key override
-        set_feature_flag_hash_key_overrides(
+        let router = crate::database::PostgresRouter::new(
+            reader.clone(),
             writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
+        set_feature_flag_hash_key_overrides(
+            &router,
             team.id,
             vec![distinct_id.clone()],
             team.project_id,
@@ -770,6 +1023,610 @@ mod tests {
             overrides.get("test_flag"),
             Some(&"hash_key_2".to_string()),
             "Hash key override should match the set value"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_set_feature_flag_hash_key_overrides_with_multiple_persons() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(reader.clone(), None)
+            .await
+            .expect("Failed to insert team");
+
+        // Create 3 persons
+        let person1_id = insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "batch_user1".to_string(),
+            Some(json!({"email": "user1@example.com"})),
+        )
+        .await
+        .expect("Failed to insert person1");
+
+        let _person2_id = insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "batch_user2".to_string(),
+            Some(json!({"email": "user2@example.com"})),
+        )
+        .await
+        .expect("Failed to insert person2");
+
+        let _person3_id = insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "batch_user3".to_string(),
+            Some(json!({"email": "user3@example.com"})),
+        )
+        .await
+        .expect("Failed to insert person3");
+
+        // Add additional distinct_id for person1 to test multiple distinct_ids per person
+        let mut conn = writer
+            .get_connection()
+            .await
+            .expect("Failed to get connection");
+        let mut transaction = conn.begin().await.expect("Failed to begin transaction");
+
+        sqlx::query(
+            "INSERT INTO posthog_persondistinctid (team_id, person_id, distinct_id, version)
+             VALUES ($1, $2, $3, 0)",
+        )
+        .bind(team.id)
+        .bind(person1_id)
+        .bind("batch_user1_alt")
+        .execute(&mut *transaction)
+        .await
+        .expect("Failed to add alt distinct_id");
+
+        transaction
+            .commit()
+            .await
+            .expect("Failed to commit transaction");
+
+        // Create 4 feature flags with experience continuity
+        for i in 1..=4 {
+            let flag_row = FeatureFlagRow {
+                id: 10000 + i,
+                team_id: team.id,
+                name: Some(format!("Batch Test Flag {i}")),
+                key: format!("batch_flag_{i}"),
+                filters: json!({"groups": [{"rollout_percentage": 50}]}),
+                deleted: false,
+                active: true,
+                ensure_experience_continuity: Some(true),
+                version: Some(1),
+                evaluation_runtime: None,
+            };
+            insert_flag_for_team_in_pg(writer.clone(), team.id, Some(flag_row))
+                .await
+                .unwrap_or_else(|_| panic!("Failed to insert flag {i}"));
+        }
+
+        // Test batch insert with 4 distinct_ids (3 persons, 1 with alt)
+        let distinct_ids = vec![
+            "batch_user1".to_string(),
+            "batch_user1_alt".to_string(),
+            "batch_user2".to_string(),
+            "batch_user3".to_string(),
+        ];
+        let hash_key = "batch_hash_key".to_string();
+
+        let router = crate::database::PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
+        let result = set_feature_flag_hash_key_overrides(
+            &router,
+            team.id,
+            distinct_ids.clone(),
+            team.project_id,
+            hash_key.clone(),
+        )
+        .await
+        .expect("Failed to set hash key overrides");
+
+        assert!(result, "Should have written overrides");
+
+        // Verify all combinations were created correctly
+        // Should create overrides for all distinct_ids
+        for distinct_id in &distinct_ids {
+            let overrides = get_feature_flag_hash_key_overrides(
+                reader.clone(),
+                team.id,
+                vec![distinct_id.clone()],
+            )
+            .await
+            .unwrap_or_else(|_| panic!("Failed to get overrides for {distinct_id}"));
+
+            assert_eq!(
+                overrides.len(),
+                4,
+                "Should have 4 overrides for distinct_id {distinct_id}"
+            );
+
+            for i in 1..=4 {
+                let flag_key = format!("batch_flag_{i}");
+                assert_eq!(
+                    overrides.get(&flag_key),
+                    Some(&hash_key),
+                    "Override for {flag_key} should be set for distinct_id {distinct_id}"
+                );
+            }
+        }
+
+        // Verify the actual count in the database
+        // batch_user1 and batch_user1_alt map to same person, so 3 persons * 4 flags = 12 overrides
+        let mut conn = reader
+            .get_connection()
+            .await
+            .expect("Failed to get connection");
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM posthog_featureflaghashkeyoverride 
+             WHERE team_id = $1 AND hash_key = $2",
+        )
+        .bind(team.id)
+        .bind(&hash_key)
+        .fetch_one(&mut *conn)
+        .await
+        .expect("Failed to count overrides");
+
+        assert_eq!(
+            count, 12,
+            "Should have exactly 12 overrides in database (3 persons * 4 flags)"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_set_feature_flag_hash_key_overrides_with_with_existing_overrides() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(reader.clone(), None)
+            .await
+            .expect("Failed to insert team");
+
+        // Create 2 persons
+        let person1_id = insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "existing_user1".to_string(),
+            Some(json!({"email": "existing1@example.com"})),
+        )
+        .await
+        .expect("Failed to insert person1");
+
+        let _person2_id = insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "existing_user2".to_string(),
+            Some(json!({"email": "existing2@example.com"})),
+        )
+        .await
+        .expect("Failed to insert person2");
+
+        // Create 3 flags
+        for i in 1..=3 {
+            let flag_row = FeatureFlagRow {
+                id: 20000 + i,
+                team_id: team.id,
+                name: Some(format!("Existing Test Flag {i}")),
+                key: format!("existing_flag_{i}"),
+                filters: json!({"groups": [{"rollout_percentage": 50}]}),
+                deleted: false,
+                active: true,
+                ensure_experience_continuity: Some(true),
+                version: Some(1),
+                evaluation_runtime: None,
+            };
+            insert_flag_for_team_in_pg(writer.clone(), team.id, Some(flag_row))
+                .await
+                .unwrap_or_else(|_| panic!("Failed to insert flag {i}"));
+        }
+
+        // Manually insert some existing overrides
+        let mut conn = writer
+            .get_connection()
+            .await
+            .expect("Failed to get connection");
+        let mut transaction = conn.begin().await.expect("Failed to begin transaction");
+
+        // Person1 has override for flag 1
+        sqlx::query(
+            "INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+             VALUES ($1, $2, $3, $4)",
+        )
+        .bind(team.id)
+        .bind(person1_id)
+        .bind("existing_flag_1")
+        .bind("old_hash")
+        .execute(&mut *transaction)
+        .await
+        .expect("Failed to insert existing override");
+
+        transaction
+            .commit()
+            .await
+            .expect("Failed to commit transaction");
+
+        // Try batch insert - should only insert the missing combinations
+        let distinct_ids = vec!["existing_user1".to_string(), "existing_user2".to_string()];
+        let new_hash = "new_batch_hash".to_string();
+
+        let router = crate::database::PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
+        let result = set_feature_flag_hash_key_overrides(
+            &router,
+            team.id,
+            distinct_ids.clone(),
+            team.project_id,
+            new_hash.clone(),
+        )
+        .await
+        .expect("Failed to set hash key overrides");
+
+        assert!(result, "Should have written new overrides");
+
+        // Verify existing overrides are preserved
+        let overrides1 = get_feature_flag_hash_key_overrides(
+            reader.clone(),
+            team.id,
+            vec!["existing_user1".to_string()],
+        )
+        .await
+        .expect("Failed to get overrides");
+
+        assert_eq!(
+            overrides1.get("existing_flag_1"),
+            Some(&"old_hash".to_string()),
+            "Existing override should be preserved"
+        );
+        assert_eq!(
+            overrides1.get("existing_flag_2"),
+            Some(&new_hash),
+            "New override should be added for flag 2"
+        );
+        assert_eq!(
+            overrides1.get("existing_flag_3"),
+            Some(&new_hash),
+            "New override should be added for flag 3"
+        );
+
+        // Verify the count - should have 6 total (2 existing + 4 new)
+        let mut conn = reader
+            .get_connection()
+            .await
+            .expect("Failed to get connection");
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM posthog_featureflaghashkeyoverride WHERE team_id = $1",
+        )
+        .bind(team.id)
+        .fetch_one(&mut *conn)
+        .await
+        .expect("Failed to count overrides");
+
+        assert_eq!(
+            count, 6,
+            "Should have 6 total overrides (2 existing + 4 new)"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_set_overrides_filters_inactive_and_deleted_flags() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(reader.clone(), None)
+            .await
+            .expect("Failed to insert team");
+
+        // Create a person
+        insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "filter_test_user".to_string(),
+            Some(json!({"email": "filter@example.com"})),
+        )
+        .await
+        .expect("Failed to insert person");
+
+        // Create various flags with different states
+        let active_flag = FeatureFlagRow {
+            id: 50001,
+            team_id: team.id,
+            name: Some("Active Flag".to_string()),
+            key: "active_flag".to_string(),
+            filters: json!({"groups": [{"rollout_percentage": 50}]}),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: Some(true),
+            version: Some(1),
+            evaluation_runtime: None,
+        };
+
+        let inactive_flag = FeatureFlagRow {
+            id: 50002,
+            team_id: team.id,
+            name: Some("Inactive Flag".to_string()),
+            key: "inactive_flag".to_string(),
+            filters: json!({"groups": [{"rollout_percentage": 50}]}),
+            deleted: false,
+            active: false, // NOT active
+            ensure_experience_continuity: Some(true),
+            version: Some(1),
+            evaluation_runtime: None,
+        };
+
+        let deleted_flag = FeatureFlagRow {
+            id: 50003,
+            team_id: team.id,
+            name: Some("Deleted Flag".to_string()),
+            key: "deleted_flag".to_string(),
+            filters: json!({"groups": [{"rollout_percentage": 50}]}),
+            deleted: true, // Deleted
+            active: true,
+            ensure_experience_continuity: Some(true),
+            version: Some(1),
+            evaluation_runtime: None,
+        };
+
+        let no_continuity_flag = FeatureFlagRow {
+            id: 50004,
+            team_id: team.id,
+            name: Some("No Continuity Flag".to_string()),
+            key: "no_continuity_flag".to_string(),
+            filters: json!({"groups": [{"rollout_percentage": 50}]}),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: Some(false), // No experience continuity
+            version: Some(1),
+            evaluation_runtime: None,
+        };
+
+        insert_flag_for_team_in_pg(writer.clone(), team.id, Some(active_flag))
+            .await
+            .expect("Failed to insert active flag");
+        insert_flag_for_team_in_pg(writer.clone(), team.id, Some(inactive_flag))
+            .await
+            .expect("Failed to insert inactive flag");
+        insert_flag_for_team_in_pg(writer.clone(), team.id, Some(deleted_flag))
+            .await
+            .expect("Failed to insert deleted flag");
+        insert_flag_for_team_in_pg(writer.clone(), team.id, Some(no_continuity_flag))
+            .await
+            .expect("Failed to insert no continuity flag");
+
+        // Set overrides
+        let router = crate::database::PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
+        let result = set_feature_flag_hash_key_overrides(
+            &router,
+            team.id,
+            vec!["filter_test_user".to_string()],
+            team.project_id,
+            "filter_hash".to_string(),
+        )
+        .await
+        .expect("Should not error");
+
+        assert!(result, "Should have written override for active flag");
+
+        // Verify only the active flag with experience continuity got an override
+        let overrides = get_feature_flag_hash_key_overrides(
+            reader.clone(),
+            team.id,
+            vec!["filter_test_user".to_string()],
+        )
+        .await
+        .expect("Failed to get overrides");
+
+        assert_eq!(overrides.len(), 1, "Should have exactly 1 override");
+        assert_eq!(
+            overrides.get("active_flag"),
+            Some(&"filter_hash".to_string())
+        );
+        assert_eq!(
+            overrides.get("inactive_flag"),
+            None,
+            "Inactive flag should not have override"
+        );
+        assert_eq!(
+            overrides.get("deleted_flag"),
+            None,
+            "Deleted flag should not have override"
+        );
+        assert_eq!(
+            overrides.get("no_continuity_flag"),
+            None,
+            "No continuity flag should not have override"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_should_write_hash_key_override() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(reader.clone(), None)
+            .await
+            .expect("Failed to insert team");
+
+        // Create a person
+        insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "should_write_user".to_string(),
+            Some(json!({"email": "should_write@example.com"})),
+        )
+        .await
+        .expect("Failed to insert person");
+
+        // Create a flag with experience continuity
+        let flag_row = FeatureFlagRow {
+            id: 60000,
+            team_id: team.id,
+            name: Some("Should Write Flag".to_string()),
+            key: "should_write_flag".to_string(),
+            filters: json!({"groups": [{"rollout_percentage": 50}]}),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: Some(true),
+            version: Some(1),
+            evaluation_runtime: None,
+        };
+        insert_flag_for_team_in_pg(writer.clone(), team.id, Some(flag_row))
+            .await
+            .expect("Failed to insert flag");
+
+        // Test 1: Should return true when no overrides exist
+        let router = crate::database::PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
+        let should_write = should_write_hash_key_override(
+            &router,
+            team.id,
+            "should_write_user".to_string(),
+            team.project_id,
+            "hash_key_1".to_string(),
+        )
+        .await
+        .expect("Should not error");
+
+        assert!(should_write, "Should write when no overrides exist");
+
+        // Now set an override
+        let router = crate::database::PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
+        set_feature_flag_hash_key_overrides(
+            &router,
+            team.id,
+            vec!["should_write_user".to_string()],
+            team.project_id,
+            "hash_key_1".to_string(),
+        )
+        .await
+        .expect("Failed to set override");
+
+        // Test 2: Should return false when override exists
+        let router = crate::database::PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
+        let should_write = should_write_hash_key_override(
+            &router,
+            team.id,
+            "should_write_user".to_string(),
+            team.project_id,
+            "hash_key_1".to_string(),
+        )
+        .await
+        .expect("Should not error");
+
+        assert!(
+            !should_write,
+            "Should not write when override already exists"
+        );
+
+        // Test 3: Should return false for non-existent person
+        let router = crate::database::PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
+        let should_write = should_write_hash_key_override(
+            &router,
+            team.id,
+            "non_existent_user".to_string(),
+            team.project_id,
+            "hash_key_2".to_string(),
+        )
+        .await
+        .expect("Should not error");
+
+        assert!(!should_write, "Should not write for non-existent person");
+    }
+
+    #[tokio::test]
+    async fn test_set_overrides_with_no_persons() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let team = insert_new_team_in_pg(reader.clone(), None)
+            .await
+            .expect("Failed to insert team");
+
+        // Create a flag but NO persons
+        let flag_row = FeatureFlagRow {
+            id: 70000,
+            team_id: team.id,
+            name: Some("No Person Flag".to_string()),
+            key: "no_person_flag".to_string(),
+            filters: json!({"groups": [{"rollout_percentage": 50}]}),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: Some(true),
+            version: Some(1),
+            evaluation_runtime: None,
+        };
+        insert_flag_for_team_in_pg(writer.clone(), team.id, Some(flag_row))
+            .await
+            .expect("Failed to insert flag");
+
+        // Try to set overrides for non-existent distinct_ids
+        let router = crate::database::PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
+        let result = set_feature_flag_hash_key_overrides(
+            &router,
+            team.id,
+            vec![
+                "nonexistent_user1".to_string(),
+                "nonexistent_user2".to_string(),
+            ],
+            team.project_id,
+            "some_hash".to_string(),
+        )
+        .await
+        .expect("Should not error even with non-existent users");
+
+        assert!(!result, "Should return false when no persons found");
+
+        // Verify no overrides were created
+        let mut conn = reader
+            .get_connection()
+            .await
+            .expect("Failed to get connection");
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM posthog_featureflaghashkeyoverride WHERE team_id = $1",
+        )
+        .bind(team.id)
+        .fetch_one(&mut *conn)
+        .await
+        .expect("Failed to count overrides");
+
+        assert_eq!(
+            count, 0,
+            "Should have no overrides when persons don't exist"
         );
     }
 

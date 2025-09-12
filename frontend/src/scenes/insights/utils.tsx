@@ -1,14 +1,16 @@
+import isEqual from 'lodash.isequal'
+import { ReactNode } from 'react'
+
 import api from 'lib/api'
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { ReactNode } from 'react'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
-import isEqual from 'lodash.isequal'
 
 import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
+import { removeUndefinedAndNull } from '~/lib/utils'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '~/queries/examples'
 import {
@@ -27,6 +29,7 @@ import {
     ResultCustomizationByValue,
 } from '~/queries/schema/schema-general'
 import { isDataWarehouseNode, isEventsNode } from '~/queries/utils'
+import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     ActionFilter,
@@ -47,10 +50,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { RESULT_CUSTOMIZATION_DEFAULT } from './EditorFilters/ResultCustomizationByPicker'
 import { insightLogic } from './insightLogic'
-import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
-import { removeUndefinedAndNull } from '~/lib/utils'
 
 export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null): boolean => {
     return (
@@ -411,7 +411,6 @@ export const INSIGHT_TYPE_URLS = {
     JSON: urls.insightNew({ query: examples.EventsTableFull }),
     HOG: urls.insightNew({ query: examples.Hoggonacci }),
     SQL: urls.sqlEditor((examples.HogQLForDataVisualization as HogQLQuery)['query']),
-    CALENDAR_HEATMAP: urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
 }
 
 /** Combines a list of words, separating with the correct punctuation. For example: [a, b, c, d] -> "a, b, c, and d"  */
@@ -490,7 +489,10 @@ export function getTrendDatasetKey(dataset: IndexedTrendResult): string {
             : dataset.seriesIndex > 0
               ? `formula${dataset.seriesIndex + 1}`
               : 'formula',
-        breakdown_value: dataset.breakdown_value,
+        breakdown_value:
+            dataset.breakdown_value !== undefined && !Array.isArray(dataset.breakdown_value)
+                ? [dataset.breakdown_value]
+                : dataset.breakdown_value,
         compare_label: dataset.compare_label,
     }
 
@@ -498,7 +500,7 @@ export function getTrendDatasetKey(dataset: IndexedTrendResult): string {
 }
 
 export function getTrendDatasetPosition(dataset: IndexedTrendResult): number {
-    return dataset.colorIndex ?? dataset.seriesIndex ?? ((dataset as any).index as number)
+    return dataset.seriesIndex ?? dataset.colorIndex ?? ((dataset as any).index as number)
 }
 
 /** Type guard to determine wether we have a FunnelStepWithConversionMetrics or a FlattenedFunnelStepByBreakdown */
@@ -525,7 +527,7 @@ export function getTrendResultCustomizationKey(
     resultCustomizationBy: ResultCustomizationBy | null | undefined,
     dataset: IndexedTrendResult
 ): string {
-    const assignmentByValue = resultCustomizationBy == null || resultCustomizationBy === RESULT_CUSTOMIZATION_DEFAULT
+    const assignmentByValue = resultCustomizationBy == null || resultCustomizationBy === ResultCustomizationBy.Value
     return assignmentByValue ? getTrendDatasetKey(dataset) : getTrendDatasetPosition(dataset).toString()
 }
 

@@ -1,24 +1,25 @@
+import './QuestionInput.scss'
+
 import { offset } from '@floating-ui/react'
-import { IconArrowRight, IconStopFilled } from '@posthog/icons'
-import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { ReactNode, useState, useEffect } from 'react'
+import posthog from 'posthog-js'
+import { ReactNode, useEffect, useState } from 'react'
 import React from 'react'
+
+import { IconArrowRight, IconStopFilled } from '@posthog/icons'
+import { LemonButton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
+
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
+import { ContextDisplay } from '../Context'
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
-import { ContextDisplay } from '../Context'
-import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
-import posthog from 'posthog-js'
 import { MAX_SLASH_COMMANDS } from '../slash-commands'
-
-import './QuestionInput.scss'
-
+import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
 import { ToolsDisplay } from './ToolsDisplay'
 
 interface QuestionInputProps {
@@ -33,6 +34,7 @@ interface QuestionInputProps {
     textAreaRef?: React.RefObject<HTMLTextAreaElement>
     containerClassName?: string
     onSubmit?: () => void
+    showDeepResearchModeToggle?: boolean
 }
 
 export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps>(function BaseQuestionInput(
@@ -48,14 +50,15 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         textAreaRef,
         containerClassName,
         onSubmit,
+        showDeepResearchModeToggle,
     },
     ref
 ) {
     const { dataProcessingAccepted, tools } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
-    const { threadLoading, inputDisabled, submissionDisabledReason } = useValues(maxThreadLogic)
-    const { askMax, stopGeneration, completeThreadGeneration } = useActions(maxThreadLogic)
+    const { threadLoading, inputDisabled, submissionDisabledReason, deepResearchMode } = useValues(maxThreadLogic)
+    const { askMax, stopGeneration, completeThreadGeneration, setDeepResearchMode } = useActions(maxThreadLogic)
 
     const [showAutocomplete, setShowAutocomplete] = useState(false)
 
@@ -102,14 +105,16 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             }
                         }}
                     >
-                        {!isThreadVisible ? (
-                            <div className="flex items-start justify-between">
+                        <div className="pt-1">
+                            {!isThreadVisible ? (
+                                <div className="flex items-start justify-between">
+                                    <ContextDisplay size={contextDisplaySize} />
+                                    <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
+                                </div>
+                            ) : (
                                 <ContextDisplay size={contextDisplaySize} />
-                                <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
-                            </div>
-                        ) : (
-                            <ContextDisplay size={contextDisplaySize} />
-                        )}
+                            )}
+                        </div>
 
                         <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>
                             <LemonTextArea
@@ -191,7 +196,24 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </AIConsentPopoverWrapper>
                     </div>
                 </div>
-                <ToolsDisplay isFloating={isFloating} tools={tools} bottomActions={bottomActions} />
+                <ToolsDisplay
+                    isFloating={isFloating}
+                    tools={tools}
+                    bottomActions={bottomActions}
+                    deepResearchMode={deepResearchMode}
+                />
+                {showDeepResearchModeToggle && (
+                    <div className="flex justify-end gap-1 w-full p-1">
+                        <LemonSwitch
+                            checked={deepResearchMode}
+                            label="Think harder"
+                            disabled={threadLoading}
+                            onChange={(checked) => setDeepResearchMode(checked)}
+                            size="xxsmall"
+                            tooltip="This will make Max think harder about your question"
+                        />
+                    </div>
+                )}
             </div>
         </div>
     )

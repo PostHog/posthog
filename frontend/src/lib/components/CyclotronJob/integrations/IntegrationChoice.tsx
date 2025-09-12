@@ -1,14 +1,17 @@
+import { useActions, useValues } from 'kea'
+
 import { IconExternal, IconX } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import api from 'lib/api'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
-import { ChannelSetupModal } from 'products/messaging/frontend/Channels/ChannelSetupModal'
 import { urls } from 'scenes/urls'
 
 import { CyclotronJobInputSchemaType } from '~/types'
+
+import { ChannelSetupModal } from 'products/messaging/frontend/Channels/ChannelSetupModal'
 
 export type IntegrationConfigureProps = {
     value?: number

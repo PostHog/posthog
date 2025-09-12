@@ -1,4 +1,4 @@
-import { Group, PersonType, SearchableEntity, SearchResultType } from '~/types'
+import { Group, PersonType, SearchResultType, SearchableEntity } from '~/types'
 
 export enum BarStatus {
     HIDDEN = 'hidden',

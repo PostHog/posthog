@@ -1,7 +1,8 @@
-import { IconArchive, IconShieldPeople } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useRef } from 'react'
+
+import { IconArchive, IconShieldPeople } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
 
 import { LemonTree, LemonTreeProps } from './LemonTree'
 

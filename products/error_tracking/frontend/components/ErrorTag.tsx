@@ -1,4 +1,5 @@
 import { LemonTag } from '@posthog/lemon-ui'
+
 import { cn } from 'lib/utils/css-classes'
 
 export interface ErrorTagProps {

@@ -1,13 +1,15 @@
-import { LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import React, { useEffect, useRef } from 'react'
+
+import { LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { pipelineDefaultEnabledLogic } from 'scenes/pipeline/pipelineDefaultEnabledLogic'
 
-import { ProductKey, OnboardingStepKey } from '~/types'
+import { OnboardingStepKey, ProductKey } from '~/types'
 
-import { onboardingProductConfigurationLogic, ProductConfigOption } from './onboardingProductConfigurationLogic'
 import { OnboardingStep } from './OnboardingStep'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { ProductConfigOption, onboardingProductConfigurationLogic } from './onboardingProductConfigurationLogic'
 
 type ConfigType = 'toggle' | 'select'
 type PluginType = 'plugin'

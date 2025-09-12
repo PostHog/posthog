@@ -1,22 +1,24 @@
 import './LemonTable.scss'
 
-import { IconInfo } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+import { IconInfo } from '@posthog/icons'
+
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { useColumnWidths } from '../../hooks/useColumnWidths'
 import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'
 import { Tooltip } from '../Tooltip'
 import { LemonTableLoader } from './LemonTableLoader'
-import { getNextSorting, Sorting, SortingIndicator } from './sorting'
 import { TableRow } from './TableRow'
-import { ExpandableConfig, LemonTableColumnGroup, LemonTableColumns } from './types'
 import { determineColumnKey, getStickyColumnInfo } from './columnUtils'
-import { useColumnWidths } from '../../hooks/useColumnWidths'
+import { Sorting, SortingIndicator, getNextSorting } from './sorting'
+import { ExpandableConfig, LemonTableColumnGroup, LemonTableColumns } from './types'
 
 export interface LemonTableProps<T extends Record<string, any>> {
     /** Table ID that will also be used in pagination to add uniqueness to search params (page + order). */

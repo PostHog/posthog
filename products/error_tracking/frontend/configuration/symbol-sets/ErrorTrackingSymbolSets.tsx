@@ -1,3 +1,6 @@
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
 import { IconCheckCircle, IconRevert, IconTrash, IconUpload, IconWarning } from '@posthog/icons'
 import {
     LemonButton,
@@ -7,17 +10,17 @@ import {
     LemonTable,
     LemonTableColumns,
     LemonTabs,
+    Link,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ErrorTrackingSymbolSet, SymbolSetStatusFilter } from 'lib/components/Errors/types'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { useEffect, useState } from 'react'
 
-import { errorTrackingSymbolSetLogic } from './errorTrackingSymbolSetLogic'
 import { SymbolSetUploadModal } from './SymbolSetUploadModal'
+import { errorTrackingSymbolSetLogic } from './errorTrackingSymbolSetLogic'
 
 const SYMBOL_SET_FILTER_OPTIONS = [
     {
@@ -48,6 +51,7 @@ export function ErrorTrackingSymbolSets(): JSX.Element {
                 Source maps are required to demangle any minified code in your exception stack traces. PostHog
                 automatically retrieves source maps where possible.
             </p>
+
             <p>
                 Cases where it was not possible are listed below. Source maps can be uploaded retroactively but changes
                 will only apply to all future exceptions ingested.
@@ -145,6 +149,16 @@ const SymbolSetTable = (): JSX.Element => {
         },
     ]
 
+    const emptyState = (
+        <div className="flex flex-col justify-center items-center gap-2 p-4 text-center">
+            <div className="font-semibold">No symbol sets found</div>
+            <div className="text-secondary">
+                Learn how to upload them from the{' '}
+                <Link to="https://posthog.com/docs/error-tracking/upload-source-maps">docs</Link>
+            </div>
+        </div>
+    )
+
     return (
         <LemonTable
             id="symbol-sets"
@@ -152,6 +166,7 @@ const SymbolSetTable = (): JSX.Element => {
             columns={columns}
             loading={symbolSetResponseLoading}
             dataSource={symbolSets}
+            emptyState={!symbolSetResponseLoading ? emptyState : undefined}
             expandable={{
                 noIndent: true,
                 expandedRowRender: function RenderPropertiesTable(symbolSet) {

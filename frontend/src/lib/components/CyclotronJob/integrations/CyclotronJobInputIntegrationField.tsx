@@ -1,26 +1,28 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
+import {
+    ClickUpListPicker,
+    ClickUpSpacePicker,
+    ClickUpWorkspacePicker,
+} from 'lib/integrations/ClickUpIntegrationHelpers'
 import {
     GoogleAdsConversionActionPicker,
     GoogleAdsCustomerIdPicker,
 } from 'lib/integrations/GoogleAdsIntegrationHelpers'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LinearTeamPicker } from 'lib/integrations/LinearIntegrationHelpers'
 import {
     LinkedInAdsAccountIdPicker,
     LinkedInAdsConversionRulePicker,
 } from 'lib/integrations/LinkedInIntegrationHelpers'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
+import { TwilioPhoneNumberPicker } from 'lib/integrations/TwilioIntegrationHelpers'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { CyclotronJobInputSchemaType } from '~/types'
 
 import { CyclotronJobInputConfiguration } from '../types'
-import { TwilioPhoneNumberPicker } from 'lib/integrations/TwilioIntegrationHelpers'
-import {
-    ClickUpSpacePicker,
-    ClickUpListPicker,
-    ClickUpWorkspacePicker,
-} from 'lib/integrations/ClickUpIntegrationHelpers'
 
 export type CyclotronJobInputIntegrationFieldProps = {
     schema: CyclotronJobInputSchemaType

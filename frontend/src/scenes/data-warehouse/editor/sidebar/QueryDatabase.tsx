@@ -1,26 +1,25 @@
-import { IconPlusSmall } from '@posthog/icons'
-import { lemonToast } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useEffect, useRef } from 'react'
+
+import { IconPlusSmall } from '@posthog/icons'
 
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { useEffect, useRef } from 'react'
+import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { PipelineStage } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
+import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
 import { multitabEditorLogic } from '../multitabEditorLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import api from 'lib/api'
-import { draftsLogic } from '../draftsLogic'
 
 export const QueryDatabase = (): JSX.Element => {
     const {
@@ -39,12 +38,11 @@ export const QueryDatabase = (): JSX.Element => {
         setExpandedSearchFolders,
         selectSourceTable,
         toggleEditJoinModal,
-        loadDatabase,
-        loadJoins,
         setEditingDraft,
         renameDraft,
     } = useActions(queryDatabaseLogic)
     const { deleteDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
+    const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
 
     const { deleteDraft } = useActions(draftsLogic)
 
@@ -270,19 +268,8 @@ export const QueryDatabase = (): JSX.Element => {
                                         if (item.record?.columnName) {
                                             const join =
                                                 joinsByFieldName[`${item.record.table}.${item.record.columnName}`]
-                                            void deleteWithUndo({
-                                                endpoint: api.dataWarehouseViewLinks.determineDeleteEndpoint(),
-                                                object: {
-                                                    id: join.id,
-                                                    name: `${join.field_name} on ${join.source_table_name}`,
-                                                },
-                                                callback: () => {
-                                                    loadDatabase()
-                                                    loadJoins()
-                                                },
-                                            }).catch((e) => {
-                                                lemonToast.error(`Failed to delete warehouse view link: ${e.detail}`)
-                                            })
+
+                                            deleteJoin(join)
                                         }
                                     }}
                                 >

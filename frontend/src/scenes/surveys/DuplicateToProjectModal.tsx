@@ -1,6 +1,8 @@
-import { LemonButton, LemonModal, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
+
+import { LemonButton, LemonModal, LemonTag } from '@posthog/lemon-ui'
+
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 

@@ -1,15 +1,17 @@
-import { IconCloud, IconExternal } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
+import { IconCloud, IconExternal } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+
 import { IconWithBadge } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { useState } from 'react'
 
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelLogic } from '../sidePanelLogic'
 import { SidePanelDocsSkeleton } from './SidePanelDocs'
-import { sidePanelStatusLogic, STATUS_PAGE_BASE } from './sidePanelStatusLogic'
+import { STATUS_PAGE_BASE, sidePanelStatusLogic } from './sidePanelStatusLogic'
 
 export const SidePanelStatusIcon = (props: { className?: string }): JSX.Element => {
     const { status, statusPage } = useValues(sidePanelStatusLogic)

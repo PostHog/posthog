@@ -1,6 +1,6 @@
 import { DateTime, Settings } from 'luxon'
 
-import { createAdDestinationPayload, TemplateTester } from '../../test/test-helpers'
+import { TemplateTester, createAdDestinationPayload } from '../../test/test-helpers'
 import { template } from './google.template'
 
 jest.setTimeout(60 * 1000)

@@ -1,5 +1,8 @@
 import datetime as dt
+import dataclasses
 from typing import Any, Optional
+
+from django.dispatch import receiver
 
 import structlog
 import temporalio
@@ -8,10 +11,14 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.hogql.database.database import create_hogql_database
+
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.hogql.database.database import create_hogql_database
+from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
+from posthog.models.signals import model_activity_signal
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.warehouse.data_load.service import (
@@ -310,7 +317,22 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
 
         new_source = SourceRegistry.get_source(source_type_enum)
         config = new_source.parse_config(source.job_inputs)
-        schemas = new_source.get_schemas(config, self.team_id)
+
+        credentials_valid, credentials_error = new_source.validate_credentials(config, self.team_id)
+        if not credentials_valid:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": credentials_error or "Invalid credentials"},
+            )
+
+        try:
+            schemas = new_source.get_schemas(config, self.team_id)
+        except Exception as e:
+            capture_exception(e)
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": str(e)},
+            )
 
         schema: SourceSchema | None = None
 
@@ -332,3 +354,58 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
         }
 
         return Response(status=status.HTTP_200_OK, data=data)
+
+
+@dataclasses.dataclass(frozen=True)
+class ExternalDataSchemaContext(ActivityContextBase):
+    name: str
+    sync_type: str | None
+    sync_frequency: str | None
+    source_id: str
+    source_type: str
+
+
+@receiver(model_activity_signal, sender=ExternalDataSchema)
+def handle_external_data_schema_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    if activity == "created":
+        # We don't want to log the creation of schemas as they get bulk created on source creation
+        return
+
+    external_data_schema = after_update or before_update
+
+    if not external_data_schema:
+        return
+
+    source = external_data_schema.source
+    source_type = source.source_type if source else ""
+
+    sync_frequency = None
+    if external_data_schema.sync_frequency_interval:
+        from posthog.warehouse.models.external_data_schema import sync_frequency_interval_to_sync_frequency
+
+        sync_frequency = sync_frequency_interval_to_sync_frequency(external_data_schema.sync_frequency_interval)
+
+    context = ExternalDataSchemaContext(
+        name=external_data_schema.name or "",
+        sync_type=external_data_schema.sync_type,
+        sync_frequency=sync_frequency,
+        source_id=str(source.id) if source else "",
+        source_type=source_type,
+    )
+
+    log_activity(
+        organization_id=external_data_schema.team.organization_id,
+        team_id=external_data_schema.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=external_data_schema.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=external_data_schema.name,
+            context=context,
+        ),
+    )

@@ -1,6 +1,7 @@
+import { Meta, StoryFn } from '@storybook/react'
+
 import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
-import { Meta, StoryFn } from '@storybook/react'
 
 import { KeyboardShortcut } from './KeyboardShortcut'
 

@@ -1,3 +1,6 @@
+import { useActions, useValues } from 'kea'
+import { useCallback, useEffect } from 'react'
+
 import { LemonButton } from '@posthog/lemon-ui'
 import {
     AssigneeIconDisplay,
@@ -5,7 +8,7 @@ import {
     AssigneeResolver,
 } from '@posthog/products-error-tracking/frontend/components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '@posthog/products-error-tracking/frontend/components/Assignee/AssigneeSelect'
-import { useActions, useValues } from 'kea'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
@@ -13,7 +16,6 @@ import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/Prope
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
-import { useCallback, useEffect } from 'react'
 
 import {
     PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,
@@ -213,6 +215,9 @@ export function PropertyValue({
         return <>{formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType, groupTypeIndex)}</>
     }
 
+    // Disable comma splitting for user agent properties that contain commas in their values
+    const isUserAgentProperty = ['$raw_user_agent', '$initial_raw_user_agent', '$user_agent'].includes(propertyKey)
+
     return (
         <LemonInputSelect
             className={inputClassName}
@@ -225,6 +230,7 @@ export function PropertyValue({
             onInputChange={onSearchTextChange}
             placeholder={placeholder}
             size={size}
+            disableCommaSplitting={isUserAgentProperty}
             title={
                 PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
                     ? 'Suggested values (last 7 days)'

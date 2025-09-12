@@ -1,5 +1,6 @@
-// eslint-disable-next-line simple-import-sort/imports
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+
+import { DecodedKafkaMessage } from '~/tests/helpers/mocks/producer.spy'
 
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
@@ -7,20 +8,19 @@ import { Message } from 'node-rdkafka'
 import { insertHogFunction as _insertHogFunction } from '~/cdp/_tests/fixtures'
 import { template as geoipTemplate } from '~/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '~/cdp/templates/compiler'
-import { DecodedKafkaMessage } from '~/tests/helpers/mocks/producer.spy'
+import { COOKIELESS_MODE_FLAG_PROPERTY, COOKIELESS_SENTINEL_VALUE } from '~/ingestion/cookieless/cookieless-manager'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { CookielessServerHashMode, Hub, IncomingEventWithTeam, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { HogFunctionType } from '../cdp/types'
+import { PostgresUse } from '../utils/db/postgres'
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
 import { IngestionConsumer } from './ingestion-consumer'
 
-import { COOKIELESS_MODE_FLAG_PROPERTY, COOKIELESS_SENTINEL_VALUE } from '~/ingestion/cookieless/cookieless-manager'
-import { PostgresUse } from '../utils/db/postgres'
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
 
@@ -76,6 +76,10 @@ const createIncomingEventsWithTeam = (events: PipelineEvent[], team: Team): Inco
             },
             team: team,
             message: createKafkaMessage(e),
+            headers: {
+                token: e.token || '',
+                distinct_id: e.distinct_id || '',
+            },
         })
     )
 }
@@ -411,6 +415,79 @@ describe('IngestionConsumer', () => {
                         'force overflow messages multiple pairs'
                     )
                 })
+
+                describe('via headers (preprocessing)', () => {
+                    it('forces overflow using headers even if payload token/distinct_id differ', async () => {
+                        await ingester.stop()
+                        hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `forced-token:forced-id`
+                        ingester = await createIngestionConsumer(hub)
+
+                        const event = createEvent({ token: team.api_token, distinct_id: 'not-forced' })
+                        const [message] = createKafkaMessages([event])
+
+                        message.headers = [
+                            { token: Buffer.from('forced-token') },
+                            { distinct_id: Buffer.from('forced-id') },
+                        ]
+
+                        await ingester.handleKafkaBatch([message])
+
+                        expect(
+                            mockProducerObserver.getProducedKafkaMessagesForTopic(
+                                'events_plugin_ingestion_overflow_test'
+                            )
+                        ).toHaveLength(1)
+                        expect(
+                            mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+                        ).toHaveLength(0)
+                    })
+
+                    it('preserves partition locality when not skipping person; drops key when skipping person', async () => {
+                        // Not skipping person -> key preserved
+                        await ingester.stop()
+                        hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `forced-token:forced-id`
+                        hub.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID = ''
+                        hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY = true
+                        ingester = await createIngestionConsumer(hub)
+
+                        const eventA = createEvent({ token: team.api_token, distinct_id: 'not-forced' })
+                        const [messageA] = createKafkaMessages([eventA])
+                        const originalKeyA = messageA.key
+                        messageA.headers = [
+                            { token: Buffer.from('forced-token') },
+                            { distinct_id: Buffer.from('forced-id') },
+                        ]
+                        await ingester.handleKafkaBatch([messageA])
+                        const overflowA = mockProducerObserver.getProducedKafkaMessagesForTopic(
+                            'events_plugin_ingestion_overflow_test'
+                        )
+                        expect(overflowA).toHaveLength(1)
+                        expect(overflowA[0].key).toEqual(originalKeyA)
+
+                        // Reset produced messages
+                        mockProducerObserver.resetKafkaProducer()
+
+                        // Skipping person -> key dropped when preserve locality disabled by config
+                        await ingester.stop()
+                        hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `forced-token:forced-id`
+                        hub.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID = `forced-token:forced-id`
+                        hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY = false
+                        ingester = await createIngestionConsumer(hub)
+
+                        const eventB = createEvent({ token: team.api_token, distinct_id: 'not-forced' })
+                        const [messageB] = createKafkaMessages([eventB])
+                        messageB.headers = [
+                            { token: Buffer.from('forced-token') },
+                            { distinct_id: Buffer.from('forced-id') },
+                        ]
+                        await ingester.handleKafkaBatch([messageB])
+                        const overflowB = mockProducerObserver.getProducedKafkaMessagesForTopic(
+                            'events_plugin_ingestion_overflow_test'
+                        )
+                        expect(overflowB).toHaveLength(1)
+                        expect(overflowB[0].key).toBeNull()
+                    })
+                })
             })
         })
     })
@@ -591,6 +668,56 @@ describe('IngestionConsumer', () => {
                     events: [expect.any(Object)],
                 },
             })
+        })
+
+        it('should preserve headers when grouping events by distinct_id', () => {
+            const events = [
+                createEvent({ distinct_id: 'distinct-id-1' }),
+                createEvent({ distinct_id: 'distinct-id-2' }),
+            ]
+
+            // Create messages with custom headers
+            const messages: IncomingEventWithTeam[] = events.map((event, index) => {
+                const message = createKafkaMessage(event)
+                message.headers = [
+                    { token: Buffer.from(team.api_token) },
+                    { distinct_id: Buffer.from(event.distinct_id || '') },
+                    { timestamp: Buffer.from((Date.now() + index * 1000).toString()) },
+                ]
+
+                return {
+                    event: { ...event, team_id: team.id },
+                    team: team,
+                    message: message,
+                    headers: {
+                        token: team.api_token,
+                        distinct_id: event.distinct_id || '',
+                        timestamp: (Date.now() + index * 1000).toString(),
+                    },
+                }
+            })
+
+            const batches = ingester['groupEventsByDistinctId'](messages)
+
+            expect(Object.keys(batches)).toHaveLength(2)
+
+            // Check that headers are preserved in the grouped events
+            expect(batches[`${team.api_token}:distinct-id-1`].events[0].headers).toEqual({
+                token: team.api_token,
+                distinct_id: 'distinct-id-1',
+                timestamp: expect.any(String),
+            })
+
+            expect(batches[`${team.api_token}:distinct-id-2`].events[0].headers).toEqual({
+                token: team.api_token,
+                distinct_id: 'distinct-id-2',
+                timestamp: expect.any(String),
+            })
+
+            // Verify the timestamp values are different
+            const timestamp1 = parseInt(batches[`${team.api_token}:distinct-id-1`].events[0].headers.timestamp!)
+            const timestamp2 = parseInt(batches[`${team.api_token}:distinct-id-2`].events[0].headers.timestamp!)
+            expect(timestamp2 - timestamp1).toBe(1000)
         })
     })
 
@@ -1011,9 +1138,7 @@ describe('IngestionConsumer', () => {
                             level: 'debug',
                             log_source: 'hog_function',
                             log_source_id: transformationFunction.id,
-                            message: expect.stringMatching(
-                                /^Function completed in \d+\.?\d*ms\. Sync: \d+ms\. Mem: \d+ bytes\. Ops: \d+\. Event: '\S+'$/
-                            ),
+                            message: expect.stringMatching(/^Function completed in/),
                             team_id: team.id,
                             timestamp: expect.stringMatching(/2025-01-01 00:00:00\.\d{3}/),
                         },
@@ -1078,9 +1203,7 @@ describe('IngestionConsumer', () => {
                             level: 'debug',
                             log_source: 'hog_function',
                             log_source_id: transformationFunction.id,
-                            message: expect.stringMatching(
-                                /^Function completed in \d+\.?\d*ms\. Sync: \d+ms\. Mem: \d+ bytes\. Ops: \d+\. Event: '\S+'$/
-                            ),
+                            message: expect.stringMatching(/^Function completed in/),
                             team_id: team.id,
                             timestamp: expect.stringMatching(/2025-01-01 00:00:00\.\d{3}/),
                         },

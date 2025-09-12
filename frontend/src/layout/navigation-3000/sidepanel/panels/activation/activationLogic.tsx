@@ -1,3 +1,9 @@
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
+import type { ReactNode } from 'react'
+
 import {
     IconDatabase,
     IconFeatures,
@@ -8,17 +14,13 @@ import {
     IconTestTube,
     IconToggle,
 } from '@posthog/icons'
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+
 import api from 'lib/api'
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import posthog from 'posthog-js'
-import type { ReactNode } from 'react'
 import { availableOnboardingProducts } from 'scenes/onboarding/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -29,11 +31,11 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import {
     ActivationTaskStatus,
     EventDefinitionType,
+    OnboardingStepKey,
     PipelineStage,
     ProductKey,
     ReplayTabs,
     TeamBasicType,
-    OnboardingStepKey,
     type TeamPublicType,
     type TeamType,
 } from '~/types'

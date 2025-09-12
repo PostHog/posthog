@@ -1,5 +1,3 @@
-import { SDKInstructionsMap, SDKKey } from '~/types'
-
 import {
     AngularInstructions,
     HTMLSnippetInstructions,
@@ -10,6 +8,8 @@ import {
     ReactInstructions,
     SvelteInstructions,
 } from '.'
+
+import { SDKInstructionsMap, SDKKey } from '~/types'
 
 export const ErrorTrackingSDKInstructions: SDKInstructionsMap = {
     [SDKKey.ANGULAR]: AngularInstructions,

@@ -1,14 +1,15 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
-import { initKeaTests } from '~/test/init'
 import { Scene } from '~/scenes/sceneTypes'
+import { initKeaTests } from '~/test/init'
 
 import { topBarSettingsButtonLogic } from './topBarSettingsButtonLogic'
-import { urls } from 'scenes/urls'
-import { router } from 'kea-router'
 
 const groupsScene = (): any => ({
     scene: { component: () => null, logic: null, settingSectionId: 'environment-crm' },

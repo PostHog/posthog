@@ -1,5 +1,7 @@
-import { LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
+
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { statusColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'

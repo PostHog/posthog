@@ -1,10 +1,11 @@
 import { useValues } from 'kea'
+
 import { NotFound } from 'lib/components/NotFound'
 import { BatchExportConfiguration } from 'scenes/data-pipelines/batch-exports/BatchExportConfiguration'
 import { HogFunctionConfiguration } from 'scenes/hog-functions/configuration/HogFunctionConfiguration'
 
-import { pipelineNodeLogic } from './pipelineNodeLogic'
 import { PipelinePluginConfiguration } from './PipelinePluginConfiguration'
+import { pipelineNodeLogic } from './pipelineNodeLogic'
 import { PipelineBackend } from './types'
 
 export function PipelineNodeConfiguration(): JSX.Element {

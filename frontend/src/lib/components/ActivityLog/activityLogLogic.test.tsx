@@ -1,7 +1,8 @@
-import '@testing-library/jest-dom'
-
-import { expectLogic } from 'kea-test-utils'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
+
+import '@testing-library/jest-dom'
+import { expectLogic } from 'kea-test-utils'
+
 import { featureFlagsActivityResponseJson } from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
 import { activityLogLogic, describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'

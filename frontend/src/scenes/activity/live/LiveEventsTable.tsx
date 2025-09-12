@@ -1,20 +1,29 @@
-import { IconPauseFilled, IconPlayFilled } from '@posthog/icons'
-import { LemonButton, LemonTabs, Spinner, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
+import { IconLive, IconPauseFilled, IconPlayFilled } from '@posthog/icons'
+import { LemonButton, LemonTabs, Spinner, Tooltip } from '@posthog/lemon-ui'
+
+import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { EventName } from 'products/actions/frontend/components/EventName'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
 import { ActivityTab, LiveEvent } from '~/types'
-import { SceneExport } from 'scenes/sceneTypes'
-import { PageHeader } from 'lib/components/PageHeader'
-import { urls } from 'scenes/urls'
+
+import { EventName } from 'products/actions/frontend/components/EventName'
 
 const columns: LemonTableColumns<LiveEvent> = [
     {
@@ -70,10 +79,11 @@ const columns: LemonTableColumns<LiveEvent> = [
 
 export function LiveEventsTable(): JSX.Element {
     const { events, stats, streamPaused, filters } = useValues(liveEventsTableLogic)
-    const { pauseStream, resumeStream, setFilters } = useActions(liveEventsTableLogic)
+    const { pauseStream, resumeStream, setFilters, clearEvents } = useActions(liveEventsTableLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     return (
-        <div data-attr="manage-events-table">
+        <SceneContent data-attr="manage-events-table">
             <PageHeader tabbedPage />
             <LemonTabs
                 activeKey={ActivityTab.LiveEvents}
@@ -89,7 +99,17 @@ export function LiveEventsTable(): JSX.Element {
                         link: urls.activity(ActivityTab.LiveEvents),
                     },
                 ]}
+                sceneInset={newSceneLayout}
             />
+            <SceneTitleSection
+                name="Live events"
+                description="Real-time events from your app or website."
+                resourceType={{
+                    type: 'live events',
+                    forceIcon: <IconLive />,
+                }}
+            />
+            <SceneDivider />
             <div className="mb-4 flex w-full justify-between items-center">
                 <div className="flex justify-center">
                     <Tooltip title="Estimate of users active in the last 30 seconds." placement="right">
@@ -116,6 +136,13 @@ export function LiveEventsTable(): JSX.Element {
                 </div>
 
                 <div className="flex gap-2">
+                    <LemonButton
+                        icon={<IconRefresh className="w-4 h-4" />}
+                        type="secondary"
+                        onClick={clearEvents}
+                        size="small"
+                        tooltip="Clear events"
+                    />
                     <EventName
                         value={filters.eventType}
                         onChange={(value) => setFilters({ ...filters, eventType: value })}
@@ -158,7 +185,7 @@ export function LiveEventsTable(): JSX.Element {
                 }
                 nouns={['event', 'events']}
             />
-        </div>
+        </SceneContent>
     )
 }
 

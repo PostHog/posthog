@@ -2,12 +2,13 @@ import './LemonCalendar.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { Ref, forwardRef, useEffect, useState } from 'react'
+
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
-import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { range } from 'lib/utils'
-import { forwardRef, Ref, useEffect, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 export interface LemonCalendarProps {

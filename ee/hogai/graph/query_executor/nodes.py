@@ -2,8 +2,6 @@ from uuid import uuid4
 
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
-from posthog.exceptions_capture import capture_exception
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
@@ -15,7 +13,11 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from ..base import AssistantNode
+from posthog.exceptions_capture import capture_exception
+
+from ee.hogai.graph.base import AssistantNode
+from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
+
 from .prompts import (
     FALLBACK_EXAMPLE_PROMPT,
     FUNNEL_STEPS_EXAMPLE_PROMPT,

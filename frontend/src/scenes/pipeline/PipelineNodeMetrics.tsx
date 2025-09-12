@@ -1,11 +1,14 @@
-import { IconCalendar, IconCollapse, IconExpand, IconInfo } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+import { useEffect, useRef } from 'react'
+
+import { IconCalendar, IconCollapse, IconExpand, IconInfo } from '@posthog/icons'
+
 import { Chart, ChartDataset, ChartItem } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -13,15 +16,14 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber, inStorybookTestRunner, lightenDarkenColor } from 'lib/utils'
-import { useState } from 'react'
-import { useEffect, useRef } from 'react'
 
 import {
     AppMetricErrorDetail,
     AppMetricsData,
-    pipelineNodeMetricsLogic,
     PipelineNodeMetricsProps,
+    pipelineNodeMetricsLogic,
 } from './pipelineNodeMetricsLogic'
 
 export interface MetricsOverviewProps {

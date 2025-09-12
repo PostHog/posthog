@@ -1,5 +1,6 @@
 import { afterMount, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -34,7 +35,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 },
                 deleteTemplate: async (template: MessageTemplate) => {
                     await deleteWithUndo({
-                        endpoint: `environments/@current/messaging/templates`,
+                        endpoint: `environments/@current/messaging_templates`,
                         object: {
                             id: template.id,
                             name: template.name,

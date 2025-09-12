@@ -1,6 +1,7 @@
-import { IconArrowRight, IconChevronLeft, IconChevronRight, IconPauseFilled, IconX } from '@posthog/icons'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import React from 'react'
+
+import { IconArrowRight, IconChevronLeft, IconChevronRight, IconPauseFilled, IconX } from '@posthog/icons'
 
 import { ArrowIcon, StoryType } from './storiesMap'
 import type { SeeMoreOptions } from './storiesMap'

@@ -1,14 +1,14 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { InsightsResult, SavedInsightFilters, cleanFilters } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-
-import { cleanFilters, InsightsResult, SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 
 import type { eventInsightsLogicType } from './eventInsightsLogicType'
 

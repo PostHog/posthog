@@ -1,6 +1,7 @@
 import { action } from '@storybook/addon-actions'
 import { Meta, StoryObj } from '@storybook/react'
 import * as d3 from 'd3'
+
 import { dayjs } from 'lib/dayjs'
 
 import { SparklineChart, SparklineEvent, SparklineOptions } from './SparklineChart'
@@ -48,6 +49,14 @@ export const IssueChartWithZeroes: Story = {
     },
 }
 
+export const IssueChartWithZeroesAndOnes: Story = {
+    args: {
+        data: buildData(0, 1),
+        options: buildSparklineOptions(),
+        className: 'w-[800px] h-[200px]',
+    },
+}
+
 export const IssueChartWithOverlappingEvents: Story = {
     args: {
         data: buildData(),
@@ -79,7 +88,7 @@ function buildData(
     const binSize = dayJsEnd.diff(dayJsStart, 'seconds') / resolution
     return new Array(resolution).fill(0).map((_, index) => {
         return {
-            value: Math.floor(generator() * (maxValue - minValue) + minValue),
+            value: Math.round(generator() * (maxValue - minValue) + minValue),
             date: dayJsStart.add(index * binSize, 'seconds').toDate(),
         }
     })
@@ -97,6 +106,7 @@ function buildSparklineOptions(): SparklineOptions {
         eventLabelPaddingX: 5,
         eventLabelPaddingY: 3,
         borderRadius: 5,
+        minBarHeight: 10,
     }
 }
 

@@ -1,8 +1,11 @@
-import { IconCheck, IconChevronRight } from '@posthog/icons'
 import * as SelectPrimitiveBase from '@radix-ui/react-select'
+import * as React from 'react'
+
+import { IconCheck, IconChevronRight } from '@posthog/icons'
+
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
-import * as React from 'react'
+
 import { ButtonPrimitive, ButtonPrimitiveProps } from '../Button/ButtonPrimitives'
 import { Label } from '../Label/Label'
 

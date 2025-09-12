@@ -1,5 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
+
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -14,7 +16,6 @@ import pluginConfigs from './__mocks__/pluginConfigs.json'
 import plugins from './__mocks__/plugins.json'
 import { appsManagementLogic } from './appsManagementLogic'
 import { pipelineNodeMetricsLogic } from './pipelineNodeMetricsLogic'
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const pluginRetrieveMock: MockSignature = (req, res, ctx) => {
     const plugin = plugins.results.find((conf) => conf.id === Number(req.params.id))

@@ -1,13 +1,16 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
 import { NotFound } from 'lib/components/NotFound'
+import { NotebookNodeProps, NotebookNodeType } from 'scenes/notebooks/types'
 import { personLogic } from 'scenes/persons/personLogic'
 
-import { createPostHogWidgetNode } from '../NodeWrapper'
-import { notebookNodePersonFeedLogic } from './notebookNodePersonFeedLogic'
-import { Session } from './Session'
 import { PersonType } from '~/types'
-import { NotebookNodeProps, NotebookNodeType } from 'scenes/notebooks/types'
+
+import { createPostHogWidgetNode } from '../NodeWrapper'
+import { Session } from './Session'
+import { notebookNodePersonFeedLogic } from './notebookNodePersonFeedLogic'
 
 const FeedSkeleton = (): JSX.Element => (
     <div className="deprecated-space-y-4 p-4">

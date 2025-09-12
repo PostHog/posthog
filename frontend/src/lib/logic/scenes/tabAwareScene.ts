@@ -1,4 +1,4 @@
-import { BuiltLogic, key, Logic } from 'kea'
+import { BuiltLogic, Logic, key } from 'kea'
 
 export const tabAwareScene = <L extends Logic = Logic>() => {
     return (logic: BuiltLogic<L>) => {

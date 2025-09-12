@@ -1,29 +1,30 @@
+import { router } from 'kea-router'
 import { partial } from 'kea-test-utils'
 import { expectLogic } from 'kea-test-utils'
 import React from 'react'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { useMocks } from '~/mocks/jest'
-import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
-import { initKeaTests } from '~/test/init'
-import { ConversationDetail, ConversationStatus } from '~/types'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
-import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
+
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { useMocks } from '~/mocks/jest'
 import * as notebooksModel from '~/models/notebooksModel'
+import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
+import { initKeaTests } from '~/test/init'
+import { ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import {
-    maxMocks,
     MOCK_CONVERSATION_ID,
     MOCK_IN_PROGRESS_CONVERSATION,
     MOCK_TEMP_CONVERSATION_ID,
+    maxMocks,
     mockStream,
 } from './testUtils'
-import { urls } from 'scenes/urls'
 
 describe('maxThreadLogic', () => {
     let logic: ReturnType<typeof maxThreadLogic.build>
@@ -736,6 +737,7 @@ describe('maxThreadLogic', () => {
                         id: 'assistant-1',
                     },
                 ],
+                type: ConversationType.Assistant,
             }
 
             // Create logic with conversation containing messages
@@ -771,6 +773,7 @@ describe('maxThreadLogic', () => {
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 messages: [],
+                type: ConversationType.Assistant,
             }
 
             // Create logic with conversation containing no messages
@@ -794,6 +797,7 @@ describe('maxThreadLogic', () => {
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 messages: [],
+                type: ConversationType.Assistant,
             }
 
             logic.unmount()

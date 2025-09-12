@@ -1,13 +1,14 @@
 import {
     ActivityLogItem,
-    defaultDescriber,
     HumanizedChange,
+    defaultDescriber,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
+
 import { getFilterLabel } from '~/taxonomy/helpers'
 import { EntityFilter } from '~/types'
 

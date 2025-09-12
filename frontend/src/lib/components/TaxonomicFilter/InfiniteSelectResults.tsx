@@ -1,13 +1,15 @@
+import { BindLogic, useActions, useValues } from 'kea'
+
 import { IconCheck, IconSort } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonTag } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
-import { IconBlank } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconBlank } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 
 import { TaxonomicFilterEmptyState, taxonomicFilterGroupTypesWithEmptyStates } from './TaxonomicFilterEmptyState'
@@ -52,8 +54,8 @@ function CategoryPill({
             disabledReason={!canInteract ? 'No results' : null}
             className="font-normal"
         >
-            {group?.render ? (
-                group?.name
+            {group?.categoryLabel ? (
+                group.categoryLabel(totalResultCount)
             ) : (
                 <>
                     {group?.name}
@@ -156,7 +158,8 @@ export function InfiniteSelectResults({
         useValues(taxonomicFilterLogic)
 
     const openTab = activeTab || taxonomicGroups[0].type
-    const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: openTab })
+    const infiniteListLogicProps = { ...taxonomicFilterLogicProps, listGroupType: openTab }
+    const logic = infiniteListLogic(infiniteListLogicProps)
 
     const { setActiveTab, selectItem } = useActions(taxonomicFilterLogic)
 
@@ -171,6 +174,7 @@ export function InfiniteSelectResults({
             {...(activeTaxonomicGroup?.componentProps ?? {})}
             value={value}
             onChange={(newValue, item) => selectItem(activeTaxonomicGroup, newValue, item, items.originalQuery)}
+            infiniteListLogicProps={infiniteListLogicProps}
         />
     ) : (
         <>

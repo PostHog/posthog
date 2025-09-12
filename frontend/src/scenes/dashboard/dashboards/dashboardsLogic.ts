@@ -1,14 +1,14 @@
 import Fuse from 'fuse.js'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { objectClean } from 'lib/utils'
-import { userLogic } from 'scenes/userLogic'
-
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { objectClean } from 'lib/utils'
+import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardBasicType } from '~/types'

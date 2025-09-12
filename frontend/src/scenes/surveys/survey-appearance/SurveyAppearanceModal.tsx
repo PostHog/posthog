@@ -1,11 +1,13 @@
-import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonModal, LemonSelect, LemonSwitch, LemonTabs } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { getNextSurveyStep } from 'posthog-js/dist/surveys-preview'
 import { useState } from 'react'
+
+import { IconGear } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonModal, LemonSelect, LemonSwitch, LemonTabs } from '@posthog/lemon-ui'
+
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { defaultSurveyAppearance } from 'scenes/surveys/constants'
 import {
     SurveyColorsAppearance,

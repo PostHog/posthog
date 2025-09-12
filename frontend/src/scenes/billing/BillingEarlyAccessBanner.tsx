@@ -1,7 +1,9 @@
-import { Link } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
-import { BuilderHog3 } from 'lib/components/hedgehogs'
+
+import { Link } from '@posthog/lemon-ui'
+
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 

@@ -1,5 +1,7 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 

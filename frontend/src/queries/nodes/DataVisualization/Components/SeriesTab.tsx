@@ -1,7 +1,11 @@
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+
 import { IconGear, IconPlusSmall, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
     LemonColorGlyph,
+    LemonColorPicker,
     LemonInput,
     LemonLabel,
     LemonSegmentedButton,
@@ -11,15 +15,13 @@ import {
     LemonTag,
     Popover,
 } from '@posthog/lemon-ui'
-import { LemonColorPicker } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+
 import { getSeriesColor, getSeriesColorPalette } from 'lib/colors'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { AxisBreakdownSeries, seriesBreakdownLogic } from './seriesBreakdownLogic'
-import { ySeriesLogic, YSeriesLogicProps, YSeriesSettingsTab } from './ySeriesLogic'
+import { YSeriesLogicProps, YSeriesSettingsTab, ySeriesLogic } from './ySeriesLogic'
 
 export const SeriesTab = (): JSX.Element => {
     const {
@@ -43,7 +45,7 @@ export const SeriesTab = (): JSX.Element => {
 
     if (showTableSettings) {
         return (
-            <div className="flex flex-col w-full">
+            <div className="flex flex-col w-full p-3">
                 <LemonLabel>Columns</LemonLabel>
                 {tabularColumns.map((series, index) => (
                     <YSeries series={series} index={index} key={`${series.column.name}-${index}`} />
@@ -65,7 +67,7 @@ export const SeriesTab = (): JSX.Element => {
     }))
 
     return (
-        <div className="flex flex-col w-full">
+        <div className="flex flex-col w-full p-3">
             <LemonLabel className="mb-1">X-axis</LemonLabel>
             <LemonSelect
                 className="w-full"

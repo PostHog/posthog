@@ -1,10 +1,12 @@
-import { LemonTableColumns, Link } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { LemonTableColumns, Link } from '@posthog/lemon-ui'
+
 import { TZLabel } from 'lib/components/TZLabel'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { pipelineNodeLogic, PipelineNodeLogicProps } from 'scenes/pipeline/pipelineNodeLogic'
+import { PipelineNodeLogicProps, pipelineNodeLogic } from 'scenes/pipeline/pipelineNodeLogic'
 
 import api from '~/lib/api'
 import { LogEntry, LogEntryLevel, LogEntryRequestParams } from '~/types'

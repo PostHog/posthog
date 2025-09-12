@@ -1,8 +1,10 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
@@ -430,6 +432,78 @@ const sessionsTable: DatabaseSchemaBatchExportTable = {
             hogql_value: 'vital_lcp',
             schema_valid: true,
         },
+        entry_gclsrc: {
+            name: 'entry_gclsrc',
+            type: 'string',
+            hogql_value: 'entry_gclsrc',
+            schema_valid: true,
+        },
+        entry_dclid: {
+            name: 'entry_dclid',
+            type: 'string',
+            hogql_value: 'entry_dclid',
+            schema_valid: true,
+        },
+        entry_gbraid: {
+            name: 'entry_gbraid',
+            type: 'string',
+            hogql_value: 'entry_gbraid',
+            schema_valid: true,
+        },
+        entry_wbraid: {
+            name: 'entry_wbraid',
+            type: 'string',
+            hogql_value: 'entry_wbraid',
+            schema_valid: true,
+        },
+        entry_msclkid: {
+            name: 'entry_msclkid',
+            type: 'string',
+            hogql_value: 'entry_msclkid',
+            schema_valid: true,
+        },
+        entry_twclid: {
+            name: 'entry_twclid',
+            type: 'string',
+            hogql_value: 'entry_twclid',
+            schema_valid: true,
+        },
+        entry_li_fat_id: {
+            name: 'entry_li_fat_id',
+            type: 'string',
+            hogql_value: 'entry_li_fat_id',
+            schema_valid: true,
+        },
+        entry_mc_cid: {
+            name: 'entry_mc_cid',
+            type: 'string',
+            hogql_value: 'entry_mc_cid',
+            schema_valid: true,
+        },
+        entry_igshid: {
+            name: 'entry_igshid',
+            type: 'string',
+            hogql_value: 'entry_igshid',
+            schema_valid: true,
+        },
+        entry_ttclid: {
+            name: 'entry_ttclid',
+            type: 'string',
+            hogql_value: 'entry_ttclid',
+            schema_valid: true,
+        },
+        entry__kx: {
+            name: 'entry__kx',
+            type: 'string',
+            hogql_value: 'entry__kx',
+            schema_valid: true,
+        },
+        entry_irclid: {
+            name: 'entry_irclid',
+            type: 'string',
+            hogql_value: 'entry_irclid',
+            schema_valid: true,
+        },
     },
 }
 
@@ -471,6 +545,7 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         end_at,
                         model,
                         filters,
+                        json_config_file,
                         ...config
                     } = formdata
                     const destinationObj = {
@@ -552,6 +627,7 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         end_at,
                         model,
                         filters,
+                        json_config_file,
                         ...config
                     } = values.configuration
                     const destinationObj = {
@@ -784,8 +860,10 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         filereader.readAsText(value[0])
                     })
                     const jsonConfig = JSON.parse(loadedFile)
+                    const { json_config_file, ...remainingConfig } = values.configuration
+
                     actions.setConfigurationValues({
-                        ...values.configuration,
+                        ...remainingConfig,
                         project_id: jsonConfig.project_id,
                         private_key: jsonConfig.private_key,
                         private_key_id: jsonConfig.private_key_id,

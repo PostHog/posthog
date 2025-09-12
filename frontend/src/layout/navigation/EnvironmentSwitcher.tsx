@@ -1,18 +1,12 @@
-import { IconCheck, IconCornerDownRight, IconGear, IconPlusSmall, IconWarning } from '@posthog/icons'
-import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useMemo, useState } from 'react'
+
+import { IconCheck, IconCornerDownRight, IconGear, IconPlusSmall, IconWarning } from '@posthog/icons'
+import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
-import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
-import { useMemo, useState } from 'react'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { environmentRollbackModalLogic } from 'scenes/settings/environment/environmentRollbackModalLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
-
-import { AvailableFeature, TeamPublicType } from '~/types'
-
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonGroupPrimitive, ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import { Combobox } from 'lib/ui/Combobox/Combobox'
@@ -24,8 +18,16 @@ import {
     PopoverPrimitiveTrigger,
 } from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
 import { cn } from 'lib/utils/css-classes'
+import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { environmentRollbackModalLogic } from 'scenes/settings/environment/environmentRollbackModalLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { AvailableFeature, TeamPublicType } from '~/types'
+
 import { globalModalsLogic } from '../GlobalModals'
-import { environmentSwitcherLogic, TeamBasicTypeWithProjectName } from './environmentsSwitcherLogic'
+import { TeamBasicTypeWithProjectName, environmentSwitcherLogic } from './environmentsSwitcherLogic'
 
 /**
  * Regex matching a possible emoji (any emoji) at the beginning of the string.
@@ -38,9 +40,11 @@ const EMOJI_INITIAL_REGEX =
 export function EnvironmentSwitcherOverlay({
     buttonProps = { className: 'font-semibold' },
     onClickInside,
+    iconOnly = false,
 }: {
     buttonProps?: ButtonPrimitiveProps
     onClickInside?: () => void
+    iconOnly?: boolean
 }): JSX.Element {
     const { searchedProjectsMap } = useValues(environmentSwitcherLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
@@ -259,15 +263,19 @@ export function EnvironmentSwitcherOverlay({
             <PopoverPrimitiveTrigger asChild>
                 <ButtonPrimitive
                     data-attr="environment-switcher-button"
-                    size="sm"
+                    size={iconOnly ? 'base' : 'sm'}
+                    iconOnly={iconOnly}
                     {...buttonProps}
-                    className={cn('flex-1 max-w-fit min-w-[40px]', buttonProps.className)}
+                    className={cn('flex-1 max-w-fit min-w-[40px]', iconOnly ? 'min-w-auto' : '', buttonProps.className)}
                 >
-                    <span className="truncate">{currentProject?.name ?? 'Project'}</span>
-                    <LemonTag size="small" className="border-text-3000 uppercase ml-1.5">
-                        <span className="truncate max-w-[100px]">{currentTeam.name}</span>
-                    </LemonTag>
-                    <DropdownMenuOpenIndicator />
+                    {iconOnly ? (
+                        <div className="Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] w-5 h-5 ">
+                            {currentTeam.name.slice(0, 1).toLocaleUpperCase()}
+                        </div>
+                    ) : (
+                        <span className="truncate">{currentProject?.name ?? 'Project'}</span>
+                    )}
+                    {!iconOnly && <DropdownMenuOpenIndicator />}
                 </ButtonPrimitive>
             </PopoverPrimitiveTrigger>
             <PopoverPrimitiveContent align="start" className="w-[300px] sm:w-[500px] max-w-[300px] sm:max-w-[500px]">

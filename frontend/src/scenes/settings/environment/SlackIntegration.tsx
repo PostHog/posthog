@@ -1,10 +1,12 @@
-import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { useState } from 'react'
+
+import { LemonButton, Link } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
-import { useState } from 'react'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 

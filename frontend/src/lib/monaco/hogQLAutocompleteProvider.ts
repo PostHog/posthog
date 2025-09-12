@@ -1,6 +1,7 @@
 import { BuiltLogic } from 'kea'
-import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
 import { languages } from 'monaco-editor'
+
+import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
 
 import { performQuery } from '~/queries/query'
 import {

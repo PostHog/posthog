@@ -1,16 +1,18 @@
-import { lemonToast } from '@posthog/lemon-ui'
+import equal from 'fast-deep-equal'
 import { actions, kea, listeners, path, reducers } from 'kea'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 
 import type { personsSceneLogicType } from './personsSceneLogicType'
-import { urls } from 'scenes/urls'
-import equal from 'fast-deep-equal'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 
 const defaultQuery = {
     kind: NodeKind.DataTableNode,

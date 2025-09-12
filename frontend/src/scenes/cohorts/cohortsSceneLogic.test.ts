@@ -1,10 +1,12 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+
 import { cohortsSceneLogic } from './cohortsSceneLogic'
 
 const MOCK_COHORTS = {

@@ -1,9 +1,11 @@
-import { LemonCard } from '@posthog/lemon-ui'
 import { Meta } from '@storybook/react'
+
+import { LemonCard } from '@posthog/lemon-ui'
+
+import { getAdditionalProperties, getExceptionAttributes } from 'lib/components/Errors/utils'
 
 import { TEST_EVENTS, TestEventName } from '../__mocks__/events'
 import { ContextDisplay, ContextDisplayProps } from './ContextDisplay'
-import { getAdditionalProperties, getExceptionAttributes } from 'lib/components/Errors/utils'
 
 const meta: Meta = {
     title: 'ErrorTracking/ContextDisplay',
