@@ -1,8 +1,13 @@
 import { BindLogic, actions, connect, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
+import { PageHeader } from 'lib/components/PageHeader'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -30,6 +35,10 @@ import {
 
 import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
 import { HogFunctionIconEditable } from './configuration/HogFunctionIcon'
+import {
+    HogFunctionConfigurationClearChangesButton,
+    HogFunctionConfigurationSaveButton,
+} from './configuration/components/HogFunctionConfigurationButtons'
 import { HogFunctionMetrics } from './metrics/HogFunctionMetrics'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
 
@@ -214,31 +223,79 @@ export const scene: SceneExport<HogFunctionConfigurationLogicProps> = {
 }
 
 function HogFunctionHeader(): JSX.Element {
-    const { configuration, logicProps, template, loading } = useValues(hogFunctionConfigurationLogic)
-    const { setConfigurationValue } = useActions(hogFunctionConfigurationLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
+    const {
+        configuration,
+        configurationChanged,
+        logicProps,
+        template,
+        loading,
+        isLegacyPlugin,
+        isConfigurationSubmitting,
+    } = useValues(hogFunctionConfigurationLogic)
+    const { setConfigurationValue, duplicate, deleteHogFunction, resetForm, submitConfiguration } =
+        useActions(hogFunctionConfigurationLogic)
+
+    const headerButtons = (
+        <>
+            {!logicProps.templateId && (
+                <>
+                    <More
+                        overlay={
+                            <>
+                                {!isLegacyPlugin && (
+                                    <LemonButton fullWidth onClick={() => duplicate()}>
+                                        Duplicate
+                                    </LemonButton>
+                                )}
+                                <LemonDivider />
+                                <LemonButton status="danger" fullWidth onClick={() => deleteHogFunction()}>
+                                    Delete
+                                </LemonButton>
+                            </>
+                        }
+                    />
+                    <LemonDivider vertical />
+                </>
+            )}
+        </>
+    )
+
     return (
-        <SceneTitleSection
-            name={configuration.name}
-            description={configuration.description || ''}
-            resourceType={{
-                type: 'data_pipeline',
-                forceIcon: (
-                    <span className="ml-2 flex">
-                        <HogFunctionIconEditable
-                            logicKey={logicProps.id ?? 'new'}
-                            src={configuration.icon_url}
-                            onChange={(val) => setConfigurationValue('icon_url', val)}
-                            size="small"
-                        />
-                    </span>
-                ),
-            }}
-            isLoading={loading}
-            onNameChange={(value) => setConfigurationValue('name', value)}
-            onDescriptionChange={(value) => setConfigurationValue('description', value)}
-            canEdit
-            forceEdit={!!template}
-        />
+        <>
+            {newSceneLayout ? (
+                <PageHeader
+                    buttons={
+                        <>
+                            <HogFunctionConfigurationClearChangesButton />
+                            <HogFunctionConfigurationSaveButton />
+                        </>
+                    }
+                />
+            ) : null}
+            <SceneTitleSection
+                name={configuration.name}
+                description={configuration.description || ''}
+                resourceType={{
+                    type: 'data_pipeline',
+                    forceIcon: (
+                        <span className="ml-2 flex">
+                            <HogFunctionIconEditable
+                                logicKey={logicProps.id ?? 'new'}
+                                src={configuration.icon_url}
+                                onChange={(val) => setConfigurationValue('icon_url', val)}
+                                size="small"
+                            />
+                        </span>
+                    ),
+                }}
+                isLoading={loading}
+                onNameChange={(value) => setConfigurationValue('name', value)}
+                onDescriptionChange={(value) => setConfigurationValue('description', value)}
+                canEdit
+                forceEdit={!!template}
+            />
+        </>
     )
 }
 

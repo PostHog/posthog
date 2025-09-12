@@ -1179,6 +1179,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return ['destination', 'internal_destination', 'transformation'].includes(type)
             },
         ],
+
+        isLegacyPlugin: [
+            (s) => [s.template, s.hogFunction],
+            (template, hogFunction) => {
+                return (template?.id || hogFunction?.template?.id)?.startsWith('plugin-')
+            },
+        ],
     })),
 
     listeners(({ actions, values, cache }) => ({

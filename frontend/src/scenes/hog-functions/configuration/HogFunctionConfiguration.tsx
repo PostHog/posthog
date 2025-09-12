@@ -2,20 +2,10 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import {
-    LemonBanner,
-    LemonButton,
-    LemonDivider,
-    LemonDropdown,
-    LemonSwitch,
-    LemonTag,
-    SpinnerOverlay,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDropdown, LemonSwitch, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFilters } from 'scenes/hog-functions/filters/HogFunctionFilters'
@@ -30,6 +20,10 @@ import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionTest } from './HogFunctionTest'
 import { HogFunctionCode } from './components/HogFunctionCode'
+import {
+    HogFunctionConfigurationClearChangesButton,
+    HogFunctionConfigurationSaveButton,
+} from './components/HogFunctionConfigurationButtons'
 import { HogFunctionInputs } from './components/HogFunctionInputs'
 import { HogFunctionSourceWebhookInfo } from './components/HogFunctionSourceWebhookInfo'
 import { HogFunctionSourceWebhookTest } from './components/HogFunctionSourceWebhookTest'
@@ -63,6 +57,7 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
         showExpectedVolume,
         canEditSource,
         showTesting,
+        isLegacyPlugin,
     } = useValues(logic)
 
     const { submitConfiguration, resetForm, duplicate, deleteHogFunction } = useActions(logic)
@@ -75,67 +70,6 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
         return <NotFound object="Hog function" />
     }
 
-    const isLegacyPlugin = (template?.id || hogFunction?.template?.id)?.startsWith('plugin-')
-
-    const headerButtons = (
-        <>
-            {!templateId && (
-                <>
-                    <More
-                        overlay={
-                            <>
-                                {!isLegacyPlugin && (
-                                    <LemonButton fullWidth onClick={() => duplicate()}>
-                                        Duplicate
-                                    </LemonButton>
-                                )}
-                                <LemonDivider />
-                                <LemonButton status="danger" fullWidth onClick={() => deleteHogFunction()}>
-                                    Delete
-                                </LemonButton>
-                            </>
-                        }
-                    />
-                    <LemonDivider vertical />
-                </>
-            )}
-        </>
-    )
-
-    const saveButtons = (
-        <>
-            {configurationChanged ? (
-                <LemonButton
-                    type="secondary"
-                    htmlType="reset"
-                    onClick={() => resetForm()}
-                    disabledReason={
-                        !configurationChanged
-                            ? 'No changes'
-                            : isConfigurationSubmitting
-                              ? 'Saving in progress…'
-                              : undefined
-                    }
-                >
-                    Clear changes
-                </LemonButton>
-            ) : null}
-            <LemonButton
-                type="primary"
-                htmlType="submit"
-                onClick={submitConfiguration}
-                loading={isConfigurationSubmitting}
-            >
-                {templateId ? 'Create' : 'Save'}
-                {willReEnableOnSave
-                    ? ' & re-enable'
-                    : willChangeEnabledOnSave
-                      ? ` & ${configuration.enabled ? 'enable' : 'disable'}`
-                      : ''}
-            </LemonButton>
-        </>
-    )
-
     if (showPaygate) {
         return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
     }
@@ -143,15 +77,6 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
     return (
         <div className="deprecated-space-y-3">
             <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
-                <PageHeader
-                    buttons={
-                        <>
-                            {headerButtons}
-                            {saveButtons}
-                        </>
-                    }
-                />
-
                 {hogFunction?.filters?.bytecode_error ? (
                     <div>
                         <LemonBanner type="error">
@@ -299,7 +224,10 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
                             {canEditSource && <HogFunctionCode />}
                             {showTesting ? <HogFunctionTest /> : null}
                             {type === 'source_webhook' && <HogFunctionSourceWebhookTest />}
-                            <div className="flex gap-2 justify-end">{saveButtons}</div>
+                            <div className="flex gap-2 justify-end">
+                                <HogFunctionConfigurationClearChangesButton />
+                                <HogFunctionConfigurationSaveButton />
+                            </div>
                         </div>
                     </div>
                 </Form>
