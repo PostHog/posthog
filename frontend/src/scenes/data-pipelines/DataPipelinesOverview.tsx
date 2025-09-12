@@ -14,7 +14,6 @@ import { DataWarehouseSelfManagedSourcesTable } from 'scenes/data-warehouse/sett
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
 import { urls } from 'scenes/urls'
 
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
@@ -42,21 +41,19 @@ export function DataPipelinesOverview(): JSX.Element {
     })
 
     return (
-        <SceneContent forceNewSpacing>
+        <>
             <PageHeader
                 buttons={
-                    <div className="flex items-center m-2 shrink-0">
-                        <LemonMenu items={menuItems}>
-                            <LemonButton
-                                data-attr="new-pipeline-button"
-                                icon={<IconPlusSmall />}
-                                size="small"
-                                type="primary"
-                            >
-                                New
-                            </LemonButton>
-                        </LemonMenu>
-                    </div>
+                    <LemonMenu items={menuItems}>
+                        <LemonButton
+                            data-attr="new-pipeline-button"
+                            icon={<IconPlusSmall />}
+                            size="small"
+                            type="primary"
+                        >
+                            New
+                        </LemonButton>
+                    </LemonMenu>
                 }
             />
             <div className="deprecated-space-y-4">
@@ -152,6 +149,6 @@ export function DataPipelinesOverview(): JSX.Element {
                     />
                 </SceneSection>
             </div>
-        </SceneContent>
+        </>
     )
 }

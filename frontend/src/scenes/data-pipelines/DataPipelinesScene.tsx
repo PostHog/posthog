@@ -2,11 +2,13 @@ import { actions, kea, listeners, path, props, reducers, selectors, useActions, 
 import { router, urlToAction } from 'kea-router'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ActivityScope, Breadcrumb } from '~/types'
@@ -94,6 +96,7 @@ export const scene: SceneExport = {
 export function DataPipelinesScene(): JSX.Element {
     const { currentTab } = useValues(dataPipelinesSceneLogic)
     const { setCurrentTab } = useActions(dataPipelinesSceneLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const tabs: LemonTab<DataPipelinesSceneTab>[] = [
         {
@@ -129,7 +132,7 @@ export function DataPipelinesScene(): JSX.Element {
     ]
 
     return (
-        <>
+        <SceneContent forceNewSpacing>
             <SceneTitleSection
                 name="Data pipelines"
                 description="Ingest, transform, and send data between hundreds of tools."
@@ -138,7 +141,7 @@ export function DataPipelinesScene(): JSX.Element {
                 }}
             />
             <SceneDivider />
-            <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} />
-        </>
+            <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset={newSceneLayout} />
+        </SceneContent>
     )
 }
