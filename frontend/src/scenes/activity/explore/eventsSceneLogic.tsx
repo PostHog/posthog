@@ -2,6 +2,7 @@ import equal from 'fast-deep-equal'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { UrlToActionPayload } from 'kea-router/lib/types'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
@@ -37,13 +38,17 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
         ],
         query: [(s) => [s.savedQuery, s.defaultQuery], (savedQuery, defaultQuery) => savedQuery || defaultQuery],
         breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => [
-                {
-                    key: 'Activity',
-                    name: `Activity`,
-                    path: urls.activity(),
-                },
+            (s) => [s.featureFlags],
+            (featureFlags): Breadcrumb[] => [
+                ...(featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+                    ? []
+                    : [
+                          {
+                              key: 'Activity',
+                              name: `Activity`,
+                              path: urls.activity(),
+                          },
+                      ]),
                 {
                     key: Scene.ExploreEvents,
                     name: 'Explore',
