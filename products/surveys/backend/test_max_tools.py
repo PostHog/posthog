@@ -881,22 +881,16 @@ class TestSurveyAnalysisTool(BaseTest):
                     "responses": [
                         {
                             "responseText": "Love the app but need dark mode",
-                            "userDistinctId": "user1",
-                            "email": "user1@test.com",
                             "timestamp": "2023-01-01T00:00:00Z",
                             "isOpenEnded": True,
                         },
                         {
                             "responseText": "Mobile version is slow",
-                            "userDistinctId": "user2",
-                            "email": None,
                             "timestamp": "2023-01-01T00:00:00Z",
                             "isOpenEnded": True,
                         },
                         {
                             "responseText": "Great overall experience",
-                            "userDistinctId": "user3",
-                            "email": "user3@test.com",
                             "timestamp": "2023-01-01T00:00:00Z",
                             "isOpenEnded": True,
                         },
@@ -952,8 +946,6 @@ class TestSurveyAnalysisTool(BaseTest):
                     "responses": [
                         {
                             "responseText": "Good",
-                            "userDistinctId": "user1",
-                            "email": None,
                             "timestamp": "2023-01-01T00:00:00Z",
                             "isOpenEnded": True,
                         }
