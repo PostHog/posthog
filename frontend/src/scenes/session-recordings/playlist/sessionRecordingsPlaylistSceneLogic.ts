@@ -183,14 +183,18 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
         breadcrumbs: [
             (s) => [s.playlist, s.featureFlags],
             (playlist, featureFlags): Breadcrumb[] => [
-                {
-                    key: Scene.Replay,
-                    name: 'Replay',
-                    path: urls.replay(),
-                },
+                ...(!featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+                    ? [
+                          {
+                              key: Scene.Replay,
+                              name: 'Replay',
+                              path: urls.replay(),
+                          },
+                      ]
+                    : []),
                 {
                     key: ReplayTabs.Playlists,
-                    name: 'Collections',
+                    name: featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT] ? 'Replay collections' : 'Collections',
                     path: urls.replay(ReplayTabs.Playlists),
                 },
                 {

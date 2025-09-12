@@ -17,8 +17,10 @@ from posthog.api.test.batch_exports.fixtures import create_organization
 from posthog.api.test.batch_exports.operations import create_batch_export_ok
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.models import BatchExportDestination
 
 from products.batch_exports.backend.api.destination_tests import (
+    BigQueryProjectTestStep,
     DestinationTestStepResult,
     SnowflakeEstablishConnectionTestStep,
     Status,
@@ -275,6 +277,122 @@ def test_can_run_snowflake_test_step_for_partial_config(client: HttpClient, snow
             "products.batch_exports.backend.api.destination_tests.DestinationTest.run_step"
         ) as run_step_mocked:
             fake_test_step = SnowflakeEstablishConnectionTestStep()
+            fake_test_step.result = DestinationTestStepResult(status=Status.PASSED, message=None)
+            run_step_mocked.return_value = fake_test_step
+
+            response = client.post(
+                f"/api/projects/{team.pk}/batch_exports/{batch_export['id']}/run_test_step",
+                {**{"step": 0}, **batch_export_data},
+                content_type="application/json",
+            )
+
+    assert response.status_code == status.HTTP_200_OK, response.json()
+
+    destination_test = response.json()
+
+    assert destination_test["result"]["status"] == "Passed", destination_test
+    assert destination_test["result"]["message"] is None
+
+
+def test_can_run_s3_test_step_with_additional_fields(client: HttpClient, bucket_name, minio_client, temporal):
+    """Test we can run test steps successfully even with additional configuration fields.
+
+    Configuration can change over time, and we should ensure backwards compatibility in
+    the presence of unknown fields. We create a batch export with a valid config and then
+    update it with an unknown field to simulate this.
+    """
+
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": bucket_name,
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "object_storage_root_user",
+            "aws_secret_access_key": "object_storage_root_password",
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    organization = create_organization("Test Org")
+    team = create_team(organization)
+    user = create_user("test@user.com", "Test User", organization)
+    client.force_login(user)
+
+    with start_test_worker(temporal):
+        batch_export = create_batch_export_ok(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+        dest = BatchExportDestination.objects.get(batchexport=batch_export["id"])
+        dest.config["unknown_field"] = "unknown"
+        dest.save()
+
+        response = client.post(
+            f"/api/projects/{team.pk}/batch_exports/{batch_export['id']}/run_test_step",
+            {**{"step": 0}, **batch_export_data},
+            content_type="application/json",
+        )
+
+    assert response.status_code == status.HTTP_200_OK, response.json()
+
+    destination_test = response.json()
+
+    assert destination_test["result"]["status"] == "Passed", destination_test
+    assert destination_test["result"]["message"] is None
+
+
+@pytest.fixture
+def bigquery_config() -> dict[str, str]:
+    """Return a BigQuery configuration dictionary to use in tests."""
+    return {
+        "project_id": "project",
+        "private_key": "private_key",
+        "private_key_id": "private_key_id",
+        "token_uri": "token_uri",
+        "client_email": "client_email",
+        "dataset_id": "dataset",
+    }
+
+
+def test_can_run_bigquery_test_step_with_castable_type(client: HttpClient, bigquery_config, temporal):
+    """Test a destination test with invalid types that can be casted to required types."""
+    config = {"use_json_type": "True", **bigquery_config}  # "True" (string) can be casted to True (bool)
+
+    destination_data = {
+        "type": "BigQuery",
+        "config": config,
+    }
+
+    batch_export_data = {
+        "name": "my-production-bigquery-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    organization = create_organization("Test Org")
+    team = create_team(organization)
+    user = create_user("test@user.com", "Test User", organization)
+    client.force_login(user)
+
+    with start_test_worker(temporal):
+        batch_export = create_batch_export_ok(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+
+        with unittest.mock.patch(
+            "products.batch_exports.backend.api.destination_tests.DestinationTest.run_step"
+        ) as run_step_mocked:
+            fake_test_step = BigQueryProjectTestStep()
             fake_test_step.result = DestinationTestStepResult(status=Status.PASSED, message=None)
             run_step_mocked.return_value = fake_test_step
 

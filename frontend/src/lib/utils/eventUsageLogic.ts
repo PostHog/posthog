@@ -691,6 +691,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 description_length: insightModel.description?.length ?? 0,
                 tags_count: insightModel.tags?.length ?? 0,
                 insight: sanitizeInsight(insightModel),
+                insight_id: insightModel.id,
+                insight_short_id: insightModel.short_id,
                 ...sanitizeQuery(query),
             }
 

@@ -12,3 +12,7 @@ MaxNodeName = AssistantNodeName | TaxonomyNodeName | DeepResearchNodeName
 MaxGraphState = AssistantState | TaxonomyAgentState | DeepResearchState
 
 MaxPartialGraphState = PartialAssistantState | TaxonomyAgentState | PartialDeepResearchState
+
+# States that are used in the Assistant class
+AssistantMaxGraphState = AssistantState | DeepResearchState
+AssistantMaxPartialGraphState = PartialAssistantState | PartialDeepResearchState

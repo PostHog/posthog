@@ -29,7 +29,11 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
+import {
+    InsightBreakdownSummary,
+    PropertiesSummary,
+    SeriesSummary,
+} from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -38,6 +42,8 @@ import { pluralize } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -55,10 +61,11 @@ import {
     TaskExecutionMessage,
     TaskExecutionStatus,
     VisualizationItem,
+    VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
-import { ProductKey } from '~/types'
+import { InsightShortId, ProductKey } from '~/types'
 
 import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
@@ -637,7 +644,7 @@ const Visualization = React.memo(function Visualization({
                     {!isHogQLQuery(query.source) && (
                         <div className="flex flex-wrap gap-4 mt-1 *:grow">
                             <PropertiesSummary properties={query.source.properties} />
-                            <BreakdownSummary query={query.source} />
+                            <InsightBreakdownSummary query={query.source} />
                         </div>
                     )}
                 </>
@@ -646,23 +653,44 @@ const Visualization = React.memo(function Visualization({
     )
 })
 
+function InsightSuggestionButton({ tabId }: { tabId: string }): JSX.Element {
+    const { insight } = useValues(insightSceneLogic({ tabId }))
+    const insightProps = { dashboardItemId: insight?.short_id }
+    const { suggestedQuery, previousQuery } = useValues(insightLogic(insightProps))
+    const { onRejectSuggestedInsight, onReapplySuggestedInsight } = useActions(insightLogic(insightProps))
+
+    return (
+        <>
+            {suggestedQuery && (
+                <LemonButton
+                    onClick={() => {
+                        if (previousQuery) {
+                            onRejectSuggestedInsight()
+                        } else {
+                            onReapplySuggestedInsight()
+                        }
+                    }}
+                    sideIcon={previousQuery ? <IconX /> : <IconRefresh />}
+                    size="xsmall"
+                    tooltip={previousQuery ? "Reject Max's changes" : "Reapply Max's changes"}
+                />
+            )}
+        </>
+    )
+}
+
 const VisualizationAnswer = React.memo(function VisualizationAnswer({
     message,
     status,
     isEditingInsight,
 }: {
-    message: VisualizationItem
+    message: VisualizationMessage
     status?: MessageStatus
     isEditingInsight: boolean
 }): JSX.Element | null {
-    const { insight } = useValues(insightSceneLogic)
     const [isSummaryShown, setIsSummaryShown] = useState(false)
     const [isCollapsed, setIsCollapsed] = useState(isEditingInsight)
-    // Get insight props for the logic
-    const insightProps = { dashboardItemId: insight?.short_id }
-
-    const { suggestedQuery, previousQuery } = useValues(insightLogic(insightProps))
-    const { onRejectSuggestedInsight, onReapplySuggestedInsight } = useActions(insightLogic(insightProps))
+    const { activeTabId, activeSceneId } = useValues(sceneLogic)
 
     useEffect(() => {
         setIsCollapsed(isEditingInsight)
@@ -695,27 +723,20 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                               </LemonButton>
                           </div>
                           <div className="flex items-center gap-1.5">
-                              {isEditingInsight && suggestedQuery && (
-                                  <LemonButton
-                                      onClick={() => {
-                                          if (previousQuery) {
-                                              onRejectSuggestedInsight()
-                                          } else {
-                                              onReapplySuggestedInsight()
-                                          }
-                                      }}
-                                      sideIcon={previousQuery ? <IconX /> : <IconRefresh />}
-                                      size="xsmall"
-                                      tooltip={previousQuery ? "Reject Max's changes" : "Reapply Max's changes"}
-                                  />
+                              {isEditingInsight && activeTabId && activeSceneId === Scene.Insight && (
+                                  <InsightSuggestionButton tabId={activeTabId} />
                               )}
                               {!isEditingInsight && (
                                   <LemonButton
-                                      to={urls.insightNew({ query })}
+                                      to={
+                                          message.short_id
+                                              ? urls.insightView(message.short_id as InsightShortId)
+                                              : urls.insightNew({ query })
+                                      }
                                       icon={<IconOpenInNew />}
                                       size="xsmall"
                                       targetBlank
-                                      tooltip="Open as new insight"
+                                      tooltip={message.short_id ? 'Open insight' : 'Open as new insight'}
                                   />
                               )}
                               <LemonButton
@@ -733,7 +754,7 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                               {!isHogQLQuery(query.source) && (
                                   <div className="flex flex-wrap gap-4 mt-1 *:grow">
                                       <PropertiesSummary properties={query.source.properties} />
-                                      <BreakdownSummary query={query.source} />
+                                      <InsightBreakdownSummary query={query.source} />
                                   </div>
                               )}
                           </>

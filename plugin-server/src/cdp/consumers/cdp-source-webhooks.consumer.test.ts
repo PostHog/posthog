@@ -7,15 +7,18 @@ import supertest from 'supertest'
 import express from 'ultimate-express'
 
 import { setupExpressApp } from '~/api/router'
-import { insertHogFunction } from '~/cdp/_tests/fixtures'
+import { insertHogFunction, insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
 import { CdpApi } from '~/cdp/cdp-api'
 import { template as incomingWebhookTemplate } from '~/cdp/templates/_sources/webhook/incoming_webhook.template'
 import { HogFunctionType } from '~/cdp/types'
+import { HogFlow } from '~/schema/hogflow'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 
+import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
+import { insertHogFlow } from '../_tests/fixtures-hogflows'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { compileHog } from '../templates/compiler'
 import { compileInputs } from '../templates/test/test-helpers'
@@ -79,13 +82,13 @@ describe('SourceWebhooksConsumer', () => {
         })
 
         const doRequest = async (options: {
-            hogFunctionId?: string
+            webhookId?: string
             method?: string
             headers?: Record<string, string>
             body?: Record<string, any>
         }) => {
             return supertest(app)
-                .post(`/public/webhooks/${options.hogFunctionId ?? hogFunction.id}`)
+                .post(`/public/webhooks/${options.webhookId ?? hogFunction.id}`)
                 .set('Content-Type', 'application/json')
                 .set(options.headers ?? {})
                 .send(options.body)
@@ -94,16 +97,19 @@ describe('SourceWebhooksConsumer', () => {
         const waitForBackgroundTasks = async () => {
             await api['cdpSourceWebhooksConsumer']['promiseScheduler'].waitForAllSettled()
         }
+        const getLogs = (): string[] => {
+            const res = mockProducerObserver.getProducedKafkaMessagesForTopic('log_entries_test')
+            return res.map((x) => x.value.message) as string[]
+        }
+        const getMetrics = (): any[] => {
+            const res = mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+            return res.map((x) => x.value) as any[]
+        }
 
-        describe('processWebhook', () => {
-            const getLogs = (): string[] => {
-                const res = mockProducerObserver.getProducedKafkaMessagesForTopic('log_entries_test')
-                return res.map((x) => x.value.message) as string[]
-            }
-
+        describe('hog function processing', () => {
             it('should 404 if the hog function does not exist', async () => {
                 const res = await doRequest({
-                    hogFunctionId: 'non-existent-hog-function-id',
+                    webhookId: 'non-existent-hog-function-id',
                 })
                 expect(res.status).toEqual(404)
                 expect(res.body).toEqual({
@@ -175,6 +181,146 @@ describe('SourceWebhooksConsumer', () => {
                     },
                     ip: '127.0.0.1',
                 })
+            })
+        })
+
+        describe('hog flow processing', () => {
+            let hogFlow: HogFlow
+
+            beforeEach(async () => {
+                const template = await insertHogFunctionTemplate(hub.postgres, incomingWebhookTemplate)
+                hogFlow = new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'webhook',
+                            template_id: template.template_id,
+                            inputs: {
+                                event: {
+                                    value: 'my-event',
+                                    bytecode: await compileHog(`return f'my-event'`),
+                                },
+                                distinct_id: {
+                                    value: '{request.body.distinct_id}',
+                                    bytecode: await compileHog(`return f'{request.body.distinct_id}'`),
+                                },
+                            },
+                        },
+                    })
+                    .build()
+                await insertHogFlow(hub.postgres, hogFlow)
+            })
+
+            it('should 404 if the hog flow does not exist', async () => {
+                const res = await doRequest({
+                    webhookId: 'non-existent-hog-flow-id',
+                })
+                expect(res.status).toEqual(404)
+            })
+
+            it('should invoke a workflow with the parsed inputs', async () => {
+                const res = await doRequest({
+                    webhookId: hogFlow.id,
+                    body: {
+                        event: 'my-event',
+                        distinct_id: 'test-distinct-id',
+                    },
+                })
+                expect(res.status).toEqual(201)
+                expect(res.body).toEqual({
+                    status: 'queued',
+                })
+                expect(mockExecuteSpy).toHaveBeenCalledTimes(1)
+                expect(mockQueueInvocationsSpy).toHaveBeenCalledTimes(1)
+                const call = mockQueueInvocationsSpy.mock.calls[0][0][0]
+                expect(call.queue).toEqual('hogflow')
+                expect(call.hogFlow).toMatchObject(hogFlow)
+            })
+
+            it('should add logs and metrics', async () => {
+                const res = await doRequest({
+                    webhookId: hogFlow.id,
+                    body: {
+                        event: 'my-event',
+                        distinct_id: 'test-distinct-id',
+                    },
+                })
+                expect(res.status).toEqual(201)
+                await waitForBackgroundTasks()
+                expect(getLogs()).toEqual([expect.stringContaining('[Action:trigger] Function completed in')])
+                expect(getMetrics()).toEqual([
+                    expect.objectContaining({
+                        metric_kind: 'other',
+                        metric_name: 'triggered',
+                        count: 1,
+                    }),
+                    expect.objectContaining({
+                        metric_kind: 'billing',
+                        metric_name: 'billable_invocation',
+                        count: 1,
+                    }),
+                ])
+            })
+
+            it('should add logs and metrics for a controlled failed hog flow', async () => {
+                const res = await doRequest({
+                    webhookId: hogFlow.id,
+                    body: {
+                        event: 'my-event',
+                        missing_distinct_id: 'test-distinct-id',
+                    },
+                })
+                expect(res.status).toEqual(400)
+                expect(res.body).toEqual({
+                    error: '"distinct_id" could not be parsed correctly',
+                })
+                await waitForBackgroundTasks()
+                expect(getLogs()).toEqual([
+                    expect.stringContaining('[Action:trigger] Function completed in'),
+                    '[Action:trigger] Responded with response status - 400',
+                ])
+                expect(getMetrics()).toEqual([
+                    expect.objectContaining({ metric_kind: 'failure', metric_name: 'trigger_failed', count: 1 }),
+                ])
+            })
+
+            it('should add logs and metrics for an uncontrolled failed hog flow', async () => {
+                // Hacky but otherwise its quite hard to trigger an uncontrolled error
+                hogFlow = new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'webhook',
+                            template_id: incomingWebhookTemplate.id,
+                            inputs: {
+                                distinct_id: {
+                                    value: '{i.do.not.exist}',
+                                    bytecode: await compileHog(`return f'{i.do.not.exist}'`),
+                                },
+                            },
+                        },
+                    })
+                    .build()
+                await insertHogFlow(hub.postgres, hogFlow)
+
+                const res = await doRequest({
+                    webhookId: hogFlow.id,
+                    body: {
+                        event: 'my-event',
+                        missing_distinct_id: 'test-distinct-id',
+                    },
+                })
+                expect(res.status).toEqual(500)
+                expect(res.body).toEqual({
+                    status: 'Unhandled error',
+                })
+                await waitForBackgroundTasks()
+                expect(getLogs()).toEqual([
+                    '[Action:trigger] Error triggering flow: Could not execute bytecode for input field: distinct_id',
+                ])
+                expect(getMetrics()).toEqual([
+                    expect.objectContaining({ metric_kind: 'failure', metric_name: 'trigger_failed', count: 1 }),
+                ])
             })
         })
 

@@ -2,9 +2,11 @@ use crate::kafka::message::{AckableMessage, MessageProcessor};
 use rdkafka::Message;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 /// A pool of workers that process messages in parallel
 /// Messages with the same key are routed to the same worker to maintain ordering
@@ -17,6 +19,9 @@ pub struct ProcessorPool<P: MessageProcessor> {
 
     /// Handles for worker tasks
     worker_handles: Vec<JoinHandle<()>>,
+
+    /// Health status flag - set to false if any worker dies
+    is_healthy: Arc<AtomicBool>,
 }
 
 impl<P: MessageProcessor + Clone + 'static> ProcessorPool<P> {
@@ -31,13 +36,19 @@ impl<P: MessageProcessor + Clone + 'static> ProcessorPool<P> {
             receiver,
             processors,
             worker_handles: Vec::with_capacity(num_workers),
+            is_healthy: Arc::new(AtomicBool::new(true)),
         };
 
         (sender, pool)
     }
 
-    /// Start the worker pool
-    pub fn start(mut self) -> Vec<JoinHandle<()>> {
+    /// Check if all workers are healthy
+    pub fn is_healthy(&self) -> bool {
+        self.is_healthy.load(Ordering::SeqCst)
+    }
+
+    /// Start the worker pool and return handles and health status
+    pub fn start(mut self) -> (Vec<JoinHandle<()>>, Arc<AtomicBool>) {
         let num_workers = self.processors.len();
         info!("Starting processor pool with {} workers", num_workers);
 
@@ -70,6 +81,9 @@ impl<P: MessageProcessor + Clone + 'static> ProcessorPool<P> {
             self.worker_handles.push(handle);
         }
 
+        // Clone health flag for router
+        let router_health = self.is_healthy.clone();
+
         // Spawn router task that distributes messages to workers
         let router_handle = tokio::spawn(async move {
             info!("Message router started");
@@ -89,15 +103,26 @@ impl<P: MessageProcessor + Clone + 'static> ProcessorPool<P> {
                 // Send to the selected worker
                 if let Err(send_error) = worker_senders[worker_id].send(msg) {
                     // Worker channel closed - this means the worker panicked
-                    let msg_offset = send_error.0.kafka_message().offset();
+                    let failed_msg = send_error.0;
+                    let msg_offset = failed_msg.kafka_message().offset();
 
                     error!(
-                        "CRITICAL: Worker {} channel closed (worker likely panicked), message offset: {}. Shutting down.",
-                        worker_id, msg_offset
+                        "CRITICAL: Worker {worker_id} channel closed (worker likely panicked), message offset: {msg_offset}. Marking pool unhealthy.",
                     );
 
-                    // Don't try to recover - fail fast and let the system restart
-                    panic!("Worker {worker_id} died unexpectedly while processing messages");
+                    // Mark the pool as unhealthy - this will fail health checks
+                    router_health.store(false, Ordering::SeqCst);
+
+                    // Nack the message that couldn't be delivered
+                    failed_msg
+                        .nack(format!(
+                            "Worker {worker_id} died, unable to process message",
+                        ))
+                        .await;
+
+                    // Continue processing - subsequent messages to this worker will also fail and get nacked
+                    // The health check will fail and K8s will restart the pod
+                    warn!("Continuing to route messages, but worker {} is dead. Health check will fail.", worker_id);
                 }
             }
 
@@ -108,7 +133,9 @@ impl<P: MessageProcessor + Clone + 'static> ProcessorPool<P> {
 
         // Add router handle to the list
         self.worker_handles.push(router_handle);
-        self.worker_handles
+
+        // Return handles and health status
+        (self.worker_handles, self.is_healthy)
     }
 }
 
@@ -281,7 +308,7 @@ mod tests {
         let processor = TestProcessor::new(Duration::from_millis(50));
         let (sender, pool) = ProcessorPool::new(processor.clone(), 4);
 
-        let handles = pool.start();
+        let (handles, _health) = pool.start();
 
         let num_messages = 100;
         for i in 0..num_messages {
@@ -317,7 +344,7 @@ mod tests {
         let processor = TestProcessor::new(Duration::from_millis(10));
         let (sender, pool) = ProcessorPool::new(processor.clone(), 4);
 
-        let handles = pool.start();
+        let (handles, _health) = pool.start();
 
         let keys = vec![b"key1", b"key2", b"key3", b"key4"];
         let messages_per_key = 10;
@@ -358,7 +385,7 @@ mod tests {
         let num_workers = 8;
         let (sender, pool) = ProcessorPool::new(processor.clone(), num_workers);
 
-        let handles = pool.start();
+        let (handles, _health) = pool.start();
 
         let burst_size = 50;
         for i in 0..burst_size {
@@ -372,9 +399,8 @@ mod tests {
 
         assert!(
             max_concurrent >= num_workers / 2,
-            "Expected at least {} concurrent processing, got {}",
-            num_workers / 2,
-            max_concurrent
+            "Expected at least {} concurrent processing, got {max_concurrent}",
+            num_workers / 2
         );
 
         assert!(
@@ -395,7 +421,7 @@ mod tests {
         let processor = TestProcessor::new(Duration::from_millis(10));
         let (sender, pool) = ProcessorPool::new(processor.clone(), 4);
 
-        let handles = pool.start();
+        let (handles, _health) = pool.start();
 
         for i in 0..10 {
             let msg = create_test_message(None, i).await;
@@ -479,7 +505,7 @@ mod tests {
                 if let Some(&last_offset) = last_offsets.get(key) {
                     if offset <= last_offset {
                         self.ordering_violations.fetch_add(1, Ordering::SeqCst);
-                        eprintln!(
+                        warn!(
                             "Order violation: key {key:?} processed offset {offset} after {last_offset}"
                         );
                     }
@@ -507,7 +533,7 @@ mod tests {
         };
 
         let (sender, pool) = ProcessorPool::new(processor.clone(), 4);
-        let handles = pool.start();
+        let (handles, _health) = pool.start();
 
         // Send slow key messages and fast key messages
         for i in 0..5 {
@@ -566,7 +592,7 @@ mod tests {
         };
 
         let (sender, pool) = ProcessorPool::new(processor.clone(), 8);
-        let handles = pool.start();
+        let (handles, _health) = pool.start();
 
         // Send many messages with overlapping keys
         let keys = [b"key_a", b"key_b", b"key_c", b"key_d"];
@@ -602,7 +628,7 @@ mod tests {
         };
 
         let (sender, pool) = ProcessorPool::new(processor.clone(), 4);
-        let handles = pool.start();
+        let (handles, _health) = pool.start();
 
         // Send messages including the failing one
         for i in 0..10 {
@@ -627,40 +653,296 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_worker_failure_causes_panic() {
-        // Test that the router panics when a worker dies (fail-fast behavior)
-        let processor = TestProcessor::new(Duration::from_millis(10));
-        let (sender, pool) = ProcessorPool::new(processor.clone(), 4);
-        let mut handles = pool.start();
+    async fn test_worker_panic_fails_health_check() {
+        // Create a processor that panics on specific offset
+        struct PanickingProcessor {
+            panic_on_offset: i64,
+            processed_count: Arc<AtomicUsize>,
+        }
 
-        // Send some messages to ensure system is working
+        impl Clone for PanickingProcessor {
+            fn clone(&self) -> Self {
+                Self {
+                    panic_on_offset: self.panic_on_offset,
+                    processed_count: self.processed_count.clone(),
+                }
+            }
+        }
+
+        #[async_trait]
+        impl MessageProcessor for PanickingProcessor {
+            async fn process_message(&self, message: AckableMessage) -> anyhow::Result<()> {
+                let offset = message.kafka_message().offset();
+                if offset == self.panic_on_offset {
+                    panic!("Intentional panic for testing at offset {offset}");
+                }
+                self.processed_count.fetch_add(1, Ordering::SeqCst);
+                message.ack().await;
+                Ok(())
+            }
+        }
+
+        let processor = PanickingProcessor {
+            panic_on_offset: 5,
+            processed_count: Arc::new(AtomicUsize::new(0)),
+        };
+
+        let (sender, pool) = ProcessorPool::new(processor.clone(), 4);
+        let (handles, health) = pool.start();
+
+        // Initially should be healthy
+        assert!(health.load(Ordering::SeqCst), "Pool should start healthy");
+
+        // Send messages before the panic offset
         for i in 0..5 {
             let msg = create_test_message(None, i).await;
             sender.send(msg).unwrap();
         }
 
-        // Wait for initial messages to be processed
+        // Wait for processing
         sleep(Duration::from_millis(100)).await;
 
-        // Abort worker 0 to simulate failure
-        handles[0].abort();
-
-        // The router handle is the last one
-        let router_handle = handles.pop().unwrap();
-
-        // Send a message that would go to worker 0
-        // This should cause the router to panic
-        let msg = create_test_message(None, 100).await;
-        sender.send(msg).unwrap();
-
-        // Router should panic and exit
-        let router_result = tokio::time::timeout(Duration::from_secs(1), router_handle).await;
-
-        // Verify router task panicked or exited
+        // Still should be healthy
         assert!(
-            router_result.is_ok(),
-            "Router should have exited after worker failure"
+            health.load(Ordering::SeqCst),
+            "Pool should still be healthy before panic"
         );
+
+        // Verify messages before panic were processed
+        assert_eq!(
+            processor.processed_count.load(Ordering::SeqCst),
+            5,
+            "Should have processed 5 messages before panic"
+        );
+
+        // Send the message that will cause a panic
+        let panic_msg = create_test_message(None, 5).await;
+        sender.send(panic_msg).unwrap();
+
+        // Wait for the panic to occur
+        sleep(Duration::from_millis(500)).await;
+
+        // The worker has panicked, but router doesn't know yet
+        // Send another message that routes to the same worker to detect the failure
+        // Messages with no key are routed by offset % num_workers
+        // offset 5 % 4 = 1, so we need another message that goes to worker 1
+        let detect_msg = create_test_message(None, 9).await; // 9 % 4 = 1
+        sender.send(detect_msg).unwrap();
+
+        // Wait for router to detect the dead worker
+        sleep(Duration::from_millis(200)).await;
+
+        // Health should now be false
+        assert!(
+            !health.load(Ordering::SeqCst),
+            "Pool should be unhealthy after worker panic"
+        );
+
+        // The two messages sent to the dead worker (offsets 5 and 9) should have been auto-nacked
+        // Messages are auto-nacked when:
+        // 1. The panic message (offset 5) - dropped when worker panics
+        // 2. The detect message (offset 9) - nacked by router when it detects dead worker
+
+        // Verify no additional messages were successfully processed after the panic
+        assert_eq!(
+            processor.processed_count.load(Ordering::SeqCst),
+            5,
+            "No messages should be processed after panic"
+        );
+
+        // Wait a bit
+        sleep(Duration::from_millis(100)).await;
+
+        // Pool is still unhealthy
+        assert!(
+            !health.load(Ordering::SeqCst),
+            "Pool should remain unhealthy"
+        );
+
+        // Clean up
+        drop(sender);
+        for handle in handles {
+            handle.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn test_worker_failure_nacks_messages() {
+        // Test that messages get nacked when sent to dead worker
+
+        // Create a processor that panics immediately
+        struct AlwaysPanicProcessor;
+
+        impl Clone for AlwaysPanicProcessor {
+            fn clone(&self) -> Self {
+                AlwaysPanicProcessor
+            }
+        }
+
+        #[async_trait]
+        impl MessageProcessor for AlwaysPanicProcessor {
+            async fn process_message(&self, _message: AckableMessage) -> anyhow::Result<()> {
+                panic!("Always panic for testing");
+            }
+        }
+
+        // Create a custom message that tracks ack/nack status
+        struct TrackingProcessor {
+            inner: AlwaysPanicProcessor,
+            messages_seen: Arc<AtomicUsize>,
+        }
+
+        impl Clone for TrackingProcessor {
+            fn clone(&self) -> Self {
+                Self {
+                    inner: self.inner.clone(),
+                    messages_seen: self.messages_seen.clone(),
+                }
+            }
+        }
+
+        #[async_trait]
+        impl MessageProcessor for TrackingProcessor {
+            async fn process_message(&self, message: AckableMessage) -> anyhow::Result<()> {
+                self.messages_seen.fetch_add(1, Ordering::SeqCst);
+                // This will panic
+                self.inner.process_message(message).await
+            }
+        }
+
+        let processor = TrackingProcessor {
+            inner: AlwaysPanicProcessor,
+            messages_seen: Arc::new(AtomicUsize::new(0)),
+        };
+
+        let (sender, pool) = ProcessorPool::new(processor.clone(), 2);
+        let (handles, health) = pool.start();
+
+        // Send a message that will cause panic
+        let msg1 = create_test_message(Some(b"key1"), 0).await;
+        sender.send(msg1).unwrap();
+
+        // Wait for panic
+        sleep(Duration::from_millis(200)).await;
+
+        // Send another message to same worker to detect failure
+        let msg2 = create_test_message(Some(b"key1"), 1).await;
+        sender.send(msg2).unwrap();
+
+        // Wait for router to detect dead worker
+        sleep(Duration::from_millis(200)).await;
+
+        // Verify health check failed
+        assert!(
+            !health.load(Ordering::SeqCst),
+            "Pool should be unhealthy after worker panic"
+        );
+
+        // The first message caused the panic and was auto-nacked via Drop
+        // The second message was explicitly nacked by router when it detected dead worker
+        assert_eq!(
+            processor.messages_seen.load(Ordering::SeqCst),
+            1,
+            "Only one message should have reached the processor before panic"
+        );
+
+        // Clean up
+        drop(sender);
+        for handle in handles {
+            handle.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn test_panic_message_auto_nacks_via_drop() {
+        // Test that messages are auto-nacked via Drop trait when worker panics
+        use std::sync::Mutex;
+
+        struct MessageTrackingProcessor {
+            panic_on_offset: i64,
+            // Track which messages we started processing
+            started_messages: Arc<Mutex<Vec<i64>>>,
+            // Track which messages we successfully acked
+            acked_messages: Arc<Mutex<Vec<i64>>>,
+        }
+
+        impl Clone for MessageTrackingProcessor {
+            fn clone(&self) -> Self {
+                Self {
+                    panic_on_offset: self.panic_on_offset,
+                    started_messages: self.started_messages.clone(),
+                    acked_messages: self.acked_messages.clone(),
+                }
+            }
+        }
+
+        #[async_trait]
+        impl MessageProcessor for MessageTrackingProcessor {
+            async fn process_message(&self, message: AckableMessage) -> anyhow::Result<()> {
+                let offset = message.kafka_message().offset();
+
+                // Record that we started processing this message
+                self.started_messages.lock().unwrap().push(offset);
+
+                if offset == self.panic_on_offset {
+                    // Panic without acking - message should auto-nack via Drop
+                    panic!("Intentional panic at offset {offset}");
+                }
+
+                // Normal path: ack the message
+                message.ack().await;
+                self.acked_messages.lock().unwrap().push(offset);
+                Ok(())
+            }
+        }
+
+        let processor = MessageTrackingProcessor {
+            panic_on_offset: 2,
+            started_messages: Arc::new(Mutex::new(Vec::new())),
+            acked_messages: Arc::new(Mutex::new(Vec::new())),
+        };
+
+        let (sender, pool) = ProcessorPool::new(processor.clone(), 1);
+        let (handles, _health) = pool.start();
+
+        // Send messages
+        for i in 0..4 {
+            let msg = create_test_message(None, i).await;
+            sender.send(msg).unwrap();
+        }
+
+        // Wait for processing
+        sleep(Duration::from_millis(500)).await;
+
+        // Check results
+        let started = processor.started_messages.lock().unwrap();
+        let acked = processor.acked_messages.lock().unwrap();
+
+        // We should have started processing messages 0, 1, and 2
+        // (3 never gets processed because worker died)
+        assert!(
+            started.contains(&0),
+            "Should have started processing message 0"
+        );
+        assert!(
+            started.contains(&1),
+            "Should have started processing message 1"
+        );
+        assert!(
+            started.contains(&2),
+            "Should have started processing message 2 (panic)"
+        );
+        assert!(
+            !started.contains(&3),
+            "Should not have processed message 3 (worker dead)"
+        );
+
+        // Only messages 0 and 1 should be acked
+        // Message 2 caused panic and was auto-nacked via Drop
+        assert_eq!(acked.len(), 2, "Only 2 messages should be acked");
+        assert!(acked.contains(&0), "Message 0 should be acked");
+        assert!(acked.contains(&1), "Message 1 should be acked");
+        assert!(!acked.contains(&2), "Message 2 should NOT be acked (panic)");
 
         // Clean up
         drop(sender);

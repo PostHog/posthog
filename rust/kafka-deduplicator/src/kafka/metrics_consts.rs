@@ -21,6 +21,9 @@ pub const PARTITION_SECONDS_SINCE_LAST_COMMIT: &str = "kafka_partition_seconds_s
 /// Counter for messages that were auto-nacked due to being dropped
 pub const MESSAGES_AUTO_NACKED: &str = "kafka_messages_auto_nacked_total";
 
+/// Counter for message completions with status label (acked/nacked/auto_nacked)
+pub const MESSAGES_COMPLETED: &str = "kafka_messages_completed_total";
+
 /// Histogram for message completion processing time
 pub const MESSAGE_COMPLETION_DURATION: &str = "kafka_message_completion_duration_seconds";
 
@@ -29,3 +32,12 @@ pub const PARTITION_LAST_COMMITTED_OFFSET: &str = "kafka_partition_last_committe
 
 /// Counter for out-of-order completions
 pub const OUT_OF_ORDER_COMPLETIONS: &str = "kafka_out_of_order_completions_total";
+
+/// Counter for messages force-cleared during partition revocation
+pub const MESSAGES_FORCE_CLEARED: &str = "kafka_messages_force_cleared_total";
+
+/// Counter for completion channel send failures
+pub const COMPLETION_CHANNEL_FAILURES: &str = "kafka_completion_channel_failures_total";
+
+/// Counter for messages skipped from revoked partitions
+pub const MESSAGES_SKIPPED_REVOKED: &str = "kafka_messages_skipped_revoked_total";

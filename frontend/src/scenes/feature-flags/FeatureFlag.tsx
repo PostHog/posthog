@@ -21,8 +21,6 @@ import {
 } from '@posthog/icons'
 import { LemonDialog, LemonSegmentedButton, LemonSkeleton, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -45,7 +43,7 @@ import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
-import { ProductIntentContext } from 'lib/utils/product-intents'
+import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
 import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
@@ -57,10 +55,13 @@ import { useMaxTool } from 'scenes/max/useMaxTool'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { SceneExport } from 'scenes/sceneTypes'
+import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
+import { captureMaxAISurveyCreationException } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -152,13 +153,20 @@ export function createMaxToolSurveyConfig(
             variant_count: variants?.length || 0,
         },
         callback: (toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => {
+            addProductIntent({
+                product_type: ProductKey.SURVEYS,
+                intent_context: ProductIntentContext.SURVEY_CREATED,
+                metadata: {
+                    survey_id: toolOutput.survey_id,
+                    source: SURVEY_CREATED_SOURCE.FEATURE_FLAGS,
+                    created_successfully: !toolOutput?.error,
+                },
+            })
+
             if (toolOutput?.error || !toolOutput?.survey_id) {
-                posthog.captureException(toolOutput?.error, {
-                    source: 'survey-creation-failed',
-                    feature: 'surveys',
-                })
-                return
+                return captureMaxAISurveyCreationException(toolOutput.error, SURVEY_CREATED_SOURCE.FEATURE_FLAGS)
             }
+
             // Redirect to the new survey
             router.actions.push(urls.survey(toolOutput.survey_id))
         },
@@ -341,6 +349,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     return (
         <>
             <div className="feature-flag">
+                {isNewFeatureFlag && newSceneLayout && (
+                    <div className="mb-2 -ml-[var(--button-padding-x-lg)]">
+                        <SceneBreadcrumbBackButton />
+                    </div>
+                )}
                 {isNewFeatureFlag || isEditingFlag ? (
                     <Form
                         id="feature-flag"
@@ -663,10 +676,12 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                         </LemonButton>
                                                     )}
                                                     <LemonDivider />
-                                                    <AccessControlledLemonButton
-                                                        userAccessLevel={featureFlag.user_access_level}
-                                                        minAccessLevel={AccessControlLevel.Editor}
-                                                        resourceType={AccessControlResourceType.FeatureFlag}
+                                                    <LemonButton
+                                                        accessControl={{
+                                                            resourceType: AccessControlResourceType.FeatureFlag,
+                                                            minAccessLevel: AccessControlLevel.Editor,
+                                                            userAccessLevel: featureFlag.user_access_level,
+                                                        }}
                                                         data-attr={
                                                             featureFlag.deleted
                                                                 ? 'restore-feature-flag'
@@ -692,7 +707,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                         }
                                                     >
                                                         {featureFlag.deleted ? 'Restore' : 'Delete'} feature flag
-                                                    </AccessControlledLemonButton>
+                                                    </LemonButton>
                                                 </>
                                             }
                                         />
@@ -707,10 +722,12 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             type="secondary"
                                         />
 
-                                        <AccessControlledLemonButton
-                                            userAccessLevel={featureFlag.user_access_level}
-                                            minAccessLevel={AccessControlLevel.Editor}
-                                            resourceType={AccessControlResourceType.FeatureFlag}
+                                        <LemonButton
+                                            accessControl={{
+                                                resourceType: AccessControlResourceType.FeatureFlag,
+                                                minAccessLevel: AccessControlLevel.Editor,
+                                                userAccessLevel: featureFlag.user_access_level,
+                                            }}
                                             data-attr="edit-feature-flag"
                                             type="secondary"
                                             disabledReason={
@@ -725,7 +742,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             }}
                                         >
                                             Edit
-                                        </AccessControlledLemonButton>
+                                        </LemonButton>
                                     </div>
                                 </>
                             }
@@ -748,7 +765,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 description={featureFlag.name}
                                 resourceType={{
                                     type: 'feature_flag',
-                                    typePlural: 'Feature flags',
                                 }}
                             />
                             <SceneDivider />
@@ -981,59 +997,51 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     </LemonTag>
                                 ) : (
                                     <div className="flex gap-2">
-                                        <AccessControlAction
-                                            userAccessLevel={featureFlag.user_access_level}
-                                            minAccessLevel={AccessControlLevel.Editor}
-                                            resourceType={AccessControlResourceType.FeatureFlag}
-                                        >
-                                            {({ disabledReason: accessControlDisabledReason }) => (
-                                                <>
-                                                    <LemonSwitch
-                                                        onChange={(newValue) => {
-                                                            LemonDialog.open({
-                                                                title: `${
-                                                                    newValue === true ? 'Enable' : 'Disable'
-                                                                } this flag?`,
-                                                                description: `This flag will be immediately ${
-                                                                    newValue === true
-                                                                        ? 'rolled out to'
-                                                                        : 'rolled back from'
-                                                                } the users matching the release conditions.`,
-                                                                primaryButton: {
-                                                                    children: 'Confirm',
-                                                                    type: 'primary',
-                                                                    onClick: () => {
-                                                                        const updatedFlag = {
-                                                                            ...featureFlag,
-                                                                            active: newValue,
-                                                                        }
-                                                                        setFeatureFlag(updatedFlag)
-                                                                        saveFeatureFlag(updatedFlag)
-                                                                    },
-                                                                    size: 'small',
-                                                                },
-                                                                secondaryButton: {
-                                                                    children: 'Cancel',
-                                                                    type: 'tertiary',
-                                                                    size: 'small',
-                                                                },
-                                                            })
-                                                        }}
-                                                        label={featureFlag.active ? 'Enabled' : 'Disabled'}
-                                                        disabledReason={
-                                                            accessControlDisabledReason ||
-                                                            (!featureFlag.can_edit
-                                                                ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
-                                                                : null)
-                                                        }
-                                                        checked={featureFlag.active}
-                                                    />
-                                                    {!featureFlag.is_remote_configuration && (
-                                                        <FeatureFlagStatusIndicator flagStatus={flagStatus} />
-                                                    )}
-                                                </>
+                                        <>
+                                            <LemonSwitch
+                                                onChange={(newValue) => {
+                                                    LemonDialog.open({
+                                                        title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
+                                                        description: `This flag will be immediately ${
+                                                            newValue === true ? 'rolled out to' : 'rolled back from'
+                                                        } the users matching the release conditions.`,
+                                                        primaryButton: {
+                                                            children: 'Confirm',
+                                                            type: 'primary',
+                                                            onClick: () => {
+                                                                const updatedFlag = {
+                                                                    ...featureFlag,
+                                                                    active: newValue,
+                                                                }
+                                                                setFeatureFlag(updatedFlag)
+                                                                saveFeatureFlag(updatedFlag)
+                                                            },
+                                                            size: 'small',
+                                                        },
+                                                        secondaryButton: {
+                                                            children: 'Cancel',
+                                                            type: 'tertiary',
+                                                            size: 'small',
+                                                        },
+                                                    })
+                                                }}
+                                                label={featureFlag.active ? 'Enabled' : 'Disabled'}
+                                                disabledReason={
+                                                    !featureFlag.can_edit
+                                                        ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
+                                                        : null
+                                                }
+                                                checked={featureFlag.active}
+                                                accessControl={{
+                                                    resourceType: AccessControlResourceType.FeatureFlag,
+                                                    minAccessLevel: AccessControlLevel.Editor,
+                                                    userAccessLevel: featureFlag.user_access_level,
+                                                }}
+                                            />
+                                            {!featureFlag.is_remote_configuration && (
+                                                <FeatureFlagStatusIndicator flagStatus={flagStatus} />
                                             )}
-                                        </AccessControlAction>
+                                        </>
                                     </div>
                                 )}
                             </div>
