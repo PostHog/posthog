@@ -214,12 +214,12 @@ class TestVideoExporter(APIBaseTest):
                     mock_detection_page.close.assert_called_once()
                     mock_detection_context.close.assert_called_once()
 
-                    # Verify recording context was created with detected dimensions
+                    # Verify recording context was created with scaled dimensions (1920x1080 -> 1400x787)
                     assert mock_browser.new_context.call_count == 2  # Detection + recording contexts
                     recording_context_call = mock_browser.new_context.call_args_list[1]
                     viewport = recording_context_call[1]["viewport"]
-                    assert viewport["width"] == 1920
-                    assert viewport["height"] == 1080
+                    assert viewport["width"] == 1400  # Scaled down from 1920
+                    assert viewport["height"] == 787  # Scaled down from 1080 (1080 * 1400/1920 = 787.5 -> 787)
 
                 finally:
                     if os.path.exists(tmp_file.name):
