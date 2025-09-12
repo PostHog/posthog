@@ -106,14 +106,6 @@ export class ResultHandlingPipeline<T> {
         const pipeline = ProcessingPipeline.of(value)
         return new ResultHandlingPipeline(pipeline, originalMessage, config)
     }
-
-    static fromPipeline<T>(
-        pipeline: ProcessingPipeline<T>,
-        originalMessage: Message,
-        config: PipelineConfig
-    ): ResultHandlingPipeline<T> {
-        return new ResultHandlingPipeline(pipeline, originalMessage, config)
-    }
 }
 
 /**
@@ -197,14 +189,6 @@ export class AsyncResultHandlingPipeline<T> {
         const pipeline = ProcessingPipeline.of(value).pipeAsync((v) =>
             Promise.resolve({ type: PipelineStepResultType.OK, value: v })
         )
-        return new AsyncResultHandlingPipeline(pipeline, originalMessage, config)
-    }
-
-    static fromPipeline<T>(
-        pipeline: AsyncProcessingPipeline<T>,
-        originalMessage: Message,
-        config: PipelineConfig
-    ): AsyncResultHandlingPipeline<T> {
         return new AsyncResultHandlingPipeline(pipeline, originalMessage, config)
     }
 }
