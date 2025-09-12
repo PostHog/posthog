@@ -131,7 +131,7 @@ class ActivityLog(UUIDTModel):
             ),
             models.Index(
                 fields=["organization_id"],
-                name="idx_activitylog_org_detail_exists",
+                name="idx_alog_org_detail_exists",
                 condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
             ),
         ]
