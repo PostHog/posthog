@@ -2,6 +2,7 @@ import { BindLogic, actions, kea, key, path, props, reducers, selectors, useActi
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { BatchExportBackfills } from 'scenes/data-pipelines/batch-exports/BatchExportBackfills'
 import { BatchExportRuns } from 'scenes/data-pipelines/batch-exports/BatchExportRuns'
@@ -11,11 +12,17 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Breadcrumb } from '~/types'
 
 import { PipelineNodeLogs } from '../legacy-plugins/PipelineNodeLogs'
 import { PipelineNodeMetrics } from '../legacy-plugins/PipelineNodeMetrics'
 import { BatchExportConfiguration } from './BatchExportConfiguration'
+import {
+    BatchExportConfigurationClearChangesButton,
+    BatchExportConfigurationSaveButton,
+} from './BatchExportConfigurationButtons'
+import { RenderBatchExportIcon } from './BatchExportIcon'
 import type { batchExportSceneLogicType } from './BatchExportSceneType'
 import { BatchExportsMetrics } from './BatchExportsMetrics'
 import { BatchExportConfigurationLogicProps, batchExportConfigurationLogic } from './batchExportConfigurationLogic'
@@ -102,6 +109,38 @@ export const scene: SceneExport = {
     }),
 }
 
+function BatchExportSceneHeader(): JSX.Element {
+    const { configuration, batchExportConfigLoading } = useValues(batchExportConfigurationLogic)
+    const { setConfigurationValue } = useActions(batchExportConfigurationLogic)
+
+    return (
+        <>
+            <PageHeader
+                buttons={
+                    <>
+                        <BatchExportConfigurationClearChangesButton />
+                        <BatchExportConfigurationSaveButton />
+                    </>
+                }
+            />
+            <SceneTitleSection
+                name={configuration.name}
+                description={configuration.description || ''}
+                resourceType={{
+                    type: 'data_pipelines',
+                    forceIcon: configuration.destination ? (
+                        <RenderBatchExportIcon size="medium" type={configuration.destination} />
+                    ) : undefined,
+                }}
+                isLoading={batchExportConfigLoading}
+                onNameChange={(value) => setConfigurationValue('name', value)}
+                onDescriptionChange={(value) => setConfigurationValue('description', value)}
+                canEdit
+            />
+        </>
+    )
+}
+
 export function BatchExportScene(): JSX.Element {
     const { currentTab, logicProps } = useValues(batchExportSceneLogic)
     const { setCurrentTab } = useActions(batchExportSceneLogic)
@@ -154,6 +193,7 @@ export function BatchExportScene(): JSX.Element {
     return (
         <SceneContent forceNewSpacing>
             <BindLogic logic={batchExportConfigurationLogic} props={logicProps}>
+                <BatchExportSceneHeader />
                 <SceneDivider />
                 <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} />
             </BindLogic>

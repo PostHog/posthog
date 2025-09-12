@@ -6,7 +6,6 @@ import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -29,9 +28,13 @@ import {
     BatchExportService,
 } from '~/types'
 
+import {
+    BatchExportConfigurationClearChangesButton,
+    BatchExportConfigurationSaveButton,
+} from './BatchExportConfigurationButtons'
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
 import { RenderBatchExportIcon } from './BatchExportIcon'
-import { batchExportConfigurationLogic, getDefaultConfiguration } from './batchExportConfigurationLogic'
+import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
 import { BatchExportConfigurationForm } from './types'
 import { humanizeBatchExportName } from './utils'
 
@@ -42,23 +45,15 @@ export function BatchExportConfiguration(): JSX.Element {
         batchExportConfigTestLoading,
         configuration,
         tables,
-        savedConfiguration,
-        isConfigurationSubmitting,
         batchExportConfigLoading,
-        configurationChanged,
         batchExportConfig,
         selectedModel,
         runningStep,
         service,
         logicProps,
     } = useValues(batchExportConfigurationLogic)
-    const {
-        resetConfiguration,
-        submitConfiguration,
-        setSelectedModel,
-        setConfigurationValue,
-        runBatchExportConfigTestStep,
-    } = useActions(batchExportConfigurationLogic)
+    const { setSelectedModel, setConfigurationValue, runBatchExportConfigTestStep } =
+        useActions(batchExportConfigurationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
     const sessionsBatchExports = featureFlags[FEATURE_FLAGS.SESSIONS_BATCH_EXPORTS]
@@ -78,44 +73,9 @@ export function BatchExportConfiguration(): JSX.Element {
     const requiredFields = ['interval']
     const requiredFieldsMissing = requiredFields.filter((field) => !configuration[field])
 
-    const buttons = (
-        <>
-            <LemonButton
-                type="secondary"
-                htmlType="reset"
-                onClick={() =>
-                    isNew && service
-                        ? resetConfiguration(getDefaultConfiguration(service))
-                        : resetConfiguration(savedConfiguration)
-                }
-                disabledReason={
-                    !configurationChanged ? 'No changes' : isConfigurationSubmitting ? 'Saving in progress…' : undefined
-                }
-            >
-                {isNew ? 'Reset' : 'Cancel'}
-            </LemonButton>
-            <LemonButton
-                type="primary"
-                htmlType="submit"
-                onClick={submitConfiguration}
-                loading={isConfigurationSubmitting}
-                disabledReason={
-                    !configurationChanged
-                        ? 'No changes to save'
-                        : isConfigurationSubmitting
-                          ? 'Saving in progress…'
-                          : undefined
-                }
-            >
-                {isNew ? 'Create' : 'Save'}
-            </LemonButton>
-        </>
-    )
-
     return (
         <div className="deprecated-space-y-3">
             <>
-                <PageHeader buttons={buttons} />
                 <Form
                     logic={batchExportConfigurationLogic}
                     props={logicProps}
@@ -339,7 +299,10 @@ export function BatchExportConfiguration(): JSX.Element {
                             )}
                         </div>
                     </div>
-                    <div className="flex gap-2 justify-end">{buttons}</div>
+                    <div className="flex gap-2 justify-end">
+                        <BatchExportConfigurationClearChangesButton />
+                        <BatchExportConfigurationSaveButton />
+                    </div>
                 </Form>
             </>
         </div>
