@@ -27,6 +27,7 @@ import products.links.backend.api as link
 import products.tasks.backend.api as tasks
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
+import products.streamlit.backend.api as streamlit
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 from products.llm_analytics.backend.api import DatasetItemViewSet, DatasetViewSet, LLMProxyViewSet
 from products.messaging.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
@@ -206,6 +207,12 @@ project_features_router = projects_router.register(
     r"early_access_feature",
     early_access_feature.EarlyAccessFeatureViewSet,
     "project_early_access_feature",
+    ["project_id"],
+)
+projects_router.register(
+    r"streamlit_apps",
+    streamlit.StreamlitAppViewSet,
+    "project_streamlit_apps",
     ["project_id"],
 )
 

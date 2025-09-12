@@ -43,6 +43,7 @@ from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 
 from products.early_access_features.backend.api import early_access_features
+from products.streamlit.backend.views import StreamlitProxyView
 
 from .utils import opt_slash_path, render_template
 from .views import (
@@ -176,6 +177,9 @@ urlpatterns = [
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/early_access_features", early_access_features),
     opt_slash_path("api/web_experiments", web_experiments),
+    # Streamlit proxy
+    path("streamlit/<str:app_id>/", StreamlitProxyView.as_view(), name="streamlit_proxy"),
+    path("streamlit/<str:app_id>", StreamlitProxyView.as_view(), name="streamlit_proxy_no_slash"),
     opt_slash_path("api/surveys", surveys),
     re_path(r"^external_surveys/(?P<survey_id>[^/]+)/?$", public_survey_page),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
