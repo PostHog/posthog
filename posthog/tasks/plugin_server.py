@@ -1,4 +1,5 @@
 from typing import Optional
+
 from celery import shared_task
 from structlog import get_logger
 

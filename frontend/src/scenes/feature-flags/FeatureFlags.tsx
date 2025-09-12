@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 import { IconLock } from '@posthog/icons'
 import { LemonDialog, LemonInput, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -13,6 +12,7 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -22,15 +22,21 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { getAppContext } from 'lib/utils/getAppContext'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { useMaxTool } from 'scenes/max/useMaxTool'
 import { projectLogic } from 'scenes/projectLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ProductKey } from '~/types'
@@ -45,35 +51,23 @@ import {
     FeatureFlagType,
 } from '~/types'
 
+import { createMaxToolSurveyConfig } from './FeatureFlag'
 import { featureFlagLogic } from './featureFlagLogic'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
-export const scene: SceneExport = {
-    component: FeatureFlags,
-    logic: featureFlagsLogic,
-    settingSectionId: 'environment-feature-flags',
-}
-
-export function OverViewTab({
-    flagPrefix = '',
-    searchPlaceholder = 'Search for feature flags',
-    nouns = ['feature flag', 'feature flags'],
-}: {
-    flagPrefix?: string
-    searchPlaceholder?: string
-    nouns?: [string, string]
-}): JSX.Element {
+// Component for feature flag row actions that needs to use hooks
+function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     const { currentProjectId } = useValues(projectLogic)
-    const { aggregationLabel } = useValues(groupsModel)
+    const { user } = useValues(userLogic)
+    const flagLogic = featureFlagsLogic({})
+    const { updateFeatureFlag, loadFeatureFlags } = useActions(flagLogic)
 
-    const flagLogic = featureFlagsLogic({ flagPrefix })
-    const { featureFlagsLoading, featureFlags, count, pagination, filters, shouldShowEmptyState } = useValues(flagLogic)
-    const { updateFeatureFlag, loadFeatureFlags, setFeatureFlagsFilters } = useActions(flagLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
+    // Get variants data if it's a multivariate flag
+    const multivariateEnabled = Boolean(featureFlag.filters?.multivariate)
+    const variants = featureFlag.filters?.multivariate?.variants || []
 
-    const page = filters.page || 1
-    const startCount = (page - 1) * FLAGS_PER_PAGE + 1
-    const endCount = page * FLAGS_PER_PAGE < count ? page * FLAGS_PER_PAGE : count
+    // Initialize MaxTool hook for survey creation
+    const { openMax } = useMaxTool(createMaxToolSurveyConfig(featureFlag, user, multivariateEnabled, variants))
 
     const tryInInsightsUrl = (featureFlag: FeatureFlagType): string => {
         const query: InsightVizNode = {
@@ -96,6 +90,166 @@ export function OverViewTab({
         }
         return urls.insightNew({ query })
     }
+
+    return (
+        <More
+            overlay={
+                <>
+                    <LemonButton
+                        onClick={() => {
+                            void copyToClipboard(featureFlag.key, 'feature flag key')
+                        }}
+                        fullWidth
+                    >
+                        Copy feature flag key
+                    </LemonButton>
+
+                    <LemonButton
+                        accessControl={{
+                            resourceType: AccessControlResourceType.FeatureFlag,
+                            minAccessLevel: AccessControlLevel.Editor,
+                            userAccessLevel: featureFlag.user_access_level,
+                        }}
+                        data-attr={`feature-flag-${featureFlag.key}-switch`}
+                        onClick={() => {
+                            const newValue = !featureFlag.active
+                            LemonDialog.open({
+                                title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
+                                description: `This flag will be immediately ${
+                                    newValue === true ? 'rolled out to' : 'rolled back from'
+                                } the users matching the release conditions.`,
+                                primaryButton: {
+                                    children: 'Confirm',
+                                    type: 'primary',
+                                    onClick: () => {
+                                        featureFlag.id
+                                            ? updateFeatureFlag({
+                                                  id: featureFlag.id,
+                                                  payload: { active: newValue },
+                                              })
+                                            : null
+                                    },
+                                    size: 'small',
+                                },
+                                secondaryButton: {
+                                    children: 'Cancel',
+                                    type: 'tertiary',
+                                    size: 'small',
+                                },
+                            })
+                        }}
+                        id={`feature-flag-${featureFlag.id}-switch`}
+                        fullWidth
+                    >
+                        {featureFlag.active ? 'Disable' : 'Enable'} feature flag
+                    </LemonButton>
+
+                    {featureFlag.id && (
+                        <LemonButton
+                            accessControl={{
+                                resourceType: AccessControlResourceType.FeatureFlag,
+                                minAccessLevel: AccessControlLevel.Editor,
+                                userAccessLevel: featureFlag.user_access_level,
+                            }}
+                            fullWidth
+                            disabled={!featureFlag.can_edit}
+                            onClick={() => {
+                                if (featureFlag.id) {
+                                    featureFlagLogic({ id: featureFlag.id }).mount()
+                                    featureFlagLogic({ id: featureFlag.id }).actions.editFeatureFlag(true)
+                                    router.actions.push(urls.featureFlag(featureFlag.id))
+                                }
+                            }}
+                        >
+                            Edit
+                        </LemonButton>
+                    )}
+
+                    <LemonButton
+                        to={urls.featureFlagDuplicate(featureFlag.id)}
+                        data-attr="feature-flag-duplicate"
+                        fullWidth
+                    >
+                        Duplicate feature flag
+                    </LemonButton>
+
+                    <LemonButton to={tryInInsightsUrl(featureFlag)} data-attr="usage" fullWidth>
+                        Try out in Insights
+                    </LemonButton>
+
+                    {openMax && (
+                        <LemonButton onClick={openMax} data-attr="create-survey" fullWidth>
+                            Create survey
+                        </LemonButton>
+                    )}
+
+                    <LemonDivider />
+
+                    {featureFlag.id && (
+                        <LemonButton
+                            accessControl={{
+                                resourceType: AccessControlResourceType.FeatureFlag,
+                                minAccessLevel: AccessControlLevel.Editor,
+                                userAccessLevel: featureFlag.user_access_level,
+                            }}
+                            status="danger"
+                            onClick={() => {
+                                void deleteWithUndo({
+                                    endpoint: `projects/${currentProjectId}/feature_flags`,
+                                    object: { name: featureFlag.key, id: featureFlag.id },
+                                    callback: loadFeatureFlags,
+                                }).catch((e) => {
+                                    lemonToast.error(`Failed to delete feature flag: ${e.detail}`)
+                                })
+                            }}
+                            disabledReason={
+                                !featureFlag.can_edit
+                                    ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                    : (featureFlag.features?.length || 0) > 0
+                                      ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
+                                      : (featureFlag.experiment_set?.length || 0) > 0
+                                        ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
+                                        : (featureFlag.surveys?.length || 0) > 0
+                                          ? 'This feature flag is linked to a survey. Delete the survey to delete this flag'
+                                          : null
+                            }
+                            fullWidth
+                        >
+                            Delete feature flag
+                        </LemonButton>
+                    )}
+                </>
+            }
+        />
+    )
+}
+
+export const scene: SceneExport = {
+    component: FeatureFlags,
+    logic: featureFlagsLogic,
+    settingSectionId: 'environment-feature-flags',
+}
+
+export function OverViewTab({
+    flagPrefix = '',
+    searchPlaceholder = 'Search for feature flags',
+    nouns = ['feature flag', 'feature flags'],
+}: {
+    flagPrefix?: string
+    searchPlaceholder?: string
+    nouns?: [string, string]
+}): JSX.Element {
+    const { aggregationLabel } = useValues(groupsModel)
+
+    const flagLogic = featureFlagsLogic({ flagPrefix })
+    const { featureFlagsLoading, featureFlags, count, pagination, filters, shouldShowEmptyState } = useValues(flagLogic)
+    const { setFeatureFlagsFilters } = useActions(flagLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
+
+    const page = filters.page || 1
+    const startCount = (page - 1) * FLAGS_PER_PAGE + 1
+    const endCount = page * FLAGS_PER_PAGE < count ? page * FLAGS_PER_PAGE : count
 
     const columns: LemonTableColumns<FeatureFlagType> = [
         {
@@ -226,144 +380,13 @@ export function OverViewTab({
         {
             width: 0,
             render: function Render(_, featureFlag: FeatureFlagType) {
-                return (
-                    <More
-                        overlay={
-                            <>
-                                <LemonButton
-                                    onClick={() => {
-                                        void copyToClipboard(featureFlag.key, 'feature flag key')
-                                    }}
-                                    fullWidth
-                                >
-                                    Copy feature flag key
-                                </LemonButton>
-
-                                <AccessControlledLemonButton
-                                    userAccessLevel={featureFlag.user_access_level}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    resourceType={AccessControlResourceType.FeatureFlag}
-                                    data-attr={`feature-flag-${featureFlag.key}-switch`}
-                                    onClick={() => {
-                                        const newValue = !featureFlag.active
-                                        LemonDialog.open({
-                                            title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
-                                            description: `This flag will be immediately ${
-                                                newValue === true ? 'rolled out to' : 'rolled back from'
-                                            } the users matching the release conditions.`,
-                                            primaryButton: {
-                                                children: 'Confirm',
-                                                type: 'primary',
-                                                onClick: () => {
-                                                    featureFlag.id
-                                                        ? updateFeatureFlag({
-                                                              id: featureFlag.id,
-                                                              payload: { active: newValue },
-                                                          })
-                                                        : null
-                                                },
-                                                size: 'small',
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                                type: 'tertiary',
-                                                size: 'small',
-                                            },
-                                        })
-                                    }}
-                                    id={`feature-flag-${featureFlag.id}-switch`}
-                                    fullWidth
-                                >
-                                    {featureFlag.active ? 'Disable' : 'Enable'} feature flag
-                                </AccessControlledLemonButton>
-
-                                {featureFlag.id && (
-                                    <AccessControlledLemonButton
-                                        userAccessLevel={featureFlag.user_access_level}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                        resourceType={AccessControlResourceType.FeatureFlag}
-                                        fullWidth
-                                        disabled={!featureFlag.can_edit}
-                                        onClick={() => {
-                                            if (featureFlag.id) {
-                                                featureFlagLogic({ id: featureFlag.id }).mount()
-                                                featureFlagLogic({ id: featureFlag.id }).actions.editFeatureFlag(true)
-                                                router.actions.push(urls.featureFlag(featureFlag.id))
-                                            }
-                                        }}
-                                    >
-                                        Edit
-                                    </AccessControlledLemonButton>
-                                )}
-
-                                <LemonButton
-                                    to={urls.featureFlagDuplicate(featureFlag.id)}
-                                    data-attr="feature-flag-duplicate"
-                                    fullWidth
-                                >
-                                    Duplicate feature flag
-                                </LemonButton>
-
-                                <LemonButton to={tryInInsightsUrl(featureFlag)} data-attr="usage" fullWidth>
-                                    Try out in Insights
-                                </LemonButton>
-
-                                <LemonButton
-                                    onClick={() => {
-                                        if (featureFlag.id) {
-                                            featureFlagLogic({ id: featureFlag.id }).mount()
-                                            featureFlagLogic({ id: featureFlag.id }).actions.createSurvey()
-                                        }
-                                    }}
-                                    data-attr="create-survey"
-                                    fullWidth
-                                >
-                                    Create survey
-                                </LemonButton>
-
-                                <LemonDivider />
-
-                                {featureFlag.id && (
-                                    <AccessControlledLemonButton
-                                        userAccessLevel={featureFlag.user_access_level}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                        resourceType={AccessControlResourceType.FeatureFlag}
-                                        status="danger"
-                                        onClick={() => {
-                                            void deleteWithUndo({
-                                                endpoint: `projects/${currentProjectId}/feature_flags`,
-                                                object: { name: featureFlag.key, id: featureFlag.id },
-                                                callback: loadFeatureFlags,
-                                            }).catch((e) => {
-                                                lemonToast.error(`Failed to delete feature flag: ${e.detail}`)
-                                            })
-                                        }}
-                                        disabledReason={
-                                            !featureFlag.can_edit
-                                                ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
-                                                : (featureFlag.features?.length || 0) > 0
-                                                  ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
-                                                  : (featureFlag.experiment_set?.length || 0) > 0
-                                                    ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
-                                                    : (featureFlag.surveys?.length || 0) > 0
-                                                      ? 'This feature flag is linked to a survey. Delete the survey to delete this flag'
-                                                      : null
-                                        }
-                                        fullWidth
-                                    >
-                                        Delete feature flag
-                                    </AccessControlledLemonButton>
-                                )}
-                            </>
-                        }
-                    />
-                )
+                return <FeatureFlagRowActions featureFlag={featureFlag} />
             },
         },
     ]
 
     const filtersSection = (
-        <div className="flex justify-between mb-4 gap-2 flex-wrap">
+        <div className="flex justify-between gap-2 flex-wrap">
             <LemonInput
                 className="w-60"
                 type="search"
@@ -491,7 +514,7 @@ export function OverViewTab({
     )
 
     return (
-        <>
+        <SceneContent forceNewSpacing>
             <ProductIntroduction
                 productName="Feature flags"
                 productKey={ProductKey.FEATURE_FLAGS}
@@ -501,16 +524,19 @@ export function OverViewTab({
                 action={() => router.actions.push(urls.featureFlag('new'))}
                 isEmpty={shouldShowEmptyState}
                 customHog={FeatureFlagHog}
+                className={cn(newSceneLayout && 'my-0')}
             />
             <div>{filtersSection}</div>
-            <LemonDivider className="my-4" />
-            <div className="mb-4">
-                <span className="text-secondary ">
-                    {count
-                        ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} flag${
-                              count === 1 ? '' : 's'
-                          }`
-                        : null}
+            <LemonDivider className="my-0" />
+            <div>
+                <span className="text-secondary">
+                    {featureFlagsLoading ? (
+                        <WrappingLoadingSkeleton>1-100 of 150 flags</WrappingLoadingSkeleton>
+                    ) : count ? (
+                        `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} flag${
+                            count === 1 ? '' : 's'
+                        }`
+                    ) : null}
                 </span>
             </div>
 
@@ -535,35 +561,45 @@ export function OverViewTab({
                     })
                 }
             />
-        </>
+        </SceneContent>
     )
 }
 
 export function FeatureFlags(): JSX.Element {
     const { activeTab } = useValues(featureFlagsLogic)
     const { setActiveTab } = useActions(featureFlagsLogic)
-
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     return (
-        <div className="feature_flags">
+        <SceneContent className="feature_flags">
             <PageHeader
                 buttons={
-                    <AccessControlledLemonButton
+                    <LemonButton
                         type="primary"
                         to={urls.featureFlag('new')}
                         data-attr="new-feature-flag"
-                        resourceType={AccessControlResourceType.FeatureFlag}
-                        minAccessLevel={AccessControlLevel.Editor}
-                        userAccessLevel={
-                            getAppContext()?.resource_access_control?.[AccessControlResourceType.FeatureFlag]
-                        }
+                        accessControl={{
+                            resourceType: AccessControlResourceType.FeatureFlag,
+                            minAccessLevel: AccessControlLevel.Editor,
+                            userAccessLevel:
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.FeatureFlag],
+                        }}
                     >
                         New feature flag
-                    </AccessControlledLemonButton>
+                    </LemonButton>
                 }
             />
+            <SceneTitleSection
+                name="Feature flags"
+                description="Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once."
+                resourceType={{
+                    type: 'feature_flag',
+                }}
+            />
+            <SceneDivider />
             <LemonTabs
                 activeKey={activeTab}
                 onChange={(newKey) => setActiveTab(newKey)}
+                sceneInset={newSceneLayout}
                 tabs={[
                     {
                         key: FeatureFlagsTab.OVERVIEW,
@@ -578,7 +614,7 @@ export function FeatureFlags(): JSX.Element {
                 ]}
                 data-attr="feature-flags-tab-navigation"
             />
-        </div>
+        </SceneContent>
     )
 }
 

@@ -1,38 +1,39 @@
-from unittest.mock import patch, Mock
+from unittest.mock import Mock, patch
 
 from django.test import TestCase
 
-from posthog.models import Action
 from posthog.schema import (
-    TrendsQuery,
-    InsightVizNode,
-    EventsNode,
     ActionsNode,
-    FunnelsQuery,
-    RetentionQuery,
-    EntityType,
-    RetentionEntity,
-    PathsQuery,
-    PathType,
-    StickinessQuery,
-    LifecycleQuery,
+    ActorsQuery,
     CalendarHeatmapQuery,
     DataTableNode,
-    ActorsQuery,
-    InsightActorsQuery,
-    FunnelsActorsQuery,
+    EntityType,
+    EventsNode,
+    EventsQuery,
     FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
-    EventsQuery,
-    PathsFilter,
-    RetentionFilter,
-    FunnelsFilter,
-    FunnelExclusionEventsNode,
     FunnelCorrelationResultsType,
-    StickinessActorsQuery,
     FunnelExclusionActionsNode,
+    FunnelExclusionEventsNode,
+    FunnelsActorsQuery,
+    FunnelsFilter,
+    FunnelsQuery,
+    InsightActorsQuery,
+    InsightVizNode,
+    LifecycleQuery,
+    PathsFilter,
+    PathsQuery,
+    PathType,
+    RetentionEntity,
+    RetentionFilter,
+    RetentionQuery,
+    StickinessActorsQuery,
+    StickinessQuery,
+    TrendsQuery,
 )
+
 from posthog.hogql_queries.query_metadata import QueryEventsExtractor
+from posthog.models import Action
 
 
 class TestQueryEventsExtractor(TestCase):

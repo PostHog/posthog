@@ -1,29 +1,27 @@
-import { IconApps } from '@posthog/icons'
-
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 
-import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ConversionGoalsConfiguration } from './ConversionGoalsConfiguration'
 import { NativeExternalDataSourceConfiguration } from './NativeExternalDataSourceConfiguration'
 import { NonNativeExternalDataSourceConfiguration } from './NonNativeExternalDataSourceConfiguration'
 import { SelfManagedExternalDataSourceConfiguration } from './SelfManagedExternalDataSourceConfiguration'
 
-export function MarketingAnalyticsSettings(): JSX.Element {
+export function MarketingAnalyticsSettings({ hideTitle = false }: { hideTitle?: boolean }): JSX.Element {
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     return (
         <SceneContent className={cn(!newSceneLayout && 'gap-8 mb-10')}>
-            {newSceneLayout && (
+            {newSceneLayout && !hideTitle && (
                 <SceneTitleSection
-                    name="Marketing analytics"
+                    name="Marketing settings"
                     description={null}
                     resourceType={{
-                        type: 'marketing',
-                        typePlural: 'marketing',
-                        forceIcon: <IconApps />,
+                        type: 'marketing_settings',
                     }}
                 />
             )}

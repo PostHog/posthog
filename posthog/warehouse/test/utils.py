@@ -1,27 +1,29 @@
-import s3fs
-import pandas as pd
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Optional
 
-from posthog.models.team import Team
-from posthog.warehouse.models.table import DataWarehouseTable
-from posthog.warehouse.models.credential import DataWarehouseCredential
-from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.warehouse.types import ExternalDataSourceType
+import s3fs
+import pandas as pd
 
+from posthog.models.team import Team
 from posthog.settings import (
-    OBJECT_STORAGE_BUCKET,
     OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    OBJECT_STORAGE_BUCKET,
     OBJECT_STORAGE_ENDPOINT,
+    OBJECT_STORAGE_SECRET_ACCESS_KEY,
     XDIST_SUFFIX,
 )
+from posthog.warehouse.models import CLICKHOUSE_HOGQL_MAPPING, clean_type
+from posthog.warehouse.models.credential import DataWarehouseCredential
+from posthog.warehouse.models.external_data_source import ExternalDataSource
+from posthog.warehouse.models.table import DataWarehouseTable
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 def create_data_warehouse_table_from_csv(
     csv_path: Path,
     table_name: str,
-    table_columns: dict[str, str],
+    table_columns: Mapping[str, str | Mapping[str, str | bool]],
     test_bucket: str,
     team: Team,
     *,
@@ -78,6 +80,16 @@ def create_data_warehouse_table_from_csv(
             access_key=OBJECT_STORAGE_ACCESS_KEY_ID,
             access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY,
         )
+
+    if any(isinstance(value, str) for value in table_columns.values()):
+        table_columns = {
+            str(key): {
+                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(value))].__name__,
+                "clickhouse": value,  # type: ignore
+                "valid": True,
+            }
+            for key, value in table_columns.items()
+        }  # type: ignore
 
     table = DataWarehouseTable.objects.create(
         name=table_name,

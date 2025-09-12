@@ -1,20 +1,23 @@
 import uuid
 from datetime import timedelta
+
+import pytest
+from posthog.test.base import APIBaseTest
 from unittest import mock
 
-import psycopg
-import pytest
-import pytest_asyncio
-from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.test.client import Client as HttpClient
+
+import psycopg
+import pytest_asyncio
+from asgiref.sync import sync_to_async
 from temporalio.service import RPCError
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.temporal.common.schedule import describe_schedule
-from posthog.test.base import APIBaseTest
+from posthog.temporal.data_imports.sources.stripe.source import StripeSource
 from posthog.warehouse.api.test.utils import create_external_data_source_ok
 from posthog.warehouse.models import DataWarehouseTable
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
@@ -76,10 +79,10 @@ class TestExternalDataSchema(APIBaseTest):
             status=ExternalDataSchema.Status.COMPLETED,
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         )
-
-        response = self.client.post(
-            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
-        )
+        with mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+            )
         payload = response.json()
 
         assert payload == {

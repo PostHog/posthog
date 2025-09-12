@@ -30,6 +30,7 @@ import type { ActionFilter, Group } from '~/types'
 import {
     ActivityScope,
     FilterLogicalOperator,
+    GroupsTabType,
     Group as IGroup,
     PersonsTabType,
     PropertyDefinitionType,
@@ -110,15 +111,15 @@ export function Group(): JSX.Element {
                 onChange={(tab) => router.actions.push(urls.group(String(groupTypeIndex), groupKey, true, tab))}
                 tabs={[
                     {
-                        key: 'overview',
+                        key: GroupsTabType.OVERVIEW,
                         label: <span data-attr="groups-overview-tab">Overview</span>,
                         content: <GroupOverview groupData={groupData} />,
                     },
                     ...(featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] && groupData.notebook
                         ? [
                               {
-                                  key: 'notebook',
-                                  label: <span data-attr="groups-notebook-tab">Notebook</span>,
+                                  key: GroupsTabType.NOTES,
+                                  label: <span data-attr="groups-notes-tab">Notes</span>,
                                   content: <GroupNotebookCard shortId={groupData.notebook} />,
                               },
                           ]

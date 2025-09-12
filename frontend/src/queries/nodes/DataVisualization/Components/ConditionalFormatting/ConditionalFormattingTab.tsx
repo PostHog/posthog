@@ -3,8 +3,15 @@ import './ConditionalFormattingTab.scss'
 import { useActions, useValues } from 'kea'
 
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonColorGlyph, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
-import { LemonColorPicker } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCollapse,
+    LemonColorGlyph,
+    LemonColorPicker,
+    LemonInput,
+    LemonSelect,
+    LemonTag,
+} from '@posthog/lemon-ui'
 
 import { ConditionalFormattingRule } from '~/queries/schema/schema-general'
 
@@ -49,7 +56,7 @@ export const ConditionalFormattingTab = (): JSX.Element => {
         useActions(dataVisualizationLogic)
 
     return (
-        <div className="flex flex-col ConditionalFormattingTab">
+        <div className="flex flex-col ConditionalFormattingTab p-3">
             <p>You can add rules to make the cells in the table change color if they meet certain conditions.</p>
 
             {conditionalFormattingRules.length > 0 && (

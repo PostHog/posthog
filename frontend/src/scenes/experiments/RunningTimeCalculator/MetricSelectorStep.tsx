@@ -2,7 +2,12 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSelect, LemonTag, Spinner } from '@posthog/lemon-ui'
 
-import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import {
+    ExperimentMetric,
+    NodeKind,
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
+} from '~/queries/schema/schema-general'
 
 import { MetricTitle } from '../MetricsView/shared/MetricTitle'
 import { experimentLogic } from '../experimentLogic'
@@ -13,7 +18,7 @@ import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTi
 
 type MetricOption = {
     metric: ExperimentMetric
-    index: number
+    uuid: string
     isSharedMetric: boolean
 }
 
@@ -26,32 +31,35 @@ export const MetricSelectorStep = ({
 }): JSX.Element => {
     const { experimentId } = useValues(experimentLogic)
 
-    const { experiment, metric, metricIndex, metricResultLoading } = useValues(
+    const { experiment, metric, metricUuid, metricResultLoading } = useValues(
         runningTimeCalculatorLogic({ experimentId })
     )
-    const { setMetricIndex } = useActions(runningTimeCalculatorLogic({ experimentId }))
+    const { setMetricUuid } = useActions(runningTimeCalculatorLogic({ experimentId }))
 
     // Create combined array of metrics and saved metrics
     const metricOptions: MetricOption[] = [
         // Regular metrics
-        ...experiment.metrics.map((metric, index) => ({
-            metric: metric as ExperimentMetric,
-            index,
-            isSharedMetric: false,
-        })),
+        ...experiment.metrics
+            .filter((metric) => metric.uuid)
+            .map((metric) => ({
+                metric: metric as ExperimentMetric,
+                uuid: metric.uuid!,
+                isSharedMetric: false,
+            })),
         // Shared metrics with primary type
         ...experiment.saved_metrics
             .filter((sharedMetric) => sharedMetric.metadata.type === 'primary')
-            .map((sharedMetric, index) => {
+            .map((sharedMetric) => {
                 // Ensure the shared metric query is an ExperimentMetric type
                 if (
                     sharedMetric.query &&
+                    sharedMetric.query.uuid &&
                     (sharedMetric.query.kind === NodeKind.ExperimentMetric ||
                         sharedMetric.query.metric_type !== undefined)
                 ) {
                     return {
                         metric: sharedMetric.query as ExperimentMetric,
-                        index: experiment.metrics.length + index,
+                        uuid: sharedMetric.query.uuid,
                         isSharedMetric: true,
                     }
                 }
@@ -81,13 +89,13 @@ export const MetricSelectorStep = ({
                                 )}
                             </div>
                         ),
-                        value: option.index,
+                        value: option.uuid,
                     }))}
-                    value={metricIndex}
+                    value={metricUuid}
                     onChange={(value) => {
                         if (value !== null) {
-                            setMetricIndex(value)
-                            const selectedOption = metricOptions.find((option) => option.index === value)
+                            setMetricUuid(value)
+                            const selectedOption = metricOptions.find((option) => option.uuid === value)
                             if (selectedOption) {
                                 onChangeMetric(selectedOption.metric)
                             }
@@ -103,8 +111,8 @@ export const MetricSelectorStep = ({
                 </div>
             ) : (
                 <div className="border-t pt-2">
-                    {(metric as ExperimentMetric)?.metric_type === ExperimentMetricType.MEAN && <MeanMetricDataPanel />}
-                    {(metric as ExperimentMetric)?.metric_type === ExperimentMetricType.FUNNEL && (
+                    {metric && isExperimentMeanMetric(metric) && <MeanMetricDataPanel />}
+                    {metric && isExperimentFunnelMetric(metric) && (
                         <FunnelMetricDataPanel onChangeType={onChangeFunnelConversionRateType} />
                     )}
                 </div>

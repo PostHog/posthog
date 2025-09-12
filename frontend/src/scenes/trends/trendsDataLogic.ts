@@ -356,7 +356,18 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             },
         ],
 
-        resultCustomizations: [(s) => [s.trendsFilter], (trendsFilter) => trendsFilter?.resultCustomizations],
+        resultCustomizations: [
+            (s) => [s.isTrends, s.isStickiness, s.trendsFilter, s.stickinessFilter],
+            (isTrends, isStickiness, trendsFilter, stickinessFilter) => {
+                if (isTrends) {
+                    return trendsFilter?.resultCustomizations
+                }
+                if (isStickiness) {
+                    return stickinessFilter?.resultCustomizations
+                }
+                return undefined
+            },
+        ],
         resultCustomizationBy: [
             (s) => [s.resultCustomizationByRaw],
             (resultCustomizationByRaw) => resultCustomizationByRaw || RESULT_CUSTOMIZATION_DEFAULT,

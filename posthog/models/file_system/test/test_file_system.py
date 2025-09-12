@@ -1,11 +1,7 @@
 from django.test import TestCase
-from posthog.models import FeatureFlag, Experiment, Dashboard, Insight, Notebook, Team, User, Organization
-from posthog.models.file_system.file_system import (
-    FileSystem,
-    escape_path,
-    join_path,
-    split_path,
-)
+
+from posthog.models import Dashboard, Experiment, FeatureFlag, Insight, Notebook, Organization, Team, User
+from posthog.models.file_system.file_system import FileSystem, escape_path, join_path, split_path
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 
 

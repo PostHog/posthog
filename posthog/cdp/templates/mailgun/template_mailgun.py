@@ -1,6 +1,5 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-
 # See https://documentation.mailgun.com/docs/mailgun/api-reference/openapi-final/tag/Messages
 
 

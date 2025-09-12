@@ -1,8 +1,7 @@
 from inline_snapshot import snapshot
+
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-from posthog.cdp.templates.linkedin_ads.template_linkedin_ads import (
-    template as template_linkedin_ads,
-)
+from posthog.cdp.templates.linkedin_ads.template_linkedin_ads import template as template_linkedin_ads
 
 
 class TestTemplateLinkedInAds(BaseHogFunctionTemplateTest):

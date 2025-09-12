@@ -120,7 +120,7 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
     // Get trace ID for linking to LLM trace view
     const traceId = item.data.properties.$ai_trace_id
     const traceParams = item.data.id && item.data.event !== '$ai_trace' ? { event: item.data.id } : {}
-    const traceUrl = traceId ? urls.llmObservabilityTrace(traceId, traceParams) : null
+    const traceUrl = traceId ? urls.llmAnalyticsTrace(traceId, traceParams) : null
 
     return (
         <div data-attr="item-event" className="font-light w-full">

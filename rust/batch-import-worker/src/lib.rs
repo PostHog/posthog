@@ -8,6 +8,7 @@ use std::{
 
 use health::HealthHandle;
 
+pub mod cache;
 pub mod config;
 pub mod context;
 pub mod emit;

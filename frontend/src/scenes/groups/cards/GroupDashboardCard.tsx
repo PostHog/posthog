@@ -220,23 +220,25 @@ export function GroupDashboardCard(): JSX.Element {
                     }
                     context={{ refresh: 'force_blocking' }}
                 />
+            </div>
+            <div className="grid grid-cols-1 gap-2">
                 <QueryCard
                     title="Retained users"
-                    description={`Shows the number of users from this ${groupTypeName} who returned seven days after their first visit`}
+                    description={`Shows the number of users from this ${groupTypeName} who returned 12 weeks after their first visit`}
                     query={
                         {
                             kind: NodeKind.InsightVizNode,
                             source: {
                                 kind: NodeKind.RetentionQuery,
                                 retentionFilter: {
-                                    period: 'Day',
+                                    period: 'Week',
                                     targetEntity: {
                                         id: '$pageview',
                                         name: '$pageview',
                                         type: 'events',
                                     },
                                     retentionType: 'retention_first_time',
-                                    totalIntervals: 8,
+                                    totalIntervals: 12,
                                     returningEntity: {
                                         id: '$pageview',
                                         name: '$pageview',

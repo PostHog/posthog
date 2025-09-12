@@ -3,10 +3,11 @@ import { DateTime } from 'luxon'
 import { Properties } from '@posthog/plugin-scaffold'
 
 import { TopicMessage } from '../../../../kafka/producer'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../../types'
+import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team, TeamId } from '../../../../types'
 import { CreatePersonResult, MoveDistinctIdsResult } from '../../../../utils/db/db'
 import { TransactionClient } from '../../../../utils/db/postgres'
 import { PersonUpdate } from '../person-update-batch'
+import { InternalPersonWithDistinctId } from './person-repository'
 
 export interface RawPostgresPersonRepository {
     fetchPerson(
@@ -14,6 +15,10 @@ export interface RawPostgresPersonRepository {
         distinctId: string,
         options?: { forUpdate?: boolean; useReadReplica?: boolean }
     ): Promise<InternalPerson | undefined>
+
+    fetchPersonsByDistinctIds(
+        teamPersons: { teamId: TeamId; distinctId: string }[]
+    ): Promise<InternalPersonWithDistinctId[]>
 
     createPerson(
         createdAt: DateTime,
@@ -25,7 +30,8 @@ export interface RawPostgresPersonRepository {
         isIdentified: boolean,
         uuid: string,
         distinctIds?: { distinctId: string; version?: number }[],
-        tx?: TransactionClient
+        tx?: TransactionClient,
+        forcedId?: number
     ): Promise<CreatePersonResult>
 
     updatePerson(
@@ -49,10 +55,12 @@ export interface RawPostgresPersonRepository {
     moveDistinctIds(
         source: InternalPerson,
         target: InternalPerson,
+        limit?: number,
         tx?: TransactionClient
     ): Promise<MoveDistinctIdsResult>
 
-    addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean>
+    fetchPersonDistinctIds(person: InternalPerson, limit?: number, tx?: TransactionClient): Promise<string[]>
+    addPersonlessDistinctId(teamId: Team['id'], distinctId: string, tx?: TransactionClient): Promise<boolean>
     addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string, tx?: TransactionClient): Promise<boolean>
 
     personPropertiesSize(personId: string): Promise<number>

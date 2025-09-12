@@ -1,6 +1,5 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-
 # See https://dev.mailjet.com/email/reference/contacts/contact-list/
 
 input_api_key = {

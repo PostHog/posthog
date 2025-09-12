@@ -8,7 +8,9 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { ActivityTab } from '~/types'
@@ -46,7 +48,6 @@ export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                 description="A catalog of all user interactions with your app or website."
                 resourceType={{
                     type: RESOURCE_TYPE,
-                    typePlural: 'events',
                     forceIcon: <IconApps />,
                 }}
             />
@@ -59,6 +60,7 @@ export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                 context={{
                     showOpenEditorButton: true,
                     extraDataTableQueryFeatures: [QueryFeature.highlightExceptionEventRows],
+                    dataTableMaxPaginationLimit: 200,
                 }}
             />
         </SceneContent>

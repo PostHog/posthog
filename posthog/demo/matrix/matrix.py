@@ -1,22 +1,21 @@
+import uuid
 import datetime as dt
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
-from typing import (
-    Any,
-    Optional,
-)
-import uuid
+from typing import Any, Optional
 
-import mimesis
-import mimesis.random
 from django.conf import settings
 from django.utils import timezone
+
+import mimesis
+import tiktoken
+import mimesis.random
 
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.demo.matrix.randomization import PropertiesProvider
 from posthog.models import Team, User
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.utils import UUIDT, uuid7
-import tiktoken
 
 from .models import Effect, SimPerson, SimServerClient
 
@@ -267,6 +266,14 @@ class Matrix(ABC):
     def set_project_up(self, team: Team, user: User):
         """Project setup, such as relevant insights, dashboards, feature flags, etc."""
         team.name = self.PRODUCT_NAME
+        FeatureFlag.objects.create(
+            team=team,
+            key="llm-observability",
+            name="Breaking the fourth wall: PostHog's LLM analytics flag.",
+            filters={"groups": [{"variant": None, "properties": [], "rollout_percentage": 100}]},
+            created_by=user,
+            created_at=dt.datetime.fromtimestamp(0),  # Epoch
+        )
 
     def simulate(self):
         if self.is_complete is not None:

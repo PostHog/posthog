@@ -211,8 +211,9 @@ export const defaultMocks: Mocks = {
         'api/environments/:team_id/error_tracking/grouping_rules': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/error_tracking/suppression_rules': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/error_tracking/symbol_sets': EMPTY_PAGINATED_RESPONSE,
-        'api/projects/@current/global_access_controls': EMPTY_PAGINATED_RESPONSE,
+        'api/projects/@current/resource_access_controls': EMPTY_PAGINATED_RESPONSE,
         'api/projects/@current/access_controls': EMPTY_PAGINATED_RESPONSE,
+        'api/projects/:team_id/notebooks/recording_comments': EMPTY_PAGINATED_RESPONSE,
     },
     post: {
         'https://us.i.posthog.com/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),

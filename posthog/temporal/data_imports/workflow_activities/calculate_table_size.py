@@ -2,12 +2,16 @@ import dataclasses
 
 from django.conf import settings
 from django.db import close_old_connections
+
+from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.models import DataWarehouseTable
-from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
+from posthog.temporal.common.logger import get_logger
 from posthog.warehouse.models import ExternalDataSchema
 from posthog.warehouse.s3 import get_size_of_folder
+
+LOGGER = get_logger(__name__)
 
 
 @dataclasses.dataclass
@@ -18,7 +22,8 @@ class CalculateTableSizeActivityInputs:
 
 @activity.defn
 def calculate_table_size_activity(inputs: CalculateTableSizeActivityInputs) -> None:
-    logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
     close_old_connections()
 
     logger.debug("Calculating table size in S3")
@@ -36,7 +41,10 @@ def calculate_table_size_activity(inputs: CalculateTableSizeActivityInputs) -> N
         return
 
     folder_name = schema.folder_path()
-    s3_folder = f"{settings.BUCKET_URL}/{folder_name}/{schema.normalized_name}"
+    if table.format == DataWarehouseTable.TableFormat.DeltaS3Wrapper:
+        s3_folder = f"{settings.BUCKET_URL}/{folder_name}/{schema.normalized_name}__query"
+    else:
+        s3_folder = f"{settings.BUCKET_URL}/{folder_name}/{schema.normalized_name}"
 
     total_mib = get_size_of_folder(s3_folder)
 

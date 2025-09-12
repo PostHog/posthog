@@ -1,37 +1,37 @@
-from dataclasses import dataclass
-import hashlib
 import hmac
-import time
-import jwt
 import json
-from datetime import timedelta, datetime
-from typing import Any, Literal, Optional
+import time
+import hashlib
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Any, Literal
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.db import models
-from prometheus_client import Counter
+
+import jwt
 import requests
+import structlog
+from google.auth.transport.requests import Request as GoogleRequest
+from google.oauth2 import service_account
+from prometheus_client import Counter
+from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
-from rest_framework import status
-from slack_sdk.web.async_client import AsyncWebClient
-
-from posthog.exceptions_capture import capture_exception
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
-from google.oauth2 import service_account
-from google.auth.transport.requests import Request as GoogleRequest
+from slack_sdk.web.async_client import AsyncWebClient
 
-from django.conf import settings
 from posthog.cache_utils import cache_for
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
-from products.messaging.backend.providers import MailjetProvider, TwilioProvider
-import structlog
-
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.sync import database_sync_to_async
+
+from products.messaging.backend.providers import MailjetProvider, TwilioProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -73,6 +73,7 @@ class Integration(models.Model):
         META_ADS = "meta-ads"
         TWILIO = "twilio"
         CLICKUP = "clickup"
+        VERCEL = "vercel"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -115,11 +116,11 @@ class Integration(models.Model):
         return f"ID: {self.integration_id}"
 
     @property
-    def access_token(self) -> Optional[str]:
+    def access_token(self) -> str | None:
         return self.sensitive_config.get("access_token")
 
     @property
-    def refresh_token(self) -> Optional[str]:
+    def refresh_token(self) -> str | None:
         return self.sensitive_config.get("refresh_token")
 
 
@@ -137,10 +138,10 @@ class OauthConfig:
     scope: str
     id_path: str
     name_path: str
-    token_info_url: Optional[str] = None
-    token_info_graphql_query: Optional[str] = None
-    token_info_config_fields: Optional[list[str]] = None
-    additional_authorize_params: Optional[dict[str, str]] = None
+    token_info_url: str | None = None
+    token_info_graphql_query: str | None = None
+    token_info_config_fields: list[str] | None = None
+    additional_authorize_params: dict[str, str] | None = None
 
 
 class OauthIntegration:
@@ -294,7 +295,7 @@ class OauthIntegration:
                 token_url="https://www.linkedin.com/oauth/v2/accessToken",
                 client_id=settings.LINKEDIN_APP_CLIENT_ID,
                 client_secret=settings.LINKEDIN_APP_CLIENT_SECRET,
-                scope="r_ads rw_conversions openid profile email",
+                scope="r_ads rw_conversions r_ads_reporting openid profile email",
                 id_path="sub",
                 name_path="email",
             )
@@ -489,7 +490,7 @@ class OauthIntegration:
 
         return integration
 
-    def access_token_expired(self, time_threshold: Optional[timedelta] = None) -> bool:
+    def access_token_expired(self, time_threshold: timedelta | None = None) -> bool:
         # Not all integrations have refresh tokens or expiries, so we just return False if we can't check
 
         refresh_token = self.integration.sensitive_config.get("refresh_token")
@@ -583,7 +584,7 @@ class SlackIntegration:
 
     def get_channel_by_id(
         self, channel_id: str, should_include_private_channels: bool = False, authed_user: str | None = None
-    ) -> Optional[dict]:
+    ) -> dict | None:
         try:
             response = self.client.conversations_info(channel=channel_id, include_num_members=True)
             channel = response["channel"]
@@ -702,7 +703,7 @@ class GoogleAdsIntegration:
     def list_google_ads_conversion_actions(self, customer_id, parent_id=None) -> list[dict]:
         response = requests.request(
             "POST",
-            f"https://googleads.googleapis.com/v18/customers/{customer_id}/googleAds:searchStream",
+            f"https://googleads.googleapis.com/v21/customers/{customer_id}/googleAds:searchStream",
             json={"query": "SELECT conversion_action.id, conversion_action.name FROM conversion_action"},
             headers={
                 "Content-Type": "application/json",
@@ -725,7 +726,7 @@ class GoogleAdsIntegration:
     def list_google_ads_accessible_accounts(self) -> list[dict[str, str]]:
         response = requests.request(
             "GET",
-            f"https://googleads.googleapis.com/v18/customers:listAccessibleCustomers",
+            f"https://googleads.googleapis.com/v21/customers:listAccessibleCustomers",
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
@@ -745,7 +746,7 @@ class GoogleAdsIntegration:
                 accounts = []
             response = requests.request(
                 "POST",
-                f"https://googleads.googleapis.com/v18/customers/{account_id}/googleAds:searchStream",
+                f"https://googleads.googleapis.com/v21/customers/{account_id}/googleAds:searchStream",
                 json={
                     "query": "SELECT customer_client.descriptive_name, customer_client.client_customer, customer_client.level, customer_client.manager, customer_client.status FROM customer_client WHERE customer_client.level <= 5"
                 },
@@ -807,7 +808,7 @@ class GoogleCloudIntegration:
 
     @classmethod
     def integration_from_key(
-        cls, kind: str, key_info: dict, team_id: int, created_by: Optional[User] = None
+        cls, kind: str, key_info: dict, team_id: int, created_by: User | None = None
     ) -> Integration:
         if kind == "google-pubsub":
             scope = "https://www.googleapis.com/auth/pubsub"
@@ -843,7 +844,7 @@ class GoogleCloudIntegration:
 
         return integration
 
-    def access_token_expired(self, time_threshold: Optional[timedelta] = None) -> bool:
+    def access_token_expired(self, time_threshold: timedelta | None = None) -> bool:
         expires_in = self.integration.config.get("expires_in")
         refreshed_at = self.integration.config.get("refreshed_at")
         if not expires_in or not refreshed_at:
@@ -905,7 +906,7 @@ class LinkedInAdsIntegration:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "LinkedIn-Version": "202409",
+                "LinkedIn-Version": "202508",
             },
         )
 
@@ -914,11 +915,11 @@ class LinkedInAdsIntegration:
     def list_linkedin_ads_accounts(self) -> dict:
         response = requests.request(
             "GET",
-            "https://api.linkedin.com/v2/adAccountsV2?q=search",
+            "https://api.linkedin.com/rest/adAccounts?q=search",
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "LinkedIn-Version": "202409",
+                "LinkedIn-Version": "202508",
             },
         )
 
@@ -1009,7 +1010,7 @@ class EmailIntegration:
         return MailjetProvider()
 
     @classmethod
-    def create_native_integration(cls, config: dict, team_id: int, created_by: Optional[User] = None) -> Integration:
+    def create_native_integration(cls, config: dict, team_id: int, created_by: User | None = None) -> Integration:
         email_address: str = config["email"]
         name: str = config["name"]
         domain: str = email_address.split("@")[1]
@@ -1043,7 +1044,7 @@ class EmailIntegration:
 
     @classmethod
     def integration_from_keys(
-        cls, api_key: str, secret_key: str, team_id: int, created_by: Optional[User] = None
+        cls, api_key: str, secret_key: str, team_id: int, created_by: User | None = None
     ) -> Integration:
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
@@ -1176,7 +1177,7 @@ class GitHubIntegration:
 
     @classmethod
     def integration_from_installation_id(
-        cls, installation_id: str, team_id: int, created_by: Optional[User] = None
+        cls, installation_id: str, team_id: int, created_by: User | None = None
     ) -> Integration:
         installation_info = cls.client_request(f"installations/{installation_id}").json()
         access_token = cls.client_request(f"installations/{installation_id}/access_tokens", method="POST").json()
@@ -1216,7 +1217,7 @@ class GitHubIntegration:
             raise Exception("GitHubIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
 
-    def access_token_expired(self, time_threshold: Optional[timedelta] = None) -> bool:
+    def access_token_expired(self, time_threshold: timedelta | None = None) -> bool:
         expires_in = self.integration.config.get("expires_in")
         refreshed_at = self.integration.config.get("refreshed_at")
         if not expires_in or not refreshed_at:
@@ -1308,7 +1309,7 @@ class GitHubIntegration:
         else:
             return "main"
 
-    def create_branch(self, repository: str, branch_name: str, base_branch: Optional[str] = None) -> dict[str, Any]:
+    def create_branch(self, repository: str, branch_name: str, base_branch: str | None = None) -> dict[str, Any]:
         """Create a new branch from a base branch."""
         org = self.organization()
         access_token = self.integration.sensitive_config["access_token"]
@@ -1365,7 +1366,7 @@ class GitHubIntegration:
             }
 
     def update_file(
-        self, repository: str, file_path: str, content: str, commit_message: str, branch: str, sha: Optional[str] = None
+        self, repository: str, file_path: str, content: str, commit_message: str, branch: str, sha: str | None = None
     ) -> dict[str, Any]:
         """Create or update a file in the repository."""
         org = self.organization()
@@ -1424,7 +1425,7 @@ class GitHubIntegration:
             }
 
     def create_pull_request(
-        self, repository: str, title: str, body: str, head_branch: str, base_branch: Optional[str] = None
+        self, repository: str, title: str, body: str, head_branch: str, base_branch: str | None = None
     ) -> dict[str, Any]:
         """Create a pull request."""
         org = self.organization()

@@ -1,18 +1,15 @@
 from typing import Any
 
 from rest_framework import viewsets
-from posthog.api.utils import action
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from ee.tasks.slack import handle_slack_event
 from posthog.api.integration import IntegrationSerializer
-from posthog.models.integration import (
-    Integration,
-    SlackIntegration,
-    SlackIntegrationError,
-)
+from posthog.api.utils import action
+from posthog.models.integration import Integration, SlackIntegration, SlackIntegrationError
+
+from ee.tasks.slack import handle_slack_event
 
 
 class PublicIntegrationViewSet(viewsets.GenericViewSet):

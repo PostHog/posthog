@@ -1,19 +1,14 @@
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, snapshot_clickhouse_queries
+
 from django.test import override_settings
 
-from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import (
-    ActorsPropertyTaxonomyQueryRunner,
-)
+from posthog.schema import ActorsPropertyTaxonomyQuery, ActorsPropertyTaxonomyResponse
+
+from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.models import PropertyDefinition
 from posthog.models.group.util import create_group
 from posthog.models.property_definition import PropertyType
-from posthog.schema import ActorsPropertyTaxonomyQuery, ActorsPropertyTaxonomyResponse
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_person,
-    snapshot_clickhouse_queries,
-)
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 @override_settings(IN_UNIT_TESTING=True)

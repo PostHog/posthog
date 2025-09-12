@@ -10,7 +10,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { KNOWN_PROMOTED_PROPERTY_PARENTS } from '~/taxonomy/taxonomy'
 import { EventType, PropertyDefinitionType } from '~/types'
 
-import { ConversationDisplay } from 'products/llm_observability/frontend/ConversationDisplay/ConversationDisplay'
+import { ConversationDisplay } from 'products/llm_analytics/frontend/ConversationDisplay/ConversationDisplay'
 
 interface EventDetailsProps {
     event: EventType

@@ -3,11 +3,12 @@ import {
     DateRange,
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingQuery,
+    ErrorTrackingRelationalIssue,
     EventsQuery,
     InsightVizNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
+import { HogQLQueryString, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -196,15 +197,21 @@ export const errorTrackingIssueBreakdownQuery = ({
 }
 
 export const errorTrackingIssueCorrelationQuery = ({
-    event,
+    events,
 }: {
-    event: string
+    events: string[]
 }): ErrorTrackingIssueCorrelationQuery => {
     return setLatestVersionsOnQuery<ErrorTrackingIssueCorrelationQuery>({
         kind: NodeKind.ErrorTrackingIssueCorrelationQuery,
-        events: [event],
-        tags: {
-            productKey: ProductKey.ERROR_TRACKING,
-        },
+        events,
+        tags: { productKey: ProductKey.ERROR_TRACKING },
     })
+}
+
+export const errorTrackingIssueFingerprintsQuery = (issue: ErrorTrackingRelationalIssue): HogQLQueryString => {
+    return hogql`SELECT properties.$exception_fingerprint, count(), groupUniqArray(properties.$exception_types[1]), groupUniqArray(properties.$exception_values[1])
+FROM events
+WHERE event = '$exception' and issue_id = ${issue.id} and timestamp >= toDateTime(${issue.first_seen})
+GROUP BY properties.$exception_fingerprint
+`
 }

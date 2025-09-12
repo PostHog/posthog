@@ -36,6 +36,14 @@ pub trait Client {
         parameters: Vec<String>,
         timeout_ms: Option<u64>,
     ) -> Result<Vec<PgRow>, CustomDatabaseError>;
+
+    fn get_pool_stats(&self) -> Option<PoolStats>;
+}
+
+#[derive(Debug, Clone)]
+pub struct PoolStats {
+    pub size: u32,
+    pub num_idle: usize,
 }
 
 pub async fn get_pool(url: &str, max_connections: u32) -> Result<PgPool, sqlx::Error> {
@@ -43,12 +51,21 @@ pub async fn get_pool(url: &str, max_connections: u32) -> Result<PgPool, sqlx::E
         .max_connections(max_connections)
         .acquire_timeout(Duration::from_secs(1))
         .test_before_acquire(true)
+        .idle_timeout(Duration::from_secs(300)) // Close idle connections after 5 minutes
+        .max_lifetime(Duration::from_secs(1800)) // Force refresh every 30 minutes
         .connect(url)
         .await
 }
 
 #[async_trait]
 impl Client for PgPool {
+    fn get_pool_stats(&self) -> Option<PoolStats> {
+        Some(PoolStats {
+            size: self.size(),
+            num_idle: self.num_idle(),
+        })
+    }
+
     async fn run_query(
         &self,
         query: String,

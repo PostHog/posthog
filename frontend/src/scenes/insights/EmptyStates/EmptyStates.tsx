@@ -17,7 +17,6 @@ import {
 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -36,6 +35,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -457,9 +457,8 @@ export function InsightLoadingState({
     renderEmptyStateAsSkeleton?: boolean
 }): JSX.Element {
     const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
-    const { insightPollResponse, insightLoadingTimeSeconds, queryChanged, activeSceneId } = useValues(
-        insightDataLogic(insightProps)
-    )
+    const { insightPollResponse, insightLoadingTimeSeconds, queryChanged } = useValues(insightDataLogic(insightProps))
+    const { activeSceneId } = useValues(sceneLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -752,19 +751,20 @@ export function SavedInsightsEmptyState({
             {filters.tab !== SavedInsightsTabs.Favorites && (
                 <div className="flex justify-center">
                     <Link to={urls.insightNew()}>
-                        <AccessControlledLemonButton
+                        <LemonButton
                             type="primary"
                             data-attr="add-insight-button-empty-state"
                             icon={<IconPlusSmall />}
                             className="add-insight-button"
-                            resourceType={AccessControlResourceType.Insight}
-                            minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={
-                                getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight]
-                            }
+                            accessControl={{
+                                resourceType: AccessControlResourceType.Insight,
+                                minAccessLevel: AccessControlLevel.Editor,
+                                userAccessLevel:
+                                    getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight],
+                            }}
                         >
                             New insight
-                        </AccessControlledLemonButton>
+                        </LemonButton>
                     </Link>
                 </div>
             )}

@@ -1,36 +1,27 @@
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
-import itertools
 import re
 import zoneinfo
+import itertools
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from itertools import groupby
 from typing import Any, Optional
-from unittest.mock import MagicMock, patch
 
 import pytest
-from django.test import override_settings
 from freezegun import freeze_time
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    also_test_with_materialized_columns,
+    flush_persons_and_events,
+)
+from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
+
 from pydantic import ValidationError
 
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql_queries.insights.trends.breakdown import (
-    BREAKDOWN_NULL_DISPLAY,
-    BREAKDOWN_NULL_STRING_LABEL,
-    BREAKDOWN_OTHER_STRING_LABEL,
-)
-from posthog.hogql_queries.insights.trends.trends_query_runner import (
-    BREAKDOWN_OTHER_DISPLAY,
-    TrendsQueryRunner,
-)
-from posthog.models.action.action import Action
-from posthog.models.cohort.cohort import Cohort
-from posthog.models.group.util import create_group
-from posthog.models.property_definition import PropertyDefinition
-from posthog.models.team.team import Team
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
@@ -42,34 +33,44 @@ from posthog.schema import (
     CompareFilter,
     CompareItem,
     CountPerActorMathType,
+    DateRange,
     DayItem,
     EventMetadataPropertyFilter,
     EventPropertyFilter,
     EventsNode,
     HogQLQueryModifiers,
     InCohortVia,
-    DateRange,
     IntervalType,
+    MathGroupTypeIndex,
     MultipleBreakdownType,
     PersonPropertyFilter,
     PropertyMathType,
     PropertyOperator,
+    Series as InsightActorsQuerySeries,
     TrendsFilter,
-    TrendsQuery,
     TrendsFormulaNode,
-    MathGroupTypeIndex,
+    TrendsQuery,
 )
-from posthog.schema import Series as InsightActorsQuerySeries
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    also_test_with_materialized_columns,
-    flush_persons_and_events,
-)
+
+from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.hogql_queries.insights.trends.breakdown import (
+    BREAKDOWN_NULL_DISPLAY,
+    BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_OTHER_STRING_LABEL,
+)
+from posthog.hogql_queries.insights.trends.trends_query_runner import BREAKDOWN_OTHER_DISPLAY, TrendsQueryRunner
+from posthog.models.action.action import Action
+from posthog.models.cohort.cohort import Cohort
+from posthog.models.group.util import create_group
+from posthog.models.property_definition import PropertyDefinition
+from posthog.models.team.team import Team
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 @dataclass
@@ -5765,3 +5766,41 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(response)
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0]["breakdown_value"], cohort.pk)
+
+    def test_week_interval_includes_only_data_after_date_from(self):
+        """
+        When using week intervals, the data should only include data after the date_from and not the start of the week.
+        """
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-14",
+            "2020-01-16",
+            IntervalType.WEEK,
+            [EventsNode(event="$pageview")],
+        )
+        self.assertEqual(1, len(response.results))
+        self.assertEqual(1, len(response.results[0]["days"]))
+        self.assertEqual(2, response.results[0]["count"])
+
+        # check it works correctly if the date_from is on the week start
+        response = self._run_trends_query(
+            "2020-01-12",
+            "2020-01-16",
+            IntervalType.WEEK,
+            [EventsNode(event="$pageview")],
+        )
+        self.assertEqual(1, len(response.results))
+        self.assertEqual(1, len(response.results[0]["days"]))
+        self.assertEqual(6, response.results[0]["count"])
+
+        # check it works correctly if the date_from is before the week start
+        response = self._run_trends_query(
+            "2020-01-10",
+            "2020-01-16",
+            IntervalType.WEEK,
+            [EventsNode(event="$pageview")],
+        )
+        self.assertEqual(1, len(response.results))
+        self.assertEqual(2, len(response.results[0]["days"]))
+        self.assertEqual(7, response.results[0]["count"])

@@ -1,31 +1,29 @@
-import json
 import os
+import json
 from typing import Any, Optional
+
 from django.conf import settings
-from django.db import models
-from django.http import HttpRequest
-from django.utils import timezone
-from prometheus_client import Counter
-import requests
-from posthog.exceptions_capture import capture_exception
-import structlog
-
-from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
-from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.error_tracking.error_tracking import ErrorTrackingSuppressionRule
-from posthog.models.surveys.survey import Survey
-from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.models.plugin import PluginConfig
-from posthog.models.team.team import Team
-from posthog.models.utils import UUIDTModel, execute_with_timeout
-
 from django.core.cache import cache
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
+from django.http import HttpRequest
+from django.utils import timezone
 
+import requests
+import structlog
+from prometheus_client import Counter
+
+from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
+from posthog.exceptions_capture import capture_exception
+from posthog.models.error_tracking.error_tracking import ErrorTrackingSuppressionRule
+from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.plugin import PluginConfig
+from posthog.models.surveys.survey import Survey
+from posthog.models.team.team import Team
+from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
-
 
 CACHE_TIMEOUT = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
 
@@ -123,11 +121,11 @@ class RemoteConfig(UUIDTModel):
         )
 
     def build_config(self):
+        from posthog.api.error_tracking import get_suppression_rules
+        from posthog.api.survey import get_surveys_opt_in, get_surveys_response
         from posthog.models.feature_flag import FeatureFlag
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
-        from posthog.api.survey import get_surveys_response, get_surveys_opt_in
-        from posthog.api.error_tracking import get_suppression_rules
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.
@@ -234,11 +232,7 @@ class RemoteConfig(UUIDTModel):
 
         # MARK: Quota limiting
         if settings.EE_AVAILABLE:
-            from ee.billing.quota_limiting import (
-                QuotaLimitingCaches,
-                QuotaResource,
-                list_limited_team_attributes,
-            )
+            from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 
             limited_tokens_recordings = list_limited_team_attributes(
                 QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
@@ -286,9 +280,9 @@ class RemoteConfig(UUIDTModel):
     def _build_site_apps_js(self):
         # NOTE: This is the web focused config for the frontend that includes site apps
 
-        from posthog.plugins.site import get_site_apps_for_team, get_site_config_from_schema
         from posthog.cdp.site_functions import get_transpiled_function
         from posthog.models import HogFunction
+        from posthog.plugins.site import get_site_apps_for_team, get_site_config_from_schema
 
         # Add in the site apps as an array of objects
         site_apps_js = []
@@ -341,9 +335,16 @@ class RemoteConfig(UUIDTModel):
         try:
             remote_config = cls.objects.select_related("team").get(team__api_token=token)
         except cls.DoesNotExist:
-            cache.set(key, "404", timeout=CACHE_TIMEOUT)
-            REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
-            raise
+            # Try to find the team and create RemoteConfig if it exists
+            try:
+                from posthog.models.team import Team
+
+                team = Team.objects.get(api_token=token)
+                remote_config = cls(team=team)  # type: ignore[assignment]
+            except Team.DoesNotExist:
+                cache.set(key, "404", timeout=CACHE_TIMEOUT)
+                REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
+                raise cls.DoesNotExist()
 
         data = remote_config.build_config()
         cache.set(key, data, timeout=CACHE_TIMEOUT)
@@ -468,33 +469,34 @@ def _update_team_remote_config(team_id: int):
 
 @receiver(post_save, sender=Team)
 def team_saved(sender, instance: "Team", created, **kwargs):
-    _update_team_remote_config(instance.id)
+    transaction.on_commit(lambda: _update_team_remote_config(instance.id))
 
 
 @receiver(post_save, sender=FeatureFlag)
 def feature_flag_saved(sender, instance: "FeatureFlag", created, **kwargs):
-    # Use transaction.on_commit to ensure cache update happens after DB transaction commits
-    # This prevents race condition where cache sees stale database state
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
 @receiver(post_save, sender=PluginConfig)
 def site_app_saved(sender, instance: "PluginConfig", created, **kwargs):
-    if instance.team_id:
-        _update_team_remote_config(instance.team_id)
+    # PluginConfig allows null for team, hence this check.
+    # Use intermediate variable so it's properly captured by the lambda.
+    instance_team_id = instance.team_id
+    if instance_team_id is not None:
+        transaction.on_commit(lambda: _update_team_remote_config(instance_team_id))
 
 
 @receiver(post_save, sender=HogFunction)
 def site_function_saved(sender, instance: "HogFunction", created, **kwargs):
     if instance.enabled and instance.type in ("site_destination", "site_app"):
-        _update_team_remote_config(instance.team_id)
+        transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
 @receiver(post_save, sender=Survey)
 def survey_saved(sender, instance: "Survey", created, **kwargs):
-    _update_team_remote_config(instance.team_id)
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
 @receiver(post_save, sender=ErrorTrackingSuppressionRule)
 def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppressionRule", created, **kwargs):
-    _update_team_remote_config(instance.team_id)
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))

@@ -1,13 +1,5 @@
-from posthog.api.test.test_organization import (
-    create_organization as create_organization_base,
-)
-from posthog.models import (
-    BatchExport,
-    BatchExportBackfill,
-    BatchExportDestination,
-    BatchExportRun,
-    Organization,
-)
+from posthog.api.test.test_organization import create_organization as create_organization_base
+from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Organization
 
 
 def create_organization(name: str) -> Organization:

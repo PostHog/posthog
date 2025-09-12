@@ -49,9 +49,9 @@
 # an assumption that is not backed up by any data.
 
 
-import argparse
 import json
 import uuid
+import argparse
 from sys import stderr, stdout
 
 import numpy

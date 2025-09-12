@@ -1,6 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -12,11 +11,10 @@ import DatabaseSchemaQuery from '../__mocks__/DatabaseSchemaQuery.json'
 
 const meta: Meta = {
     component: App,
-    title: 'Scenes-App/Data Management',
+    title: 'Scenes-App/Data Management/Revenue Analytics',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS],
         pageUrl: urls.revenueSettings(),
     },
     decorators: [
@@ -32,7 +30,10 @@ const meta: Meta = {
                                 {
                                     ...externalDataSourceResponseMock,
                                     prefix: 'dev_',
-                                    revenue_analytics_enabled: false,
+                                    revenue_analytics_config: {
+                                        enabled: false,
+                                        include_invoiceless_charges: true,
+                                    },
                                 },
                             ],
                         },
@@ -46,4 +47,4 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<typeof meta>
-export const RevenueAnalyticsSettings: Story = {}
+export const Settings: Story = {}

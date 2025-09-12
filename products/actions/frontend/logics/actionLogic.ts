@@ -93,11 +93,15 @@ export const actionLogic = kea<actionLogicType>([
                     actionEditLogic.findMounted(String(props?.id || 'new'))?.selectors.action(state).name || null,
             ],
             (action, featureFlags, inProgressName): Breadcrumb[] => [
-                {
-                    key: Scene.DataManagement,
-                    name: `Data management`,
-                    path: urls.eventDefinitions(),
-                },
+                ...(!featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+                    ? [
+                          {
+                              key: Scene.DataManagement,
+                              name: `Data management`,
+                              path: urls.eventDefinitions(),
+                          },
+                      ]
+                    : []),
                 {
                     key: DataManagementTab.Actions,
                     name: 'Actions',

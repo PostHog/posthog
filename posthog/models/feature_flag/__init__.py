@@ -1,8 +1,10 @@
+# ruff: noqa: F401
+
 from .feature_flag import (
     FeatureFlag,
+    FeatureFlagDashboards,
     get_feature_flags_for_team_in_cache,
     set_feature_flags_for_team_in_cache,
-    FeatureFlagDashboards,
 )
 from .flag_matching import FeatureFlagMatcher, get_all_feature_flags, get_all_feature_flags_with_details
 from .permissions import can_user_edit_feature_flag

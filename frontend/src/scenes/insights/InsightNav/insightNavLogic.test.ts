@@ -174,6 +174,7 @@ describe('insightNavLogic', () => {
                     queryPropertyCache: {
                         ...nodeKindToDefaultQuery[NodeKind.TrendsQuery],
                         commonFilter: {},
+                        commonFilterTrendsStickiness: {},
                         filterTestAccounts: true,
                         version: 2,
                     },
@@ -302,7 +303,7 @@ describe('insightNavLogic', () => {
                         source: {
                             kind: 'FunnelsQuery',
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
-                            funnelsFilter: { funnelVizType: 'steps' },
+                            funnelsFilter: { funnelVizType: 'steps', showValuesOnSeries: true },
                             filterTestAccounts: true,
                             interval: 'hour',
                             breakdownFilter: {
@@ -382,7 +383,7 @@ describe('insightNavLogic', () => {
                         source: {
                             kind: 'FunnelsQuery',
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
-                            funnelsFilter: { funnelVizType: 'steps' },
+                            funnelsFilter: { funnelVizType: 'steps', showValuesOnSeries: true },
                             filterTestAccounts: true,
                             interval: 'hour',
                             breakdownFilter: {

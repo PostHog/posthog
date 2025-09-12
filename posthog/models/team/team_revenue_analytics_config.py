@@ -1,11 +1,14 @@
+import logging
+
+from django.core.exceptions import ValidationError
 from django.db import models
-from posthog.models.team import Team
-from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
-from posthog.schema import RevenueAnalyticsEventItem, RevenueAnalyticsGoal
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from django.core.exceptions import ValidationError
-import logging
+
+from posthog.schema import RevenueAnalyticsEventItem, RevenueAnalyticsGoal
+
+from posthog.models.team import Team
+from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 
 logger = logging.getLogger(__name__)
 

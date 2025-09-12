@@ -17,17 +17,10 @@ type BillingGaugeItemProps = {
     item: BillingGaugeItemType
     maxValue: number
     isWithinUsageLimit: boolean
-    isAddon: boolean
     isTop: boolean
 }
 
-const BillingGaugeItem = ({
-    item,
-    maxValue,
-    isWithinUsageLimit,
-    isAddon,
-    isTop,
-}: BillingGaugeItemProps): JSX.Element => {
+const BillingGaugeItem = ({ item, maxValue, isWithinUsageLimit, isTop }: BillingGaugeItemProps): JSX.Element => {
     const width = `${(item.value / maxValue) * 100}%`
 
     return (
@@ -36,7 +29,6 @@ const BillingGaugeItem = ({
                 `BillingGaugeItem BillingGaugeItem--${item.type}`,
                 {
                     'BillingGaugeItem--within-usage-limit': isWithinUsageLimit,
-                    'BillingGaugeItem--addon': isAddon,
                 },
                 'absolute top-0 left-0 bottom-0 h-2'
             )}
@@ -74,7 +66,6 @@ export function BillingGauge({ items, product }: BillingGaugeProps): JSX.Element
         return Math.max(100, ...items.map((item) => item.value)) * 1.3
     }, [items])
     const isWithinUsageLimit = (product.percentage_usage ?? 0) <= 1
-    const isAddon = !('addons' in product)
 
     const sortedItems = useMemo(() => {
         return [...items].sort((a, b) => a.value - b.value)
@@ -88,7 +79,6 @@ export function BillingGauge({ items, product }: BillingGaugeProps): JSX.Element
                     item={item}
                     maxValue={maxValue}
                     isWithinUsageLimit={isWithinUsageLimit}
-                    isAddon={isAddon}
                     isTop={i % 2 !== 0}
                 />
             ))}

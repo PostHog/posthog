@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { IconGridMasonry, IconNotebook, IconPalette, IconScreen, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
@@ -40,7 +39,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-import { SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
 import {
     ScenePanel,
     ScenePanelActions,
@@ -48,6 +46,8 @@ import {
     ScenePanelDivider,
     ScenePanelMetaInfo,
 } from '~/layout/scenes/SceneLayout'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { notebooksModel } from '~/models/notebooksModel'
 import { tagsModel } from '~/models/tagsModel'
@@ -62,6 +62,7 @@ import {
 
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
+import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
@@ -105,6 +106,29 @@ export function DashboardHeader(): JSX.Element | null {
     const [isPinned, setIsPinned] = useState(dashboard?.pinned)
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+
+    const isNewDashboard = useMemo(() => {
+        if (!dashboard || dashboardLoading) {
+            return false
+        }
+
+        // A dashboard is considered new if:
+        // 1. It's a fresh duplicate (has _highlight set), OR
+        // 2. It's a blank dashboard with default name, OR
+        // 3. It was created recently (within last 30 seconds) - catches templates, OR
+        // 4. It has no tiles yet (completely empty)
+        const now = new Date()
+        const createdAt = new Date(dashboard.created_at)
+        const isRecentlyCreated = now.getTime() - createdAt.getTime() < 30000 // 30 seconds
+
+        return (
+            Boolean(dashboard._highlight) ||
+            dashboard.name === 'New Dashboard' ||
+            isRecentlyCreated ||
+            !dashboard.tiles ||
+            dashboard.tiles.length === 0
+        )
+    }, [dashboard, dashboardLoading])
 
     const hasDashboardColors = useFeatureFlag('DASHBOARD_COLORS')
 
@@ -162,6 +186,7 @@ export function DashboardHeader(): JSX.Element | null {
                     {canEditDashboard && <DeleteDashboardModal />}
                     {canEditDashboard && <DuplicateDashboardModal />}
                     {canEditDashboard && <DashboardInsightColorsModal />}
+                    {user?.is_staff && <DashboardTemplateEditor />}
                 </>
             )}
 
@@ -215,7 +240,6 @@ export function DashboardHeader(): JSX.Element | null {
                                         overlay={
                                             dashboard ? (
                                                 <>
-                                                    {/* ✅ transfered to scene */}
                                                     {dashboard.created_by && (
                                                         <>
                                                             <div className="flex p-2 text-secondary">
@@ -228,7 +252,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                             <LemonDivider />
                                                         </>
                                                     )}
-                                                    {/* ✅ transfered to scene */}
                                                     {canEditDashboard && hasDashboardColors && (
                                                         <LemonButton
                                                             onClick={() => showInsightColorsModal(dashboard.id)}
@@ -238,7 +261,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         </LemonButton>
                                                     )}
 
-                                                    {/* ✅ transfered to scene */}
                                                     {canEditDashboard && (
                                                         <LemonButton
                                                             onClick={() =>
@@ -253,7 +275,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         </LemonButton>
                                                     )}
 
-                                                    {/* ✅ transfered to scene */}
                                                     <LemonButton
                                                         onClick={() =>
                                                             setDashboardMode(
@@ -266,7 +287,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         Go full screen (F)
                                                     </LemonButton>
 
-                                                    {/* ✅ transfered to scene */}
                                                     {canEditDashboard &&
                                                         (dashboard.pinned ? (
                                                             <LemonButton
@@ -293,11 +313,8 @@ export function DashboardHeader(): JSX.Element | null {
                                                                 Pin dashboard
                                                             </LemonButton>
                                                         ))}
-                                                    {/* ✅ transfered to scene */}
                                                     <SubscribeButton dashboardId={dashboard.id} />
-                                                    {/* ✅ transfered to scene */}
                                                     <ExportButton fullWidth items={exportOptions} />
-                                                    {/* ✅ transfered to scene */}
                                                     {user?.is_staff && (
                                                         <LemonButton
                                                             onClick={() => {
@@ -313,7 +330,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                     )}
                                                     <LemonDivider />
 
-                                                    {/* ✅ transfered to scene */}
                                                     <LemonButton
                                                         onClick={() => {
                                                             showDuplicateDashboardModal(dashboard.id, dashboard.name)
@@ -323,7 +339,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         Duplicate dashboard
                                                     </LemonButton>
 
-                                                    {/* ✅ transfered to scene */}
                                                     <LemonButton
                                                         onClick={() => createNotebookFromDashboard(dashboard)}
                                                         fullWidth
@@ -331,12 +346,13 @@ export function DashboardHeader(): JSX.Element | null {
                                                         Create notebook from dashboard
                                                     </LemonButton>
 
-                                                    {/* ✅ transfered to scene */}
                                                     {canEditDashboard && (
-                                                        <AccessControlledLemonButton
-                                                            userAccessLevel={dashboard.user_access_level}
-                                                            minAccessLevel={AccessControlLevel.Editor}
-                                                            resourceType={AccessControlResourceType.Dashboard}
+                                                        <LemonButton
+                                                            accessControl={{
+                                                                resourceType: AccessControlResourceType.Dashboard,
+                                                                minAccessLevel: AccessControlLevel.Editor,
+                                                                userAccessLevel: dashboard.user_access_level,
+                                                            }}
                                                             onClick={() => {
                                                                 showDeleteDashboardModal(dashboard.id)
                                                             }}
@@ -344,7 +360,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                             fullWidth
                                                         >
                                                             Delete dashboard
-                                                        </AccessControlledLemonButton>
+                                                        </LemonButton>
                                                     )}
                                                 </>
                                             ) : undefined
@@ -372,10 +388,12 @@ export function DashboardHeader(): JSX.Element | null {
                                 </>
                             )}
                             {dashboard ? (
-                                <AccessControlledLemonButton
-                                    userAccessLevel={dashboard.user_access_level}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    resourceType={AccessControlResourceType.Dashboard}
+                                <LemonButton
+                                    accessControl={{
+                                        resourceType: AccessControlResourceType.Dashboard,
+                                        minAccessLevel: AccessControlLevel.Editor,
+                                        userAccessLevel: dashboard.user_access_level,
+                                    }}
                                     onClick={showAddInsightToDashboardModal}
                                     type="primary"
                                     data-attr="dashboard-add-graph-header"
@@ -384,10 +402,12 @@ export function DashboardHeader(): JSX.Element | null {
                                             placement: 'bottom-end',
                                             overlay: (
                                                 <>
-                                                    <AccessControlledLemonButton
-                                                        userAccessLevel={dashboard.user_access_level}
-                                                        minAccessLevel={AccessControlLevel.Editor}
-                                                        resourceType={AccessControlResourceType.Dashboard}
+                                                    <LemonButton
+                                                        accessControl={{
+                                                            resourceType: AccessControlResourceType.Dashboard,
+                                                            minAccessLevel: AccessControlLevel.Editor,
+                                                            userAccessLevel: dashboard.user_access_level,
+                                                        }}
                                                         fullWidth
                                                         onClick={() => {
                                                             push(urls.dashboardTextTile(dashboard.id, 'new'))
@@ -395,7 +415,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                         data-attr="add-text-tile-to-dashboard"
                                                     >
                                                         Add text card
-                                                    </AccessControlledLemonButton>
+                                                    </LemonButton>
                                                 </>
                                             ),
                                         },
@@ -404,7 +424,7 @@ export function DashboardHeader(): JSX.Element | null {
                                     }}
                                 >
                                     Add insight
-                                </AccessControlledLemonButton>
+                                </LemonButton>
                             ) : null}
                         </>
                     )
@@ -628,13 +648,16 @@ export function DashboardHeader(): JSX.Element | null {
                 description={dashboard?.description}
                 resourceType={{
                     type: 'dashboard',
-                    typePlural: 'dashboards',
                 }}
-                onNameBlur={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
-                onDescriptionBlur={(value) =>
+                onNameChange={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
+                onDescriptionChange={(value) =>
                     updateDashboard({ id: dashboard?.id, description: value, allowUndo: true })
                 }
                 markdown
+                canEdit={canEditDashboard}
+                isLoading={dashboardLoading}
+                forceEdit={dashboardMode === DashboardMode.Edit || isNewDashboard}
+                renameDebounceMs={1000}
             />
             <SceneDivider />
         </>

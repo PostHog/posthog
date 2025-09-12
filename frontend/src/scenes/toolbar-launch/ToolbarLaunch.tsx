@@ -13,7 +13,10 @@ import { IconGroupedEvents, IconHeatmap } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { SceneContent, SceneDivider, SceneSection, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 export const scene: SceneExport = {
     component: ToolbarLaunch,
@@ -69,10 +72,8 @@ export function ToolbarLaunch(): JSX.Element {
                     description="PostHog toolbar launches PostHog right in your app or website."
                     resourceType={{
                         type: 'toolbar',
-                        typePlural: 'toolbar',
                         forceIcon: <IconToolbar />,
                     }}
-                    docsURL="https://posthog.com/docs/toolbar"
                 />
 
                 <SceneDivider />

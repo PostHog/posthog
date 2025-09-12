@@ -10,7 +10,9 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { OnboardingStepKey, ProductKey } from '~/types'
 
@@ -78,10 +80,8 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                 description="A catalog of all the people behind your events"
                 resourceType={{
                     type: 'person',
-                    typePlural: 'persons',
                     forceIcon: <IconPeople />,
                 }}
-                docsURL="https://posthog.com/docs/data/persons"
             />
             <SceneDivider />
 

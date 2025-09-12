@@ -7,24 +7,22 @@ import yaml
 from langchain_core.agents import AgentAction
 from pydantic import BaseModel
 
-from posthog.clickhouse.query_tagging import Product, tags_context
-from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
-from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import (
-    ActorsPropertyTaxonomyQueryRunner,
-)
-from posthog.hogql_queries.ai.event_taxonomy_query_runner import (
-    EventTaxonomyQueryRunner,
-)
-from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Action, Team
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     CachedActorsPropertyTaxonomyQueryResponse,
     CachedEventTaxonomyQueryResponse,
     EventTaxonomyQuery,
 )
+
+from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
+
+from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
+from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import Action, Team
+from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 from .tools import (
@@ -253,7 +251,7 @@ class TaxonomyAgentToolkit:
             properties_by_type[property_type].append(prop_dict)
 
         result = {"properties": properties_by_type}
-        return yaml.dump(result, default_flow_style=False, sort_keys=True)
+        return yaml.dump(result, default_flow_style=False, sort_keys=False)
 
     def handle_incorrect_response(self, response: BaseModel) -> str:
         """

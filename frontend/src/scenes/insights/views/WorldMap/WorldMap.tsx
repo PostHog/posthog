@@ -9,6 +9,7 @@ import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geograph
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -17,7 +18,6 @@ import { QueryContext } from '~/queries/types'
 import { ChartParams, TrendResult } from '~/types'
 
 import { SeriesDatum } from '../../InsightTooltip/insightTooltipUtils'
-import { ensureTooltip } from '../LineGraph/LineGraph'
 import { countryVectors } from './countryVectors'
 import { worldMapLogic } from './worldMapLogic'
 
@@ -36,7 +36,8 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
     const svgRef = useRef<SVGSVGElement>(null)
 
     const svgRect = svgRef.current?.getBoundingClientRect()
-    const [tooltipRoot, tooltipEl] = ensureTooltip()
+    const { getTooltip } = useInsightTooltip()
+    const [tooltipRoot, tooltipEl] = getTooltip()
 
     useEffect(() => {
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'

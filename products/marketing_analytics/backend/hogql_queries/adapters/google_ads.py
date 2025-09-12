@@ -1,6 +1,7 @@
 # Google Ads Marketing Source Adapter
 
 from posthog.hogql import ast
+
 from .base import GoogleAdsConfig, MarketingSourceAdapter, ValidationResult
 
 

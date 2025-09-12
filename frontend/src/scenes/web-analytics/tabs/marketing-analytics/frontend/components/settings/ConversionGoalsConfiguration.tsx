@@ -10,7 +10,7 @@ import { uuid } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
-import { SceneSection } from '~/layout/scenes/SceneContent'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ConversionGoalFilter } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'

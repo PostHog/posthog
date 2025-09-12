@@ -1,9 +1,9 @@
-import http.client
 import json
 import time
 import logging
-from prometheus_client import CollectorRegistry, Gauge, multiprocess, generate_latest
+import http.client
 
+from prometheus_client import CollectorRegistry, Gauge, generate_latest, multiprocess
 
 logger = logging.getLogger(__name__)
 

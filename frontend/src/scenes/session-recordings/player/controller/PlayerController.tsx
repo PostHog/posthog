@@ -1,13 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
+import { IconCamera, IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { IconFullScreen } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
 import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
-import { CommentOnRecordingButton } from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
+import {
+    CommentOnRecordingButton,
+    EmojiCommentOnRecordingButton,
+} from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
 import {
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
@@ -17,6 +20,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { SessionPlayerState } from '~/types'
 
 import { playerSettingsLogic } from '../playerSettingsLogic'
+import { ClipRecording } from './ClipRecording'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
@@ -61,7 +65,7 @@ function FullScreen(): JSX.Element {
                     <span>{!isFullScreen ? 'Go' : 'Exit'}</span> full screen <KeyboardShortcut f />
                 </>
             }
-            icon={<IconFullScreen className="text-2xl" />}
+            icon={<IconFullScreen className="text-xl" />}
             data-attr={isFullScreen ? 'exit-full-screen' : 'full-screen'}
         />
     )
@@ -86,14 +90,36 @@ function CinemaMode(): JSX.Element {
                 onClick={handleCinemaMode}
                 tooltip={
                     <>
-                        <span>{!isCinemaMode ? 'Enter' : 'Exit'}</span> cinema mode
+                        <span>{!isCinemaMode ? 'Enter' : 'Exit'}</span> cinema mode <KeyboardShortcut t />
                     </>
                 }
                 status={isCinemaMode ? 'danger' : 'default'}
-                icon={<IconVideoCamera className="text-2xl" />}
+                icon={<IconVideoCamera className="text-xl" />}
                 data-attr={isCinemaMode ? 'exit-cinema-mode' : 'cinema-mode'}
             />
         </>
+    )
+}
+
+export function Screenshot({ className }: { className?: string }): JSX.Element {
+    const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
+
+    return (
+        <LemonButton
+            size="xsmall"
+            onClick={(e) => {
+                e.stopPropagation()
+                takeScreenshot()
+            }}
+            tooltip={
+                <>
+                    Take a screenshot of this point in the recording <KeyboardShortcut s />
+                </>
+            }
+            icon={<IconCamera className={cn('text-xl', className)} />}
+            data-attr="replay-screenshot-png"
+            tooltipPlacement="top"
+        />
     )
 }
 
@@ -122,10 +148,13 @@ export function PlayerController(): JSX.Element {
                     {!isCinemaMode && playerMode === SessionRecordingPlayerMode.Standard && (
                         <>
                             <CommentOnRecordingButton />
+                            <EmojiCommentOnRecordingButton />
+                            <Screenshot />
+                            <ClipRecording />
                             {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
                         </>
                     )}
-                    <CinemaMode />
+                    {playerMode === SessionRecordingPlayerMode.Standard && <CinemaMode />}
                     <FullScreen />
                 </div>
             </div>

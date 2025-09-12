@@ -1,11 +1,12 @@
-from typing import Optional
 from collections.abc import Generator
+from typing import Optional
 
-from posthog import schema
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ResolutionError, SyntaxError
 from posthog.hogql.visitor import clone_expr
+
+from posthog import schema
 
 
 def lookup_field_by_name(

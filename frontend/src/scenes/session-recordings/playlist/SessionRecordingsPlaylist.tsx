@@ -72,7 +72,7 @@ export function SessionRecordingsPlaylist({
                 </div>
             ),
             items: pinnedRecordings,
-            render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} />,
+            render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} selectable />,
             initiallyOpen: true,
         })
     } else {
@@ -86,7 +86,7 @@ export function SessionRecordingsPlaylist({
             ),
             items: otherRecordings,
             initiallyOpen: !pinnedRecordings.length,
-            render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} />,
+            render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} selectable />,
             footer: (
                 <div className="p-4">
                     <div className="h-10 flex items-center justify-center gap-2 text-secondary">

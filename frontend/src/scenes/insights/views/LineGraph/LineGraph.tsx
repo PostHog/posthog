@@ -8,7 +8,6 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
-import { Root, createRoot } from 'react-dom/client'
 
 import {
     ActiveElement,
@@ -38,6 +37,7 @@ import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtil
 import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -50,31 +50,6 @@ import { groupsModel } from '~/models/groupsModel'
 import { GoalLine, TrendsFilter } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
-
-let tooltipRoot: Root
-
-export function ensureTooltip(): [Root, HTMLElement] {
-    let tooltipEl = document.getElementById('InsightTooltipWrapper')
-
-    if (!tooltipEl || !tooltipRoot) {
-        if (!tooltipEl) {
-            tooltipEl = document.createElement('div')
-            tooltipEl.id = 'InsightTooltipWrapper'
-            tooltipEl.classList.add('InsightTooltipWrapper')
-            document.body.appendChild(tooltipEl)
-        }
-
-        tooltipRoot = createRoot(tooltipEl)
-    }
-    return [tooltipRoot, tooltipEl]
-}
-
-export function hideTooltip(): void {
-    const tooltipEl = document.getElementById('InsightTooltipWrapper')
-    if (tooltipEl) {
-        tooltipEl.style.opacity = '0'
-    }
-}
 
 function truncateString(str: string, num: number): string {
     if (str.length > num) {
@@ -308,7 +283,7 @@ export function LineGraph_({
     const { isDarkModeOn } = useValues(themeLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
-    const { timezone, isTrends, breakdownFilter, query, interval, insightData } = useValues(
+    const { timezone, isTrends, isFunnels, breakdownFilter, query, interval, insightData } = useValues(
         insightVizDataLogic(insightProps)
     )
     const { theme, getTrendsColor, getTrendsHidden } = useValues(trendsDataLogic(insightProps))
@@ -317,6 +292,8 @@ export function LineGraph_({
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [lineChart, setLineChart] = useState<Chart<ChartType, any, string>>()
+
+    const { hideTooltip, getTooltip } = useInsightTooltip()
 
     // Relying on useResizeObserver instead of Chart's onResize because the latter was not reliable
     const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: canvasRef })
@@ -331,7 +308,7 @@ export function LineGraph_({
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
     const isBackgroundBasedGraphType = [GraphType.Bar].includes(type)
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
-    const showAnnotations = isTrends && !isHorizontal && !hideAnnotations
+    const showAnnotations = ((isTrends && !isHorizontal) || isFunnels) && !hideAnnotations
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
 
     // Add scrollend event on main element to hide tooltips when scrolling
@@ -340,28 +317,22 @@ export function LineGraph_({
             return
         }
 
+        const handleScrollEnd = (): void => hideTooltip()
+
         // Scroll events happen on the main element due to overflow-y: scroll
         // but we need to make sure it exists before adding the event listener,
         // e.g: it does not exist in the shared pages
         const main = document.getElementsByTagName('main')[0]
         if (main) {
-            main.addEventListener('scrollend', hideTooltip)
+            main.addEventListener('scrollend', handleScrollEnd)
         }
 
         return () => {
             if (main) {
-                main.removeEventListener('scrollend', hideTooltip)
+                main.removeEventListener('scrollend', handleScrollEnd)
             }
         }
-    }, [hideTooltipOnScroll])
-
-    // Remove tooltip element on unmount
-    useOnMountEffect(() => {
-        return () => {
-            const tooltipEl = document.getElementById('InsightTooltipWrapper')
-            tooltipEl?.remove()
-        }
-    })
+    }, [hideTooltipOnScroll, hideTooltip])
 
     // Add event listeners to canvas
     useOnMountEffect(() => {
@@ -708,15 +679,16 @@ export function LineGraph_({
                             return
                         }
 
-                        const [tooltipRoot, tooltipEl] = ensureTooltip()
+                        const [tooltipRoot, tooltipEl] = getTooltip()
                         if (tooltip.opacity === 0) {
-                            tooltipEl.style.opacity = '0'
+                            // Use the new hide logic that respects mouse hover
+                            hideTooltip()
                             return
                         }
 
                         // Set caret position
                         // Reference: https://www.chartjs.org/docs/master/configuration/tooltip.html
-                        tooltipEl.classList.remove('above', 'below', 'no-transform')
+                        tooltipEl.classList.remove('above', 'below', 'no-transform', 'opacity-0', 'invisible')
                         tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
                         tooltipEl.style.opacity = '1'
 
@@ -1053,6 +1025,8 @@ export function LineGraph_({
         showMultipleYAxes,
         _goalLines,
         theme,
+        type,
+        isArea,
         showTrendLines,
     ]) // oxlint-disable-line react-hooks/exhaustive-deps
 

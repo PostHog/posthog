@@ -1,5 +1,6 @@
 import typing
 from enum import StrEnum
+
 from django.db import models
 
 
@@ -55,3 +56,7 @@ class ExternalDataSourceType(models.TextChoices):
     BRAZE = "Braze", "Braze"
     MAILJET = "Mailjet", "Mailjet"
     REDSHIFT = "Redshift", "Redshift"
+    POLAR = "Polar", "Polar"
+    REVENUECAT = "RevenueCat", "RevenueCat"
+    LINKEDINADS = "LinkedinAds", "LinkedinAds"
+    REDDITADS = "RedditAds", "RedditAds"

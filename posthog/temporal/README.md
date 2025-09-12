@@ -297,95 +297,88 @@ class HelloWorldWorkflow:
         )
 ```
 
-### Logging from activities
+### Logging
 
-In our experience, we have identified two types of logs:
+Like the rest of PostHog, logging in Temporal is configured to use [structlog](https://www.structlog.org/en/stable/). In contrast to the rest of PostHog, the structlog configuration defined in `posthog/temporal/common/logger.py` is more complex as it supports two logging modes:
 
-- Logs intended only for our internal monitoring dashboards.
-- Logs that we want to show to users, and/or make available for querying by ClickHouse.
+- Write: Logs are written to stdout. These are logs meant to be ingested by internal logging parsers and monitoring systems.
+- Produce: Logs are produced to Kafka and later consumed by ClickHouse in the `log_entries` table. This enables querying of logs in PostHog to, for example, communicate to users directly from a Temporal activity or workflow. As an example of this, check how the batch exports logs tab is used to offer debug information to users to allow them to fix configuration errors.
 
-In order to support both types of logs, the `posthog/temporal/common/logger.py` module contains some useful logging functions, respectively `get_logger` and `get_external_logger`, which can be used to obtain a [structlog](https://www.structlog.org/en/stable/) logger.
-
-The key difference is that `get_external_logger` will return a logger named `EXTERNAL` and our structlog processors know to put messages from this logger into a pipeline that eventually lands it in the `log_entries` table in ClickHouse. From this table, they can be displayed in PostHog to, for example, give users more details on what failed when an error occurs, or otherwise consumed by anybody who can query ClickHouse. In contrast, `get_logger` skips all of that and will only print to stdout, which then gets picked up and taken to our internal monitoring dashboards.
+By default, the logger you get from `structlog.get_logger` is configured to do both writing and producing.
 
 > [!NOTE]
-> External log messages are also printed to stdout and picked up by our internal log consumers, so they will also be available in our monitoring dashboards.
+> Do note that producing logs requires extra configuration to fit the `log_entries` table schema:
+> * A `team_id` must be set somewhere in the context.
+> * The function `resolve_log_source` in `posthog/temporal/common/logger.py` must be configured to resolve a `log_source` from your workflow's ID and type.
+> That being said, we want logging to be there when you need it, but otherwise get out of the way. For this reason, writing logs to stdout will always work, regardless of whether the requirements for log production are met or not. Moreover, if the requirements for log production are not met, log production will not crash your workflows.
 
-> [!IMPORTANT]
-> This logging API is currently asyncio-only and opt-in. We are working on making it available for all activities. In the meantime, you can set `TEMPORAL_USE_EXTERNAL_LOGGER` to `true` in your workers to use the API described here.
+> [!TIP]
+> If you don't care about log production, you can use `get_write_only_logger` from `posthog/temporal/common/logger.py` to obtain a logger that only writes to stdout. `get_produce_only_logger` works analogously.
 
-> [!IMPORTANT]
-> The `log_entries` table requires a `log_source` and `log_source_id` to be set. The `get_temporal_context` function from `logger.py` is used to set these variables based on Temporal context variables. Take a look at how we resolve these for other products and add your own logic if required. In general, `log_source` should be your product name, and `log_source_id` should be some uniquely identifiable ID associated with an instance of your product. So, for example, batch exports uses `log_source="batch_exports"` and parses the batch export ID from the workflow ID to obtain a unique `log_source_id` for this batch export.
-
-`get_logger` and `get_external_logger` are meant to be called only **once** at the top of your module. If you are going to be logging several times, call `bind` on the loggers to avoid the global lookup. This method also allows binding variables to the logger itself.
-
-When developing an activity, you will most likely want **all** your logs to have Temporal context variables (like `activity_type`, or `workflow_id`). To achieve this, `logger.py` offers the `bind_contextvars` function to bind any context variables you want, plus include all relevant Temporal variables by default. These context variables will be available to **all** loggers in the same context, so they don't need to be bound again. The context is preserved when spawning tasks and threads, so most of the time you will only be calling `bind_contextvars` once at the beginning of the activity to set the context based on some input.
-
-This logging pipeline also works locally, if you run your tests with:
-
-```sh
-DEBUG=1 pytest path/to/your/tests.py --log-cli-level=info
-```
-
-You will see INFO-level logs when running tests. Locally, the logs will be processed by structlog using [Rich](https://rich.readthedocs.io/en/latest/), so you will get a colorful, human-readable, output instead of the JSON structure we require in production.
-
-Here is an example putting it all together:
+`get_logger` is meant to be called only **once** at the top of your module. If you are going to be logging several times, call `bind` on the global loggers at the top of your activity and/or workflow to avoid the global lookup. The `bind` method also allows binding variables to the logger itself.
 
 ```python
 import dataclasses
 
+from structlog import get_logger
+from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 
-from posthog.temporal.common.logger import get_logger, get_external_logger, bind_contextvars
 
-# Loggers are initialized only once in module scope.
-LOGGER = get_logger(__name__)  # Takes a name for the logger, use whatever you want
-EXTERNAL_LOGGER = get_external_logger()
-
-
-@dataclasses.dataclass
-class MyActivityInputs:
-    user_id: int
+# Loggers initialized only once in module scope.
+LOGGER = get_logger()  # Takes a name for the logger, leave empty for module name
 
 
 @activity.defn
 async def my_activity_with_lots_of_logging(inputs: MyActivityInputs):
     # All loggers from here on will have `user_id` in the context.
     # The context is copied over to new tasks and threads.
-    # This automatically includes Temporal context variables.
     bind_contextvars(user_id=inputs.user_id)
 
-    # We bind as we will be logging a lot, and global lookups are expensive!
+    # We `bind()` as we will be logging a lot, and global lookups are expensive!
     logger = LOGGER.bind()
     # Variables can be bound to the logger itself, these would only available to this logger:
     # logger = LOGGER.bind(something="...", another_one="...")
-    external_logger = EXTERNAL_LOGGER.bind()
 
     try:
         ...
     except:
-        # This will only be visible in our monitoring dashboards.
         # Help your fellow PostHog engineers figure out what happened!
-        logger.exception("Very technical explanation for PostHog on-call. Wow, so technical.")
-
-        # This will be available in ClickHouse and visible in our monitoring dashboards.
-        # Use it to speak to the user!
-        external_logger.error("Our fancy product has failed you, here is what we know about it and what you can do: ...")
+        logger.exception("Activity failed", reason="wow much technical")
 
 
 @activity.defn
 async def my_small_activity():
-    # No arguments passed to only bind Temporal context
-    bind_contextvars()
-
-    # Using the global LOGGER or EXTERNAL_LOGGER has an associated performance cost.
+    # Using the global LOGGER has an associated performance cost.
     # But if you are not logging much, this is acceptable.
-    LOGGER.info("Finished doing small thing!")
+    LOGGER.info("Finished doing small thing")
 
+
+@workflow.defn
+class MyWorfklow:
+    @workflow.run
+    async def run(self):
+        # Loggers can also be used in workflows
+        logger = LOGGER.bind()
+
+        logger.info("Workflow start")
+        await workflow.execute_activity(my_small_activity)
+        await workflow.execute_activity(my_activity_with_lots_of_logging)
+        logger.info("Workflow finished")
 ```
 
-> [!NOTE]
-> Structlog offers async methods for logging, they are prefixed with an "a", for example `await logger.ainfo`. Under the hood, structlog is using threads to process logs, but this will come at a performance cost, which many times makes it not worth it.
+When developing a workflow or activity, you will most likely want **all** your logs to have Temporal context variables (like `activity_type`, `attempt`, or `workflow_id`). Thus, the logging pipeline is configured to **automatically** populate the context with the activity's or workflow's information. All the logs from the previous example would have these variables set in the context.
+
+This logging pipeline also works locally, both when running a worker locally either with `mprocs` or manually running `start_temporal_worker.py`, and if you run your unit tests with:
+
+```sh
+DEBUG=1 pytest path/to/your/tests.py -s
+```
+
+Locally, the logs are rendered by structlog using [Rich](https://rich.readthedocs.io/en/latest/), so you will get a colorful, human-readable, output instead of the JSON structure we use in production.
+
+> [!CAUTION]
+> Loggers offer async methods for logging, they are prefixed with an "a", for example `await logger.ainfo`. Under the hood, the logger is spawning a thread to process the log. This comes with a performance overhead in spawning the thread and context switching, that many times is not worth it for the short time the event loop will be blocked when writing. Moreover, async methods do **NOT** work in workflow contexts as Temporal runs workflow code in a custom event loop that does not implement any thread calls.
 
 ### Watch for worker shutdowns
 

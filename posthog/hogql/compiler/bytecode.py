@@ -1,23 +1,20 @@
 import dataclasses
+from collections.abc import Callable
 from datetime import timedelta
 from enum import StrEnum
-from typing import Any, Optional, cast, TYPE_CHECKING, Literal
-from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
-from common.hogvm.python.execute import execute_bytecode, BytecodeResult
-from common.hogvm.python.stl import STL
-from common.hogvm.python.stl.bytecode import BYTECODE_STL
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_program
 from posthog.hogql.visitor import Visitor
-from common.hogvm.python.operation import (
-    Operation,
-    HOGQL_BYTECODE_IDENTIFIER,
-    HOGQL_BYTECODE_VERSION,
-)
+
+from common.hogvm.python.execute import BytecodeResult, execute_bytecode
+from common.hogvm.python.operation import HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTECODE_VERSION, Operation
+from common.hogvm.python.stl import STL
+from common.hogvm.python.stl.bytecode import BYTECODE_STL
 
 if TYPE_CHECKING:
     from posthog.models import Team

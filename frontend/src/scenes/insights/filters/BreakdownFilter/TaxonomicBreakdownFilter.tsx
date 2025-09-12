@@ -22,6 +22,7 @@ export interface TaxonomicBreakdownFilterProps {
     updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => void
     updateDisplay: (display: ChartDisplayType | undefined) => void
     showLabel?: boolean
+    disablePropertyInfo?: boolean
     size?: 'small' | 'medium'
 }
 
@@ -34,6 +35,7 @@ export function TaxonomicBreakdownFilter({
     updateBreakdownFilter,
     updateDisplay,
     showLabel = true,
+    disablePropertyInfo,
     size = 'medium',
 }: TaxonomicBreakdownFilterProps): JSX.Element {
     const logicProps: TaxonomicBreakdownFilterLogicProps = {
@@ -56,6 +58,7 @@ export function TaxonomicBreakdownFilter({
                 breakdown={breakdown.property}
                 breakdownType={breakdown.type ?? 'event'}
                 isTrends={isTrends}
+                disablePropertyInfo={disablePropertyInfo}
                 size={size}
             />
         ) : (
@@ -64,6 +67,7 @@ export function TaxonomicBreakdownFilter({
                 breakdown={breakdown}
                 breakdownType={breakdownFilter?.breakdown_type ?? 'event'}
                 isTrends={isTrends}
+                disablePropertyInfo={disablePropertyInfo}
                 size={size}
             />
         )

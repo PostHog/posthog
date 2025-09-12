@@ -2,8 +2,9 @@ import datetime
 from typing import Optional, cast
 from zoneinfo import ZoneInfo
 
-from ee.models.license import License, LicenseManager
 from posthog.test.base import APIBaseTest
+
+from ee.models.license import License, LicenseManager
 
 
 class LicensedTestMixin:

@@ -1,25 +1,21 @@
-import dataclasses
 import json
-from datetime import datetime
-from decimal import Decimal
-from typing import Any, Literal, Optional, Union
+import dataclasses
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 from uuid import UUID
 
+from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
+from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
+from django.core.paginator import Paginator
+from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
-from posthog.exceptions_capture import capture_exception
-import structlog
-from django.core.paginator import Paginator
-from django.core.exceptions import ObjectDoesNotExist, FieldDoesNotExist
-from django.db import transaction
-
-from django.db import models
 from django.utils import timezone
-from django.conf import settings
 
-from posthog.models.utils import UUIDT, UUIDTModel
+import structlog
 
-from typing import TYPE_CHECKING
+from posthog.exceptions_capture import capture_exception
+from posthog.models.utils import ActivityDetailEncoder, UUIDTModel
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -70,6 +66,8 @@ ActivityScope = Literal[
     "AlertConfiguration",
     "Threshold",
     "AlertSubscription",
+    "ExternalDataSource",
+    "ExternalDataSchema",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
@@ -111,54 +109,6 @@ class Detail:
     context: Optional[ActivityContextBase] = None
 
 
-class ActivityDetailEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, Detail | Change | Trigger | ActivityContextBase):
-            return obj.__dict__
-        if isinstance(obj, datetime):
-            return obj.isoformat()
-        if isinstance(obj, UUIDT):
-            return str(obj)
-        if isinstance(obj, UUID):
-            return str(obj)
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "User":
-            return {"first_name": obj.first_name, "email": obj.email}
-        if isinstance(obj, float):
-            # more precision than we'll need but avoids rounding too unnecessarily
-            return format(obj, ".6f").rstrip("0").rstrip(".")
-        if isinstance(obj, Decimal):
-            # more precision than we'll need but avoids rounding too unnecessarily
-            return format(obj, ".6f").rstrip("0").rstrip(".")
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "FeatureFlag":
-            return {
-                "id": obj.id,
-                "key": obj.key,
-                "name": obj.name,
-                "filters": obj.filters,
-                "team_id": obj.team_id,
-                "deleted": obj.deleted,
-                "active": obj.active,
-            }
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Insight":
-            return {
-                "id": obj.id,
-                "short_id": obj.short_id,
-            }
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Tag":
-            return {
-                "id": obj.id,
-                "name": obj.name,
-                "team_id": obj.team_id,
-            }
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "UploadedMedia":
-            return {
-                "id": obj.id,
-                "media_location": obj.media_location,
-            }
-
-        return json.JSONEncoder.default(self, obj)
-
-
 class ActivityLog(UUIDTModel):
     class Meta:
         constraints = [
@@ -167,7 +117,14 @@ class ActivityLog(UUIDTModel):
                 check=models.Q(team_id__isnull=False) | models.Q(organization_id__isnull=False),
             ),
         ]
-        indexes = [models.Index(fields=["team_id", "scope", "item_id"])]
+        indexes = [
+            models.Index(fields=["team_id", "scope", "item_id"]),
+            GinIndex(
+                name="activitylog_detail_gin",
+                fields=["detail"],
+                opclasses=["jsonb_ops"],
+            ),
+        ]
 
     team_id = models.PositiveIntegerField(null=True)
     organization_id = models.UUIDField(null=True)
@@ -219,6 +176,9 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     "Subscription": [
         "target_value",
     ],
+    "ExternalDataSource": [
+        "job_inputs",
+    ],
 }
 
 field_name_overrides: dict[ActivityScope, dict[str, str]] = {
@@ -238,19 +198,26 @@ field_name_overrides: dict[ActivityScope, dict[str, str]] = {
     "BatchExport": {
         "paused": "enabled",
     },
+    "ExternalDataSource": {
+        "job_inputs": "configuration",
+    },
+    "ExternalDataSchema": {
+        "should_sync": "enabled",
+    },
 }
 
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
-    "PersonalAPIKey": [
-        "last_used_at",
-    ],
     "AlertConfiguration": [
         "last_checked_at",
         "next_check_at",
         "is_calculating",
         "last_notified_at",
         "last_error_at",
+    ],
+    "Dashboard": ["last_accessed_at"],
+    "PersonalAPIKey": [
+        "last_used_at",
     ],
 }
 
@@ -430,6 +397,17 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "bytecode",
         "bytecode_error",
         "steps_json",
+    ],
+    "ExternalDataSource": [
+        "connection_id",
+        "destination_id",
+        "are_tables_created",
+    ],
+    "ExternalDataSchema": [
+        "status",
+        "sync_type_config",
+        "latest_error",
+        "last_synced_at",
     ],
 }
 
@@ -738,14 +716,15 @@ def load_all_activity(scope_list: list[ActivityScope], team_id: int, limit: int 
 
 @receiver(post_save, sender=ActivityLog)
 def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
-    from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
     from posthog.api.activity_log import ActivityLogSerializer
     from posthog.api.shared import UserBasicSerializer
+    from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 
     try:
         serialized_data = ActivityLogSerializer(instance).data
+        # We need to serialize the detail object using the encoder to avoid unsupported types like timedelta
+        serialized_data["detail"] = json.loads(json.dumps(serialized_data["detail"], cls=ActivityDetailEncoder))
         # TODO: Move this into the producer to support dataclasses
-        serialized_data["detail"] = dataclasses.asdict(serialized_data["detail"])
         user_data = UserBasicSerializer(instance.user).data if instance.user else None
 
         if created and instance.team_id is not None:

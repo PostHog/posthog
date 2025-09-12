@@ -1,30 +1,22 @@
-from posthog.models import Team
+from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
+
 from parameterized import parameterized
 
+from posthog.schema import DateRange, HogQLQueryModifiers, WebStatsBreakdown, WebStatsTableQuery
+
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
+from posthog.hogql_queries.web_analytics.test.test_web_stats_table import FloatAwareTestCase
+from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import WebAnalyticsPreAggregatedTestBase
+from posthog.models import Team
+from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import (
-    WEB_STATS_INSERT_SQL,
+    WEB_BOUNCES_DAILY_SQL,
+    WEB_BOUNCES_HOURLY_SQL,
     WEB_BOUNCES_INSERT_SQL,
     WEB_STATS_DAILY_SQL,
     WEB_STATS_HOURLY_SQL,
-    WEB_BOUNCES_DAILY_SQL,
-    WEB_BOUNCES_HOURLY_SQL,
-)
-from posthog.models.utils import uuid7
-from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import WebAnalyticsPreAggregatedTestBase
-from posthog.test.base import (
-    _create_event,
-    _create_person,
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-)
-from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
-from posthog.hogql_queries.web_analytics.test.test_web_stats_table import FloatAwareTestCase
-from posthog.schema import (
-    DateRange,
-    WebStatsTableQuery,
-    WebStatsBreakdown,
-    HogQLQueryModifiers,
+    WEB_STATS_INSERT_SQL,
 )
 
 
@@ -102,12 +94,14 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
             date_start="2024-01-14",  # Start earlier to catch cross-day timezone buckets
             date_end="2024-01-17",  # End later to catch cross-day timezone buckets
             team_ids=[team.pk],
+            table_name="web_pre_aggregated_stats",
             granularity="hourly",
         )
         bounces_insert = WEB_BOUNCES_INSERT_SQL(
             date_start="2024-01-14",
             date_end="2024-01-17",
             team_ids=[team.pk],
+            table_name="web_pre_aggregated_bounces",
             granularity="hourly",
         )
 

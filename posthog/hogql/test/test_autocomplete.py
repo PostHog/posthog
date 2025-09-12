@@ -1,20 +1,24 @@
 from typing import Optional
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
+from posthog.schema import (
+    AutocompleteCompletionItemKind,
+    HogLanguage,
+    HogQLAutocomplete,
+    HogQLAutocompleteResponse,
+    HogQLQuery,
+)
+
 from posthog.hogql import ast
 from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.database.models import StringDatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS
+
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.property_definition import PropertyDefinition
-from posthog.schema import (
-    HogQLAutocomplete,
-    HogQLAutocompleteResponse,
-    HogLanguage,
-    HogQLQuery,
-    AutocompleteCompletionItemKind,
-)
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from posthog.warehouse.models import ExternalDataSource
 from posthog.warehouse.models.credential import DataWarehouseCredential
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery

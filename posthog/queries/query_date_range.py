@@ -3,23 +3,16 @@ from functools import cached_property
 from typing import Literal, Optional
 from zoneinfo import ZoneInfo
 
-from dateutil.relativedelta import relativedelta
 from django.utils import timezone
-from posthog.models.filters.base_filter import BaseFilter
-from posthog.models.filters import AnyFilter
-from posthog.models.filters.mixins.interval import IntervalMixin
 
+from dateutil.relativedelta import relativedelta
+
+from posthog.models.filters import AnyFilter
+from posthog.models.filters.base_filter import BaseFilter
+from posthog.models.filters.mixins.interval import IntervalMixin
 from posthog.models.team import Team
-from posthog.queries.util import (
-    TIME_IN_SECONDS,
-    get_earliest_timestamp,
-    get_start_of_interval_sql,
-)
-from posthog.utils import (
-    DEFAULT_DATE_FROM_DAYS,
-    relative_date_parse,
-    relative_date_parse_with_delta_mapping,
-)
+from posthog.queries.util import TIME_IN_SECONDS, get_earliest_timestamp, get_start_of_interval_sql
+from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
 
 
 class QueryDateRange:

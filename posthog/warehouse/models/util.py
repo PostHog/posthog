@@ -1,20 +1,20 @@
 import re
+from typing import TYPE_CHECKING, Union
+
+from django.db.models import Q
 
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateDatabaseField,
     DateTimeDatabaseField,
-    IntegerDatabaseField,
-    FloatDatabaseField,
     DecimalDatabaseField,
+    FloatDatabaseField,
+    IntegerDatabaseField,
     StringArrayDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
     UnknownDatabaseField,
 )
-
-from django.db.models import Q
-from typing import TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
     from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable
@@ -23,17 +23,18 @@ if TYPE_CHECKING:
 def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "DataWarehouseTable", None]:
     from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable
 
-    table_name = name
+    table_names = [name]
     if "." in name:
         chain = name.split(".")
         if len(chain) == 2:
-            table_name = f"{chain[0]}_{chain[1]}"
+            table_names = [f"{chain[0]}_{chain[1]}"]
         elif len(chain) == 3:
-            table_name = f"{chain[1]}_{chain[0]}_{chain[2]}"
+            # Support both `_` suffixed source prefix and without - e.g. postgres_table_name and postgrestable_name
+            table_names = [f"{chain[1]}_{chain[0]}_{chain[2]}", f"{chain[1]}{chain[0]}_{chain[2]}"]
 
     table: DataWarehouseSavedQuery | DataWarehouseTable | None = (
         DataWarehouseTable.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
-        .filter(team=team, name=table_name)
+        .filter(team=team, name__in=table_names)
         .first()
     )
     if table is None:

@@ -10,7 +10,6 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
 
@@ -39,6 +38,7 @@ import { AddVariableButton } from './Components/Variables/AddVariableButton'
 import { VariablesForInsight } from './Components/Variables/Variables'
 import { variableModalLogic } from './Components/Variables/variableModalLogic'
 import { VariablesLogicProps, variablesLogic } from './Components/Variables/variablesLogic'
+import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
 import { DataVisualizationLogicProps, dataVisualizationLogic } from './dataVisualizationLogic'
 import { displayLogic } from './displayLogic'
 
@@ -50,6 +50,7 @@ export interface DataTableVisualizationProps {
     /* Cached Results are provided when shared or exported,
     the data node logic becomes read only implicitly */
     cachedResults?: AnyResponseType
+    editMode?: boolean
     readOnly?: boolean
     exportContext?: ExportContext
     /** Dashboard variables to override the ones in the query */
@@ -69,6 +70,7 @@ export function DataTableVisualization({
     readOnly,
     variablesOverride,
     attachTo,
+    editMode,
 }: DataTableVisualizationProps): JSX.Element {
     const [key] = useState(`DataVisualizationNode.${uniqueKey ?? uniqueNode++}`)
     const insightProps: InsightLogicProps<DataVisualizationNode> = context?.insightProps || {
@@ -80,14 +82,13 @@ export function DataTableVisualization({
 
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeCollectionId = insightVizDataCollectionId(insightProps, key)
-    const { insightMode } = useValues(insightSceneLogic)
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
         key: vizKey,
         query,
         dashboardId: insightProps.dashboardId,
         dataNodeCollectionId,
         loadPriority: insightProps.loadPriority,
-        insightMode,
+        editMode,
         setQuery,
         cachedResults,
         variablesOverride,
@@ -137,6 +138,7 @@ export function DataTableVisualization({
                                 cachedResults={cachedResults}
                                 readOnly={readOnly}
                                 exportContext={exportContext}
+                                editMode={editMode}
                             />
                         </BindLogic>
                     </BindLogic>
@@ -159,7 +161,16 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         responseError,
         queryCancelled,
         isChartSettingsPanelOpen,
+        xData,
+        yData,
+        chartSettings,
+        dashboardId,
+        dataVisualizationProps,
+        presetChartHeight,
     } = useValues(dataVisualizationLogic)
+
+    const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
+    const { goalLines } = useValues(displayLogic)
 
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
 
@@ -194,7 +205,20 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         visualizationType === ChartDisplayType.ActionsAreaGraph ||
         visualizationType === ChartDisplayType.ActionsStackedBar
     ) {
-        component = <LineGraph />
+        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
+        const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
+        component = (
+            <LineGraph
+                className="p-2"
+                xData={_xData}
+                yData={_yData}
+                visualizationType={visualizationType}
+                chartSettings={chartSettings}
+                dashboardId={dashboardId}
+                goalLines={goalLines}
+                presetChartHeight={presetChartHeight}
+            />
+        )
     } else if (visualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
     }

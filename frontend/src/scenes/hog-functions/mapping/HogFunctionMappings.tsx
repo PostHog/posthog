@@ -114,7 +114,7 @@ export function HogFunctionMapping({
                 <ActionFilter
                     filters={mapping.filters ?? ({} as any)}
                     setFilters={(f: any) => onChange({ ...mapping, filters: f })}
-                    typeKey="match-group"
+                    typeKey={`match-group-${index}`}
                     mathAvailability={MathAvailability.None}
                     hideRename
                     hideDuplicate

@@ -3,21 +3,23 @@
 These tests use the Postgres database running in the Docker Compose stack.
 """
 
-import datetime as dt
 import uuid
+import datetime as dt
 from collections.abc import AsyncGenerator
 from typing import Any
 
-import psycopg
 import pytest
-import pytest_asyncio
+
 from django.conf import settings
+
+import psycopg
+import pytest_asyncio
 from psycopg import AsyncConnection, AsyncCursor, sql
 from psycopg.rows import TupleRow
 
+from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
-from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 

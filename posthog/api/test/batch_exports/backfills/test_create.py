@@ -1,22 +1,21 @@
 import datetime as dt
-from unittest.mock import ANY, patch
 
 import pytest
-from django.test.client import Client as HttpClient
 from freezegun import freeze_time
+from posthog.test.base import _create_event
+from unittest.mock import ANY, patch
+
+from django.test.client import Client as HttpClient
+
 from rest_framework import status
 
 from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.api.test.batch_exports.fixtures import create_organization
-from posthog.api.test.batch_exports.operations import (
-    backfill_batch_export,
-    create_batch_export_ok,
-)
+from posthog.api.test.batch_exports.operations import backfill_batch_export, create_batch_export_ok
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.models.person.util import create_person
 from posthog.temporal.common.client import sync_connect
-from posthog.test.base import _create_event
 
 pytestmark = [
     pytest.mark.django_db,

@@ -55,6 +55,7 @@ export type SettingSectionId =
     | 'user-customization'
     | 'user-danger-zone'
     | 'user-feature-previews'
+    | 'mcp-server'
 
 export type SettingId =
     | 'replay-triggers'
@@ -147,6 +148,7 @@ export type SettingId =
     | 'csp-reporting'
     | 'base-currency'
     | 'marketing-settings'
+    | 'mcp-server-configure'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
@@ -155,6 +157,7 @@ export type Setting = {
     title: JSX.Element | string
     description?: JSX.Element | string
     component: JSX.Element
+    searchTerm?: string
     /**
      * Feature flag to gate the setting being shown.
      * If prefixed with !, the condition is inverted - the setting will only be shown if the is flag false.
@@ -177,4 +180,5 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
     level: SettingLevelId
     settings: Setting[]
     minimumAccessLevel?: EitherMembershipLevel
+    searchValue?: string
 }

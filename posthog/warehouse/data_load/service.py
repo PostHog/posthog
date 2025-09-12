@@ -2,10 +2,11 @@ from dataclasses import asdict
 from datetime import UTC, datetime, time, timedelta
 from typing import TYPE_CHECKING
 
+from django.conf import settings
+
 import s3fs
 import temporalio
 from asgiref.sync import async_to_sync
-from django.conf import settings
 from temporalio.client import (
     Client as TemporalClient,
     Schedule,
