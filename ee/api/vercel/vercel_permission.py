@@ -2,7 +2,7 @@ from rest_framework import exceptions
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 
-from ee.api.vercel.utils import get_vercel_claims
+from ee.api.vercel.utils import expect_vercel_user_claim, get_vercel_claims
 
 
 class VercelPermission(BasePermission):
@@ -60,42 +60,30 @@ class VercelPermission(BasePermission):
             )
 
     def _validate_user_role(self, request: Request, view) -> bool:
-        """
-        Validate that the user has the appropriate role for the action.
-        - ADMIN role: Required for write operations (update, create, delete)
-        - USER role: Allowed for read-only operations
-        - System auth: Bypasses role checks (used for system-to-system calls)
-        Returns True if validation passes, raises PermissionDenied otherwise.
-        """
         auth_type = request.headers.get("X-Vercel-Auth", "").lower()
 
-        # System auth bypasses role checks
         if auth_type == "system":
             return True
 
-        # User auth requires role validation
         if auth_type == "user":
-            claims = get_vercel_claims(request)
-            user_role = str(claims.get("user_role", "")).upper()
+            user_claims = expect_vercel_user_claim(request)
+            user_role = user_claims.user_role
 
-            # Check if action requires ADMIN role
             if view.action in self.ADMIN_ONLY_ACTIONS:
                 if user_role != "ADMIN":
                     raise exceptions.PermissionDenied(
-                        f"Action '{view.action}' requires ADMIN role. Current role: {user_role or 'unknown'}"
+                        f"Action '{view.action}' requires ADMIN role. Current role: {user_role}"
                     )
 
-            # For read-only actions, both ADMIN and USER roles are allowed
             elif view.action in self.READ_ONLY_ACTIONS:
                 if user_role not in ["ADMIN", "USER"]:
                     raise exceptions.PermissionDenied(
-                        f"Action '{view.action}' requires ADMIN or USER role. Current role: {user_role or 'unknown'}"
+                        f"Action '{view.action}' requires ADMIN or USER role. Current role: {user_role}"
                     )
 
         return True
 
     def _validate_installation_id_match(self, request: Request, view) -> None:
-        """Validate that JWT installation_id matches URL parameter"""
         claims = get_vercel_claims(request)
 
         # installation_id when going through the vercel_installation ViewSet,
@@ -105,5 +93,5 @@ class VercelPermission(BasePermission):
         if not installation_id:
             raise exceptions.PermissionDenied("Missing installation_id")
 
-        if claims.get("installation_id") != installation_id:
+        if claims.installation_id != installation_id:
             raise exceptions.PermissionDenied("Installation ID mismatch")

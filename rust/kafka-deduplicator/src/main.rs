@@ -11,8 +11,8 @@ use opentelemetry_sdk::trace::{BatchConfig, RandomIdGenerator, Sampler, Tracer};
 use opentelemetry_sdk::{runtime, Resource};
 use serve_metrics::serve;
 use tokio::task::JoinHandle;
-use tracing::info;
 use tracing::level_filters::LevelFilter;
+use tracing::{error, info};
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::fmt;
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -69,7 +69,25 @@ fn start_server(config: &Config, liveness: HealthRegistry) -> JoinHandle<()> {
     let router = Router::new()
         .route("/", get(index))
         .route("/_readiness", get(index))
-        .route("/_liveness", get(move || ready(liveness.get_status())));
+        .route(
+            "/_liveness",
+            get(move || async move {
+                let status = liveness.get_status();
+                if !status.healthy {
+                    let unhealthy_components: Vec<String> = status
+                        .components
+                        .iter()
+                        .filter(|(_, component_status)| !component_status.is_healthy())
+                        .map(|(name, component_status)| format!("{name}: {component_status:?}"))
+                        .collect();
+                    error!(
+                        "Health check FAILED - unhealthy components: [{}]",
+                        unhealthy_components.join(", ")
+                    );
+                }
+                status
+            }),
+        );
 
     // Don't install metrics unless asked to
     // Installing a global recorder when capture is used as a library (during tests etc)

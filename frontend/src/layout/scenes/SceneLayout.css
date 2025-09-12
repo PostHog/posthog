@@ -1,9 +1,3 @@
-.scene-layout {
-    container-name: scenelayout;
-    container-type: size;
-    min-height: 100vh;
-}
-
 .scene-layout__content-panel {
     z-index: var(--z-scene-layout-content-panel);
     width: var(--scene-layout-panel-width);

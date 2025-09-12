@@ -20,9 +20,8 @@ from posthog.hogql.base import _T_AST, AST
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_max_limit_for_context
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.database.models import FunctionCallTable, SavedQuery, Table
-from posthog.hogql.database.s3_table import S3Table
-from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
+from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, FunctionCallTable, SavedQuery, Table
+from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,
@@ -520,12 +519,12 @@ class _Printer(Visitor[str]):
                 raise ImpossibleASTError(f"Invalid table type {type(table_type).__name__} in join_expr")
 
             # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
-            # Skip function call tables like numbers(), s3(), etc.
+            # Skip warehouse tables and tables with an explicit skip.
             if (
                 self.dialect == "clickhouse"
-                and not isinstance(table_type.table, FunctionCallTable)
+                and not isinstance(table_type.table, DataWarehouseTable)
                 and not isinstance(table_type.table, SavedQuery)
-                and not isinstance(table_type.table, ExchangeRateTable)
+                and not isinstance(table_type.table, DANGEROUS_NoTeamIdCheckTable)
             ):
                 extra_where = team_id_guard_for_table(node.type, self.context)
 
