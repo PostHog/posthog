@@ -43,7 +43,7 @@
 # name: TestMarketingAnalyticsAdapters.test_linkedin_ads_query_generation
   '''
   
-  SELECT toString(linkedin_campaigns.name) AS campaign, toString('linkedin') AS source, toFloat(SUM(linkedin_stats.impressions)) AS impressions, toFloat(SUM(linkedin_stats.clicks)) AS clicks, toFloat(SUM(linkedin_stats.cost_in_usd)) AS cost 
+  SELECT toString(linkedin_campaigns.name) AS campaign, toString('linkedin') AS source, toFloat(SUM(linkedin_stats.impressions)) AS impressions, toFloat(SUM(linkedin_stats.clicks)) AS clicks, toFloat(SUM(linkedin_stats.cost_in_usd)) AS cost, toFloat(SUM(linkedin_stats.external_website_conversions)) AS reported_conversion 
   FROM linkedin_campaigns LEFT JOIN linkedin_stats ON equals(linkedin_campaigns.id, linkedin_stats.campaign_id) 
   WHERE and(greaterOrEquals(toDateTime(linkedin_stats.date_start), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(linkedin_stats.date_start), toDateTime('2024-12-31 23:59:59'))) 
   GROUP BY toString(linkedin_campaigns.name)
