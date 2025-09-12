@@ -2,6 +2,7 @@ import Chance from 'chance'
 import merge from 'deepmerge'
 import { Settings } from 'luxon'
 
+import { formatLiquidInput } from '~/cdp/services/hog-inputs.service'
 import { NativeDestinationExecutorService } from '~/cdp/services/native-destination-executor.service'
 import { isNativeHogFunction } from '~/cdp/utils'
 import { defaultConfig } from '~/config/config'
@@ -26,6 +27,35 @@ import {
 import { cloneInvocation, createInvocation } from '../../utils/invocation-utils'
 import { compileHog } from '../compiler'
 
+/**
+ * Sets templating value of 'hog' or 'liquid' on hog inputs based on the template used.
+ */
+export function propagateTemplatingFromSchema(template: any, input: any): any {
+    const templatedInputs = { ...input }
+
+    for (const field of template.inputs_schema) {
+        if ('templating' in field) {
+            const templating_val = field['templating']
+            if (typeof templating_val === 'boolean') {
+                if (templating_val) {
+                    if (!templatedInputs[field.key] || typeof templatedInputs[field.key] !== 'object') {
+                        templatedInputs[field.key] = { value: templatedInputs[field.key] }
+                    }
+                    templatedInputs[field.key]['templating'] = 'hog'
+                }
+                // If False, do not set templating field
+            } else {
+                if (!templatedInputs[field.key] || typeof templatedInputs[field.key] !== 'object') {
+                    templatedInputs[field.key] = { value: templatedInputs[field.key] }
+                }
+                templatedInputs[field.key]['templating'] = templating_val
+            }
+        }
+    }
+
+    return templatedInputs
+}
+
 export type DeepPartialHogFunctionInvocationGlobals = {
     event?: Partial<HogFunctionInvocationGlobals['event']>
     person?: Partial<HogFunctionInvocationGlobals['person']>
@@ -33,16 +63,25 @@ export type DeepPartialHogFunctionInvocationGlobals = {
     request?: HogFunctionInvocationGlobals['request']
 }
 
-const compileObject = async (obj: any): Promise<any> => {
+const compileObject = async (
+    obj: any,
+    globals?: any,
+    templating_engine: boolean | 'hog' | 'liquid' = 'hog'
+): Promise<any> => {
     if (Array.isArray(obj)) {
-        return Promise.all(obj.map((item) => compileObject(item)))
-    } else if (typeof obj === 'object') {
+        return Promise.all(obj.map((item) => compileObject(item, globals, templating_engine)))
+    } else if (typeof obj === 'object' && obj !== null) {
         const res: Record<string, any> = {}
         for (const [key, value] of Object.entries(obj)) {
-            res[key] = await compileObject(value)
+            res[key] = await compileObject(value, globals, templating_engine)
         }
         return res
     } else if (typeof obj === 'string') {
+        // If the string looks like a Liquid template, render it first
+        if (templating_engine === 'liquid') {
+            const rendered = formatLiquidInput(obj, globals || createGlobals())
+            return await compileHog(`return f'${rendered}'`)
+        }
         return await compileHog(`return f'${obj}'`)
     } else {
         return obj
@@ -51,7 +90,8 @@ const compileObject = async (obj: any): Promise<any> => {
 
 export const compileInputs = async (
     template: HogFunctionTemplate | NativeTemplate,
-    _inputs: Record<string, any>
+    _inputs: Record<string, any>,
+    globals?: any
 ): Promise<Record<string, CyclotronInputType>> => {
     const defaultInputs = template.inputs_schema.reduce(
         (acc, input) => {
@@ -65,14 +105,14 @@ export const compileInputs = async (
 
     const allInputs = { ...defaultInputs, ..._inputs }
 
-    // Don't compile inputs that don't suppport templating
+    // Don't compile inputs that don't support templating
     const compiledEntries = await Promise.all(
         Object.entries(allInputs).map(async ([key, value]) => {
             const schema = template.inputs_schema.find((input) => input.key === key)
             if (schema?.templating === false) {
                 return [key, value]
             }
-            return [key, await compileObject(value)]
+            return [key, await compileObject(value, globals, schema?.templating || 'hog')]
         })
     )
 
@@ -186,8 +226,9 @@ export class TemplateTester {
             throw new Error('Mapping templates found. Use invokeMapping instead.')
         }
 
-        const compiledInputs = await compileInputs(this.template, _inputs)
         const globals = this.createGlobals(_globals)
+        // Pass globals to compileInputs so Liquid templates are rendered before hog compilation
+        const compiledInputs = await compileInputs(this.template, _inputs, globals)
 
         const { code, ...partialTemplate } = this.template
         const hogFunction: HogFunctionType = {
@@ -205,6 +246,7 @@ export class TemplateTester {
         }
 
         const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
+
         const invocation = createInvocation(globalsWithInputs, hogFunction)
 
         const transformationFunctions = {

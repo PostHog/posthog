@@ -63,7 +63,7 @@ export function MessageChannels(): JSX.Element {
         <>
             <PageHeader
                 buttons={
-                    <div className="flex items-center m-2 shrink-0">
+                    <div className="flex items-center shrink-0">
                         <LemonMenu items={menuItems}>
                             <LemonButton
                                 data-attr="new-channel-button"

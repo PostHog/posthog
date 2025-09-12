@@ -289,7 +289,7 @@ def calculate_cohort_from_list(
     batch_count = (
         cohort.insert_users_by_list(items, team_id=team_id)
         if id_type == "distinct_id"
-        else cohort.insert_users_list_by_uuid(items, insert_in_clickhouse=True, team_id=team_id)
+        else cohort.insert_users_list_by_uuid(items, team_id=team_id)
     )
     logger.warn(
         "Cohort {}: {:,} items in {} batches from CSV completed in {:.2f}s".format(

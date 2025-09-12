@@ -136,7 +136,7 @@ export function EditorScene(): JSX.Element {
                                     >
                                         <div
                                             data-attr="editor-scene"
-                                            className="EditorScene w-full h-full flex flex-row overflow-hidden"
+                                            className="EditorScene w-full h-[calc(var(--scene-layout-rect-height)-var(--scene-layout-header-height))] flex flex-row overflow-hidden"
                                             ref={ref}
                                         >
                                             <QueryWindow

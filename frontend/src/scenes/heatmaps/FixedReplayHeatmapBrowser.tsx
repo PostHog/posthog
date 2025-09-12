@@ -101,9 +101,9 @@ export function FixedReplayHeatmapBrowser({
                 ) : (
                     <ViewportChooser />
                 )}
-                <div className="flex justify-center h-full w-full">
+                <div className="flex justify-center h-full w-full overflow-scroll">
                     <div
-                        className="relative h-full "
+                        className="relative h-full overflow-scroll"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ width: widthOverride ?? '100%' }}
                     >
