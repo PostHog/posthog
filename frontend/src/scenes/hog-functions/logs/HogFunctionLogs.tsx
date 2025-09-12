@@ -39,16 +39,21 @@ export const renderHogFunctionMessage = (message: string): JSX.Element => {
     return <>{elements}</>
 }
 
-export function HogFunctionLogs(props: { hogFunctionId: string }): JSX.Element {
-    const logicProps: LogsViewerLogicProps = {
+export function HogFunctionLogs(): JSX.Element | null {
+    const { logicProps } = useValues(hogFunctionConfigurationLogic)
+    const id = logicProps.id
+    const logsLogicProps: LogsViewerLogicProps = {
         sourceType: 'hog_function',
-        sourceId: props.hogFunctionId,
+        sourceId: logicProps.id ?? 'unknown',
     }
+    const logic = hogFunctionLogsLogic(logsLogicProps)
 
-    const { selectingMany, selectedForRetry, retryRunning } = useValues(hogFunctionLogsLogic(logicProps))
-    const { setSelectingMany, retrySelectedInvocations, selectAllForRetry } = useActions(
-        hogFunctionLogsLogic(logicProps)
-    )
+    const { selectingMany, selectedForRetry, retryRunning } = useValues(logic)
+    const { setSelectingMany, retrySelectedInvocations, selectAllForRetry } = useActions(logic)
+
+    if (!id) {
+        return null
+    }
 
     return (
         <>
@@ -92,8 +97,8 @@ export function HogFunctionLogs(props: { hogFunctionId: string }): JSX.Element {
                 </div>
             ) : null}
             <LogsViewer
-                {...logicProps}
-                sourceId={props.hogFunctionId}
+                {...logsLogicProps}
+                sourceId={id}
                 renderColumns={(columns) => {
                     // Add in custom columns for handling retries
                     const newColumns: LemonTableColumns<GroupedLogEntry> = [
@@ -101,9 +106,7 @@ export function HogFunctionLogs(props: { hogFunctionId: string }): JSX.Element {
                             title: 'Status',
                             key: 'status',
                             width: 0,
-                            render: (_, record) => (
-                                <HogFunctionLogsStatus record={record} hogFunctionId={props.hogFunctionId} />
-                            ),
+                            render: (_, record) => <HogFunctionLogsStatus record={record} hogFunctionId={id} />,
                         },
                         ...columns.filter((column) => column.key !== 'logLevel'),
                     ]

@@ -1,13 +1,9 @@
 import { BindLogic, actions, connect, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -223,56 +219,19 @@ export const scene: SceneExport<HogFunctionConfigurationLogicProps> = {
 }
 
 function HogFunctionHeader(): JSX.Element {
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-    const {
-        configuration,
-        configurationChanged,
-        logicProps,
-        template,
-        loading,
-        isLegacyPlugin,
-        isConfigurationSubmitting,
-    } = useValues(hogFunctionConfigurationLogic)
-    const { setConfigurationValue, duplicate, deleteHogFunction, resetForm, submitConfiguration } =
-        useActions(hogFunctionConfigurationLogic)
-
-    const headerButtons = (
-        <>
-            {!logicProps.templateId && (
-                <>
-                    <More
-                        overlay={
-                            <>
-                                {!isLegacyPlugin && (
-                                    <LemonButton fullWidth onClick={() => duplicate()}>
-                                        Duplicate
-                                    </LemonButton>
-                                )}
-                                <LemonDivider />
-                                <LemonButton status="danger" fullWidth onClick={() => deleteHogFunction()}>
-                                    Delete
-                                </LemonButton>
-                            </>
-                        }
-                    />
-                    <LemonDivider vertical />
-                </>
-            )}
-        </>
-    )
+    const { configuration, logicProps, template, loading } = useValues(hogFunctionConfigurationLogic)
+    const { setConfigurationValue } = useActions(hogFunctionConfigurationLogic)
 
     return (
         <>
-            {newSceneLayout ? (
-                <PageHeader
-                    buttons={
-                        <>
-                            <HogFunctionConfigurationClearChangesButton />
-                            <HogFunctionConfigurationSaveButton />
-                        </>
-                    }
-                />
-            ) : null}
+            <PageHeader
+                buttons={
+                    <>
+                        <HogFunctionConfigurationClearChangesButton />
+                        <HogFunctionConfigurationSaveButton />
+                    </>
+                }
+            />
             <SceneTitleSection
                 name={configuration.name}
                 description={configuration.description || ''}
@@ -345,14 +304,14 @@ export function HogFunctionScene(): JSX.Element {
             : {
                   label: 'Logs',
                   key: 'logs',
-                  content: <HogFunctionLogs hogFunctionId={id} />,
+                  content: <HogFunctionLogs />,
               },
         type === 'site_app' || type === 'site_destination' || type === 'internal_destination'
             ? null
             : {
                   label: 'Testing',
                   key: 'testing',
-                  content: <HogFunctionTesting id={id} />,
+                  content: <HogFunctionTesting />,
               },
         {
             label: 'History',

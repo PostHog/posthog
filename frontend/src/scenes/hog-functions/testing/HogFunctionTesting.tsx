@@ -14,13 +14,10 @@ import {
     LemonTable,
     LemonTag,
     LemonTagType,
-    SpinnerOverlay,
     Tooltip,
 } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { NotFound } from 'lib/components/NotFound'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -30,7 +27,7 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature, CyclotronJobInvocationGlobals, GroupType, GroupTypeIndex, LogEntry } from '~/types'
+import { CyclotronJobInvocationGlobals, GroupType, GroupTypeIndex, LogEntry } from '~/types'
 
 import {
     convertToHogFunctionInvocationGlobals,
@@ -39,11 +36,7 @@ import {
 import { hogFunctionTestLogic } from '../configuration/hogFunctionTestLogic'
 import { HogFunctionFilters } from '../filters/HogFunctionFilters'
 import { tagTypeForLevel } from '../logs/LogsViewer'
-import {
-    CyclotronJobTestInvocationResultWithEventId,
-    HogFunctionTestingLogicProps,
-    hogFunctionTestingLogic,
-} from './hogFunctionTestingLogic'
+import { CyclotronJobTestInvocationResultWithEventId, hogFunctionTestingLogic } from './hogFunctionTestingLogic'
 
 const buildGlobals = (
     row: any,
@@ -78,25 +71,12 @@ const buildGlobals = (
     return globals
 }
 
-export function HogFunctionTesting({ id }: HogFunctionTestingLogicProps): JSX.Element {
-    const { selectingMany, eventsWithRetries, loadingRetries, selectedForRetry } = useValues(
-        hogFunctionTestingLogic({ id })
-    )
-    const { setSelectingMany, retryInvocation, selectForRetry, deselectForRetry, resetSelectedForRetry } = useActions(
-        hogFunctionTestingLogic({ id })
-    )
-    const { loading, loaded, showPaygate, groupTypes, configuration } = useValues(hogFunctionConfigurationLogic({ id }))
+export function HogFunctionTesting(): JSX.Element | null {
+    const { logicProps } = useValues(hogFunctionConfigurationLogic)
+    const id = logicProps.id
 
-    if (loading && !loaded) {
-        return <SpinnerOverlay />
-    }
-
-    if (!loaded || !id) {
-        return <NotFound object="Hog function" />
-    }
-
-    if (showPaygate) {
-        return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
+    if (!id) {
+        return null
     }
 
     return (
