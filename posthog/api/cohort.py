@@ -1,4 +1,5 @@
 import csv
+import uuid
 from collections import defaultdict
 from collections.abc import Iterator
 from datetime import datetime
@@ -854,11 +855,15 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         if not isinstance(person_id, str):
             raise ValidationError("person_id must be a string")
 
+        # Validate UUID format
+        try:
+            uuid.UUID(person_id)
+        except ValueError:
+            raise ValidationError("person_id must be a valid UUID")
+
         # Check if person exists and belongs to this team
         try:
-            person_uuid = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(
-                team_id=self.team_id, uuid=person_id
-            ).uuid
+            person_uuid = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(team_id=self.team_id, uuid=person_id).uuid
         except Person.DoesNotExist:
             raise ValidationError("Person not found")
 
