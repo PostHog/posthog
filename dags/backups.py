@@ -407,13 +407,26 @@ def wait_for_backup(
         context.log.info("No backup to wait for")
 
 
-@dagster.graph
-def run_backup_for_shard(shard: int):
-    """Run the backup pipeline for a single shard."""
-    latest_backup = get_latest_backup(shard=shard)
-    checked_backup = check_latest_backup_status(latest_backup=latest_backup)
-    new_backup = run_backup(latest_backup=checked_backup, shard=shard)
-    wait_for_backup(backup=new_backup)
+@dagster.op
+def run_backup_pipeline_for_shard(
+    context: dagster.OpExecutionContext,
+    config: BackupConfig,
+    s3: S3Resource,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    shard: int,
+):
+    """Run the complete backup pipeline for a single shard."""
+    # Get latest backup for this shard
+    latest_backup = get_latest_backup(config, s3, shard)
+
+    # Check the status of the latest backup
+    checked_backup = check_latest_backup_status(context, config, latest_backup, cluster)
+
+    # Run the new backup
+    new_backup = run_backup(context, config, cluster, checked_backup, shard)
+
+    # Wait for it to complete
+    wait_for_backup(context, config, new_backup, cluster)
 
 
 @dagster.job(
@@ -428,7 +441,7 @@ def sharded_backup():
     For each backup, the logic is exactly the same as the described in the `non_sharded_backup` job.
     """
     shards = get_shards()
-    shards.map(run_backup_for_shard)
+    shards.map(run_backup_pipeline_for_shard)
 
 
 @dagster.job(
@@ -460,7 +473,13 @@ def prepare_run_config(config: BackupConfig) -> dagster.RunConfig:
     return dagster.RunConfig(
         {
             op.name: {"config": config.model_dump(mode="json")}
-            for op in [get_latest_backup, run_backup, check_latest_backup_status, wait_for_backup]
+            for op in [
+                get_latest_backup,
+                run_backup,
+                check_latest_backup_status,
+                wait_for_backup,
+                run_backup_pipeline_for_shard,
+            ]
         }
     )
 
