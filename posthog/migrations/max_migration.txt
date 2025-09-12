@@ -1,1 +1,1 @@
-0850_add_activitylog_org_scope_created_at
+0851_add_activitylog_org_detail_exists_index
