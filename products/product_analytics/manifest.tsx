@@ -46,7 +46,11 @@ export const manifest: ProductManifest = {
                     source: { kind: 'HogQLQuery', query, filters },
                 } as any,
             }),
-        insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
+        insightEdit: (id: InsightShortId, dashboardId?: number, query?: Node | null): string => {
+            return combineUrl(`/insights/${id}/edit`, dashboardId ? { dashboard: dashboardId } : {}, {
+                ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
+            }).url
+        },
         insightView: (
             id: InsightShortId,
             dashboardId?: number,

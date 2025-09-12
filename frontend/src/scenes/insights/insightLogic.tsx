@@ -406,7 +406,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         ],
         editingDisabledReason: [
             (s) => [s.hasOverrides],
-            (hasOverrides) => (hasOverrides ? 'Discard overrides to edit the insight.' : null),
+            (hasOverrides) =>
+                hasOverrides ? 'Enable edit mode to change filters on this insight with overrides.' : null,
         ],
     }),
     listeners(({ actions, values, props }) => ({

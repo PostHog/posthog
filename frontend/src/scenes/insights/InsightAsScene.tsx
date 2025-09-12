@@ -76,12 +76,16 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
                 {hasOverrides && (
                     <LemonBanner type="warning" className="mb-4">
                         <div className="flex flex-row items-center justify-between gap-2">
-                            <span>
-                                You are viewing this insight with filter/variable overrides. Discard them to edit the
-                                insight.
-                            </span>
+                            <span>You are viewing this insight with filter/variable overrides.</span>
 
-                            <LemonButton type="secondary" to={urls.insightView(insightId as InsightShortId)}>
+                            <LemonButton
+                                type="secondary"
+                                to={
+                                    insightMode !== ItemMode.Edit
+                                        ? urls.insightView(insightId as InsightShortId)
+                                        : urls.insightEdit(insightId as InsightShortId)
+                                }
+                            >
                                 Discard overrides
                             </LemonButton>
                         </div>

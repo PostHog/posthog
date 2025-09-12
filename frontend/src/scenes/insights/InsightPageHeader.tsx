@@ -90,6 +90,8 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
+import { EditOverridesModal } from './EditOverridesModal'
+
 const RESOURCE_TYPE = 'insight'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
@@ -99,8 +101,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { setInsightMode } = useActions(insightSceneLogic)
 
     // insightLogic
-    const { insightProps, canEditInsight, insight, insightChanged, insightSaving, hasDashboardItemId, insightLoading } =
-        useValues(insightLogic(insightLogicProps))
+    const {
+        insightProps,
+        canEditInsight,
+        insight,
+        insightChanged,
+        insightSaving,
+        hasDashboardItemId,
+        hasOverrides,
+        insightLoading,
+    } = useValues(insightLogic(insightLogicProps))
     const { setInsightMetadata, saveAs, saveInsight, duplicateInsight, reloadSavedInsights } = useActions(
         insightLogic(insightLogicProps)
     )
@@ -136,6 +146,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         typeof lastBreadcrumb?.name === 'string' ? lastBreadcrumb.name : insight.name || insight.derived_name
 
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
+    const [editOverridesModalOpen, setEditOverridesModalOpen] = useState<boolean>(false)
 
     const dashboardOverridesExist =
         (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
@@ -188,6 +199,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         insightProps={insightProps}
                         canEditInsight={canEditInsight}
                     />
+                    <EditOverridesModal
+                        isOpen={editOverridesModalOpen}
+                        closeModal={() => setEditOverridesModalOpen(false)}
+                        insightProps={insightProps}
+                    />
+
                     {insightMode === ItemMode.Alerts && (
                         <ManageAlertsModal
                             onClose={() => push(urls.insightView(insight.short_id as InsightShortId))}
@@ -262,12 +279,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     icon={dashboardOverridesExist ? <IconWarning /> : undefined}
                                     tooltip={
                                         dashboardOverridesExist
-                                            ? `This insight is being viewed with dashboard ${overrideType}. These will be discarded on edit.`
+                                            ? `This insight is being viewed with filter/variable overrides.`
                                             : undefined
                                     }
                                     tooltipPlacement="bottom"
                                     onClick={() => {
-                                        if (isDataVisualizationNode(query) && insight.short_id) {
+                                        if (hasOverrides) {
+                                            setEditOverridesModalOpen(true)
+                                        } else if (isDataVisualizationNode(query) && insight.short_id) {
                                             router.actions.push(urls.sqlEditor(undefined, undefined, insight.short_id))
                                         } else if (insight.short_id) {
                                             push(urls.insightEdit(insight.short_id))
