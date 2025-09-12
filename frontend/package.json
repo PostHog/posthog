@@ -184,6 +184,7 @@
         "marked": "^15.0.11",
         "mathjax-full": "3.2.2",
         "md5": "^2.3.0",
+        "mdast-util-find-and-replace": "^3.0.2",
         "monaco-editor": "^0.49.0",
         "natural-orderby": "^3.0.2",
         "openai": "^4.81.0",

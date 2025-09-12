@@ -133,7 +133,6 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
             {editingComment?.id === comment.id ? (
                 <div className="deprecated-space-y-2 border-t p-2">
                     <LemonTextAreaMarkdown
-                        data-attr="comment-composer"
                         placeholder="Edit comment"
                         value={editingComment.content}
                         onChange={(value) => setEditingComment({ ...editingComment, content: value })}

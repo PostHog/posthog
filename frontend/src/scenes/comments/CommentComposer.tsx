@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { LemonButton, LemonTextAreaMarkdown } from '@posthog/lemon-ui'
 
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { LemonRichTextEditor } from 'lib/lemon-ui/LemonRichTextEditor/LemonRichTextEditor'
+import { LemonRichContentEditor } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
@@ -12,8 +12,14 @@ import { CommentsLogicProps, commentsLogic } from './commentsLogic'
 
 export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
     const { key, composedComment, commentsLoading, replyingCommentId, itemContext } = useValues(commentsLogic(props))
-    const { setComposedComment, sendComposedContent, setReplyingComment, setComposerRef, clearItemContext } =
-        useActions(commentsLogic(props))
+    const {
+        setComposedComment,
+        sendComposedContent,
+        setReplyingComment,
+        setComposerRef,
+        clearItemContext,
+        setRichContentEditor,
+    } = useActions(commentsLogic(props))
 
     const placeholder = replyingCommentId
         ? 'Reply...'
@@ -27,14 +33,18 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
 
     return (
         <div className="deprecated-space-y-2">
-            <LemonRichTextEditor logicKey="discussions" onChange={() => {}} placeholder={placeholder} />
+            <LemonRichContentEditor
+                logicKey="discussions"
+                onChange={() => {}}
+                placeholder={placeholder}
+                onCreate={setRichContentEditor}
+            />
             <LemonTextAreaMarkdown
-                data-attr="comment-composer"
                 placeholder={placeholder}
                 value={composedComment}
                 onChange={setComposedComment}
                 disabled={commentsLoading}
-                onPressCmdEnter={sendComposedContent}
+                onPressCmdEnter={sendComposedContent} // TODO: add this
                 ref={setComposerRef}
             />
             <div className="flex justify-between items-center gap-2">

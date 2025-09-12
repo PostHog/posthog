@@ -54,11 +54,7 @@
             }
 
             > .is-empty::before {
-                float: left;
-                height: 0;
                 color: rgb(0 0 0 / 20%);
-                pointer-events: none;
-                content: attr(data-placeholder);
 
                 [theme='dark'] & {
                     color: rgb(255 255 255 / 20%);

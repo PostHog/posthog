@@ -10,6 +10,7 @@ import { eventWithTime } from '@posthog/rrweb-types'
 
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { AlertType } from 'lib/components/Alerts/types'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import {
@@ -4658,6 +4659,7 @@ export enum ActivityScope {
 export type CommentType = {
     id: string
     content: string
+    rich_content: JSONContent | null
     version: number
     created_at: string
     created_by: UserBasicType | null

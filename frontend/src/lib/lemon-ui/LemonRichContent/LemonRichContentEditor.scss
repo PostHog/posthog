@@ -1,10 +1,10 @@
-.LemonRichTextEditor {
+.LemonRichContentEditor {
     .RichContentEditor {
         background-color: var(--color-bg-fill-input);
         border-top-left-radius: var(--radius);
         border-top-right-radius: var(--radius);
 
-        & > div[contenteditable='true'] {
+        & > div[contenteditable] {
             outline: none;
 
             p {

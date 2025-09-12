@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { isEmptyObject } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { userLogic } from 'scenes/userLogic'
@@ -57,6 +58,7 @@ export const commentsLogic = kea<commentsLogicType>([
         persistEditedComment: true,
         setComposerRef: (ref: HTMLTextAreaElement | null) => ({ ref }),
         focusComposer: true,
+        setRichContentEditor: (editor: RichContentEditorType) => ({ editor }),
     }),
     reducers({
         replyingCommentId: [
@@ -86,6 +88,12 @@ export const commentsLogic = kea<commentsLogicType>([
             {
                 setComposedComment: (_, { content }) => content,
                 sendComposedContentSuccess: () => '',
+            },
+        ],
+        richContentEditor: [
+            null as RichContentEditorType | null,
+            {
+                setRichContentEditor: (_, { editor }) => editor,
             },
         ],
         composerRef: [
@@ -120,6 +128,7 @@ export const commentsLogic = kea<commentsLogicType>([
 
                     const newComment = await api.comments.create({
                         content: values.composedComment,
+                        rich_content: values.richContentEditor?.getJSON(),
                         scope: props.scope,
                         item_id: props.item_id,
                         item_context: itemContext,
@@ -139,6 +148,7 @@ export const commentsLogic = kea<commentsLogicType>([
                     const existingComments = values.comments ?? []
                     const updatedComment = await api.comments.update(editedComment.id, {
                         content: editedComment.content,
+                        rich_content: values.richContentEditor?.getJSON(),
                     })
                     return [...existingComments.filter((c) => c.id !== editedComment.id), updatedComment]
                 },
