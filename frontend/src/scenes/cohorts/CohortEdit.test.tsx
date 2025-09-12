@@ -148,7 +148,7 @@ describe('cohortEditLogic', () => {
                 logic.actions.submitCohort()
             }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
 
-            await new Promise((resolve) => setTimeout(resolve, 10))
+            await new Promise((resolve) => requestAnimationFrame(resolve))
 
             expect(querySelectorSpy).toHaveBeenCalledWith('.Field--error')
             expect(querySelectorSpy).toHaveBeenCalledWith('.CohortCriteriaRow__Criteria--error')
