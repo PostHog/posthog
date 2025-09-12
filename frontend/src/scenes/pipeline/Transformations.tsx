@@ -4,11 +4,13 @@ import { LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
 
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { statusColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
 
 import { AppMetricSparkLine } from './AppMetricSparkLine'
@@ -22,13 +24,17 @@ import { appColumn, nameColumn, usePipelinePluginBackedNodeMenuCommonItems } fro
 
 export function Transformations(): JSX.Element {
     const { sortedTransformations, loading } = useValues(pipelineTransformationsLogic)
-
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     const shouldShowEmptyState = sortedTransformations.length === 0 && !loading
 
     return (
-        <>
+        <SceneContent forceNewSpacing>
             <PageHeader
-                caption="Transform your incoming events before they are stored in PostHog or sent on to Destinations."
+                caption={
+                    !newSceneLayout
+                        ? 'Transform your incoming events before they are stored in PostHog or sent on to Destinations.'
+                        : undefined
+                }
                 buttons={<NewButton stage={PipelineStage.Transformation} />}
             />
             <ProductIntroduction
@@ -41,8 +47,14 @@ export function Transformations(): JSX.Element {
                 isEmpty={shouldShowEmptyState}
             />
 
+            {newSceneLayout && (
+                <p className="m-0">
+                    Transform your incoming events before they are stored in PostHog or sent on to Destinations.
+                </p>
+            )}
+
             <Destinations types={TRANSFORMATION_TYPES} />
-        </>
+        </SceneContent>
     )
 }
 

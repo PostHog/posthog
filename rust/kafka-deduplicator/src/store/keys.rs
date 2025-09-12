@@ -1,53 +1,61 @@
 use anyhow::{Context, Result};
 use common_types::RawEvent;
+use serde::{Deserialize, Serialize};
 
 use crate::utils::timestamp::parse_timestamp;
 
 const UNKNOWN_STR: &str = "unknown";
 
 /// Timestamp-based deduplication key
-/// Format: timestamp:distinct_id:token:event_name
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+/// Uses bincode serialization to handle arbitrary characters in fields
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TimestampKey {
     pub timestamp: u64,
     pub distinct_id: String,
     pub token: String,
     pub event_name: String,
-    formatted_key: String,
 }
 
 impl TimestampKey {
     pub fn new(timestamp: u64, distinct_id: String, token: String, event_name: String) -> Self {
-        let formatted_key = format!("{timestamp}:{distinct_id}:{token}:{event_name}");
         Self {
             timestamp,
             distinct_id,
             token,
             event_name,
-            formatted_key,
         }
-    }
-
-    pub fn get_formatted_key(&self) -> &str {
-        &self.formatted_key
-    }
-}
-
-impl AsRef<[u8]> for TimestampKey {
-    fn as_ref(&self) -> &[u8] {
-        self.formatted_key.as_bytes()
     }
 }
 
 impl From<TimestampKey> for Vec<u8> {
     fn from(key: TimestampKey) -> Vec<u8> {
-        key.formatted_key.as_bytes().to_vec()
+        // Custom serialization to ensure timestamp comes first for proper ordering
+        // Format: [8 bytes timestamp BE][rest as bincode]
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&key.timestamp.to_be_bytes());
+
+        // Serialize the rest of the fields
+        let rest = (key.distinct_id, key.token, key.event_name);
+        let rest_bytes = bincode::serde::encode_to_vec(&rest, bincode::config::standard())
+            .expect("TimestampKey serialization should never fail");
+        bytes.extend_from_slice(&rest_bytes);
+        bytes
     }
 }
 
 impl From<&TimestampKey> for Vec<u8> {
     fn from(key: &TimestampKey) -> Vec<u8> {
-        key.formatted_key.as_bytes().to_vec()
+        // Custom serialization to ensure timestamp comes first for proper ordering
+        // Format: [8 bytes timestamp BE][rest as bincode]
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&key.timestamp.to_be_bytes());
+
+        // Serialize the rest of the fields
+        let rest = (&key.distinct_id, &key.token, &key.event_name);
+        let rest_bytes = bincode::serde::encode_to_vec(rest, bincode::config::standard())
+            .expect("TimestampKey serialization should never fail");
+        bytes.extend_from_slice(&rest_bytes);
+        bytes
     }
 }
 
@@ -55,25 +63,32 @@ impl TryFrom<&[u8]> for TimestampKey {
     type Error = anyhow::Error;
 
     fn try_from(bytes: &[u8]) -> Result<Self> {
-        let key_str = std::str::from_utf8(bytes)
-            .with_context(|| format!("Invalid UTF-8 in timestamp key: {bytes:?}"))?;
-        let parts: Vec<&str> = key_str.split(':').collect();
-
-        if parts.len() != 4 {
-            return Err(anyhow::anyhow!(
-                "Invalid timestamp key format '{}', expected 4 parts separated by ':' (timestamp:distinct_id:token:event_name)",
-                key_str
-            ));
+        // Custom deserialization to match our serialization format
+        // Format: [8 bytes timestamp BE][rest as bincode]
+        if bytes.len() < 8 {
+            anyhow::bail!("TimestampKey bytes too short: {} bytes", bytes.len());
         }
 
-        Ok(Self::new(
-            parts[0].parse::<u64>().with_context(|| {
-                format!("Failed to parse timestamp '{}' in timestamp key", parts[0])
-            })?,
-            parts[1].to_string(),
-            parts[2].to_string(),
-            parts[3].to_string(),
-        ))
+        // Extract timestamp
+        let timestamp_bytes: [u8; 8] = bytes[..8].try_into()?;
+        let timestamp = u64::from_be_bytes(timestamp_bytes);
+
+        // Deserialize the rest
+        let (rest, _): ((String, String, String), usize) =
+            bincode::serde::decode_from_slice(&bytes[8..], bincode::config::standard())
+                .with_context(|| {
+                    format!(
+                        "Failed to deserialize TimestampKey fields from {} bytes",
+                        bytes.len() - 8
+                    )
+                })?;
+
+        Ok(TimestampKey {
+            timestamp,
+            distinct_id: rest.0,
+            token: rest.1,
+            event_name: rest.2,
+        })
     }
 }
 
@@ -96,48 +111,37 @@ impl From<&RawEvent> for TimestampKey {
 }
 
 /// UUID-based deduplication key
-/// Format: uuid:distinct_id:token:event_name
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+/// Uses bincode serialization to handle arbitrary characters in fields
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UuidKey {
     pub uuid: String,
     pub distinct_id: String,
     pub token: String,
     pub event_name: String,
-    formatted_key: String,
 }
 
 impl UuidKey {
     pub fn new(uuid: String, distinct_id: String, token: String, event_name: String) -> Self {
-        let formatted_key = format!("{uuid}:{distinct_id}:{token}:{event_name}");
         Self {
             uuid,
             distinct_id,
             token,
             event_name,
-            formatted_key,
         }
-    }
-
-    pub fn get_formatted_key(&self) -> &str {
-        &self.formatted_key
-    }
-}
-
-impl AsRef<[u8]> for UuidKey {
-    fn as_ref(&self) -> &[u8] {
-        self.formatted_key.as_bytes()
     }
 }
 
 impl From<UuidKey> for Vec<u8> {
     fn from(key: UuidKey) -> Vec<u8> {
-        key.formatted_key.as_bytes().to_vec()
+        bincode::serde::encode_to_vec(&key, bincode::config::standard())
+            .expect("UuidKey serialization should never fail")
     }
 }
 
 impl From<&UuidKey> for Vec<u8> {
     fn from(key: &UuidKey) -> Vec<u8> {
-        key.formatted_key.as_bytes().to_vec()
+        bincode::serde::encode_to_vec(key, bincode::config::standard())
+            .expect("UuidKey serialization should never fail")
     }
 }
 
@@ -145,23 +149,11 @@ impl TryFrom<&[u8]> for UuidKey {
     type Error = anyhow::Error;
 
     fn try_from(bytes: &[u8]) -> Result<Self> {
-        let key_str = std::str::from_utf8(bytes)
-            .with_context(|| format!("Invalid UTF-8 in UUID key: {bytes:?}"))?;
-        let parts: Vec<&str> = key_str.split(':').collect();
-
-        if parts.len() != 4 {
-            return Err(anyhow::anyhow!(
-                "Invalid UUID key format '{}', expected 4 parts separated by ':' (uuid:distinct_id:token:event_name)",
-                key_str
-            ));
-        }
-
-        Ok(Self::new(
-            parts[0].to_string(),
-            parts[1].to_string(),
-            parts[2].to_string(),
-            parts[3].to_string(),
-        ))
+        let (key, _): (UuidKey, usize) =
+            bincode::serde::decode_from_slice(bytes, bincode::config::standard()).with_context(
+                || format!("Failed to deserialize UuidKey from {} bytes", bytes.len()),
+            )?;
+        Ok(key)
     }
 }
 
@@ -179,6 +171,72 @@ impl From<&RawEvent> for UuidKey {
             .unwrap_or_else(|| UNKNOWN_STR.to_string());
 
         Self::new(uuid, distinct_id, token, raw_event.event.clone())
+    }
+}
+
+/// Index key for UUID records, prefixed with timestamp for efficient cleanup
+#[derive(Debug, Clone)]
+pub struct UuidIndexKey {
+    timestamp: u64,
+    uuid_key: Vec<u8>,
+}
+
+impl UuidIndexKey {
+    pub fn new(timestamp: u64, uuid_key: Vec<u8>) -> Self {
+        Self {
+            timestamp,
+            uuid_key,
+        }
+    }
+
+    /// Create index key from timestamp and UuidKey
+    pub fn from_uuid_key(timestamp: u64, uuid_key: &UuidKey) -> Self {
+        Self {
+            timestamp,
+            uuid_key: uuid_key.into(),
+        }
+    }
+
+    /// Parse timestamp from an index key bytes
+    pub fn parse_timestamp(bytes: &[u8]) -> Option<u64> {
+        if bytes.len() >= 8 {
+            let timestamp_bytes: [u8; 8] = bytes[..8].try_into().ok()?;
+            Some(u64::from_be_bytes(timestamp_bytes))
+        } else {
+            None
+        }
+    }
+
+    /// Create a range start key for deletion (inclusive)
+    pub fn range_start() -> Vec<u8> {
+        0u64.to_be_bytes().to_vec()
+    }
+
+    /// Create a range end key for deletion (exclusive)
+    /// We add 0xFF bytes to ensure this key comes after all keys with the cleanup timestamp
+    pub fn range_end(cleanup_timestamp: u64) -> Vec<u8> {
+        let mut bytes = cleanup_timestamp.to_be_bytes().to_vec();
+        // Add a suffix to ensure this key is greater than any key with this timestamp
+        bytes.push(0xFF);
+        bytes
+    }
+}
+
+impl From<UuidIndexKey> for Vec<u8> {
+    fn from(key: UuidIndexKey) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(8 + key.uuid_key.len());
+        bytes.extend_from_slice(&key.timestamp.to_be_bytes());
+        bytes.extend_from_slice(&key.uuid_key);
+        bytes
+    }
+}
+
+impl From<&UuidIndexKey> for Vec<u8> {
+    fn from(key: &UuidIndexKey) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(8 + key.uuid_key.len());
+        bytes.extend_from_slice(&key.timestamp.to_be_bytes());
+        bytes.extend_from_slice(&key.uuid_key);
+        bytes
     }
 }
 
@@ -220,25 +278,33 @@ mod tests {
     }
 
     #[test]
-    fn test_timestamp_key_formatting() {
+    fn test_timestamp_key_serialization() {
         let event = create_test_event();
         let key = TimestampKey::from(&event);
 
-        // Parse the ISO timestamp to get the milliseconds value
-        let timestamp_millis = parse_timestamp(event.timestamp.as_ref().unwrap()).unwrap();
+        // Test that we can serialize and deserialize
+        let serialized: Vec<u8> = (&key).into();
+        let deserialized = TimestampKey::try_from(serialized.as_slice()).unwrap();
 
-        let expected = format!("{timestamp_millis}:user123:token456:test_event");
-        assert_eq!(String::from_utf8_lossy(key.as_ref()), expected);
+        assert_eq!(key, deserialized);
+        assert_eq!(deserialized.distinct_id, "user123");
+        assert_eq!(deserialized.token, "token456");
+        assert_eq!(deserialized.event_name, "test_event");
     }
 
     #[test]
-    fn test_uuid_key_formatting() {
+    fn test_uuid_key_serialization() {
         let event = create_test_event();
         let key = UuidKey::from(&event);
 
-        let uuid_str = event.uuid.unwrap().to_string();
-        let expected = format!("{uuid_str}:user123:token456:test_event");
-        assert_eq!(String::from_utf8_lossy(key.as_ref()), expected);
+        // Test that we can serialize and deserialize
+        let serialized: Vec<u8> = (&key).into();
+        let deserialized = UuidKey::try_from(serialized.as_slice()).unwrap();
+
+        assert_eq!(key, deserialized);
+        assert_eq!(deserialized.distinct_id, "user123");
+        assert_eq!(deserialized.token, "token456");
+        assert_eq!(deserialized.event_name, "test_event");
     }
 
     #[test]
