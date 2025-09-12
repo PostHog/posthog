@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { ErrorTrackingIssue } from '~/queries/schema'
+import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { GenericSelect } from '../GenericSelect'
 import { LabelIndicator, StatusIndicator } from '../Indicator'
