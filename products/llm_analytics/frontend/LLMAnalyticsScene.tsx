@@ -38,6 +38,7 @@ import { normalizeMessages, truncateValue } from './utils'
 
 export const scene: SceneExport = {
     component: LLMAnalyticsScene,
+    logic: llmAnalyticsLogic,
 }
 
 const Filters = (): JSX.Element => {
