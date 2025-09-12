@@ -9,10 +9,12 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--dry-run", action="store_true", help="Run without making any changes")
+        parser.add_argument("--batch-size", type=int, default=100, help="Number of teams to migrate per DB query")
 
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
-        teams_migrated = 0
+        batch_size = options["batch_size"]
+        teams_to_migrate = []
 
         try:
             self.stdout.write(
@@ -26,14 +28,18 @@ class Command(BaseCommand):
                 is_paid = team.organization.is_feature_available(AvailableFeature.RECORDINGS_FILE_EXPORT)
                 team.session_recording_retention_period = "90d" if is_paid else "30d"
 
-                if not dry_run:
-                    team.save()
+                teams_to_migrate.append(team)
+                self.stdout.write(self.style.SUCCESS(f"{'Would migrate' if dry_run else 'Migrating'} team {team.id}"))
 
-                teams_migrated += 1
-                self.stdout.write(self.style.SUCCESS(f"{'Would migrate' if dry_run else 'Migrated'} team {team.id}"))
+            if not dry_run:
+                Team.objects.bulk_update(
+                    teams_to_migrate, ["session_recording_retention_period"], batch_size=batch_size
+                )
 
             self.stdout.write(
-                self.style.SUCCESS(f"Success - {teams_migrated} teams migrated" + (" (DRY RUN)" if dry_run else ""))
+                self.style.SUCCESS(
+                    f"Success - {len(teams_to_migrate)} teams migrated" + (" (DRY RUN)" if dry_run else "")
+                )
             )
         except Exception as e:
             self.stdout.write(self.style.ERROR(f"Error occurred: {e}"))
