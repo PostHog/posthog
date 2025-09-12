@@ -202,7 +202,7 @@ export function ActionFilterRow({
     const { mathDefinitions } = useValues(mathsLogic)
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
 
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic({ dashboardItemId: typeKey }))
     const { isStepOptional } = useValues(funnelDataLogic(insightProps))
 
     const mountedInsightDataLogic = insightDataLogic.findMounted({ dashboardItemId: typeKey })
