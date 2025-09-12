@@ -129,7 +129,6 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                                                 }
                                                 onSave={(value) => {
                                                     onChange(value)
-
                                                     submitAction()
                                                     /* When clicking 'Set' on an `EditableField`, always save the form */
                                                 }}
