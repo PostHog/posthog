@@ -85,6 +85,7 @@ class GoogleAdsSource(BaseSource[GoogleAdsSourceConfig | GoogleAdsServiceAccount
             label="Google Ads",
             caption="Ensure you have granted PostHog access to your Google Ads account, learn how to do this in [the docs](https://posthog.com/docs/cdp/sources/google-ads).",
             betaSource=True,
+            iconPath="/static/services/google-ads.png",
             fields=cast(
                 list[FieldType],
                 [

@@ -153,6 +153,7 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.BIG_QUERY,
             caption="",
+            iconPath="/static/services/bigquery.png",
             fields=cast(
                 list[FieldType],
                 [

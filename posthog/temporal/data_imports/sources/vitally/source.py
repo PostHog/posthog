@@ -85,6 +85,7 @@ class VitallySource(BaseSource[VitallySourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.VITALLY,
             caption="",
+            iconPath="/static/services/vitally.png",
             fields=cast(
                 list[FieldType],
                 [

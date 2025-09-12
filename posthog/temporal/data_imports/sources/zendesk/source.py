@@ -56,6 +56,7 @@ class ZendeskSource(BaseSource[ZendeskSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.ZENDESK,
             caption="Enter your Zendesk API key to automatically pull your Zendesk support data into the PostHog Data warehouse.",
+            iconPath="/static/services/zendesk.png",
             fields=cast(
                 list[FieldType],
                 [
