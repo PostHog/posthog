@@ -136,7 +136,11 @@ async def test_create_table_activity(minio_client, activity_environment, ateam, 
         query={"query": query, "kind": "HogQLQuery"},
     )
 
-    create_table_activity_inputs = CreateTableActivityInputs(team_id=ateam.pk, models=[saved_query.id.hex])
+    job = await DataModelingJob.objects.acreate(team=ateam, saved_query=saved_query)
+
+    create_table_activity_inputs = CreateTableActivityInputs(
+        team_id=ateam.pk, models=[saved_query.id.hex], job_id=str(job.id)
+    )
     with (
         override_settings(
             BUCKET_URL=f"s3://{bucket_name}",
@@ -1345,9 +1349,12 @@ async def test_create_table_activity_row_count_functionality(minio_client, activ
     saved_query.table = table
     await saved_query.asave()
 
+    job = await DataModelingJob.objects.acreate(team=ateam, saved_query=saved_query)
+
     create_table_activity_inputs = CreateTableActivityInputs(
         models=[str(saved_query.id)],  # Pass UUID, not name
         team_id=ateam.pk,
+        job_id=str(job.id),
     )
 
     with (
@@ -1367,9 +1374,12 @@ async def test_create_table_activity_row_count_functionality(minio_client, activ
 async def test_create_table_activity_invalid_uuid_fails(activity_environment, ateam):
     """Test that create_table_activity fails fast when given non-UUID model identifier."""
 
+    job = await DataModelingJob.objects.acreate(team=ateam)
+
     create_table_activity_inputs = CreateTableActivityInputs(
         models=["invalid_model_name"],  # Name instead of UUID
         team_id=ateam.pk,
+        job_id=str(job.id),
     )
 
     with (

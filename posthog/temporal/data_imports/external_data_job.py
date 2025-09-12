@@ -361,7 +361,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             await workflow.execute_activity(
                 calculate_table_size_activity,
-                CalculateTableSizeActivityInputs(team_id=inputs.team_id, schema_id=str(inputs.external_data_schema_id)),
+                CalculateTableSizeActivityInputs(
+                    team_id=inputs.team_id, schema_id=str(inputs.external_data_schema_id), job_id=job_id
+                ),
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
