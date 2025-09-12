@@ -134,11 +134,6 @@ class ActivityLog(UUIDTModel):
                 name="idx_alog_org_detail_exists",
                 condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
             ),
-            models.Index(
-                fields=["organization_id"],
-                name="idx_activitylog_org_detail_exists",
-                condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
-            ),
             GinIndex(
                 name="idx_alog_detail_gin_path_ops",
                 fields=["detail"],
