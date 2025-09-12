@@ -2,7 +2,7 @@ import json
 from contextlib import contextmanager
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, _patch, patch
 
 from django.http import HttpResponse
 from django.test import RequestFactory
@@ -27,6 +27,10 @@ class TestVercelRegionProxyMixin(VercelTestBase):
     LOCALHOST_8000 = "http://localhost:8000"
     LOCALHOST_8010 = "http://localhost:8010"
     INVALID_INSTALLATION = "icfg_nonexistentinstallation"
+
+    client_id_patcher: _patch
+    jwks_patcher: _patch
+    mock_jwks_function: MagicMock
 
     @classmethod
     def setUpClass(cls):
@@ -70,7 +74,7 @@ class TestVercelRegionProxyMixin(VercelTestBase):
 
     def _assert_drf_response(self, result, expected_data, status=200):
         assert isinstance(result, Response)
-        assert result.data == expected_data  # type: ignore[attr-defined]
+        assert result.data == expected_data
         assert result.status_code == status
 
     def _assert_http_response(self, result, expected_status):
@@ -78,7 +82,7 @@ class TestVercelRegionProxyMixin(VercelTestBase):
         assert result.status_code == expected_status
 
     def _assert_json_content(self, response, expected_data):
-        assert response.data == expected_data  # type: ignore[attr-defined]
+        assert response.data == expected_data
 
     def _patch_super_dispatch(self, return_value):
         return patch("rest_framework.viewsets.GenericViewSet.dispatch", return_value=return_value)
