@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
@@ -380,12 +380,9 @@ impl CheckpointManager {
             self.config.checkpoint_interval
         );
 
-        // TODO(eli): ADD SEMAPHORE GATING TO SUBMIT LOOP THREAD BELOW!
-        let _semaphore = Arc::new(Semaphore::new(self.config.max_concurrent_checkpoints));
-
         // clones we can reuse as bases within the checkpoint submission loop
         // without involving "self" and moving it into the loop
-        let config = self.config.clone();
+        let submit_loop_config = self.config.clone();
         let store_manager = self.store_manager.clone();
         let exporter = self.exporter.clone();
         let cancel_submit_loop_token = self.cancel_token.child_token();
@@ -400,7 +397,13 @@ impl CheckpointManager {
             Arc::new(Mutex::new(HashMap::new()));
 
         let submit_handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(config.checkpoint_interval);
+            // limit parallel checkpoint attempts. This loop
+            // can block when the limit is reached
+            let semaphore = Arc::new(Semaphore::new(
+                submit_loop_config.max_concurrent_checkpoints,
+            ));
+
+            let mut interval = tokio::time::interval(submit_loop_config.checkpoint_interval);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
             // Skip first tick to avoid immediate flush
@@ -443,8 +446,28 @@ impl CheckpointManager {
                                 continue;
                             }
 
+                            // acquire semaphore or block here
+                            let ticket: OwnedSemaphorePermit;
+                            tokio::select! {
+                                _ = cancel_submit_loop_token.cancelled() => {
+                                    info!(partition = partition_tag, "Checkpoint manager: submit loop shutting down while awaiting permit");
+                                    break 'outer;
+                                }
+
+                                result = semaphore.clone().acquire_owned() => {
+                                    match result {
+                                        Ok(permit) => ticket = permit,
+                                        Err(e) => {
+                                            error!(partition = partition_tag, "Checkpoint manager: semaphore closed, skipping with error: {}", e);
+                                            continue;
+                                        }
+                                    }
+                                }
+                            }
+                            // if we made it here, we have a permit and can move forward!
+
                             // Determine if this should be a full upload or incremental
-                            let mode = Self::get_checkpoint_mode(&partition, &checkpoint_counters, &config).await;
+                            let mode = Self::get_checkpoint_mode(&partition, &checkpoint_counters, &submit_loop_config).await;
 
                             // Ensure the store is still associated with this pod and store manager
                             if store_manager.get(partition.topic(), partition.partition_number()).is_none() {
@@ -456,7 +479,7 @@ impl CheckpointManager {
                                     continue;
                             }
 
-                            let paths = CheckpointPath::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
+                            let paths = CheckpointPath::new(partition.clone(), Path::new(&submit_loop_config.local_checkpoint_dir)).unwrap();
                             // if the exporter is configured, clone it for the worker thread
                             let resolved_exporter = exporter.as_ref().map(|e| e.clone());
 
@@ -501,6 +524,9 @@ impl CheckpointManager {
                                 let mut is_checkpointing_guard = is_checkpointing.lock().await;
                                 is_checkpointing_guard.remove(&partition);
                             }
+
+                            // release the permit so another checkpoint attempt can proceed
+                            drop(ticket);
 
                             // result is observed interally and errors shouldn't bubble up here
                             // so we only care if the export was successful and we need to
@@ -569,12 +595,12 @@ impl CheckpointManager {
             task.abort();
         }
 
-        // TODO(eli): await is_checkpointing tasks to complete? just bail at first, see how it goes?
+        // TODO: await is_checkpointing tasks to complete? just bail at first, see how it goes?
 
         info!("Checkpoint manager stopped");
     }
 
-    /// Trigger an immediate flush of all stores
+    /// Trigger an immediate flush of all stores (currenty used only in tests)
     pub async fn flush_all(&self) -> Result<()> {
         info!("Triggering manual flush of all stores");
 
@@ -744,24 +770,20 @@ mod tests {
             max_capacity: 1_000_000,
         }));
 
-        // TODO(eli): move this to a test helper and/or default impl
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_secs(30),
-            max_concurrent_checkpoints: 1,
-            full_upload_interval: 1,
-            max_local_checkpoints: 1,
-            local_checkpoint_dir: "test".to_string(),
-            s3_bucket: "test".to_string(),
-            s3_key_prefix: "test".to_string(),
-            aws_region: "test".to_string(),
-            s3_timeout: Duration::from_secs(30),
+            cleanup_interval: Duration::from_secs(10),
+            ..Default::default()
         };
         let manager = CheckpointManager::new(config, stores.clone(), None);
 
-        assert_eq!(manager.config.checkpoint_interval, Duration::from_secs(30));
         assert!(manager.checkpoint_task.is_none());
+        assert_eq!(manager.config.checkpoint_interval, Duration::from_secs(30));
+
+        assert!(manager.cleanup_task.is_none());
+        assert_eq!(manager.config.cleanup_interval, Duration::from_secs(10));
+
         assert!(manager.exporter.is_none());
-        assert!(manager.worker_tasks.is_empty());
     }
 
     #[tokio::test]
@@ -772,6 +794,7 @@ mod tests {
         }));
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_secs(30),
+            cleanup_interval: Duration::from_secs(10),
             ..Default::default()
         };
         let mut manager = CheckpointManager::new(config, stores.clone(), None);
@@ -779,10 +802,12 @@ mod tests {
         // Start the manager
         manager.start();
         assert!(manager.checkpoint_task.is_some());
+        assert!(manager.cleanup_task.is_some());
 
         // Stop the manager
         manager.stop().await;
         assert!(manager.checkpoint_task.is_none());
+        assert!(manager.cleanup_task.is_none());
     }
 
     #[tokio::test]
@@ -823,6 +848,7 @@ mod tests {
 
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_secs(30),
+            cleanup_interval: Duration::from_secs(10),
             ..Default::default()
         };
         let manager = CheckpointManager::new(config, store_manager.clone(), None);
@@ -848,22 +874,26 @@ mod tests {
 
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_secs(30),
+            cleanup_interval: Duration::from_secs(10),
             ..Default::default()
         };
         let manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
 
         // Create checkpoint
         let partition = Partition::new("topic1".to_string(), 0);
+        let paths = CheckpointPath::new(partition.clone(), Path::new(&config.local_checkpoint_dir))
+            .unwrap();
+
+        // simulate how the manager checkpoint loop constructs workers
         let worker = CheckpointWorker::new(
             1,
-            store_manager.clone(),
+            CheckpointMode::Full,
+            paths,
+            store.clone(),
             manager.exporter.clone(),
-            manager.checkpoint_counters.clone(),
-            manager.is_checkpointing.clone(),
-            config.clone(),
         );
-        let result = worker.attempt_checkpoint(partition).await;
 
+        let result = worker.checkpoint_partition().await;
         assert!(result.is_ok());
     }
 
@@ -873,24 +903,24 @@ mod tests {
             path: PathBuf::from("test"),
             max_capacity: 1_000_000,
         }));
+
         let config = CheckpointConfig {
-            checkpoint_interval: Duration::from_secs(30),
+            checkpoint_interval: Duration::from_millis(100),
+            cleanup_interval: Duration::from_secs(10),
+            local_checkpoint_dir: "test_checkpoints".to_string(),
             ..Default::default()
         };
-        let manager = CheckpointManager::new(config.clone(), stores.clone(), None);
-        // Should fail for non-existent partition
-        let partition = Partition::new("topic1".to_string(), 0);
-        let worker = CheckpointWorker::new(
-            1,
-            stores.clone(),
-            manager.exporter.clone(),
-            manager.checkpoint_counters.clone(),
-            manager.is_checkpointing.clone(),
-            config.clone(),
-        );
-        let result = worker.attempt_checkpoint(partition).await;
-        assert!(result.is_ok()); // This should return Ok(false) since partition doesn't exist
-        assert!(!result.unwrap()); // Should return false for non-existent partition
+        let mut manager = CheckpointManager::new(config.clone(), stores.clone(), None);
+
+        // Should fail for non-existent topic partition.
+        // run the manager checkpoint loop for a few cycles
+        manager.start();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        manager.stop().await;
+
+        // the test_checkpoints dir should still be empty
+        // since partition and associated store don't exist
+        assert!(!Path::new("test_checkpoints").exists());
     }
 
     #[tokio::test]
@@ -911,6 +941,7 @@ mod tests {
         // Create manager with short interval for testing
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_millis(100),
+            cleanup_interval: Duration::from_secs(10),
             ..Default::default()
         };
         let mut manager = CheckpointManager::new(config, store_manager.clone(), None);
@@ -919,10 +950,13 @@ mod tests {
         manager.start();
 
         // Wait for a few flush cycles
-        tokio::time::sleep(Duration::from_millis(350)).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
 
         // Stop the manager
         manager.stop().await;
+
+        // the test_checkpoints dir should have a checkpoint
+        assert!(Path::new("test_checkpoints").exists());
     }
 
     #[tokio::test]
