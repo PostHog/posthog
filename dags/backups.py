@@ -1,4 +1,5 @@
 import re
+import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -409,6 +410,18 @@ def wait_for_backup(
 
 @dagster.job(
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 2}),
+    tags={
+        "dagster-k8s/config": json.dumps(
+            {
+                "container_config": {
+                    "resources": {
+                        "requests": {"cpu": "1", "memory": "8Gi"},
+                        "limits": {"cpu": "2", "memory": "8Gi"},
+                    },
+                },
+            }
+        ),
+    },
 )
 def sharded_backup():
     """
@@ -431,6 +444,18 @@ def sharded_backup():
 
 @dagster.job(
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 8}),
+    tags={
+        "dagster-k8s/config": json.dumps(
+            {
+                "container_config": {
+                    "resources": {
+                        "requests": {"cpu": "1", "memory": "8Gi"},
+                        "limits": {"cpu": "2", "memory": "8Gi"},
+                    },
+                },
+            }
+        ),
+    },
 )
 def non_sharded_backup():
     """
