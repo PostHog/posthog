@@ -34,6 +34,7 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     pipeline_version = models.CharField(max_length=400, choices=PipelineVersion.choices, null=True, blank=True)
     billable = models.BooleanField(default=True, null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
+    storage_delta_mib = models.FloatField(null=True, blank=True, default=0)
 
     __repr__ = sane_repr("id")
 
