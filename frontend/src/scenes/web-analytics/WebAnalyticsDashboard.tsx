@@ -20,6 +20,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
@@ -508,7 +509,9 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                 <WebAnalyticsModal />
                 <VersionCheckerBanner />
                 <SceneContent className="WebAnalyticsDashboard w-full flex flex-col">
-                    <Filters tabs={<WebAnalyticsTabs />} />
+                    <WebAnalyticsTabs />
+                    {/* Empty fragment so tabs are not part of the sticky bar */}
+                    <Filters tabs={<></>} />
 
                     <WebAnalyticsPageReportsCTA />
                     <WebAnalyticsHealthCheck />
@@ -537,6 +540,9 @@ const WebAnalyticsTabs = (): JSX.Element => {
                 ...marketingTab(featureFlags),
             ]}
             sceneInset={newSceneLayout}
+            className={cn({
+                '-mt-4': newSceneLayout,
+            })}
         />
     )
 }

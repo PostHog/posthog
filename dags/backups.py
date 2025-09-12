@@ -1,4 +1,5 @@
 import re
+import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -409,6 +410,18 @@ def wait_for_backup(
 
 @dagster.job(
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 2}),
+    tags={
+        "dagster-k8s/config": json.dumps(
+            {
+                "container_config": {
+                    "resources": {
+                        "requests": {"cpu": "1", "memory": "8Gi"},
+                        "limits": {"cpu": "2", "memory": "8Gi"},
+                    },
+                },
+            }
+        ),
+    },
 )
 def sharded_backup():
     """
@@ -420,9 +433,10 @@ def sharded_backup():
     """
 
     def run_backup_for_shard(shard: int):
-        latest_backup = get_latest_backup(shard)
-        new_backup = run_backup(check_latest_backup_status(latest_backup), shard)
-        wait_for_backup(new_backup)
+        latest_backup = get_latest_backup(shard=shard)
+        checked_backup = check_latest_backup_status(latest_backup=latest_backup)
+        new_backup = run_backup(latest_backup=checked_backup, shard=shard)
+        wait_for_backup(backup=new_backup)
 
     shards: dagster.DynamicOutput = get_shards()
     shards.map(run_backup_for_shard)
@@ -430,6 +444,18 @@ def sharded_backup():
 
 @dagster.job(
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 8}),
+    tags={
+        "dagster-k8s/config": json.dumps(
+            {
+                "container_config": {
+                    "resources": {
+                        "requests": {"cpu": "1", "memory": "8Gi"},
+                        "limits": {"cpu": "2", "memory": "8Gi"},
+                    },
+                },
+            }
+        ),
+    },
 )
 def non_sharded_backup():
     """

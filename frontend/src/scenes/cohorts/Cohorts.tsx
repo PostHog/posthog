@@ -230,7 +230,6 @@ export function Cohorts(): JSX.Element {
                 resourceType={{
                     type: RESOURCE_TYPE,
                 }}
-                docsURL="https://posthog.com/docs/data/cohorts"
             />
             <SceneDivider />
 
