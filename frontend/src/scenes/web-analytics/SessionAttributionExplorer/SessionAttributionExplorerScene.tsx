@@ -5,14 +5,17 @@ import { IconCollapse, IconExpand, IconPlus } from '@posthog/icons'
 import { LemonMenu, LemonSwitch } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconFeedback } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { Query } from '~/queries/Query/Query'
 import { isSessionPropertyFilters } from '~/queries/schema-guards'
 import { DataTableNode, HogQLQuery, SessionAttributionGroupBy } from '~/queries/schema/schema-general'
@@ -191,10 +194,12 @@ export function SessionAttributionExplorer(): JSX.Element {
     const { setDateRange, setProperties } = useActions(sessionAttributionExplorerLogic)
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const showSupportOptions = preflight?.cloud
     return (
         <div>
+            {featureFlags[FEATURE_FLAGS.SCENE_TABS] ? <SceneBreadcrumbBackButton /> : null}
             <LemonBanner type="info" className="my-4">
                 <div className="flex items-center flex-wrap gap-2 justify-between">
                     <div className="flex-1 min-w-full sm:min-w-0">

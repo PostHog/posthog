@@ -10,6 +10,7 @@ import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/querie
 import {
     DashboardType,
     FileSystemIconColor,
+    InsightSceneSource,
     InsightShortId,
     InsightType,
     ProductManifest,
@@ -23,10 +24,12 @@ export const manifest: ProductManifest = {
             type,
             dashboardId,
             query,
+            sceneSource,
         }: {
             type?: InsightType
             dashboardId?: DashboardType['id'] | null
             query?: Node
+            sceneSource?: InsightSceneSource
         } = {}): string => {
             // Redirect HogQL queries to SQL editor
             if (isHogQLQuery(query)) {
@@ -41,6 +44,7 @@ export const manifest: ProductManifest = {
             return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
                 ...(type ? { insight: type } : {}),
                 ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
+                ...(sceneSource ? { sceneSource } : {}),
             }).url
         },
         insightNewHogQL: ({ query, filters }: { query: string; filters?: HogQLFilters }): string =>
