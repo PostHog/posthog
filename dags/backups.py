@@ -416,17 +416,112 @@ def run_backup_pipeline_for_shard(
     shard: int,
 ):
     """Run the complete backup pipeline for a single shard."""
+    # This op orchestrates the backup pipeline for a single shard
+    # We need to duplicate the logic here rather than calling the ops directly
+    # because ops can't be called from within other ops without proper context
+
     # Get latest backup for this shard
-    latest_backup = get_latest_backup(config, s3, shard)
+    shard_path = shard if shard else NO_SHARD_PATH
+    base_prefix = f"{config.database}/"
+    if config.table:
+        base_prefix = f"{base_prefix}{config.table}/"
+    base_prefix = f"{base_prefix}{shard_path}/"
+
+    backups = s3.get_client().list_objects_v2(
+        Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET, Prefix=base_prefix, Delimiter="/"
+    )
+
+    latest_backup = None
+    if "CommonPrefixes" in backups:
+        latest_backup_prefix = sorted(backups["CommonPrefixes"], key=lambda x: x["Prefix"])[-1]["Prefix"]
+        latest_backup = Backup.from_s3_path(latest_backup_prefix)
 
     # Check the status of the latest backup
-    checked_backup = check_latest_backup_status(context, config, latest_backup, cluster)
+    if latest_backup:
+
+        def map_hosts(func: Callable[[Client], Any]):
+            if latest_backup.shard:
+                return cluster.map_hosts_in_shard_by_role(
+                    fn=func, shard_num=latest_backup.shard, node_role=NodeRole.DATA, workload=config.workload
+                )
+            return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=config.workload)
+
+        is_done = map_hosts(latest_backup.is_done).result().values()
+        if not all(is_done):
+            context.log.info(f"Latest backup {latest_backup.path} is still in progress, waiting for it to finish")
+            map_hosts(latest_backup.wait).result()
+        else:
+            most_recent_status = get_most_recent_status(map_hosts(latest_backup.status).result().values())
+            if most_recent_status and most_recent_status.status != "BACKUP_CREATED":
+                # Check if the backup is stuck (CREATING_BACKUP with no active process)
+                if most_recent_status.status == "CREATING_BACKUP":
+                    # Check how old the backup status is
+                    time_since_status = datetime.now(UTC) - most_recent_status.event_time_microseconds.replace(
+                        tzinfo=UTC
+                    )
+                    if time_since_status > timedelta(hours=2):
+                        context.log.warning(
+                            f"Previous backup {latest_backup.path} is stuck in CREATING_BACKUP status for {time_since_status}. "
+                            f"This usually happens when the server was restarted during backup. "
+                            f"Proceeding with new backup as the old one is no longer active."
+                        )
+                        # Don't raise an error - the backup is dead and won't interfere
+                        latest_backup = None
+                # For other unexpected statuses (like BACKUP_FAILED), still raise an error
+                else:
+                    raise ValueError(
+                        f"Latest backup {latest_backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Please check the backup logs."
+                    )
+            else:
+                context.log.info(f"Latest backup {latest_backup.path} finished successfully")
 
     # Run the new backup
-    new_backup = run_backup(context, config, cluster, checked_backup, shard)
+    if config.incremental:
+        if not latest_backup:
+            raise ValueError("Latest backup not found and an incremental backup was requested")
+
+    backup = Backup(
+        id=context.run_id,
+        database=config.database,
+        table=config.table,
+        date=config.date,
+        base_backup=latest_backup if config.incremental else None,
+        shard=shard,
+    )
+
+    if latest_backup and latest_backup.path == backup.path:
+        context.log.warning(
+            f"This backup directory exists in S3. Skipping its run, if you want to run it again, remove the data from {backup.path}"
+        )
+        return
+
+    if backup.shard:
+        cluster.map_any_host_in_shards_by_role(
+            {backup.shard: backup.create},
+            node_role=NodeRole.DATA,
+            workload=config.workload,
+        ).result()
+    else:
+        cluster.any_host_by_role(
+            backup.create,
+            node_role=NodeRole.DATA,
+            workload=config.workload,
+        ).result()
 
     # Wait for it to complete
-    wait_for_backup(context, config, new_backup, cluster)
+    def map_hosts_wait(func: Callable[[Client], Any]):
+        if backup.shard:
+            return cluster.map_hosts_in_shard_by_role(
+                fn=func, shard_num=backup.shard, node_role=NodeRole.DATA, workload=config.workload
+            )
+        return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=config.workload)
+
+    map_hosts_wait(backup.wait).result().values()
+    most_recent_status = get_most_recent_status(map_hosts_wait(backup.status).result().values())
+    if most_recent_status and most_recent_status.status != "BACKUP_CREATED":
+        raise ValueError(
+            f"Backup {backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}."
+        )
 
 
 @dagster.job(
