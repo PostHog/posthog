@@ -6,6 +6,8 @@ from uuid import uuid4
 
 import structlog
 from langchain_core.agents import AgentAction
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_stream_writer
 from langgraph.types import StreamWriter
@@ -27,6 +29,8 @@ from posthog.temporal.ai.session_summary.summarize_session_group import (
 )
 
 from ee.hogai.graph.base import AssistantNode
+from ee.hogai.graph.session_summaries.prompts import GENERATE_FILTER_QUERY_PROMPT
+from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.session_summaries.constants import (
     GROUP_SUMMARIES_MIN_SESSIONS,
     MAX_SESSIONS_TO_SUMMARIZE,
@@ -182,7 +186,7 @@ class _SessionSearch:
         self._node = node
 
     async def _generate_replay_filters(
-        self, plain_text_query: str, conversation_id: str, start_time: float
+        self, filter_query: str, conversation_id: str, start_time: float
     ) -> MaxRecordingUniversalFilters | str | None:
         """
         Generates replay filters to get session ids by directly using SearchSessionRecordingsTool.
@@ -199,10 +203,10 @@ class _SessionSearch:
         tool._context = {"current_filters": {}}
         try:
             # Call the tool's graph directly to use the same implementation as in the tool (avoid duplication)
-            result = await tool._invoke_graph(change=plain_text_query)
+            result = await tool._invoke_graph(change=filter_query)
             if not result.get("output"):
                 self._node._log_failure(
-                    f"SearchSessionRecordingsTool returned no output for session summarization (query: {plain_text_query})",
+                    f"SearchSessionRecordingsTool returned no output for session summarization (query: {filter_query})",
                     conversation_id,
                     start_time,
                 )
@@ -214,7 +218,7 @@ class _SessionSearch:
             # Return clarification question if needed
             if not result.get("intermediate_steps") or not len(result["intermediate_steps"][-1]):
                 self._node._log_failure(
-                    f"SearchSessionRecordingsTool returned no intermediate steps for session summarization (query: {plain_text_query}): {result}",
+                    f"SearchSessionRecordingsTool returned no intermediate steps for session summarization (query: {filter_query}): {result}",
                     conversation_id,
                     start_time,
                 )
@@ -227,7 +231,7 @@ class _SessionSearch:
             ):
                 self._node._log_failure(
                     f"SearchSessionRecordingsTool last step was neither filters nor ask_user_for_help "
-                    f"for session summarization (query: {plain_text_query}): {result}",
+                    f"for session summarization (query: {filter_query}): {result}",
                     conversation_id,
                     start_time,
                 )
@@ -239,7 +243,7 @@ class _SessionSearch:
                 extra={
                     "team_id": getattr(self._node._team, "id", "unknown"),
                     "user_id": getattr(self._node._user, "id", "unknown"),
-                    "query": plain_text_query,
+                    "query": filter_query,
                 },
             )
             return None
@@ -303,6 +307,19 @@ class _SessionSearch:
         session_ids = [recording["session_id"] for recording in results.results]
         return session_ids if session_ids else None
 
+    async def _generate_filter_query(self, plain_text_query: str, config: RunnableConfig) -> str:
+        """Generate a filter query for the user's summarization query to keep the search context clear"""
+        messages = [
+            ("human", GENERATE_FILTER_QUERY_PROMPT.format(input_query=plain_text_query)),
+        ]
+        prompt = ChatPromptTemplate.from_messages(messages)
+        model = MaxChatOpenAI(
+            model="gpt-4.1", temperature=0.3, disable_streaming=True, user=self._node._user, team=self._node._team
+        )
+        chain = prompt | model | StrOutputParser()
+        filter_query = chain.invoke({}, config=config)
+        return filter_query
+
     async def search_sessions(
         self, state: AssistantState, conversation_id: str, start_time: float, config: RunnableConfig
     ) -> list[str] | PartialAssistantState | None:
@@ -340,8 +357,9 @@ class _SessionSearch:
                 replay_filters = self._convert_current_filters_to_recordings_query(current_filters)
             # If not - generate filters to get session ids from DB
             else:
+                filter_query = await self._generate_filter_query(state.session_summarization_query, config)
                 filter_generation_result = await self._generate_replay_filters(
-                    plain_text_query=state.session_summarization_query,
+                    filter_query=filter_query,
                     conversation_id=conversation_id,
                     start_time=start_time,
                 )
