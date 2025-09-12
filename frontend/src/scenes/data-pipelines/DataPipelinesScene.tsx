@@ -7,6 +7,8 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ActivityScope, Breadcrumb } from '~/types'
 
 import { DataPipelinesHogFunctions } from './DataPipelinesHogFunctions'
@@ -126,5 +128,17 @@ export function DataPipelinesScene(): JSX.Element {
         },
     ]
 
-    return <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} />
+    return (
+        <>
+            <SceneTitleSection
+                name="Data pipelines"
+                description="Ingest, transform, and send data between hundreds of tools."
+                resourceType={{
+                    type: 'data_pipeline',
+                }}
+            />
+            <SceneDivider />
+            <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} />
+        </>
+    )
 }

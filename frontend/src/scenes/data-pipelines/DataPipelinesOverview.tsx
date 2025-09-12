@@ -20,26 +20,6 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { nonHogFunctionsLogic } from './utils/nonHogFunctionsLogic'
 
-function Section({
-    title,
-    to,
-    children,
-}: {
-    title: string
-    to: string
-    description?: React.ReactNode
-    children: React.ReactNode
-}): JSX.Element {
-    return (
-        <div>
-            <Link to={to}>
-                <h2>{title}</h2>
-            </Link>
-            <div className="deprecated-space-y-2">{children}</div>
-        </div>
-    )
-}
-
 export function DataPipelinesOverview(): JSX.Element {
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
