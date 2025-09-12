@@ -38,7 +38,11 @@ const EmbeddedQueryTileItem = ({ tile }: { tile: EmbeddedQueryTile }): JSX.Eleme
                 </div>
             )}
 
-            <Query query={query} readOnly={true} />
+            <Query
+                key={`${tile.tileId}-${query.kind === 'DataVisualizationNode' ? JSON.stringify(query.chartSettings?.seriesBreakdownColumn) : 'no-breakdown'}`}
+                query={query}
+                readOnly={true}
+            />
         </div>
     )
 }
