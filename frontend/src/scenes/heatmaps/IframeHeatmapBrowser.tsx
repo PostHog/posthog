@@ -78,6 +78,7 @@ export function IframeHeatmapBrowser({
                 heatmap_fixed_position_mode: heatmapFixedPositionMode,
                 common_filters: commonFilters,
                 heatmap_filters: heatmapFilters,
+                filename: `heatmap-${browserUrl}-${Date.now().toString()}`,
             })
         }
     }
@@ -96,6 +97,7 @@ export function IframeHeatmapBrowser({
                                 onClick={handleExport}
                                 icon={<IconDownload />}
                                 tooltip="Export heatmap as PNG"
+                                data-attr="export-heatmap"
                                 disabledReason={!browserUrl ? 'We can export only the URL with heatmaps' : undefined}
                             >
                                 <div className="flex w-full gap-x-2 justify-between items-center">
