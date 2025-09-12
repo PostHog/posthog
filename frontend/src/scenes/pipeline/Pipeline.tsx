@@ -2,10 +2,14 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ConcreteLemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ActivityScope, PipelineStage, PipelineTab } from '~/types'
 
 import { DataPipelinesSources } from '../data-pipelines/DataPipelinesSources'
@@ -23,6 +27,7 @@ export function Pipeline(): JSX.Element {
     const { canGloballyManagePlugins } = useValues(pipelineAccessLogic)
     const { currentTab } = useValues(pipelineLogic)
     const { hasEnabledImportApps } = useValues(importAppsLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const tabs: Pick<ConcreteLemonTab<PipelineTab>, 'key' | 'content'>[] = [
         { key: PipelineTab.Overview, content: <Overview /> },
@@ -54,7 +59,15 @@ export function Pipeline(): JSX.Element {
     })
 
     return (
-        <div className="pipeline-scene">
+        <SceneContent className="pipeline-scene" forceNewSpacing>
+            <SceneTitleSection
+                name="Data pipelines"
+                description="Ingest, transform, and send data between hundreds of tools."
+                resourceType={{
+                    type: 'data_pipeline',
+                }}
+            />
+            <SceneDivider />
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(tab) => router.actions.push(urls.pipeline(tab as PipelineTab))}
@@ -62,8 +75,9 @@ export function Pipeline(): JSX.Element {
                     ...tab,
                     label: humanFriendlyTabName(tab.key),
                 }))}
+                sceneInset={newSceneLayout}
             />
-        </div>
+        </SceneContent>
     )
 }
 
