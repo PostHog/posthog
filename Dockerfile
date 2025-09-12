@@ -104,7 +104,7 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
 #
 # ---------------------------------------------------------
 #
-FROM python:3.11.9-slim-bookworm AS posthog-build
+FROM python:3.11.13-slim-bookworm AS posthog-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
