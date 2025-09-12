@@ -440,8 +440,7 @@ def vitally_source(
     }
 
     dlt_resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
-    _resource_name, resource = dlt_resources[0]
-    yield from resource
+    yield from dlt_resources[0]
 
 
 def validate_credentials(secret_token: str, region: str, subdomain: Optional[str]) -> bool:
