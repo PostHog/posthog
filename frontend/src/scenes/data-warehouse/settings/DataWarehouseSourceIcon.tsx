@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useCallback } from 'react'
+import { useMemo } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
@@ -72,10 +72,10 @@ export function DataWarehouseSourceIcon({
     size?: 'xsmall' | 'small' | 'medium'
     sizePx?: number
     disableTooltip?: boolean
-}): JSX.Element {
+}): JSX.Element | null {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
 
-    const getIcon = useCallback(() => {
+    const icon = useMemo(() => {
         if (!availableSources) {
             return null
         }
@@ -93,10 +93,8 @@ export function DataWarehouseSourceIcon({
         return <LemonSkeleton />
     }
 
-    const icon = getIcon()
-
     if (!icon) {
-        return <></>
+        return null
     }
 
     const sizePx = sizePxProps ?? SIZE_PX_MAP[size]
