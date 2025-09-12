@@ -140,7 +140,7 @@ class ActivityLog(UUIDTModel):
                 condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
             ),
             GinIndex(
-                name="idx_activitylog_detail_gin_path_ops",
+                name="idx_alog_detail_gin_path_ops",
                 fields=["detail"],
                 opclasses=["jsonb_path_ops"],
                 condition=models.Q(detail__isnull=False),
