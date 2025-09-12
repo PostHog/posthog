@@ -5,6 +5,14 @@ use uuid::Uuid;
 pub type TeamId = i32;
 pub type ProjectId = i64;
 
+/// Trait for types that can provide team identification for caching purposes
+pub trait TeamIdentifier: std::fmt::Debug + Send + Sync {
+    /// Returns the team ID
+    fn team_id(&self) -> TeamId;
+    /// Returns the API token for this team
+    fn api_token(&self) -> &str;
+}
+
 // Actually an "environment"
 #[derive(Debug, Clone)]
 pub struct Team {
@@ -75,5 +83,15 @@ impl Team {
         )
         .fetch_optional(e)
         .await
+    }
+}
+
+impl TeamIdentifier for Team {
+    fn team_id(&self) -> TeamId {
+        self.id
+    }
+
+    fn api_token(&self) -> &str {
+        &self.api_token
     }
 }

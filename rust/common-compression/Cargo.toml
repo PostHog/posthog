@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-flate2 = "1.0"
-base64 = "0.22"
-thiserror = "2.0"
+flate2 = { workspace = true }
+base64 = { workspace = true }
+thiserror = { workspace = true }
+zstd = "0.13"
 
