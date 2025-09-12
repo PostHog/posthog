@@ -338,7 +338,7 @@ async fn test_checkpoint_skips_when_in_progress() {
 
     // TODO(eli): convert test to use CheckpointManager and worker loop
     let checkpoint_counters = Arc::new(Mutex::new(HashMap::<Partition, u32>::new()));
-    let is_checkpointing = Arc::new(Mutex::new(HashSet::new()));
+    let is_checkpointing = Arc::new(Mutex::new(HashSet::<Partition>::new()));
 
     let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
         path: checkpoint_dir.path().to_path_buf(),
@@ -456,7 +456,7 @@ async fn test_checkpoint_with_mock_uploader() {
 
     // TODO(eli): convert test to use CheckpointManager and worker loop
     let checkpoint_counters = Arc::new(Mutex::new(HashMap::<Partition, u32>::new()));
-    let is_checkpointing = Arc::new(Mutex::new(HashSet::new()));
+    let is_checkpointing = Arc::new(Mutex::new(HashSet::<Partition>::new()));
 
     let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
         path: checkpoint_dir.path().to_path_buf(),
@@ -473,15 +473,17 @@ async fn test_checkpoint_with_mock_uploader() {
     let worker = CheckpointWorker::new(
         1,
         CheckpointMode::Full,
-        paths,
+        paths.clone(),
         store.clone(),
         exporter.clone(),
     );
 
     let result = worker.checkpoint_partition().await;
     assert!(result.is_ok());
-    assert!(result.unwrap().is_some());
-    assert!(result.unwrap().unwrap() == paths.remote_path);
+
+    let result = result.unwrap();
+    assert!(result.is_some());
+    assert!(result.unwrap() == paths.remote_path);
 
     // Verify files were "uploaded" to mock storage
     let file_count = uploader.file_count().await.unwrap();
@@ -531,7 +533,7 @@ async fn test_incremental_vs_full_upload() {
 
     // TODO(eli): convert test to use CheckpointManager and worker loop
     let checkpoint_counters = Arc::new(Mutex::new(HashMap::<Partition, u32>::new()));
-    let is_checkpointing = Arc::new(Mutex::new(HashSet::new()));
+    let is_checkpointing = Arc::new(Mutex::new(HashSet::<Partition>::new()));
 
     let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
         path: checkpoint_dir.path().to_path_buf(),
