@@ -139,18 +139,26 @@ function copyAndExtendHeaders(
     originalMessage: Message,
     additionalHeaders: Record<string, string>
 ): Record<string, string> {
-    const originalHeaders = originalMessage.headers || {}
+    const originalHeaders = originalMessage.headers || []
     const stringHeaders: Record<string, string> = {}
 
-    for (const [key, value] of Object.entries(originalHeaders)) {
-        if (typeof value === 'string') {
-            stringHeaders[key] = value
-        } else if (Buffer.isBuffer(value)) {
-            stringHeaders[key] = value.toString()
-        } else if (value !== undefined && value !== null) {
-            stringHeaders[key] = String(value)
+    // Kafka headers are always in array format (MessageHeader[])
+    for (const headerObj of originalHeaders) {
+        for (const [key, value] of Object.entries(headerObj)) {
+            if (value === undefined) {
+                // Skip undefined values
+                continue
+            } else if (typeof value === 'string') {
+                stringHeaders[key] = value
+            } else if (Buffer.isBuffer(value)) {
+                stringHeaders[key] = value.toString()
+            } else {
+                // Convert all other values (including null) to strings
+                stringHeaders[key] = String(value)
+            }
         }
     }
+
     return {
         ...stringHeaders,
         ...additionalHeaders,
@@ -162,7 +170,15 @@ function copyAndExtendHeaders(
  * Only extracts from headers as strings, never parses the payload
  */
 function getEventMetadata(message: Message): { teamId?: string; distinctId?: string; event?: string } {
-    const headers = (message.headers || {}) as any
+    const originalHeaders = message.headers || []
+    const headers: Record<string, any> = {}
+
+    // Kafka headers are always in array format (MessageHeader[])
+    for (const headerObj of originalHeaders) {
+        for (const [key, value] of Object.entries(headerObj)) {
+            headers[key] = value
+        }
+    }
 
     const teamId = headers['team-id'] ? String(headers['team-id']) : undefined
     const distinctId = headers['distinct-id'] ? String(headers['distinct-id']) : undefined
