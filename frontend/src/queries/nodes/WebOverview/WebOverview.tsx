@@ -41,13 +41,14 @@ export function WebOverview(props: {
     cachedResults?: AnyResponseType
     context: QueryContext
     attachTo?: LogicWrapper | BuiltLogic
-    uniqueKey?: string
+    uniqueKey?: string | number
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
-    const [key] = useState(() => `WebOverview.${uniqueNode++}`)
+    const [_key] = useState(() => `WebOverview.${uniqueNode++}`)
+    const key = props.uniqueKey ? String(props.uniqueKey) : _key
     const logic = dataNodeLogic({
         query: props.query,
-        key: props.uniqueKey || key,
+        key,
         cachedResults: props.cachedResults,
         loadPriority,
         onData,

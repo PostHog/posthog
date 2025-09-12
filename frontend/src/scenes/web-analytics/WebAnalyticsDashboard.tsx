@@ -176,6 +176,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                 content: (
                     <WebQuery
                         attachTo={webAnalyticsLogic}
+                        uniqueKey={`WebAnalytics.${tile.tileId}.${tab.id}`}
                         key={tab.id}
                         query={tab.query}
                         showIntervalSelect={tab.showIntervalSelect}
