@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { LemonButton, LemonTextAreaMarkdown } from '@posthog/lemon-ui'
 
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { LemonRichTextEditor } from 'lib/lemon-ui/LemonRichTextEditor/LemonRichTextEditor'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
@@ -26,6 +27,7 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
 
     return (
         <div className="deprecated-space-y-2">
+            <LemonRichTextEditor logicKey="discussions" onChange={() => {}} placeholder={placeholder} />
             <LemonTextAreaMarkdown
                 data-attr="comment-composer"
                 placeholder={placeholder}
