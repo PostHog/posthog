@@ -113,8 +113,8 @@ class TestVercelAuthentication(SimpleTestCase):
         assert result is not None
         user, auth_data = result
         assert isinstance(user, VercelUser)
-        assert user.claims["account_id"] == self.account_id
-        assert user.claims["installation_id"] == self.installation_id
+        assert user.claims.account_id == self.account_id
+        assert user.claims.installation_id == self.installation_id
 
     def test_system_auth_valid_token(self, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks
@@ -126,8 +126,8 @@ class TestVercelAuthentication(SimpleTestCase):
         assert result is not None
         user, auth_data = result
         assert isinstance(user, VercelUser)
-        assert user.claims["account_id"] == self.account_id
-        assert user.claims["installation_id"] == self.installation_id
+        assert user.claims.account_id == self.account_id
+        assert user.claims.installation_id == self.installation_id
 
     def test_missing_authorization_header(self, mock_get_jwks):
         request = self.factory.get("/", HTTP_X_VERCEL_AUTH="user")

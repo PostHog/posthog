@@ -38,6 +38,7 @@ import { normalizeMessages, truncateValue } from './utils'
 
 export const scene: SceneExport = {
     component: LLMAnalyticsScene,
+    logic: llmAnalyticsLogic,
 }
 
 const Filters = (): JSX.Element => {
@@ -72,6 +73,7 @@ const Tiles = (): JSX.Element => {
             {tiles.map(({ title, description, query, context }, i) => (
                 <QueryCard
                     key={i}
+                    attachTo={llmAnalyticsLogic}
                     title={title}
                     description={description}
                     query={{ kind: NodeKind.InsightVizNode, source: query } as InsightVizNode}
