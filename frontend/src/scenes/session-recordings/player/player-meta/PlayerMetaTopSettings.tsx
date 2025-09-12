@@ -26,7 +26,7 @@ import {
 
 import { playerMetaLogic } from './playerMetaLogic'
 
-const TTL_WARNING_THRESHOLD_DAYS = 360 // TODO
+const TTL_WARNING_THRESHOLD_DAYS = 10 // days
 
 function SetPlaybackSpeed(): JSX.Element {
     const { speed, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)

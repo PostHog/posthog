@@ -52,6 +52,10 @@ pub struct Config {
     // 1GB default, supports: raw bytes, scientific notation (9.663676416e+09), or units (9Gi, 1GB)
     pub max_store_capacity: String,
 
+    #[envconfig(default = "120")]
+    // 2 minutes default - interval for checking and cleaning up old data when capacity is exceeded
+    pub cleanup_interval_secs: u64,
+
     // Consumer processing configuration
     #[envconfig(default = "100")]
     pub max_in_flight_messages: usize,
@@ -198,6 +202,11 @@ impl Config {
     /// Get flush interval as Duration
     pub fn flush_interval(&self) -> Duration {
         Duration::from_secs(self.flush_interval_secs)
+    }
+
+    /// Get cleanup interval as Duration
+    pub fn cleanup_interval(&self) -> Duration {
+        Duration::from_secs(self.cleanup_interval_secs)
     }
 
     /// Get producer send timeout as Duration

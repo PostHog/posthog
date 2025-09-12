@@ -19,7 +19,7 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/exports/SidePanelExports'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { SidePanelTab } from '~/types'
 
 import { SidePanelDocs } from './panels/SidePanelDocs'
@@ -137,8 +137,8 @@ export function SidePanel(): JSX.Element | null {
     }
 
     const { desiredSize, isResizeInProgress } = useValues(resizerLogic(resizerLogicProps))
-    const { setSceneContainerRect } = useActions(sceneLayoutLogic)
-    const { sceneContainerRef } = useValues(sceneLayoutLogic)
+    const { setMainContentRect } = useActions(panelLayoutLogic)
+    const { mainContentRef } = useValues(panelLayoutLogic)
 
     useEffect(() => {
         setSidePanelAvailable(true)
@@ -149,10 +149,10 @@ export function SidePanel(): JSX.Element | null {
 
     // Trigger scene width recalculation when SidePanel size changes
     useEffect(() => {
-        if (sceneContainerRef?.current) {
-            setSceneContainerRect(sceneContainerRef.current.getBoundingClientRect())
+        if (mainContentRef?.current) {
+            setMainContentRect(mainContentRef.current.getBoundingClientRect())
         }
-    }, [desiredSize, sidePanelOpen, setSceneContainerRect, sceneContainerRef])
+    }, [desiredSize, sidePanelOpen, setMainContentRect, mainContentRef])
 
     if (!visibleTabs.length) {
         return null
