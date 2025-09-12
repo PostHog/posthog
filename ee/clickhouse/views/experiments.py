@@ -2,8 +2,8 @@ from enum import Enum
 from typing import Any, Literal
 
 from django.db.models import Case, F, Q, QuerySet, Value, When
+from django.db.models.functions import Now
 from django.dispatch import receiver
-from django.utils import timezone
 
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -499,7 +499,7 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
                     computed_duration=Case(
                         When(start_date__isnull=True, then=Value(None)),
                         When(end_date__isnull=False, then=F("end_date") - F("start_date")),
-                        default=Value(timezone.now()) - F("start_date"),
+                        default=Now() - F("start_date"),
                     )
                 )
                 queryset = queryset.order_by(f"{'-' if order.startswith('-') else ''}computed_duration")
