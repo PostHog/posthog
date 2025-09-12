@@ -1,5 +1,6 @@
 from typing import Any
 
+from unittest import mock
 from unittest.mock import Mock, patch
 
 from django.db import IntegrityError
@@ -17,6 +18,7 @@ from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from ee.api.vercel.types import VercelUserClaims
 from ee.vercel.integration import VercelIntegration
 
 
@@ -67,6 +69,17 @@ class TestVercelIntegration(TestCase):
         assert result["isArchived"] == is_archived
         assert "origin" in result
         assert "createdAt" in result
+        assert "updatedAt" in result
+        # Verify createdAt is in milliseconds (should be > 1 billion ms since epoch)
+        assert (
+            result["createdAt"] > 1_000_000_000_000
+        ), f"createdAt should be in milliseconds, got {result['createdAt']}"
+        assert isinstance(result["createdAt"], int), f"createdAt should be int, got {type(result['createdAt'])}"
+        # Verify updatedAt is in milliseconds
+        assert (
+            result["updatedAt"] > 1_000_000_000_000
+        ), f"updatedAt should be in milliseconds, got {result['updatedAt']}"
+        assert isinstance(result["updatedAt"], int), f"updatedAt should be int, got {type(result['updatedAt'])}"
 
     def make_vercel_item(self, **overrides):
         base = {
@@ -105,6 +118,24 @@ class TestVercelIntegration(TestCase):
                 "contact": {"email": "contact@example.com", "name": "John Doe"},
             },
         }
+
+        # Create mock user claims for tests
+        self.user_claims = self._create_user_claims("test_user_123")
+
+    def _create_user_claims(self, user_id: str) -> VercelUserClaims:
+        return VercelUserClaims(
+            iss="https://marketplace.vercel.com",
+            sub="account:test:user:test",
+            aud="test_audience",
+            account_id="test_account",
+            installation_id=self.installation_id,
+            user_id=user_id,
+            user_role="ADMIN",
+            type=None,
+            user_avatar_url=None,
+            user_email=self.payload["account"]["contact"]["email"],
+            user_name=self.payload["account"]["contact"].get("name"),
+        )
 
     def test_get_installation_exists(self):
         installation = VercelIntegration._get_installation(self.installation_id)
@@ -175,7 +206,7 @@ class TestVercelIntegration(TestCase):
     def test_upsert_installation_existing_installation(self):
         original_config = self.installation.config.copy()
 
-        VercelIntegration.upsert_installation(self.installation_id, self.payload)
+        VercelIntegration.upsert_installation(self.installation_id, self.payload, self.user_claims)
 
         self.installation.refresh_from_db()
         assert self.installation.config == self.payload
@@ -184,14 +215,28 @@ class TestVercelIntegration(TestCase):
     @patch("ee.vercel.integration.report_user_signed_up")
     def test_upsert_installation_new_user_new_org(self, mock_report):
         new_installation_id = self.NEW_INSTALLATION_ID
+        new_user_claims = self._create_user_claims("new_user_456")
+        new_user_claims.installation_id = new_installation_id
+        new_user_claims.sub = "account:test:user:new"
 
-        VercelIntegration.upsert_installation(new_installation_id, self.payload)
+        VercelIntegration.upsert_installation(new_installation_id, self.payload, new_user_claims)
 
         new_installation = OrganizationIntegration.objects.get(integration_id=new_installation_id)
-        assert new_installation.config == self.payload
+
+        expected_config = self.payload.copy()
+        expected_config["user_mappings"] = {"new_user_456": mock.ANY}
+
+        # Check that user mapping was created
+        assert "user_mappings" in new_installation.config
+        assert "new_user_456" in new_installation.config["user_mappings"]
+        assert new_installation.config["user_mappings"]["new_user_456"] is not None
+
+        # Check all other config fields match
+        for key, value in self.payload.items():
+            assert new_installation.config[key] == value
 
         new_user = User.objects.get(email=self.payload["account"]["contact"]["email"])
-        assert new_user.first_name == self.payload["account"]["contact"]["name"]
+        assert new_user.first_name == "John"
         assert not new_user.is_email_verified
 
         new_org = new_installation.organization
@@ -208,25 +253,41 @@ class TestVercelIntegration(TestCase):
             email=self.payload["account"]["contact"]["email"], password="existing", first_name="Existing"
         )
         new_installation_id = self.NEW_INSTALLATION_ID
+        existing_user_claims = self._create_user_claims("existing_user_789")
+        existing_user_claims.installation_id = new_installation_id
+        existing_user_claims.sub = "account:test:user:existing"
 
-        VercelIntegration.upsert_installation(new_installation_id, self.payload)
+        VercelIntegration.upsert_installation(new_installation_id, self.payload, existing_user_claims)
 
         new_installation = OrganizationIntegration.objects.get(integration_id=new_installation_id)
         assert new_installation.created_by == existing_user
 
+        # User mapping was not created for existing user (happens during SSO)
+        assert "user_mappings" not in new_installation.config or "existing_user_789" not in new_installation.config.get(
+            "user_mappings", {}
+        )
+
+        # Check all other config fields match
+        for key, value in self.payload.items():
+            assert new_installation.config[key] == value
+
+        # Existing user was not automatically added to the organization (also happens during SSO)
         new_org = new_installation.organization
-        membership = OrganizationMembership.objects.get(user=existing_user, organization=new_org)
-        assert membership.level == OrganizationMembership.Level.OWNER
+        assert not OrganizationMembership.objects.filter(user=existing_user, organization=new_org).exists()
 
         mock_report.assert_not_called()
 
     @patch("ee.vercel.integration.capture_exception")
     def test_upsert_installation_integrity_error(self, mock_capture):
-        with patch("posthog.models.organization.Organization.objects.create") as mock_create:
-            mock_create.side_effect = IntegrityError("Duplicate key")
+        error_user_claims = self._create_user_claims("error_user_999")
+        error_user_claims.installation_id = self.NEW_INSTALLATION_ID
+        error_user_claims.sub = "account:test:user:error"
+
+        with patch("ee.vercel.integration.OrganizationIntegration.objects.update_or_create") as mock_update_or_create:
+            mock_update_or_create.side_effect = IntegrityError("Duplicate key")
 
             with self.assertRaises(ValidationError) as context:
-                VercelIntegration.upsert_installation(self.NEW_INSTALLATION_ID, self.payload)
+                VercelIntegration.upsert_installation(self.NEW_INSTALLATION_ID, self.payload, error_user_claims)
 
             detail = context.exception.detail
             if isinstance(detail, dict):
@@ -238,7 +299,13 @@ class TestVercelIntegration(TestCase):
         payload_without_name = self.payload.copy()
         del payload_without_name["account"]["name"]
 
-        VercelIntegration.upsert_installation(new_installation_id, payload_without_name)
+        fallback_user_claims = self._create_user_claims("fallback_user_111")
+        fallback_user_claims.installation_id = new_installation_id
+        fallback_user_claims.sub = "account:test:user:fallback"
+        fallback_user_claims.user_email = payload_without_name["account"]["contact"]["email"]
+        fallback_user_claims.user_name = payload_without_name["account"]["contact"]["name"]
+
+        VercelIntegration.upsert_installation(new_installation_id, payload_without_name, fallback_user_claims)
 
         new_installation = OrganizationIntegration.objects.get(integration_id=new_installation_id)
         assert new_installation.organization.name == f"Vercel Installation {new_installation_id}"
@@ -248,10 +315,16 @@ class TestVercelIntegration(TestCase):
         payload_without_name = self.payload.copy()
         del payload_without_name["account"]["contact"]["name"]
 
-        VercelIntegration.upsert_installation(new_installation_id, payload_without_name)
+        no_name_user_claims = self._create_user_claims("noname_user_222")
+        no_name_user_claims.installation_id = new_installation_id
+        no_name_user_claims.sub = "account:test:user:noname"
+        no_name_user_claims.user_email = payload_without_name["account"]["contact"]["email"]
+        no_name_user_claims.user_name = None
+
+        VercelIntegration.upsert_installation(new_installation_id, payload_without_name, no_name_user_claims)
 
         new_user = User.objects.get(email=payload_without_name["account"]["contact"]["email"])
-        assert new_user.first_name == ""
+        assert new_user.first_name == payload_without_name["account"]["contact"]["email"].split("@")[0]
 
     def test_get_resource_not_found(self):
         with self.assertRaises(NotFound):
@@ -455,7 +528,7 @@ class TestVercelIntegration(TestCase):
         team, _ = self.make_team_with_vercel(self.organization, self.user)
         factory = getattr(self, factory_name)
         item = factory(team, name, desc, archived)
-        result = converter(item)
+        result = converter(item, created=True)
         self.assert_vercel_item(item, result, category, archived, expected_slug, name, desc)
 
     @parameterized.expand(
@@ -484,15 +557,15 @@ class TestVercelIntegration(TestCase):
             vercel_item = self.make_vercel_item()
             VercelIntegration._sync_item_to_vercel(
                 team=team,
-                item_type="test_item",
-                item_id="123",
+                item_type="flag",
+                item_pk="123",
                 vercel_item=vercel_item,
                 created=params.get("created", True),
             )
         else:
             VercelIntegration._delete_item_from_vercel(
                 team=team,
-                item_type="test_item",
+                item_type="flag",
                 item_id="test_id",
             )
 
@@ -518,7 +591,7 @@ class TestVercelIntegration(TestCase):
 
         mock_delete.assert_called_once_with(
             team=team,
-            item_type="feature_flag",
+            item_type="flag",
             item_id=f"flag_{feature_flag.pk}",
         )
 

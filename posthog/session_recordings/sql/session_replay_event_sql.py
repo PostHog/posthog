@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
     _timestamp SimpleAggregateFunction(max, DateTime),
     -- retention period for this session, in days. Useful to show TTL for the recording
-    retention_period_days Nullable(Int64)
+    retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
 ) ENGINE = {engine}
 """
 
@@ -168,9 +168,7 @@ sum(event_count) as event_count,
 argMinState(snapshot_source, first_timestamp) as snapshot_source,
 argMinState(snapshot_library, first_timestamp) as snapshot_library,
 max(_timestamp) as _timestamp,
--- CH will pick the retention period here, but only if there is a single unique non-null value across all blocks
--- ...otherwise this column will be NULL
-singleValueOrNull(retention_period_days) as retention_period_days
+max(retention_period_days) as retention_period_days
 FROM {database}.kafka_session_replay_events
 group by session_id, team_id
 """.format(
@@ -197,7 +195,7 @@ group by session_id, team_id
 `snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
 `snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
 `_timestamp` Nullable(DateTime),
-`retention_period_days` Nullable(Int64)
+`retention_period_days` SimpleAggregateFunction(max, Nullable(Int64))
 )""",
     )
 

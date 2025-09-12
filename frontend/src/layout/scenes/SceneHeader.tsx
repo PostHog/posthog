@@ -23,7 +23,6 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { Breadcrumb as IBreadcrumb } from '~/types'
 
 import { ProjectDropdownMenu } from '../panel-layout/ProjectDropdownMenu'
-import { SceneTabs } from './SceneTabs'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
 
 export function SceneHeader({ className }: { className?: string }): JSX.Element | null {
@@ -44,10 +43,9 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
     const { currentTeam } = useValues(teamLogic)
     const effectiveBreadcrumbs = useSceneTabs ? breadcrumbs.slice(1) : breadcrumbs
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-    return effectiveBreadcrumbs.length || projectTreeRefEntry ? (
+    return !newSceneLayout && (effectiveBreadcrumbs.length || projectTreeRefEntry) ? (
         <>
             <div className="flex flex-col items-center z-[var(--z-top-navigation)]">
-                {useSceneTabs ? <SceneTabs /> : null}
                 <div
                     className={cn(
                         'flex items-center gap-1 w-full py-1 px-4 h-[var(--scene-layout-header-height)]',
@@ -69,7 +67,7 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                             className="h-[var(--scene-layout-header-height)] pr-2 flex-1"
                             innerClassName="flex gap-0 flex-1 items-center overflow-x-auto show-scrollbar-on-hover h-full"
                         >
-                            {!newSceneLayout && effectiveBreadcrumbs.length > 0 ? (
+                            {effectiveBreadcrumbs.length > 0 ? (
                                 <>
                                     {effectiveBreadcrumbs.map((breadcrumb, index) => (
                                         <React.Fragment key={joinBreadcrumbKey(breadcrumb.key)}>
@@ -126,36 +124,40 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                             )}
                         </ScrollableShadows>
 
-                        <div className="flex gap-1 items-center shrink-0 pr-px">
-                            <div className="contents" ref={setActionsContainer} />
+                        {!newSceneLayout && (
+                            <div className="flex gap-1 items-center shrink-0 pr-px">
+                                <div className="contents" ref={setActionsContainer} />
 
-                            {scenePanelIsPresent && (
-                                <LemonButton
-                                    onClick={() =>
-                                        scenePanelIsRelative
-                                            ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
-                                            : setScenePanelOpen(!scenePanelOpen)
-                                    }
-                                    icon={<IconEllipsis className="text-primary" />}
-                                    tooltip={
-                                        !scenePanelOpen
-                                            ? 'Open Info & actions panel'
-                                            : scenePanelIsRelative
-                                              ? 'Force close Info & actions panel'
-                                              : 'Close Info & actions panel'
-                                    }
-                                    aria-label={
-                                        !scenePanelOpen
-                                            ? 'Open Info & actions panel'
-                                            : scenePanelIsRelative
-                                              ? 'Force close Info & actions panel'
-                                              : 'Close Info & actions panel'
-                                    }
-                                    active={scenePanelOpen}
-                                    size="small"
-                                />
-                            )}
-                        </div>
+                                {scenePanelIsPresent && (
+                                    <LemonButton
+                                        onClick={() =>
+                                            scenePanelIsRelative
+                                                ? setForceScenePanelClosedWhenRelative(
+                                                      !forceScenePanelClosedWhenRelative
+                                                  )
+                                                : setScenePanelOpen(!scenePanelOpen)
+                                        }
+                                        icon={<IconEllipsis className="text-primary" />}
+                                        tooltip={
+                                            !scenePanelOpen
+                                                ? 'Open Info & actions panel'
+                                                : scenePanelIsRelative
+                                                  ? 'Force close Info & actions panel'
+                                                  : 'Close Info & actions panel'
+                                        }
+                                        aria-label={
+                                            !scenePanelOpen
+                                                ? 'Open Info & actions panel'
+                                                : scenePanelIsRelative
+                                                  ? 'Force close Info & actions panel'
+                                                  : 'Close Info & actions panel'
+                                        }
+                                        active={scenePanelOpen}
+                                        size="small"
+                                    />
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

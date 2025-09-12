@@ -69,7 +69,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.DASHBOARD,
         defaultDocsPath: '/docs/product-analytics/dashboards',
     },
-    [Scene.Dashboards]: { projectBased: true, name: 'Dashboards', activityScope: ActivityScope.DASHBOARD },
+    [Scene.Dashboards]: {
+        projectBased: true,
+        name: 'Dashboards',
+        activityScope: ActivityScope.DASHBOARD,
+    },
     [Scene.DataManagement]: {
         projectBased: true,
         name: 'Data management',
@@ -273,6 +277,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
         hideProjectNotice: true,
+        layout: 'app-full-scene-height',
     },
     [Scene.RevenueAnalytics]: {
         projectBased: true,
