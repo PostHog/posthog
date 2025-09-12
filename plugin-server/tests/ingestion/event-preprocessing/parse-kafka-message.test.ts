@@ -257,11 +257,51 @@ describe('parseKafkaMessage', () => {
             })
         })
 
-        it('should return null when data field is not a string', () => {
+        it('should handle data field as object (not string)', () => {
             const mockMessage: Message = {
                 value: Buffer.from(
                     JSON.stringify({
-                        data: { not: 'a string' },
+                        data: {
+                            event: 'test_event',
+                            distinct_id: 'test_user',
+                            team_id: 1,
+                            properties: { test: 'value' },
+                        },
+                        token: 'test_token',
+                        ip: '127.0.0.1',
+                    })
+                ),
+            } as Message
+
+            const result = parseKafkaMessage(mockMessage)
+
+            expect(result).toEqual({
+                message: mockMessage,
+                event: {
+                    event: 'test_event',
+                    distinct_id: 'test_user',
+                    team_id: 1,
+                    properties: {
+                        test: 'value',
+                        $ip: '127.0.0.1',
+                    },
+                    token: 'test_token',
+                    ip: null,
+                },
+            })
+        })
+
+        it('should handle data field as object with additional raw event fields', () => {
+            const mockMessage: Message = {
+                value: Buffer.from(
+                    JSON.stringify({
+                        data: {
+                            event: 'object_event',
+                            distinct_id: 'object_user',
+                            properties: { inner: 'value' },
+                        },
+                        custom_field: 'custom_value',
+                        another_field: 42,
                         token: 'test_token',
                     })
                 ),
@@ -269,9 +309,17 @@ describe('parseKafkaMessage', () => {
 
             const result = parseKafkaMessage(mockMessage)
 
-            expect(result).toBeNull()
-            expect(mockLogger.warn).toHaveBeenCalledWith('Failed to parse Kafka message', {
-                error: expect.any(Error),
+            expect(result).toEqual({
+                message: mockMessage,
+                event: {
+                    event: 'object_event',
+                    distinct_id: 'object_user',
+                    properties: { inner: 'value' },
+                    custom_field: 'custom_value',
+                    another_field: 42,
+                    token: 'test_token',
+                    ip: null,
+                },
             })
         })
     })
@@ -359,6 +407,29 @@ describe('parseKafkaMessage', () => {
                     distinct_id: 'null',
                     properties: {},
                     token: 'null',
+                    ip: null,
+                },
+            })
+        })
+
+        it('should handle data field as null object', () => {
+            const mockMessage: Message = {
+                value: Buffer.from(
+                    JSON.stringify({
+                        data: null,
+                        token: 'test_token',
+                    })
+                ),
+            } as Message
+
+            const result = parseKafkaMessage(mockMessage)
+
+            expect(result).toEqual({
+                message: mockMessage,
+                event: {
+                    distinct_id: 'undefined',
+                    properties: {},
+                    token: 'test_token',
                     ip: null,
                 },
             })
