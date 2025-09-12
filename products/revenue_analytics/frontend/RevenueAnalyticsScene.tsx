@@ -1,5 +1,5 @@
 import { BindLogic, useValues } from 'kea'
-import { useEffect, useState } from 'node_modules/@types/react'
+import { useEffect, useState } from 'react'
 
 import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
 
