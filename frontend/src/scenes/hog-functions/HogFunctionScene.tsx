@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
+import { BindLogic, actions, connect, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -17,6 +17,9 @@ import { HogFunctionTesting } from 'scenes/hog-functions/testing/HogFunctionTest
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ActivityScope,
     Breadcrumb,
@@ -26,6 +29,7 @@ import {
 } from '~/types'
 
 import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
+import { HogFunctionIconEditable } from './configuration/HogFunctionIcon'
 import { HogFunctionMetrics } from './metrics/HogFunctionMetrics'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
 
@@ -209,6 +213,35 @@ export const scene: SceneExport<HogFunctionConfigurationLogicProps> = {
     },
 }
 
+function HogFunctionHeader(): JSX.Element {
+    const { configuration, logicProps, template, loading } = useValues(hogFunctionConfigurationLogic)
+    const { setConfigurationValue } = useActions(hogFunctionConfigurationLogic)
+    return (
+        <SceneTitleSection
+            name={configuration.name}
+            description={configuration.description || ''}
+            resourceType={{
+                type: 'data_pipeline',
+                forceIcon: (
+                    <span className="ml-2 flex">
+                        <HogFunctionIconEditable
+                            logicKey={logicProps.id ?? 'new'}
+                            src={configuration.icon_url}
+                            onChange={(val) => setConfigurationValue('icon_url', val)}
+                            size="small"
+                        />
+                    </span>
+                ),
+            }}
+            isLoading={loading}
+            onNameChange={(value) => setConfigurationValue('name', value)}
+            onDescriptionChange={(value) => setConfigurationValue('description', value)}
+            canEdit
+            forceEdit={!!template}
+        />
+    )
+}
+
 export function HogFunctionScene(): JSX.Element {
     const { currentTab, loading, loaded, logicProps, type } = useValues(hogFunctionSceneLogic)
     const { setCurrentTab } = useActions(hogFunctionSceneLogic)
@@ -271,5 +304,13 @@ export function HogFunctionScene(): JSX.Element {
         },
     ]
 
-    return <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} />
+    return (
+        <SceneContent forceNewSpacing>
+            <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
+                <HogFunctionHeader />
+                <SceneDivider />
+                <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset={true} />
+            </BindLogic>
+        </SceneContent>
+    )
 }
