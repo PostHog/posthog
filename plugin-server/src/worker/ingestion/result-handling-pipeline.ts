@@ -26,17 +26,89 @@ export type PipelineConfig = {
 }
 
 /**
+ * Base class for handling pipeline results (DLQ, DROP, REDIRECT).
+ * Contains common logic for processing non-success results.
+ */
+abstract class BaseResultHandlingPipeline<T> {
+    protected constructor(
+        protected originalMessage: Message,
+        protected config: PipelineConfig
+    ) {}
+
+    /**
+     * Handles a pipeline result, processing non-success results appropriately.
+     * Returns the value for success results, null for non-success results.
+     */
+    protected async handleResult(result: ProcessingResult<T>, stepName: string): Promise<T | null> {
+        if (isSuccessResult(result)) {
+            return result.value
+        }
+
+        // Handle non-success results
+        await this.handleNonSuccessResult(result, stepName)
+        return null
+    }
+
+    private async handleNonSuccessResult(result: ProcessingResult<T>, stepName: string): Promise<void> {
+        if (isDlqResult(result)) {
+            await this.handleDlqResult(result, stepName)
+        } else if (isDropResult(result)) {
+            this.handleDropResult(result, stepName)
+        } else if (isRedirectResult(result)) {
+            await this.handleRedirectResult(result, stepName)
+        }
+    }
+
+    private async handleDlqResult(result: { reason: string; error?: unknown }, stepName: string): Promise<void> {
+        await sendMessageToDLQ(
+            this.config.kafkaProducer,
+            this.originalMessage,
+            result.error || new Error(result.reason),
+            stepName,
+            this.config.dlqTopic
+        )
+    }
+
+    private handleDropResult(result: { reason: string }, stepName: string): void {
+        logDroppedMessage(this.originalMessage, result.reason, stepName)
+    }
+
+    private async handleRedirectResult(
+        result: {
+            reason: string
+            topic: string
+            preserveKey?: boolean
+            awaitAck?: boolean
+        },
+        stepName: string
+    ): Promise<void> {
+        await redirectMessageToTopic(
+            this.config.kafkaProducer,
+            this.config.promiseScheduler,
+            this.originalMessage,
+            result.topic,
+            stepName,
+            result.preserveKey ?? true,
+            result.awaitAck ?? true,
+            this.config.consumerGroupId
+        )
+    }
+}
+
+/**
  * Wrapper around ProcessingPipeline that automatically handles result types (DLQ, DROP, REDIRECT)
  * and cuts execution short when encountering non-success results.
  *
  * Requires a KafkaProducerWrapper for DLQ and redirect functionality.
  */
-export class ResultHandlingPipeline<T> {
+export class ResultHandlingPipeline<T> extends BaseResultHandlingPipeline<T> {
     private constructor(
         private pipeline: ProcessingPipeline<T>,
-        private originalMessage: Message,
-        private config: PipelineConfig
-    ) {}
+        originalMessage: Message,
+        config: PipelineConfig
+    ) {
+        super(originalMessage, config)
+    }
 
     pipe<U>(step: SyncPreprocessingStep<T, U>, _stepName?: string): ResultHandlingPipeline<U> {
         const newPipeline = this.pipeline.pipe(step)
@@ -50,56 +122,7 @@ export class ResultHandlingPipeline<T> {
 
     async unwrap(): Promise<T | null> {
         const result = this.pipeline.unwrap()
-
-        if (isSuccessResult(result)) {
-            return result.value
-        }
-
-        // Handle non-success results
-        await this.handleNonSuccessResult(result)
-        return null
-    }
-
-    private async handleNonSuccessResult(result: ProcessingResult<T>): Promise<void> {
-        if (isDlqResult(result)) {
-            await this.handleDlqResult(result)
-        } else if (isDropResult(result)) {
-            this.handleDropResult(result)
-        } else if (isRedirectResult(result)) {
-            await this.handleRedirectResult(result)
-        }
-    }
-
-    private async handleDlqResult(result: { reason: string; error?: unknown }): Promise<void> {
-        await sendMessageToDLQ(
-            this.config.kafkaProducer,
-            this.originalMessage,
-            result.error || new Error(result.reason),
-            'pipeline_result_handler',
-            this.config.dlqTopic
-        )
-    }
-
-    private handleDropResult(result: { reason: string }): void {
-        logDroppedMessage(this.originalMessage, result.reason, 'pipeline_result_handler')
-    }
-
-    private async handleRedirectResult(result: {
-        reason: string
-        topic: string
-        preserveKey?: boolean
-        awaitAck?: boolean
-    }): Promise<void> {
-        await redirectMessageToTopic(
-            this.config.kafkaProducer,
-            this.config.promiseScheduler,
-            this.originalMessage,
-            result.topic,
-            'pipeline_result_handler',
-            result.preserveKey ?? true,
-            result.awaitAck ?? true,
-            this.config.consumerGroupId
-        )
+        return this.handleResult(result, 'pipeline_result_handler')
     }
 
     static of<T>(value: T, originalMessage: Message, config: PipelineConfig): ResultHandlingPipeline<T> {
@@ -114,12 +137,14 @@ export class ResultHandlingPipeline<T> {
  *
  * Requires a KafkaProducerWrapper for DLQ and redirect functionality.
  */
-export class AsyncResultHandlingPipeline<T> {
+export class AsyncResultHandlingPipeline<T> extends BaseResultHandlingPipeline<T> {
     constructor(
         private pipeline: AsyncProcessingPipeline<T>,
-        private originalMessage: Message,
-        private config: PipelineConfig
-    ) {}
+        originalMessage: Message,
+        config: PipelineConfig
+    ) {
+        super(originalMessage, config)
+    }
 
     pipe<U>(step: SyncPreprocessingStep<T, U>, _stepName?: string): AsyncResultHandlingPipeline<U> {
         const newPipeline = this.pipeline.pipe(step)
@@ -133,56 +158,7 @@ export class AsyncResultHandlingPipeline<T> {
 
     async unwrap(): Promise<T | null> {
         const result = await this.pipeline.unwrap()
-
-        if (isSuccessResult(result)) {
-            return result.value
-        }
-
-        // Handle non-success results
-        await this.handleNonSuccessResult(result)
-        return null
-    }
-
-    private async handleNonSuccessResult(result: ProcessingResult<T>): Promise<void> {
-        if (isDlqResult(result)) {
-            await this.handleDlqResult(result)
-        } else if (isDropResult(result)) {
-            this.handleDropResult(result)
-        } else if (isRedirectResult(result)) {
-            await this.handleRedirectResult(result)
-        }
-    }
-
-    private async handleDlqResult(result: { reason: string; error?: unknown }): Promise<void> {
-        await sendMessageToDLQ(
-            this.config.kafkaProducer,
-            this.originalMessage,
-            result.error || new Error(result.reason),
-            'async_pipeline_result_handler',
-            this.config.dlqTopic
-        )
-    }
-
-    private handleDropResult(result: { reason: string }): void {
-        logDroppedMessage(this.originalMessage, result.reason, 'async_pipeline_result_handler')
-    }
-
-    private async handleRedirectResult(result: {
-        reason: string
-        topic: string
-        preserveKey?: boolean
-        awaitAck?: boolean
-    }): Promise<void> {
-        await redirectMessageToTopic(
-            this.config.kafkaProducer,
-            this.config.promiseScheduler,
-            this.originalMessage,
-            result.topic,
-            'async_pipeline_result_handler',
-            result.preserveKey ?? true,
-            result.awaitAck ?? true,
-            this.config.consumerGroupId
-        )
+        return this.handleResult(result, 'async_pipeline_result_handler')
     }
 
     static of<T>(value: T, originalMessage: Message, config: PipelineConfig): AsyncResultHandlingPipeline<T> {
