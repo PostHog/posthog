@@ -62,6 +62,7 @@ import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurati
 export interface HogFunctionConfigurationLogicProps {
     logicKey?: string
     templateId?: string | null
+    subTemplateId?: string | null
     id?: string | null
 }
 
@@ -283,8 +284,11 @@ export function mightDropEvents(code: string): boolean {
 export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicType>([
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
     props({} as HogFunctionConfigurationLogicProps),
-    key(({ id, templateId, logicKey }: HogFunctionConfigurationLogicProps) => {
-        const baseKey = id ?? templateId ?? 'new'
+    key(({ id, templateId, subTemplateId, logicKey }: HogFunctionConfigurationLogicProps) => {
+        let baseKey = id ?? templateId ?? 'new'
+        if (subTemplateId) {
+            baseKey = `${subTemplateId}_${baseKey}`
+        }
         return logicKey ? `${logicKey}_${baseKey}` : baseKey
     }),
     connect(({ id }: HogFunctionConfigurationLogicProps) => ({

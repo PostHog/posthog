@@ -15,6 +15,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Annotations } from 'scenes/annotations'
 import { NewAnnotationButton } from 'scenes/annotations/AnnotationModal'
+import { AdvancedActivityLogsList } from 'scenes/audit-logs/AdvancedActivityLogsList'
 import { Comments } from 'scenes/data-management/comments/Comments'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -38,6 +39,7 @@ export enum DataManagementTab {
     Annotations = 'annotations',
     Comments = 'comments',
     History = 'history',
+    ActivityLogs = 'activity-logs',
     IngestionWarnings = 'warnings',
     Revenue = 'revenue',
     MarketingAnalytics = 'marketing-analytics',
@@ -125,6 +127,12 @@ const tabs: Record<DataManagementTab, TabConfig> = {
         ),
         tooltipDocLink: 'https://posthog.com/docs/data#history',
     },
+    [DataManagementTab.ActivityLogs]: {
+        url: urls.advancedActivityLogs(),
+        label: 'Activity logs',
+        content: <AdvancedActivityLogsList />,
+        flag: FEATURE_FLAGS.ADVANCED_ACTIVITY_LOGS,
+    },
     [DataManagementTab.Revenue]: {
         url: urls.revenueSettings(),
         label: (
@@ -177,14 +185,18 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
     }),
     selectors({
         breadcrumbs: [
-            (s) => [s.tab],
-            (tab): Breadcrumb[] => {
+            (s) => [s.tab, s.featureFlags],
+            (tab, featureFlags): Breadcrumb[] => {
                 return [
-                    {
-                        key: Scene.DataManagement,
-                        name: `Data management`,
-                        path: tabs.events.url,
-                    },
+                    ...(!featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+                        ? [
+                              {
+                                  key: Scene.DataManagement,
+                                  name: `Data management`,
+                                  path: urls.eventDefinitions(),
+                              },
+                          ]
+                        : []),
                     {
                         key: tab,
                         name: capitalizeFirstLetter(tab),
@@ -197,6 +209,7 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
             (s) => [s.featureFlags],
             (featureFlags): DataManagementTab[] => {
                 const allTabs = Object.entries(tabs)
+
                 return allTabs
                     .filter(([_, tab]) => {
                         return !tab.flag || !!featureFlags[tab.flag]

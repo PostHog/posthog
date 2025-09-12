@@ -5,7 +5,6 @@ import { router } from 'kea-router'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { PageHeader } from 'lib/components/PageHeader'
 import { base64Encode } from 'lib/utils'
 import { getTextFromFile, selectFiles } from 'lib/utils/file-utils'
@@ -13,6 +12,9 @@ import { getAppContext } from 'lib/utils/getAppContext'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { NotebooksTable } from './NotebooksTable/NotebooksTable'
@@ -23,7 +25,7 @@ export const scene: SceneExport = {
 
 export function NotebooksScene(): JSX.Element {
     return (
-        <div className="deprecated-space-y-4">
+        <SceneContent forceNewSpacing>
             <PageHeader
                 buttons={
                     <>
@@ -66,23 +68,33 @@ export function NotebooksScene(): JSX.Element {
                                 New canvas
                             </LemonButton>
                         </Tooltip>
-                        <AccessControlledLemonButton
+                        <LemonButton
                             data-attr="new-notebook"
                             to={urls.notebook('new')}
                             type="primary"
-                            resourceType={AccessControlResourceType.Notebook}
-                            minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={
-                                getAppContext()?.resource_access_control?.[AccessControlResourceType.Notebook]
-                            }
+                            accessControl={{
+                                resourceType: AccessControlResourceType.Notebook,
+                                minAccessLevel: AccessControlLevel.Editor,
+                                userAccessLevel:
+                                    getAppContext()?.resource_access_control?.[AccessControlResourceType.Notebook],
+                            }}
                         >
                             New notebook
-                        </AccessControlledLemonButton>
+                        </LemonButton>
                     </>
                 }
             />
 
+            <SceneTitleSection
+                name="Notebooks"
+                description="Notebooks are a way to organize your work and share it with others."
+                resourceType={{
+                    type: 'notebook',
+                }}
+            />
+            <SceneDivider />
+
             <NotebooksTable />
-        </div>
+        </SceneContent>
     )
 }

@@ -186,7 +186,7 @@ FROM (
             $session_id,
             {events} as events,
             minForEach(arrayMap(x -> (if(event = x, toNullable(timestamp), NULL)), {events})) as earliest_success_events,
-            minForEach(arrayMap(x -> (if(x = issue_id, toNullable(timestamp), NULL)), (SELECT ids FROM issues))) as earliest_exceptions,
+            minForEach(arrayMap(x -> (if(x = issue_id, toNullable(timestamp), NULL)), (SELECT ids FROM issues))) as earliest_exceptions
         FROM events
         WHERE
             (timestamp > now() - INTERVAL 6 HOUR) AND

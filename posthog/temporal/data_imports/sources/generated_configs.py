@@ -30,6 +30,12 @@ class BigQueryTemporaryDatasetConfig(config.Config):
 
 
 @config.config
+class GoogleAdsIsMccAccountConfig(config.Config):
+    mcc_client_id: str
+    enabled: bool = config.value(converter=config.str_to_bool, default=False)
+
+
+@config.config
 class SnowflakeAuthTypeConfig(config.Config):
     user: str
     password: str
@@ -74,6 +80,7 @@ class DoItSourceConfig(config.Config):
 class GoogleAdsSourceConfig(config.Config):
     customer_id: str
     google_ads_integration_id: int = config.value(converter=config.str_to_int)
+    is_mcc_account: GoogleAdsIsMccAccountConfig | None = None
 
 
 @config.config

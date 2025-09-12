@@ -89,7 +89,7 @@ export const privilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
 
 // Persons
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3
-export const PERSON_DISPLAY_NAME_COLUMN_NAME = 'person_display_name -- Person '
+export const PERSON_DISPLAY_NAME_COLUMN_NAME = 'person_display_name -- Person'
 
 // Sync with .../api/person.py and .../ingestion/hooks.ts
 export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
@@ -208,6 +208,7 @@ export const FEATURE_FLAGS = {
     REPLAY_TEMPLATES: 'replay-templates', // owner: @raquelmsmith #team-replay
     MESSAGING: 'messaging', // owner @haven #team-messaging
     MESSAGING_EARLY_ACCESS: 'messaging-product', // owner @haven #team-messaging
+    MESSAGING_TRIGGER_WEBHOOK: 'messaging-trigger-webhook', // owner #team-messaging
     ENVIRONMENTS_ROLLBACK: 'environments-rollback', // owner: @yasen-posthog #team-platform-features
     SELF_SERVE_CREDIT_OVERRIDE: 'self-serve-credit-override', // owner: @zach
     CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: @daibhin
@@ -231,7 +232,7 @@ export const FEATURE_FLAGS = {
     DELAYED_LOADING_ANIMATION: 'delayed-loading-animation', // owner: @raquelmsmith
     SESSION_RECORDINGS_PLAYLIST_COUNT_COLUMN: 'session-recordings-playlist-count-column', // owner: @pauldambra #team-replay
     WEB_ANALYTICS_PAGE_REPORTS: 'web-analytics-page-reports', // owner: @lricoy #team-web-analytics
-    REVENUE_ANALYTICS: 'revenue-analytics-beta', // owner: @rafaeelaudibert #team-revenue-analytics
+    EMBEDDED_ANALYTICS: 'embedded-analytics', // owner: @sakce #team-clickhouse
     SUPPORT_FORM_IN_ONBOARDING: 'support-form-in-onboarding', // owner: @joshsny #team-growth
     CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @arthurdedeus #team-crm
     CRM_USAGE_METRICS: 'crm-usage-metrics', // owner: @arthurdedeus #team-crm
@@ -289,18 +290,19 @@ export const FEATURE_FLAGS = {
     MAX_BILLING_CONTEXT: 'max-billing-context', // owner: @pawel-cebula #team-billing
     SCENE_TABS: 'scene-tabs', // owner @mariusandra #team-devex
     TASKS: 'tasks', // owner: #team-llm-analytics
-    FEATURE_FLAGS_FLAG_DEPENDENCY: 'feature-flags-flag-dependency', // owner: @haacked #team-feature-flags
     LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT: 'llm-observability-show-input-output', // owner: #team-llm-analytics
     MAX_SESSION_SUMMARIZATION: 'max-session-summarization', // owner: #team-max-ai
     CDP_NEW_PRICING: 'cdp-new-pricing', // owner: #team-messaging
     IMPROVED_COOKIELESS_MODE: 'improved-cookieless-mode', // owner: @robbie-c #team-web-analytics
     REPLAY_EXPORT_FULL_VIDEO: 'replay-export-full-video', // owner: @veryayskiy #team-replay
+    PLATFORM_START_TRIAL_CTA: 'platform-start-trial-cta', // owner: @a-lider #team-platform-features
     LLM_ANALYTICS_DATASETS: 'llm-analytics-datasets', // owner: #team-llm-analytics #team-max-ai
     AMPLITUDE_BATCH_IMPORT_OPTIONS: 'amplitude-batch-import-options', // owner: #team-ingestion
     MAX_DEEP_RESEARCH: 'max-deep-research', // owner: @kappa90 #team-max-ai
     NOTEBOOKS_COLLAPSIBLE_SECTIONS: 'notebooks-collapsible-sections', // owner: @daibhin @benjackwhite
     QUERY_EXECUTION_DETAILS: 'query-execution-details', // owner: @sakce
     PASSWORD_PROTECTED_SHARES: 'password-protected-shares', // owner: @aspicer
+    ADVANCED_ACTIVITY_LOGS: 'advanced-activity-logs', // owner: @yasen-posthog #team-platform-features
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
@@ -384,6 +386,7 @@ export const SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5
 export const GENERATED_DASHBOARD_PREFIX = 'Generated Dashboard'
 
 export const ACTIVITY_PAGE_SIZE = 20
+export const ADVANCED_ACTIVITY_PAGE_SIZE = 100
 export const EVENT_DEFINITIONS_PER_PAGE = 50
 export const PROPERTY_DEFINITIONS_PER_EVENT = 5
 export const EVENT_PROPERTY_DEFINITIONS_PER_PAGE = 50

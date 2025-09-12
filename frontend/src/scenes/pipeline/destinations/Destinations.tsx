@@ -29,6 +29,9 @@ import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { RenderBatchExportIcon } from 'scenes/data-pipelines/batch-exports/BatchExportIcon'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { AvailableFeature, HogFunctionTypeType, PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
 
 import { HogFunctionIcon } from '../../hog-functions/configuration/HogFunctionIcon'
@@ -51,7 +54,7 @@ export interface DestinationsProps {
 
 export function Destinations({ types }: DestinationsProps): JSX.Element {
     const { destinations, loading } = useValues(pipelineDestinationsLogic({ types }))
-
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     const hasNewPricing = !!useFeatureFlag('CDP_NEW_PRICING')
 
     const productIntro = (
@@ -67,11 +70,15 @@ export function Destinations({ types }: DestinationsProps): JSX.Element {
     )
 
     return (
-        <>
+        <SceneContent forceNewSpacing>
             {types.includes('destination') ? (
                 <>
                     <PageHeader
-                        caption="Send your data in real time or in batches to destinations outside of PostHog."
+                        caption={
+                            !newSceneLayout
+                                ? 'Send your data in real time or in batches to destinations outside of PostHog.'
+                                : undefined
+                        }
                         buttons={<NewButton stage={PipelineStage.Destination} />}
                     />
                     {hasNewPricing ? (
@@ -84,7 +91,7 @@ export function Destinations({ types }: DestinationsProps): JSX.Element {
                 </>
             ) : types.includes('site_app') ? (
                 <PageHeader
-                    caption="Run custom scripts on your website."
+                    caption={!newSceneLayout ? 'Run custom scripts on your website.' : undefined}
                     buttons={<NewButton stage={PipelineStage.SiteApp} />}
                 />
             ) : types.includes('transformation') ? (
@@ -93,21 +100,61 @@ export function Destinations({ types }: DestinationsProps): JSX.Element {
                 </>
             ) : null}
 
+            {newSceneLayout && (
+                <>
+                    <>
+                        {types.includes('destination') ? (
+                            <>
+                                <p className="m-0">
+                                    Send your data in real time or in batches to destinations outside of PostHog.
+                                </p>
+                            </>
+                        ) : types.includes('site_app') ? (
+                            <p className="m-0">Run custom scripts on your website.</p>
+                        ) : null}
+                    </>
+                </>
+            )}
+
             <DestinationsTable types={types} />
-            <div className="mt-4" />
-            <h2>
-                {types.includes('destination')
-                    ? 'New destinations'
-                    : types.includes('site_app')
-                      ? 'New site app'
-                      : types.includes('transformation')
-                        ? 'New transformation'
-                        : 'New'}
-            </h2>
-            <DestinationOptionsTable types={types} />
+            <SceneDivider />
+            <SceneSection
+                title={
+                    <span className="flex items-center gap-2">
+                        {types.includes('destination')
+                            ? 'New destinations'
+                            : types.includes('site_app')
+                              ? 'New site app'
+                              : types.includes('transformation')
+                                ? 'New transformation'
+                                : 'New'}
+                    </span>
+                }
+                hideTitleAndDescription={!newSceneLayout}
+            >
+                <>
+                    {!newSceneLayout && (
+                        <h2>
+                            {types.includes('destination')
+                                ? 'New destinations'
+                                : types.includes('site_app')
+                                  ? 'New site app'
+                                  : types.includes('transformation')
+                                    ? 'New transformation'
+                                    : 'New'}
+                        </h2>
+                    )}
+                    <DestinationOptionsTable types={types} />
+                </>
+            </SceneSection>
             {/* Old site-apps until we migrate everyone onto the new ones */}
-            {types.includes('site_app') ? <FrontendApps asLegacyList /> : null}
-        </>
+            {types.includes('site_app') ? (
+                <>
+                    <SceneDivider />
+                    <FrontendApps asLegacyList />
+                </>
+            ) : null}
+        </SceneContent>
     )
 }
 
