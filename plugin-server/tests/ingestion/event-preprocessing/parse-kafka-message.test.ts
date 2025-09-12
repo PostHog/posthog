@@ -45,7 +45,6 @@ describe('createParseKafkaMessageStep', () => {
                 success({
                     message: mockMessage,
                     event: {
-                        message: mockMessage,
                         event: {
                             event: 'test_event',
                             distinct_id: 'test_user',
@@ -87,7 +86,6 @@ describe('createParseKafkaMessageStep', () => {
                 success({
                     message: mockMessage,
                     event: {
-                        message: mockMessage,
                         event: {
                             event: 'minimal_event',
                             distinct_id: 'user123',
@@ -120,7 +118,6 @@ describe('createParseKafkaMessageStep', () => {
                 success({
                     message: mockMessage,
                     event: {
-                        message: mockMessage,
                         event: {
                             event: 'test_event',
                             distinct_id: 'test_user',
@@ -156,7 +153,6 @@ describe('createParseKafkaMessageStep', () => {
                 success({
                     message: mockMessage,
                     event: {
-                        message: mockMessage,
                         event: {
                             event: 'test_event',
                             distinct_id: 'test_user',
@@ -194,7 +190,6 @@ describe('createParseKafkaMessageStep', () => {
                 success({
                     message: mockMessage,
                     event: {
-                        message: mockMessage,
                         event: {
                             event: 'test_event',
                             distinct_id: 'test\uFFFDuser', // null byte replaced with replacement character
@@ -333,7 +328,6 @@ describe('createParseKafkaMessageStep', () => {
                 success({
                     message: mockMessage,
                     event: {
-                        message: mockMessage,
                         event: {
                             token: 'test_token',
                             distinct_id: 'undefined',
@@ -366,7 +360,6 @@ describe('createParseKafkaMessageStep', () => {
                 success({
                     message: mockMessage,
                     event: {
-                        message: mockMessage,
                         event: {
                             event: 'test_event',
                             distinct_id: 'null',
