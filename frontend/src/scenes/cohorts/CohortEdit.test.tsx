@@ -126,7 +126,7 @@ describe('cohortEditLogic', () => {
 
             expect(querySelectorSpy).toHaveBeenCalledWith('.Field--error')
             expect(scrollIntoViewSpy).toHaveBeenCalledWith({
-                block: 'nearest',
+                block: 'center',
                 behavior: 'smooth',
             })
         })
@@ -153,7 +153,7 @@ describe('cohortEditLogic', () => {
             expect(querySelectorSpy).toHaveBeenCalledWith('.Field--error')
             expect(querySelectorSpy).toHaveBeenCalledWith('.CohortCriteriaRow__Criteria--error')
             expect(scrollIntoViewSpy).toHaveBeenCalledWith({
-                block: 'nearest',
+                block: 'center',
                 behavior: 'smooth',
             })
         })
