@@ -1362,8 +1362,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "first_value": HogQLFunctionMeta("first_value", 1, 1),
     "last_value": HogQLFunctionMeta("last_value", 1, 1),
     "nth_value": HogQLFunctionMeta("nth_value", 2, 2),
-    "lagInFrame": HogQLFunctionMeta("lagInFrame", 1, 1),
-    "leadInFrame": HogQLFunctionMeta("leadInFrame", 1, 1),
+    "lagInFrame": HogQLFunctionMeta("lagInFrame", 1, 3),
+    "leadInFrame": HogQLFunctionMeta("leadInFrame", 1, 3),
     # table functions
     "generateSeries": HogQLFunctionMeta("generate_series", 3, 3),
     # PostgreSQL-style date/time functions
