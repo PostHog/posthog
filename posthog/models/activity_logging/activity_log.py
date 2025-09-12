@@ -134,11 +134,14 @@ class ActivityLog(UUIDTModel):
                 name="idx_alog_org_detail_exists",
                 condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
             ),
+<<<<<<< HEAD
             models.Index(
                 fields=["organization_id"],
                 name="idx_activitylog_org_detail_exists",
                 condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
             ),
+=======
+>>>>>>> 0dcbec97e5 (Add index to help with org_id-scope searches)
         ]
 
     team_id = models.PositiveIntegerField(null=True)
