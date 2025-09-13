@@ -3987,6 +3987,7 @@ class LLMTrace(BaseModel):
     outputState: Optional[Any] = None
     outputTokens: Optional[float] = None
     person: LLMTracePerson
+    temporalWorkflowId: Optional[str] = None
     totalCost: Optional[float] = None
     totalLatency: Optional[float] = None
     traceName: Optional[str] = None

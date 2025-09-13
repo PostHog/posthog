@@ -96,6 +96,7 @@ class BaseAssistant(ABC):
         trace_id: Optional[str | UUID] = None,
         billing_context: Optional[MaxBillingContext] = None,
         initial_state: Optional[AssistantMaxGraphState | AssistantMaxPartialGraphState] = None,
+        workflow_id: Optional[str] = None,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
@@ -104,6 +105,7 @@ class BaseAssistant(ABC):
         self._conversation = conversation
         self._latest_message = new_message.model_copy(deep=True, update={"id": str(uuid4())}) if new_message else None
         self._is_new_conversation = is_new_conversation
+        self._workflow_id = workflow_id
         self._chunks = AIMessageChunk(content="")
         self._state = None
         self._graph = graph
@@ -119,6 +121,7 @@ class BaseAssistant(ABC):
                     "$session_id": self._session_id,
                     "assistant_mode": mode.value,
                     "$groups": event_usage.groups(team=team),
+                    "temporal_workflow_id": workflow_id,
                 },
                 trace_id=trace_id,
             )

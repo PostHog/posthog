@@ -104,7 +104,9 @@ class TestProcessConversationActivity:
                 "posthog.temporal.ai.conversation.ConversationRedisStream", return_value=mock_redis_stream
             ) as mock_redis_stream_class,
             patch("posthog.temporal.ai.conversation.Assistant.create", return_value=mock_assistant),
+            patch("posthog.temporal.ai.conversation.activity.info") as mock_activity_info,
         ):
+            mock_activity_info.return_value.workflow_id = "test-workflow-id"
             # Execute the activity
             await process_conversation_activity(conversation_inputs)
 
@@ -150,7 +152,9 @@ class TestProcessConversationActivity:
             ),
             patch("posthog.temporal.ai.conversation.ConversationRedisStream", return_value=mock_redis_stream),
             patch("posthog.temporal.ai.conversation.Assistant.create", return_value=mock_assistant),
+            patch("posthog.temporal.ai.conversation.activity.info") as mock_activity_info,
         ):
+            mock_activity_info.return_value.workflow_id = "test-workflow-id"
             # Should raise the streaming error
             with pytest.raises(Exception, match="Streaming error"):
                 await process_conversation_activity(conversation_inputs)
@@ -186,7 +190,9 @@ class TestProcessConversationActivity:
             patch(
                 "posthog.temporal.ai.conversation.Assistant.create", return_value=mock_assistant
             ) as mock_assistant_create,
+            patch("posthog.temporal.ai.conversation.activity.info") as mock_activity_info,
         ):
+            mock_activity_info.return_value.workflow_id = "test-workflow-id"
             # Execute the activity
             await process_conversation_activity(inputs)
 
