@@ -161,13 +161,19 @@ services:
             DYNAMIC_CONFIG_ENABLED: 'true'
 
     objectstorage:
-        image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+        image: chrislusf/seaweedfs:3.97
         restart: on-failure
         environment:
-            MINIO_ROOT_USER: object_storage_root_user
-            MINIO_ROOT_PASSWORD: object_storage_root_password
+            # Volume replication settings (format: same_rack,different_rack,different_datacenter)
+            WEED_MASTER_VOLUME_GROWTH_COPY_1: 1 # Single copy only, no replication (use 2 for redundancy)
+            WEED_MASTER_VOLUME_GROWTH_COPY_2: 0 # Disabled - would create 2 copies if set to 1
+            WEED_MASTER_VOLUME_GROWTH_COPY_OTHER: 0 # Disabled - for cross-datacenter replication
         entrypoint: sh
-        command: -c 'mkdir -p /data/posthog && minio server --address ":19000" --console-address ":19001" /data' # create the 'posthog' bucket before starting the service
+        # WARNING: SeaweedFS uses different storage format than MinIO. Existing MinIO data at /data won't be accessible.
+        # To preserve data: backup from MinIO first, then restore to SeaweedFS after switching
+        command: -c 'mkdir -p /data/seaweedfs && weed server -s3 -s3.port=19000 -master.port=9333 -volume.port=8080 -dir=/data/seaweedfs -s3.config=/etc/seaweedfs/s3.json & sleep 10 && echo "s3.bucket.create -name posthog" | weed shell -master localhost:9333 || true && wait' # create bucket, ignore if exists
+        volumes:
+            - ./docker/seaweedfs/s3-config.json:/etc/seaweedfs/s3.json:ro
 
     maildev:
         image: maildev/maildev:2.0.5
