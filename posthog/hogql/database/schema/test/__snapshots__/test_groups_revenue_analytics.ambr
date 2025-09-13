@@ -16,7 +16,7 @@
     (SELECT 99999 AS team_id,
             arrayJoin([revenue_analytics_revenue_item.group_0_key, revenue_analytics_revenue_item.group_1_key, revenue_analytics_revenue_item.group_2_key, revenue_analytics_revenue_item.group_3_key, revenue_analytics_revenue_item.group_4_key]) AS group_key,
             sum(revenue_analytics_revenue_item.amount) AS revenue,
-            sumIf(revenue_analytics_revenue_item.amount, ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, minus(today(), toIntervalDay(30))), 0)) AS revenue_last_30_days
+            sumIf(revenue_analytics_revenue_item.amount, greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), minus(today(), toIntervalDay(30)))) AS revenue_last_30_days
      FROM
        (SELECT toString(persons.id) AS id,
                'revenue_analytics.events.purchase' AS source_label,
@@ -135,7 +135,7 @@
     (SELECT 99999 AS team_id,
             arrayJoin([revenue_analytics_customer__groups.key]) AS group_key,
             sum(revenue_analytics_revenue_item.amount) AS revenue,
-            sumIf(revenue_analytics_revenue_item.amount, ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, minus(today(), toIntervalDay(30))), 0)) AS revenue_last_30_days
+            sumIf(revenue_analytics_revenue_item.amount, greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), minus(today(), toIntervalDay(30)))) AS revenue_last_30_days
      FROM
        (SELECT outer.id AS id,
                'stripe.posthog_test' AS source_label,
@@ -246,7 +246,7 @@
     (SELECT 99999 AS team_id,
             arrayJoin([revenue_analytics_customer__groups.key]) AS group_key,
             sum(revenue_analytics_revenue_item.amount) AS revenue,
-            sumIf(revenue_analytics_revenue_item.amount, ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, minus(today(), toIntervalDay(30))), 0)) AS revenue_last_30_days
+            sumIf(revenue_analytics_revenue_item.amount, greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), minus(today(), toIntervalDay(30)))) AS revenue_last_30_days
      FROM
        (SELECT outer.id AS id,
                'stripe.posthog_test' AS source_label,
@@ -357,7 +357,7 @@
     (SELECT 99999 AS team_id,
             arrayJoin([revenue_analytics_customer__groups.key]) AS group_key,
             sum(revenue_analytics_revenue_item.amount) AS revenue,
-            sumIf(revenue_analytics_revenue_item.amount, ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, minus(today(), toIntervalDay(30))), 0)) AS revenue_last_30_days
+            sumIf(revenue_analytics_revenue_item.amount, greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), minus(today(), toIntervalDay(30)))) AS revenue_last_30_days
      FROM
        (SELECT outer.id AS id,
                'stripe.posthog_test' AS source_label,
@@ -469,7 +469,7 @@
     (SELECT 99999 AS team_id,
             arrayJoin([revenue_analytics_customer__groups.key]) AS group_key,
             sum(revenue_analytics_revenue_item.amount) AS revenue,
-            sumIf(revenue_analytics_revenue_item.amount, ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, minus(today(), toIntervalDay(30))), 0)) AS revenue_last_30_days
+            sumIf(revenue_analytics_revenue_item.amount, greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), minus(today(), toIntervalDay(30)))) AS revenue_last_30_days
      FROM
        (SELECT outer.id AS id,
                'stripe.posthog_test' AS source_label,
@@ -573,7 +573,7 @@
     (SELECT 99999 AS team_id,
             arrayJoin([revenue_analytics_revenue_item.group_0_key, revenue_analytics_revenue_item.group_1_key, revenue_analytics_revenue_item.group_2_key, revenue_analytics_revenue_item.group_3_key, revenue_analytics_revenue_item.group_4_key]) AS group_key,
             sum(revenue_analytics_revenue_item.amount) AS revenue,
-            sumIf(revenue_analytics_revenue_item.amount, ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, minus(today(), toIntervalDay(30))), 0)) AS revenue_last_30_days
+            sumIf(revenue_analytics_revenue_item.amount, greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), minus(today(), toIntervalDay(30)))) AS revenue_last_30_days
      FROM
        (SELECT toString(persons.id) AS id,
                'revenue_analytics.events.purchase' AS source_label,
@@ -684,7 +684,7 @@
     (SELECT 99999 AS team_id,
             arrayJoin([revenue_analytics_customer__groups.key]) AS group_key,
             sum(revenue_analytics_revenue_item.amount) AS revenue,
-            sumIf(revenue_analytics_revenue_item.amount, ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, minus(today(), toIntervalDay(30))), 0)) AS revenue_last_30_days
+            sumIf(revenue_analytics_revenue_item.amount, greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), minus(today(), toIntervalDay(30)))) AS revenue_last_30_days
      FROM
        (SELECT outer.id AS id,
                'stripe.posthog_test' AS source_label,
