@@ -2736,6 +2736,7 @@ export interface InsightActorsQuery<S extends InsightsQueryBase<AnalyticsQueryRe
     series?: integer
     breakdown?: string | BreakdownValueInt | string[]
     compare?: 'current' | 'previous'
+    formula?: integer
 }
 
 export interface StickinessActorsQuery extends InsightActorsQueryBase {
@@ -2856,6 +2857,10 @@ export interface InsightActorsQueryOptionsResponse {
         label: string
         value: string
     }[]
+    formula?: {
+        label: string
+        value: integer
+    }[]
 }
 export const insightActorsQueryOptionsResponseKeys: string[] = [
     'day',
@@ -2865,6 +2870,7 @@ export const insightActorsQueryOptionsResponseKeys: string[] = [
     'breakdowns',
     'series',
     'compare',
+    'formula',
 ]
 
 export type CachedInsightActorsQueryOptionsResponse = CachedQueryResponse<InsightActorsQueryOptionsResponse>
