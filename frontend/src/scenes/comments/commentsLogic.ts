@@ -102,6 +102,13 @@ export const commentsLogic = kea<commentsLogicType>([
                 persistEditedCommentSuccess: () => null,
             },
         ],
+        editingCommentExistingMentions: [
+            null as number[] | null,
+            {
+                setEditingCommentRichContentEditor: (_, { editor }) => editor?.getMentions() ?? [],
+                persistEditedCommentSuccess: () => null,
+            },
+        ],
         isEditingCommentEmpty: [
             false as boolean,
             {
@@ -133,12 +140,15 @@ export const commentsLogic = kea<commentsLogicType>([
                         itemContext = undefined
                     }
 
+                    const mentions = values.richContentEditor?.getMentions() ?? []
+
                     const newComment = await api.comments.create({
                         rich_content: values.richContentEditor?.getJSON(),
                         scope: props.scope,
                         item_id: props.item_id,
                         item_context: itemContext,
                         source_comment: values.replyingCommentId ?? undefined,
+                        mentions,
                     })
 
                     values.itemContext?.callback?.({ sent: true })
@@ -146,15 +156,30 @@ export const commentsLogic = kea<commentsLogicType>([
                 },
 
                 persistEditedComment: async () => {
+                    const existingComments = values.comments ?? []
                     const editedComment = values.editingComment
+
                     if (!editedComment) {
-                        return values.comments
+                        return existingComments
                     }
+
+                    const originalComment = existingComments.find((c) => c.id === editedComment.id)
+
+                    if (!originalComment) {
+                        return existingComments
+                    }
+
+                    const previousMentions = values.editingCommentExistingMentions ?? []
+                    const currentMentions = values.editingCommentRichContentEditor?.getMentions() ?? []
+                    const newMentions = currentMentions.filter((m) => !previousMentions.includes(m))
 
                     const { id, rich_content } = editedComment
 
-                    const existingComments = values.comments ?? []
-                    const updatedComment = await api.comments.update(id, { rich_content, content: null })
+                    const updatedComment = await api.comments.update(id, {
+                        rich_content,
+                        content: null,
+                        new_mentions: newMentions,
+                    })
                     return [...existingComments.filter((c) => c.id !== editedComment.id), updatedComment]
                 },
 
@@ -186,6 +211,7 @@ export const commentsLogic = kea<commentsLogicType>([
                         item_context: {
                             is_emoji: true,
                         },
+                        mentions: [],
                     })
 
                     return [...existingComments, newComment]

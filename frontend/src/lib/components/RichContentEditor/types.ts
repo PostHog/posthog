@@ -35,6 +35,7 @@ export interface RichContentEditorType {
     destroy: () => void
     getMarks: (type: string) => { id: string; pos: number }[]
     setMark: (id: string) => void
+    getMentions: () => number[]
     isActive: (name: string, attributes?: {}) => boolean
     deleteRange: (range: EditorRange) => EditorCommands
     insertContent: (content: JSONContent) => void
