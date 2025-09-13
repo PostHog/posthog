@@ -1088,21 +1088,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // Listen for resource errors from rrweb
             replayer.on('fullsnapshot-rebuilded', () => {
+                const iframeContentWindow = replayer.iframe.contentWindow
                 const iframeFetch = replayer.iframe.contentWindow?.fetch
 
-                if (iframeFetch && !(iframeFetch as any).__isWrappedForErrorReporting) {
+                if (iframeFetch && !(iframeFetch as any).__isWrappedForErrorReporting && iframeContentWindow) {
                     // We have to monkey patch fetch as rrweb doesn't provide a way to listen for these errors
                     // We do this after every fullsnapshot-rebuilded as rrweb creates a new iframe each time
-                    replayer.iframe.contentWindow!.fetch = wrapFetchAndReport({
+                    iframeContentWindow.fetch = wrapFetchAndReport({
                         fetch: iframeFetch,
                         onError: (errorDetails: ResourceErrorDetails) => {
                             actions.caughtAssetErrorFromIframe(errorDetails)
                         },
                     })
-                    ;(replayer.iframe.contentWindow!.fetch as any).__isWrappedForErrorReporting = true
+                    ;(iframeContentWindow.fetch as any).__isWrappedForErrorReporting = true
                 }
 
-                const iframeContentWindow = replayer.iframe.contentWindow
                 if (iframeContentWindow) {
                     // Clean up any previous listeners before adding new ones
                     cache.iframeErrorListenerCleanup?.()
