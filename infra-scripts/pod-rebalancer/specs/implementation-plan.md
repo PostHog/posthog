@@ -5,8 +5,8 @@
 | Phase | Commit | Status | Branch | Commit Hash | Date |
 |-------|--------|--------|---------|-------------|------|
 | 1 | 1. Project Bootstrap | ✅ **COMPLETED** | `feat/pod-rebalancer-bootstrap` | `242747c31d` | 2025-01-13 |
-| 1 | 2. Environment Config & Logging | ⏳ **NEXT** | `feat/config-and-logging` | - | - |
-| 1 | 3. Prometheus Client & Metrics | 📋 **PLANNED** | `feat/prometheus-client` | - | - |
+| 1 | 2. Environment Config & Logging | ✅ **COMPLETED** | `pl/ingestion/ingestion_pod_rebalancer` | `d96c791037` | 2025-01-13 |
+| 1 | 3. Prometheus Client & Metrics | ⏳ **NEXT** | `feat/prometheus-client` | - | - |
 | 2 | 4. Complete Metrics Fetchers | 📋 **PLANNED** | `feat/all-metrics-fetchers` | - | - |
 | 2 | 5. Pod State & Decision Engine | 📋 **PLANNED** | `feat/podstate-and-decision` | - | - |
 | 3 | 6. Kubernetes Pod Management | 📋 **PLANNED** | `feat/kubernetes-manager` | - | - |
@@ -15,8 +15,8 @@
 
 ### Current State
 - **Active Branch**: `pl/ingestion/ingestion_pod_rebalancer`
-- **Last Completed**: Commit 1 - Project Bootstrap with Go Best Practices
-- **Next Target**: Commit 2 - Environment Configuration & Basic Logging
+- **Last Completed**: Commit 2 - Environment Configuration & Basic Logging (d96c791037)
+- **Next Target**: Commit 3 - Prometheus Client & Metrics
 - **Project Location**: `/Users/posthog/Projects/src/PostHog/posthog/infra-scripts/pod-rebalancer/`
 
 ### Resume Instructions

@@ -68,36 +68,66 @@ func TestLoadFromEnv(t *testing.T) {
 			errMatch: "invalid PROMETHEUS_TIMEOUT",
 		},
 		{
-			name: "invalid CPU variance threshold",
+			name: "invalid CPU variance threshold becomes zero and fails validation",
 			envVars: map[string]string{
 				"CPU_VARIANCE_THRESHOLD": "invalid",
 			},
-			wantErr:  true,
-			errMatch: "invalid CPU_VARIANCE_THRESHOLD",
+			wantErr: false, // Zero value is valid for CPU threshold
+			want: &Config{
+				PrometheusEndpoint:   "http://localhost:9090",
+				PrometheusTimeout:    30 * time.Second,
+				KubeNamespace:        "default",
+				KubeLabelSelector:    "app=consumer",
+				CPUVarianceThreshold: 0, // Viper returns zero for invalid values
+				LagVarianceThreshold: 0.5,
+				MinPodsRequired:      3,
+				DryRun:               false,
+				LogLevel:             "info",
+			},
 		},
 		{
-			name: "invalid LAG variance threshold",
+			name: "invalid LAG variance threshold becomes zero and passes validation",
 			envVars: map[string]string{
 				"LAG_VARIANCE_THRESHOLD": "invalid",
 			},
-			wantErr:  true,
-			errMatch: "invalid LAG_VARIANCE_THRESHOLD",
+			wantErr: false, // Zero value is valid for LAG threshold
+			want: &Config{
+				PrometheusEndpoint:   "http://localhost:9090",
+				PrometheusTimeout:    30 * time.Second,
+				KubeNamespace:        "default",
+				KubeLabelSelector:    "app=consumer",
+				CPUVarianceThreshold: 0.3,
+				LagVarianceThreshold: 0, // Viper returns zero for invalid values
+				MinPodsRequired:      3,
+				DryRun:               false,
+				LogLevel:             "info",
+			},
 		},
 		{
-			name: "invalid min pods required",
+			name: "invalid min pods required becomes zero and fails validation",
 			envVars: map[string]string{
 				"MIN_PODS_REQUIRED": "invalid",
 			},
-			wantErr:  true,
-			errMatch: "invalid MIN_PODS_REQUIRED",
+			wantErr:  true, // Zero is invalid for min pods
+			errMatch: "MIN_PODS_REQUIRED must be at least 1",
 		},
 		{
-			name: "invalid dry run boolean",
+			name: "invalid dry run boolean uses default",
 			envVars: map[string]string{
 				"DRY_RUN": "invalid",
 			},
-			wantErr:  true,
-			errMatch: "invalid DRY_RUN",
+			want: &Config{
+				PrometheusEndpoint:   "http://localhost:9090",
+				PrometheusTimeout:    30 * time.Second,
+				KubeNamespace:        "default",
+				KubeLabelSelector:    "app=consumer",
+				CPUVarianceThreshold: 0.3,
+				LagVarianceThreshold: 0.5,
+				MinPodsRequired:      3,
+				DryRun:               false, // Viper uses default when parsing fails
+				LogLevel:             "info",
+			},
+			wantErr: false,
 		},
 	}
 

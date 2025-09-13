@@ -2,9 +2,9 @@ package config
 
 import (
 	"fmt"
-	"os"
-	"strconv"
 	"time"
+
+	"github.com/spf13/viper"
 )
 
 // Config represents the complete application configuration loaded from environment variables
@@ -27,79 +27,44 @@ type Config struct {
 	LogLevel string
 }
 
-// LoadFromEnv loads configuration from environment variables with defaults
+// LoadFromEnv loads configuration from environment variables with defaults using Viper
 func LoadFromEnv() (*Config, error) {
+	v := viper.New()
+
+	// Set defaults
+	v.SetDefault("PROMETHEUS_ENDPOINT", "http://localhost:9090")
+	v.SetDefault("PROMETHEUS_TIMEOUT", "30s")
+	v.SetDefault("KUBE_NAMESPACE", "default")
+	v.SetDefault("KUBE_LABEL_SELECTOR", "app=consumer")
+	v.SetDefault("CPU_VARIANCE_THRESHOLD", 0.3)
+	v.SetDefault("LAG_VARIANCE_THRESHOLD", 0.5)
+	v.SetDefault("MIN_PODS_REQUIRED", 3)
+	v.SetDefault("DRY_RUN", false)
+	v.SetDefault("LOG_LEVEL", "info")
+
+	// Configure environment variable handling
+	v.AutomaticEnv()
+
+	// Parse timeout duration - Viper doesn't handle time.Duration automatically
+	timeoutStr := v.GetString("PROMETHEUS_TIMEOUT")
+	timeout, err := time.ParseDuration(timeoutStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid PROMETHEUS_TIMEOUT: %w", err)
+	}
+
 	config := &Config{
-		// Default values
-		PrometheusEndpoint:   "http://localhost:9090",
-		PrometheusTimeout:    30 * time.Second,
-		KubeNamespace:        "default",
-		KubeLabelSelector:    "app=consumer",
-		CPUVarianceThreshold: 0.3,
-		LagVarianceThreshold: 0.5,
-		MinPodsRequired:      3,
-		DryRun:               false,
-		LogLevel:             "info",
+		PrometheusEndpoint:   v.GetString("PROMETHEUS_ENDPOINT"),
+		PrometheusTimeout:    timeout,
+		KubeNamespace:        v.GetString("KUBE_NAMESPACE"),
+		KubeLabelSelector:    v.GetString("KUBE_LABEL_SELECTOR"),
+		CPUVarianceThreshold: v.GetFloat64("CPU_VARIANCE_THRESHOLD"),
+		LagVarianceThreshold: v.GetFloat64("LAG_VARIANCE_THRESHOLD"),
+		MinPodsRequired:      v.GetInt("MIN_PODS_REQUIRED"),
+		DryRun:               v.GetBool("DRY_RUN"),
+		LogLevel:             v.GetString("LOG_LEVEL"),
 	}
 
-	// Load values from environment variables
-	if endpoint := os.Getenv("PROMETHEUS_ENDPOINT"); endpoint != "" {
-		config.PrometheusEndpoint = endpoint
-	}
-
-	if timeoutStr := os.Getenv("PROMETHEUS_TIMEOUT"); timeoutStr != "" {
-		if timeout, err := time.ParseDuration(timeoutStr); err != nil {
-			return nil, fmt.Errorf("invalid PROMETHEUS_TIMEOUT: %w", err)
-		} else {
-			config.PrometheusTimeout = timeout
-		}
-	}
-
-	if namespace := os.Getenv("KUBE_NAMESPACE"); namespace != "" {
-		config.KubeNamespace = namespace
-	}
-
-	if selector := os.Getenv("KUBE_LABEL_SELECTOR"); selector != "" {
-		config.KubeLabelSelector = selector
-	}
-
-	if thresholdStr := os.Getenv("CPU_VARIANCE_THRESHOLD"); thresholdStr != "" {
-		if threshold, err := strconv.ParseFloat(thresholdStr, 64); err != nil {
-			return nil, fmt.Errorf("invalid CPU_VARIANCE_THRESHOLD: %w", err)
-		} else {
-			config.CPUVarianceThreshold = threshold
-		}
-	}
-
-	if thresholdStr := os.Getenv("LAG_VARIANCE_THRESHOLD"); thresholdStr != "" {
-		if threshold, err := strconv.ParseFloat(thresholdStr, 64); err != nil {
-			return nil, fmt.Errorf("invalid LAG_VARIANCE_THRESHOLD: %w", err)
-		} else {
-			config.LagVarianceThreshold = threshold
-		}
-	}
-
-	if minPodsStr := os.Getenv("MIN_PODS_REQUIRED"); minPodsStr != "" {
-		if minPods, err := strconv.Atoi(minPodsStr); err != nil {
-			return nil, fmt.Errorf("invalid MIN_PODS_REQUIRED: %w", err)
-		} else {
-			config.MinPodsRequired = minPods
-		}
-	}
-
-	if dryRunStr := os.Getenv("DRY_RUN"); dryRunStr != "" {
-		if dryRun, err := strconv.ParseBool(dryRunStr); err != nil {
-			return nil, fmt.Errorf("invalid DRY_RUN: %w", err)
-		} else {
-			config.DryRun = dryRun
-		}
-	}
-
-	if logLevel := os.Getenv("LOG_LEVEL"); logLevel != "" {
-		config.LogLevel = logLevel
-	}
-
-	// Validate the configuration
+	// Validate the configuration after Viper parsing
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("configuration validation failed: %w", err)
 	}
