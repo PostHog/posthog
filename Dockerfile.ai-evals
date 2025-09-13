@@ -1,4 +1,4 @@
-FROM python:3.11.9-slim-bookworm AS python-base
+FROM python:3.11.13-slim-bookworm AS python-base
 FROM cruizba/ubuntu-dind:latest
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
