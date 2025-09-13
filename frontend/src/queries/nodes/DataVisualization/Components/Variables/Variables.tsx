@@ -102,7 +102,7 @@ const VariableInput = ({
     onRemove,
     variableSettingsOnClick,
 }: VariableInputProps): JSX.Element => {
-    const [localInputValue, setLocalInputValue] = useState<string>(() => {
+    const [localInputValue, setLocalInputValue] = useState<string | string[]>(() => {
         const val = variable.value ?? variable.default_value
 
         if (variable.type === 'Number' && !val) {
@@ -115,6 +115,10 @@ const VariableInput = ({
 
         if (variable.type === 'Date' && !val) {
             return dayjs().format('YYYY-MM-DD HH:mm:00')
+        }
+
+        if (variable.type === 'List' && Array.isArray(val)) {
+            return val
         }
 
         return String(val ?? '')
@@ -180,9 +184,11 @@ const VariableInput = ({
                 {variable.type === 'List' && (
                     <LemonSelect
                         className="grow"
-                        value={localInputValue}
-                        onChange={(value) => setLocalInputValue(String(value))}
+                        mode="multiple"
+                        value={Array.isArray(localInputValue) ? localInputValue : localInputValue ? [String(localInputValue)] : []}
+                        onChange={(value) => setLocalInputValue(Array.isArray(value) ? value : value ? [String(value)] : [])}
                         options={variable.values.map((n) => ({ label: n, value: n }))}
+                        placeholder="Select values..."
                     />
                 )}
                 {variable.type === 'Date' && (
@@ -198,11 +204,11 @@ const VariableInput = ({
                     <LemonButton
                         type="primary"
                         onClick={() => {
-                            onChange(
-                                variable.id,
-                                variable.type === 'Number' ? Number(localInputValue) : localInputValue,
-                                isNull
-                            )
+                            let value: any = localInputValue
+                            if (variable.type === 'Number') {
+                                value = Number(localInputValue)
+                            }
+                            onChange(variable.id, value, isNull)
                             closePopover()
                         }}
                     >
@@ -321,13 +327,16 @@ export const VariableComponent = ({
 
     // Dont show the popover overlay for list variables not in edit mode
     if (!showEditingUI && variable.type === 'List') {
+        const currentValue = variable.value ?? variable.default_value
         return (
             <LemonField.Pure label={variable.name} className="gap-0" info={tooltip}>
                 <LemonSelect
                     disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
-                    value={variable.value ?? variable.default_value}
+                    mode="multiple"
+                    value={Array.isArray(currentValue) ? currentValue : currentValue ? [String(currentValue)] : []}
                     onChange={(value) => onChange(variable.id, value, variable.isNull ?? false)}
                     options={variable.values.map((n) => ({ label: n, value: n }))}
+                    placeholder="Select values..."
                 />
             </LemonField.Pure>
         )
