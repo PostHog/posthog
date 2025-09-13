@@ -2,7 +2,7 @@
 # name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_disabling_invoiceless_charges
   '''
   SELECT revenue_analytics_revenue_item.source_label AS breakdown_by,
-         toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
+         toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS period_start,
          sum(revenue_analytics_revenue_item.amount) AS amount
   FROM
     (SELECT toString(events.uuid) AS id,
@@ -41,7 +41,7 @@
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-  WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0))
+  WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))))
   GROUP BY breakdown_by,
            period_start
   ORDER BY amount DESC,
@@ -50,7 +50,7 @@
   LIMIT 10000
   UNION ALL
   SELECT revenue_analytics_revenue_item.source_label AS breakdown_by,
-         toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
+         toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS period_start,
          sum(revenue_analytics_revenue_item.amount) AS amount
   FROM
     (SELECT if(ifNull(greater(invoice.period_months, 1), 0), concat(ifNull(toString(invoice.invoice_item_id), ''), '_', ifNull(toString(invoice.month_index), '')), invoice.invoice_item_id) AS id,
@@ -98,7 +98,7 @@
                ifNull(period_start, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC')) AS timestamp
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `subscription` String, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
         WHERE posthog_test_stripe_invoice.paid) AS invoice) AS revenue_analytics_revenue_item
-  WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0))
+  WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))))
   GROUP BY breakdown_by,
            period_start
   ORDER BY amount DESC,
@@ -119,7 +119,7 @@
 # name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_no_crash_when_no_data
   '''
   SELECT revenue_analytics_revenue_item.source_label AS breakdown_by,
-         toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
+         toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS period_start,
          sum(revenue_analytics_revenue_item.amount) AS amount
   FROM
     (SELECT toString(events.uuid) AS id,
@@ -158,7 +158,7 @@
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-  WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0))
+  WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))))
   GROUP BY breakdown_by,
            period_start
   ORDER BY amount DESC,
@@ -167,7 +167,7 @@
   LIMIT 10000
   UNION ALL
   SELECT revenue_analytics_revenue_item.source_label AS breakdown_by,
-         toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
+         toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS period_start,
          sum(revenue_analytics_revenue_item.amount) AS amount
   FROM
     (SELECT NULL AS id,
@@ -197,7 +197,7 @@
             NULL AS currency,
             NULL AS amount
      WHERE 0) AS revenue_analytics_revenue_item
-  WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0))
+  WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))))
   GROUP BY breakdown_by,
            period_start
   ORDER BY amount DESC,
@@ -218,7 +218,7 @@
 # name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_no_crash_when_no_source_is_selected
   '''
   SELECT revenue_analytics_revenue_item.source_label AS breakdown_by,
-         toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
+         toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS period_start,
          sum(revenue_analytics_revenue_item.amount) AS amount
   FROM
     (SELECT toString(events.uuid) AS id,
@@ -257,7 +257,7 @@
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.source_label, 'non-existent-source'), 0))
+  WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.source_label, 'non-existent-source'))
   GROUP BY breakdown_by,
            period_start
   ORDER BY amount DESC,
@@ -364,7 +364,7 @@
 # name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_with_country_filter
   '''
   SELECT revenue_analytics_revenue_item.source_label AS breakdown_by,
-         toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
+         toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS period_start,
          sum(revenue_analytics_revenue_item.amount) AS amount
   FROM
     (SELECT toString(events.uuid) AS id,
@@ -451,7 +451,7 @@
            HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
         WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(revenue_analytics_revenue_item.customer_id, revenue_analytics_customer.id)
-  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_customer.country, 'US'), 0))
+  WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), equals(revenue_analytics_customer.country, 'US'))
   GROUP BY breakdown_by,
            period_start
   ORDER BY amount DESC,
@@ -560,7 +560,7 @@
                argMin(JSONExtractString(invoice.discount, 'coupon', 'id'), parseDateTime64BestEffortOrNull(toString(invoice.created), 6, 'UTC')) AS initial_coupon_id
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `subscription` String, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS invoice
         GROUP BY invoice.customer) AS cohort_inner ON equals(cohort_inner.customer_id, outer.id)) AS revenue_analytics_customer ON equals(revenue_analytics_revenue_item.customer_id, revenue_analytics_customer.id)
-  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_customer.country, 'US'), 0))
+  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), equals(revenue_analytics_customer.country, 'US'))
   GROUP BY breakdown_by,
            period_start
   ORDER BY amount DESC,
@@ -581,7 +581,7 @@
 # name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_with_data
   '''
   SELECT revenue_analytics_revenue_item.source_label AS breakdown_by,
-         toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
+         toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS period_start,
          sum(revenue_analytics_revenue_item.amount) AS amount
   FROM
     (SELECT toString(events.uuid) AS id,
@@ -620,7 +620,7 @@
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-  WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0))
+  WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))))
   GROUP BY breakdown_by,
            period_start
   ORDER BY amount DESC,
@@ -727,7 +727,7 @@
 # name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_with_data_and_date_range
   '''
   SELECT revenue_analytics_revenue_item.source_label AS breakdown_by,
-         toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
+         toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS period_start,
          sum(revenue_analytics_revenue_item.amount) AS amount
   FROM
     (SELECT toString(events.uuid) AS id,
@@ -766,7 +766,7 @@
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-  WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-02-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-01 23:59:59', 'UTC'))), 0))
+  WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-02-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-01 23:59:59', 'UTC'))))
   GROUP BY breakdown_by,
            period_start
   ORDER BY amount DESC,
@@ -873,7 +873,7 @@
 # name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_with_data_and_double_grouping
   '''
   SELECT concat(ifNull(toString(concat(ifNull(toString(revenue_analytics_revenue_item.source_label), ''), ' - ', ifNull(toString(if(or(isNull(revenue_analytics_customer.cohort), empty(revenue_analytics_customer.cohort)), '<none>', revenue_analytics_customer.cohort)), ''))), ''), ' - ', ifNull(toString(if(or(isNull(revenue_analytics_product.name), empty(revenue_analytics_product.name)), '<none>', revenue_analytics_product.name)), '')) AS breakdown_by,
-         toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
+         toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS period_start,
          sum(revenue_analytics_revenue_item.amount) AS amount
   FROM
     (SELECT toString(events.uuid) AS id,
@@ -969,7 +969,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), 1))
      ORDER BY id ASC) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
-  WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0))
+  WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))))
   GROUP BY breakdown_by,
            period_start
   ORDER BY amount DESC,
@@ -1104,7 +1104,7 @@
 # name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_with_data_and_product_grouping
   '''
   SELECT concat(ifNull(toString(revenue_analytics_revenue_item.source_label), ''), ' - ', ifNull(toString(if(or(isNull(revenue_analytics_product.name), empty(revenue_analytics_product.name)), '<none>', revenue_analytics_product.name)), '')) AS breakdown_by,
-         toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
+         toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS period_start,
          sum(revenue_analytics_revenue_item.amount) AS amount
   FROM
     (SELECT toString(events.uuid) AS id,
@@ -1152,7 +1152,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), 1))
      ORDER BY id ASC) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
-  WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0))
+  WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))))
   GROUP BY breakdown_by,
            period_start
   ORDER BY amount DESC,
@@ -1264,7 +1264,7 @@
 # name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_with_empty_date_range
   '''
   SELECT revenue_analytics_revenue_item.source_label AS breakdown_by,
-         toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
+         toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS period_start,
          sum(revenue_analytics_revenue_item.amount) AS amount
   FROM
     (SELECT toString(events.uuid) AS id,
@@ -1303,7 +1303,7 @@
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-  WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-12-31 23:59:59', 'UTC'))), 0))
+  WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-12-31 23:59:59', 'UTC'))))
   GROUP BY breakdown_by,
            period_start
   ORDER BY amount DESC,
@@ -1410,7 +1410,7 @@
 # name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_with_events_data
   '''
   SELECT revenue_analytics_revenue_item.source_label AS breakdown_by,
-         toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
+         toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS period_start,
          sum(revenue_analytics_revenue_item.amount) AS amount
   FROM
     (SELECT toString(events.uuid) AS id,
@@ -1449,7 +1449,7 @@
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'), 0))
+  WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))
   GROUP BY breakdown_by,
            period_start
   ORDER BY amount DESC,
@@ -1556,7 +1556,7 @@
 # name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_with_events_data_and_currency_aware_divider
   '''
   SELECT revenue_analytics_revenue_item.source_label AS breakdown_by,
-         toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
+         toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS period_start,
          sum(revenue_analytics_revenue_item.amount) AS amount
   FROM
     (SELECT toString(events.uuid) AS id,
@@ -1596,7 +1596,7 @@
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
      ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'), 0))
+  WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))
   GROUP BY breakdown_by,
            period_start
   ORDER BY amount DESC,
@@ -1703,7 +1703,7 @@
 # name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_with_events_data_and_grouping
   '''
   SELECT concat(ifNull(toString(concat(ifNull(toString(revenue_analytics_revenue_item.source_label), ''), ' - ', ifNull(toString(if(or(isNull(revenue_analytics_product.name), empty(revenue_analytics_product.name)), '<none>', revenue_analytics_product.name)), ''))), ''), ' - ', ifNull(toString(if(or(isNull(revenue_analytics_revenue_item.coupon), empty(revenue_analytics_revenue_item.coupon)), '<none>', revenue_analytics_revenue_item.coupon)), '')) AS breakdown_by,
-         toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
+         toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS period_start,
          sum(revenue_analytics_revenue_item.amount) AS amount
   FROM
     (SELECT toString(events.uuid) AS id,
@@ -1751,7 +1751,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), 1))
      ORDER BY id ASC) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
-  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'), 0))
+  WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))
   GROUP BY breakdown_by,
            period_start
   ORDER BY amount DESC,
@@ -1863,7 +1863,7 @@
 # name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_with_product_filter
   '''
   SELECT revenue_analytics_revenue_item.source_label AS breakdown_by,
-         toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
+         toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS period_start,
          sum(revenue_analytics_revenue_item.amount) AS amount
   FROM
     (SELECT toString(events.uuid) AS id,
@@ -1911,7 +1911,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), 1))
      ORDER BY id ASC) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
-  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_product.name, 'Product C'), 0))
+  WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), equals(revenue_analytics_product.name, 'Product C'))
   GROUP BY breakdown_by,
            period_start
   ORDER BY amount DESC,
@@ -2002,7 +2002,7 @@
             'stripe.posthog_test' AS source_label,
             posthog_test_stripe_product.name AS name
      FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
-  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_product.name, 'Product C'), 0))
+  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), equals(revenue_analytics_product.name, 'Product C'))
   GROUP BY breakdown_by,
            period_start
   ORDER BY amount DESC,
@@ -2023,7 +2023,7 @@
 # name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_with_product_filter.1
   '''
   SELECT concat(ifNull(toString(revenue_analytics_revenue_item.source_label), ''), ' - ', ifNull(toString(if(or(isNull(revenue_analytics_product.name), empty(revenue_analytics_product.name)), '<none>', revenue_analytics_product.name)), '')) AS breakdown_by,
-         toStartOfMonth(revenue_analytics_revenue_item.timestamp) AS period_start,
+         toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')) AS period_start,
          sum(revenue_analytics_revenue_item.amount) AS amount
   FROM
     (SELECT toString(events.uuid) AS id,
@@ -2071,7 +2071,7 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), 1))
      ORDER BY id ASC) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
-  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_product.name, 'Product C'), 0))
+  WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), equals(revenue_analytics_product.name, 'Product C'))
   GROUP BY breakdown_by,
            period_start
   ORDER BY amount DESC,
@@ -2162,7 +2162,7 @@
             'stripe.posthog_test' AS source_label,
             posthog_test_stripe_product.name AS name
      FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
-  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_product.name, 'Product C'), 0))
+  WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), equals(revenue_analytics_product.name, 'Product C'))
   GROUP BY breakdown_by,
            period_start
   ORDER BY amount DESC,
