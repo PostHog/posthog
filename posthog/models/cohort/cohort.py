@@ -509,6 +509,57 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         return current_batch_index + 1
 
+    def remove_user_by_uuid(self, user_uuid: str, *, team_id: int) -> bool:
+        """
+        Remove a user from the cohort by their UUID.
+
+        Args:
+            user_uuid: UUID of the user to be removed from the cohort.
+            team_id: ID of the team to which the cohort belongs
+        Returns:
+            True if user was removed, False if user was not in the cohort.
+        """
+        from posthog.models.cohort.util import get_static_cohort_size, remove_person_from_static_cohort
+
+        try:
+            # Get person by UUID
+            person = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(team_id=team_id, uuid=user_uuid)
+
+            # Check if person is in the cohort
+            cohort_person = CohortPeople.objects.filter(
+                cohort_id=self.id,
+                person_id=person.id,
+            ).first()
+
+            if not cohort_person:
+                return False
+
+            # Remove from both PostgreSQL and ClickHouse
+            cohort_person.delete()
+            remove_person_from_static_cohort(person.uuid, self.pk, team_id=team_id)
+
+            # Update count
+            try:
+                count = get_static_cohort_size(cohort_id=self.id, team_id=team_id)
+                self.count = count
+                self.save(update_fields=["count"])
+            except Exception as count_err:
+                logger.exception("Failed to update cohort count after removal", cohort_id=self.id, team_id=team_id)
+                capture_exception(count_err, additional_properties={"cohort_id": self.id, "team_id": team_id})
+
+            return True
+
+        except Person.DoesNotExist:
+            return False
+        except Exception as err:
+            logger.exception(
+                "Failed to remove user from cohort", cohort_id=self.id, team_id=team_id, user_uuid=user_uuid
+            )
+            capture_exception(
+                err, additional_properties={"cohort_id": self.id, "team_id": team_id, "user_uuid": user_uuid}
+            )
+            raise
+
     def to_dict(self) -> dict:
         people_data = [
             {

@@ -1,4 +1,5 @@
 import csv
+import uuid
 from collections import defaultdict
 from collections.abc import Iterator
 from datetime import datetime
@@ -18,7 +19,7 @@ from pydantic import (
     model_validator,
 )
 from rest_framework import request, serializers, status, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -839,6 +840,46 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             item_id=str(cohort.id),
             scope="Cohort",
             activity="persons_added_manually",
+            detail=Detail(changes=[Change(type="Cohort", action="changed")]),
+        )
+        return Response({"success": True}, status=200)
+
+    @action(methods=["PATCH"], detail=True)
+    def remove_person_from_static_cohort(self, request: request.Request, **kwargs):
+        cohort: Cohort = self.get_object()
+        if not cohort.is_static:
+            raise ValidationError("Can only remove users from static cohorts")
+        person_id = request.data.get("person_id", None)
+        if not person_id:
+            raise ValidationError("person_id is required")
+        if not isinstance(person_id, str):
+            raise ValidationError("person_id must be a string")
+
+        # Validate UUID format
+        try:
+            uuid.UUID(person_id)
+        except ValueError:
+            raise ValidationError("person_id must be a valid UUID")
+
+        # Check if person exists and belongs to this team
+        try:
+            person_uuid = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(team_id=self.team_id, uuid=person_id).uuid
+        except Person.DoesNotExist:
+            raise NotFound("Person with this UUID does not exist in the cohort's team")
+
+        success = cohort.remove_user_by_uuid(str(person_uuid), team_id=self.team_id)
+
+        if not success:
+            raise NotFound("Person is not part of the cohort")
+
+        log_activity(
+            organization_id=cast(UUIDT, self.organization_id),
+            team_id=self.team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=str(cohort.id),
+            scope="Cohort",
+            activity="person_removed_manually",
             detail=Detail(changes=[Change(type="Cohort", action="changed")]),
         )
         return Response({"success": True}, status=200)
