@@ -570,7 +570,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     ? [
                           {
                               path: 'Groups',
-                              category: 'Groups',
+                              category: 'Managed',
                               iconType: 'group',
                               href: urls.groups(0),
                               visualOrder: 30,

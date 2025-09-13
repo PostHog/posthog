@@ -407,35 +407,6 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             iconType: 'notebook' as FileSystemIconType,
             href: urls.notebooks(),
         },
-        {
-            path: `Data pipelines`,
-            category: 'Tools',
-            type: 'hog_function',
-            iconType: 'data_pipeline' as FileSystemIconType,
-            iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
-            href: urls.dataPipelines(),
-        } as FileSystemImport,
-        {
-            path: `SQL editor`,
-            category: 'Analytics',
-            type: 'sql',
-            iconType: 'sql_editor' as FileSystemIconType,
-            iconColor: ['var(--color-product-data-warehouse-light)'] as FileSystemIconColor,
-            href: urls.sqlEditor(),
-        } as FileSystemImport,
-        {
-            path: 'Heatmaps',
-            category: 'Behavior',
-            type: 'heatmap',
-            iconType: 'heatmap' as FileSystemIconType,
-            iconColor: [
-                'var(--color-product-heatmaps-light)',
-                'var(--color-product-heatmaps-dark)',
-            ] as FileSystemIconColor,
-            href: urls.heatmaps(),
-            flag: FEATURE_FLAGS.HEATMAPS_UI,
-            tags: ['alpha'],
-        } as FileSystemImport,
     ].sort((a, b) => {
         if (a.visualOrder === -1) {
             return -1

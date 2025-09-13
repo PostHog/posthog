@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck, IconGear, IconPlusSmall } from '@posthog/icons'
+import { IconCheck, IconEllipsis, IconPlusSmall } from '@posthog/icons'
 
 import { ItemSelectModalButton } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
 import { IconBlank } from 'lib/lemon-ui/icons'
@@ -34,7 +34,7 @@ export function PinnedFolder(): JSX.Element {
                     tooltip="Change pinned folder"
                     tooltipPlacement="top"
                 >
-                    <IconGear className="size-3 text-secondary" />
+                    <IconEllipsis className="size-3 text-secondary" />
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
             <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
