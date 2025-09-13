@@ -3,7 +3,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import Rules from './Rules'
-import { AssignmentRule, RuleType } from './types'
+import { ErrorTrackingAssignmentRule, ErrorTrackingRuleType } from './types'
 
 export function AutoAssignmentRules(): JSX.Element {
     return (
@@ -12,7 +12,7 @@ export function AutoAssignmentRules(): JSX.Element {
                 Automatically assign newly created issues based on properties of the exception event the first time it
                 was seen. The first rule that matches will be applied.
             </p>
-            <Rules<AssignmentRule> ruleType={RuleType.Assignment}>
+            <Rules<ErrorTrackingAssignmentRule> ruleType={ErrorTrackingRuleType.Assignment}>
                 {({ rule, editing, disabled }) => {
                     return (
                         <>

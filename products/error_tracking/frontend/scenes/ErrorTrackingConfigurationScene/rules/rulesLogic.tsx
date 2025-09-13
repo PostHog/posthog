@@ -6,9 +6,9 @@ import api from 'lib/api'
 import { FilterLogicalOperator } from '~/types'
 
 import type { rulesLogicType } from './rulesLogicType'
-import { Rule, RuleNew, RuleType, RulesLogicProps } from './types'
+import { ErrorTrackingRule, ErrorTrackingRuleNew, ErrorTrackingRuleType, ErrorTrackingRulesLogicProps } from './types'
 
-function createNewRule(ruleType: RuleType, order_key: number): RuleNew {
+function createNewRule(ruleType: ErrorTrackingRuleType, order_key: number): ErrorTrackingRuleNew {
     switch (ruleType) {
         case 'assignment_rules':
             return {
@@ -37,7 +37,7 @@ function createNewRule(ruleType: RuleType, order_key: number): RuleNew {
 }
 
 export const rulesLogic = kea<rulesLogicType>([
-    props({} as RulesLogicProps),
+    props({} as ErrorTrackingRulesLogicProps),
     key(({ ruleType }) => ruleType),
     path((key) => [
         'products',
@@ -53,15 +53,15 @@ export const rulesLogic = kea<rulesLogicType>([
         addRule: true,
         startReorderingRules: true,
         cancelReorderingRules: true,
-        setRuleEditable: (id: Rule['id']) => ({ id }),
-        unsetRuleEditable: (id: Rule['id']) => ({ id }),
-        updateLocalRule: (rule: Rule) => ({ rule }),
-        reorderLocalRules: (rules: Rule[]) => ({ rules }),
-        _setLocalRules: (rules: Rule[]) => ({ rules }),
+        setRuleEditable: (id: ErrorTrackingRule['id']) => ({ id }),
+        unsetRuleEditable: (id: ErrorTrackingRule['id']) => ({ id }),
+        updateLocalRule: (rule: ErrorTrackingRule) => ({ rule }),
+        reorderLocalRules: (rules: ErrorTrackingRule[]) => ({ rules }),
+        _setLocalRules: (rules: ErrorTrackingRule[]) => ({ rules }),
     }),
 
     reducers({
-        localRules: [[] as Rule[], { _setLocalRules: (_, { rules }) => rules }],
+        localRules: [[] as ErrorTrackingRule[], { _setLocalRules: (_, { rules }) => rules }],
         isReorderingRules: [
             false,
             {
@@ -82,7 +82,7 @@ export const rulesLogic = kea<rulesLogicType>([
 
     loaders(({ props, values }) => ({
         rules: [
-            [] as Rule[],
+            [] as ErrorTrackingRule[],
             {
                 loadRules: async () => {
                     const { results: rules } = await api.errorTracking.rules(props.ruleType)
@@ -167,7 +167,7 @@ export const rulesLogic = kea<rulesLogicType>([
     selectors({
         allRules: [
             (s) => [s.localRules, s.rules],
-            (localRules, rules): Rule[] => {
+            (localRules, rules): ErrorTrackingRule[] => {
                 const uniqueRules = new Map([...rules, ...localRules].map((item) => [item.id, item]))
                 return Array.from(uniqueRules.values()).sort((a, b) => a.order_key - b.order_key)
             },

@@ -1,4 +1,4 @@
-import './ErrorTracking.scss'
+import './ErrorTrackingIssueScene.scss'
 
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -75,7 +75,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                 </div>
             )}
 
-            <div className="ErrorTracking grid grid-cols-4 gap-4">
+            <div className="ErrorTrackingIssue grid grid-cols-4 gap-4">
                 <div className="space-y-2 col-span-3">
                     <ExceptionCard
                         issue={issue ?? undefined}

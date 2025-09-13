@@ -15,7 +15,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { FilterLogicalOperator, PropertyFilterType, UniversalFiltersGroup } from '~/types'
 
-import { errorFiltersLogic } from './issueFiltersLogic'
+import { issueFiltersLogic } from './issueFiltersLogic'
 
 export const taxonomicFilterLogicKey = 'error-tracking'
 export const taxonomicGroupTypes = [
@@ -28,8 +28,8 @@ export const taxonomicGroupTypes = [
 ]
 
 export const FilterGroup = (): JSX.Element => {
-    const { filterGroup } = useValues(errorFiltersLogic)
-    const { setFilterGroup } = useActions(errorFiltersLogic)
+    const { filterGroup } = useValues(issueFiltersLogic)
+    const { setFilterGroup } = useActions(issueFiltersLogic)
 
     return (
         <UniversalFilters
@@ -46,8 +46,8 @@ export const FilterGroup = (): JSX.Element => {
 
 const UniversalSearch = (): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
-    const { searchQuery } = useValues(errorFiltersLogic)
-    const { setSearchQuery } = useActions(errorFiltersLogic)
+    const { searchQuery } = useValues(issueFiltersLogic)
+    const { setSearchQuery } = useActions(issueFiltersLogic)
     const { addGroupFilter } = useActions(universalFiltersLogic)
 
     const searchInputRef = useRef<HTMLInputElement | null>(null)

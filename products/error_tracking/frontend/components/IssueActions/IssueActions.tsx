@@ -9,7 +9,7 @@ import { bulkSelectLogic } from '../../logics/bulkSelectLogic'
 import { AssigneeLabelDisplay } from '../Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../Assignee/AssigneeSelect'
 import { IssueStatus, StatusIndicator } from '../Indicators'
-import { errorFiltersLogic } from '../IssueFilters/filtersLogic'
+import { issueFiltersLogic } from '../IssueFilters/issueFiltersLogic'
 import { issueActionsLogic } from './issueActionsLogic'
 
 export interface IssueActionsProps {
@@ -19,8 +19,8 @@ export interface IssueActionsProps {
 
 export function IssueActions({ issues, selectedIds }: IssueActionsProps): JSX.Element {
     const { mergeIssues, assignIssues, resolveIssues, suppressIssues, activateIssues } = useActions(issueActionsLogic)
-    const { filterGroup } = useValues(errorFiltersLogic)
-    const { setFilterGroup } = useActions(errorFiltersLogic)
+    const { filterGroup } = useValues(issueFiltersLogic)
+    const { setFilterGroup } = useActions(issueFiltersLogic)
     const { setSelectedIssueIds } = useActions(bulkSelectLogic)
 
     const hasAtLeastTwoIssues = selectedIds.length >= 2

@@ -19,7 +19,7 @@ import {
 import { ActivityScope, Breadcrumb, IntegrationType } from '~/types'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
-import { errorFiltersLogic } from '../../components/IssueFilters/filtersLogic'
+import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { errorTrackingIssueQuery } from '../../queries'
 import { ERROR_TRACKING_DETAILS_RESOLUTION } from '../../utils'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
@@ -45,9 +45,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     key((props) => props.id),
 
     connect(() => ({
-        values: [errorFiltersLogic, ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery']],
+        values: [issueFiltersLogic, ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery']],
         actions: [
-            errorFiltersLogic,
+            issueFiltersLogic,
             ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup', 'setSearchQuery'],
             issueActionsLogic,
             ['updateIssueAssignee', 'updateIssueStatus', 'updateIssueName', 'updateIssueDescription'],

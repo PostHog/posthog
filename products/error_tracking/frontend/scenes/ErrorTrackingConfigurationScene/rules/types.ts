@@ -1,34 +1,34 @@
 import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
 import { JsonType, UniversalFiltersGroup } from '~/types'
 
-type BaseRule = {
+type ErrorTrackingBaseRule = {
     id: string
     filters: UniversalFiltersGroup
     order_key: number
 }
 
-export type SuppressionRule = BaseRule
+export type ErrorTrackingSuppressionRule = ErrorTrackingBaseRule
 
-export type AssignmentRule = BaseRule & {
+export type ErrorTrackingAssignmentRule = ErrorTrackingBaseRule & {
     assignee: ErrorTrackingIssueAssignee | null
     disabled_data: JsonType | null
 }
 
-export type GroupingRule = BaseRule & {
+export type ErrorTrackingGroupingRule = ErrorTrackingBaseRule & {
     assignee: ErrorTrackingIssueAssignee | null
     disabled_data: JsonType | null
     description?: string
 }
 
-export type Rule = SuppressionRule | GroupingRule | AssignmentRule
-export type RuleNew = Rule & { id: 'new' }
+export type ErrorTrackingRule = ErrorTrackingSuppressionRule | ErrorTrackingGroupingRule | ErrorTrackingAssignmentRule
+export type ErrorTrackingRuleNew = ErrorTrackingRule & { id: 'new' }
 
-export enum RuleType {
+export enum ErrorTrackingRuleType {
     Assignment = 'assignment_rules',
     Grouping = 'grouping_rules',
     Suppression = 'suppression_rules',
 }
 
-export type RulesLogicProps = {
-    ruleType: RuleType
+export type ErrorTrackingRulesLogicProps = {
+    ruleType: ErrorTrackingRuleType
 }

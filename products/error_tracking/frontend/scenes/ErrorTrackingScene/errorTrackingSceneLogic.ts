@@ -4,7 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { DataTableNode } from '~/queries/schema/schema-general'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
-import { errorFiltersLogic } from '../../components/IssueFilters/filtersLogic'
+import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
 import { bulkSelectLogic } from '../../logics/bulkSelectLogic'
 import { errorTrackingQuery } from '../../queries'
@@ -20,7 +20,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
     connect(() => ({
         values: [
-            errorFiltersLogic,
+            issueFiltersLogic,
             ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery'],
             issueQueryOptionsLogic,
             ['assignee', 'orderBy', 'orderDirection', 'status'],

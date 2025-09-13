@@ -22,18 +22,18 @@ import {
 } from '../../../components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../../../components/Assignee/AssigneeSelect'
 import { rulesLogic } from './rulesLogic'
-import { AssignmentRule, Rule, RuleType } from './types'
+import { ErrorTrackingAssignmentRule, ErrorTrackingRule, ErrorTrackingRuleType } from './types'
 
-function isRuleDisabled(rule: Rule): boolean {
+function isRuleDisabled(rule: ErrorTrackingRule): boolean {
     return 'disabled_data' in rule && !!rule.disabled_data
 }
 
-function Rules<T extends Rule>({
+function Rules<T extends ErrorTrackingRule>({
     ruleType,
     children,
     disabledReason,
 }: {
-    ruleType: RuleType
+    ruleType: ErrorTrackingRuleType
     children: ({ rule, editing, disabled }: { rule: T; editing: boolean; disabled: boolean }) => JSX.Element
     disabledReason?: string
 }): JSX.Element {
@@ -93,7 +93,7 @@ const SortableRule = ({
     ruleId,
     reorderable,
     children,
-}: PropsWithChildren<{ ruleId: Rule['id']; reorderable: boolean }>): JSX.Element => {
+}: PropsWithChildren<{ ruleId: ErrorTrackingRule['id']; reorderable: boolean }>): JSX.Element => {
     const { setNodeRef, attributes, transform, transition, listeners, active, isDragging } = useSortable({ id: ruleId })
 
     return (
@@ -176,7 +176,7 @@ export const AddRule = ({ disabledReason }: { disabledReason: string | undefined
     ) : null
 }
 
-function Actions<T extends Rule>({
+function Actions<T extends ErrorTrackingRule>({
     rule,
     editing,
     validate,
@@ -239,7 +239,7 @@ function Actions<T extends Rule>({
     )
 }
 
-function validateFilters(rule: Rule): string | undefined {
+function validateFilters(rule: ErrorTrackingRule): string | undefined {
     return rule.filters.values.length === 0 ? 'You must add at least one filter to each rule.' : undefined
 }
 
@@ -249,7 +249,7 @@ const Filters = ({
     taxonomicGroupTypes,
     ...props
 }: Pick<PropertyFiltersProps, 'taxonomicGroupTypes' | 'propertyAllowList'> & {
-    rule: Rule
+    rule: ErrorTrackingRule
     editing: boolean
     taxonomicGroupTypes: PropertyFiltersProps['taxonomicGroupTypes']
     excludedProperties?: PropertyFiltersProps['excludedProperties']
@@ -274,7 +274,7 @@ const Filters = ({
     )
 }
 
-const Assignee = ({ rule, editing }: { rule: AssignmentRule; editing: boolean }): JSX.Element => {
+const Assignee = ({ rule, editing }: { rule: ErrorTrackingAssignmentRule; editing: boolean }): JSX.Element => {
     const { updateLocalRule } = useActions(rulesLogic)
 
     return editing ? (
@@ -297,7 +297,7 @@ const Assignee = ({ rule, editing }: { rule: AssignmentRule; editing: boolean })
     )
 }
 
-const Operator = ({ rule, editing }: { rule: Rule; editing: boolean }): JSX.Element => {
+const Operator = ({ rule, editing }: { rule: ErrorTrackingRule; editing: boolean }): JSX.Element => {
     const { updateLocalRule } = useActions(rulesLogic)
 
     const operator = rule.filters.type

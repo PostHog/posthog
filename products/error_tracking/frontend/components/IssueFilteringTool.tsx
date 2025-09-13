@@ -8,7 +8,7 @@ import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import { errorTrackingSceneLogic } from '../scenes/ErrorTrackingScene/errorTrackingSceneLogic'
 import { taxonomicFilterLogicKey, taxonomicGroupTypes } from './IssueFilters/FilterGroup'
-import { errorFiltersLogic } from './IssueFilters/filtersLogic'
+import { issueFiltersLogic } from './IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from './IssueQueryOptions/issueQueryOptionsLogic'
 
 function updateFilterGroup(
@@ -63,9 +63,9 @@ function updateFilterGroup(
 
 export function ErrorTrackingIssueFilteringTool(): JSX.Element {
     const { query } = useValues(errorTrackingSceneLogic)
-    const { setDateRange, setFilterGroup, setFilterTestAccounts } = useActions(errorFiltersLogic)
+    const { setDateRange, setFilterGroup, setFilterTestAccounts } = useActions(issueFiltersLogic)
     const { setOrderBy, setOrderDirection, setStatus } = useActions(issueQueryOptionsLogic)
-    const { filterGroup } = useValues(errorFiltersLogic)
+    const { filterGroup } = useValues(issueFiltersLogic)
     const { setSearchQuery } = useActions(
         taxonomicFilterLogic({
             taxonomicFilterLogicKey: taxonomicFilterLogicKey,

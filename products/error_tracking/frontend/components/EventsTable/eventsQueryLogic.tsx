@@ -6,7 +6,7 @@ import { ErrorTrackingRelationalIssue, EventsQuery } from '~/queries/schema/sche
 
 import { errorTrackingIssueEventsQuery } from '../../queries'
 import { DataQueryLogic } from '../DataSourceTable'
-import { errorFiltersLogic } from '../IssueFilters/filtersLogic'
+import { issueFiltersLogic } from '../IssueFilters/issueFiltersLogic'
 import type { eventsQueryLogicType } from './eventsQueryLogicType'
 
 export interface EventDataLogicProps {
@@ -20,7 +20,7 @@ export const eventsQueryLogic: LogicWrapper<DataQueryLogic<EventsQuery>> = kea<e
 
     connect(() => {
         return {
-            values: [errorFiltersLogic, ['filterTestAccounts', 'searchQuery', 'filterGroup', 'dateRange']],
+            values: [issueFiltersLogic, ['filterTestAccounts', 'searchQuery', 'filterGroup', 'dateRange']],
         }
     }),
 

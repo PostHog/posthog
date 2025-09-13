@@ -5,7 +5,7 @@ import { dayjs } from 'lib/dayjs'
 import { DATE_FORMAT, dateMapping } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 
-import { errorFiltersLogic } from './issueFiltersLogic'
+import { issueFiltersLogic } from './issueFiltersLogic'
 
 const errorTrackingDateOptions = dateMapping.filter((dm) => !['Yesterday', 'All time', 'Today'].includes(dm.key))
 
@@ -24,8 +24,8 @@ export const DateRangeFilter = ({
     fullWidth?: boolean
     size?: 'xsmall' | 'small' | 'medium' | 'large'
 }): JSX.Element => {
-    const { dateRange } = useValues(errorFiltersLogic)
-    const { setDateRange } = useActions(errorFiltersLogic)
+    const { dateRange } = useValues(issueFiltersLogic)
+    const { setDateRange } = useActions(issueFiltersLogic)
     return (
         <span className={cn('rounded bg-surface-primary', className)}>
             <DateFilter

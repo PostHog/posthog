@@ -24,7 +24,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ErrorTrackingIssueFilteringTool } from '../../components/IssueFilteringTool'
 import { ErrorTrackingIssueImpactTool } from '../../components/IssueImpactTool'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
-import { errorIngestionLogic } from '../../components/SetupPrompt/exceptionIngestionLogic'
+import { exceptionIngestionLogic } from '../../components/SetupPrompt/exceptionIngestionLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 import { ImpactFilters } from './tabs/impact/ImpactFilters'
 import { ImpactList } from './tabs/impact/ImpactList'
@@ -37,7 +37,7 @@ export const scene: SceneExport = {
 }
 
 export function ErrorTrackingScene(): JSX.Element {
-    const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(errorIngestionLogic)
+    const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(exceptionIngestionLogic)
     const { activeTab } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
     const hasIssueCorrelation = useFeatureFlag('ERROR_TRACKING_ISSUE_CORRELATION')

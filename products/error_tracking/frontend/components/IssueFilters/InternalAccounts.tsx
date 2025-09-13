@@ -2,11 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
-import { errorFiltersLogic } from './issueFiltersLogic'
+import { issueFiltersLogic } from './issueFiltersLogic'
 
 export const InternalAccountsFilter = (): JSX.Element => {
-    const { filterTestAccounts } = useValues(errorFiltersLogic)
-    const { setFilterTestAccounts } = useActions(errorFiltersLogic)
+    const { filterTestAccounts } = useValues(issueFiltersLogic)
+    const { setFilterTestAccounts } = useActions(issueFiltersLogic)
 
     return (
         <div>
