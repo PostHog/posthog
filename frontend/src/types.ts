@@ -12,6 +12,7 @@ import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { AlertType } from 'lib/components/Alerts/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import {
     BIN_COUNT_AUTO,
     DashboardPrivilegeLevel,
@@ -4382,7 +4383,21 @@ export interface ReplayExportContext {
     mode?: SessionRecordingPlayerMode
 }
 
-export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext | ReplayExportContext
+export interface HeatmapExportContext {
+    heatmap_url: string
+    filename?: string
+    heatmap_filters?: HeatmapFilters
+    heatmap_color_palette?: string | null
+    heatmap_fixed_position_mode?: HeatmapFixedPositionMode
+    common_filters?: CommonFilters
+}
+
+export type ExportContext =
+    | OnlineExportContext
+    | LocalExportContext
+    | QueryExportContext
+    | ReplayExportContext
+    | HeatmapExportContext
 
 export interface ExportedAssetType {
     id: number
