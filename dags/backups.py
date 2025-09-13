@@ -438,11 +438,13 @@ def run_backup_pipeline_for_shard(
 
     # Check the status of the latest backup
     if latest_backup:
+        # Store shard value to avoid mypy union-attr error
+        backup_shard = latest_backup.shard
 
         def map_hosts(func: Callable[[Client], Any]):
-            if latest_backup.shard:
+            if backup_shard:
                 return cluster.map_hosts_in_shard_by_role(
-                    fn=func, shard_num=latest_backup.shard, node_role=NodeRole.DATA, workload=config.workload
+                    fn=func, shard_num=backup_shard, node_role=NodeRole.DATA, workload=config.workload
                 )
             return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=config.workload)
 
