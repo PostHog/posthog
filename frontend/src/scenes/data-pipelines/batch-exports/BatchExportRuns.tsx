@@ -8,10 +8,10 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconCancel, IconRefresh } from 'lib/lemon-ui/icons'
+import { userLogic } from 'scenes/userLogic'
 
-import { BatchExportConfiguration, BatchExportRun, GroupedBatchExportRuns } from '~/types'
+import { AvailableFeature, BatchExportConfiguration, BatchExportRun, GroupedBatchExportRuns } from '~/types'
 
-import { pipelineAccessLogic } from '../../pipeline/pipelineAccessLogic'
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { BatchExportRunsLogicProps, batchExportRunsLogic } from './batchExportRunsLogic'
 
@@ -90,7 +90,8 @@ function BatchExportLatestRuns({ id }: BatchExportRunsLogicProps): JSX.Element {
 
     const { batchExportConfig, latestRuns, loading, hasMoreRunsToLoad } = useValues(logic)
     const { openBackfillModal, loadOlderRuns, retryRun, cancelRun } = useActions(logic)
-    const { canEnableNewDestinations } = useValues(pipelineAccessLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
+    const canEnableNewDestinations = hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
 
     if (!batchExportConfig) {
         return <NotFound object="batch export" />
@@ -210,7 +211,8 @@ export function BatchExportRunsGrouped({
 }): JSX.Element {
     const logic = batchExportRunsLogic({ id })
 
-    const { canEnableNewDestinations } = useValues(pipelineAccessLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
+    const canEnableNewDestinations = hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
     const { openBackfillModal } = useActions(logic)
 
     return (

@@ -350,3 +350,45 @@ class TestBatchImportAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("End date must be after start date", str(response.json()))
+
+    def test_s3_prefix_can_be_empty_string(self):
+        """Test that s3_prefix field accepts empty strings"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "s3",
+                "content_type": "captured",
+                "s3_bucket": "test-bucket",
+                "s3_region": "us-east-1",
+                "s3_prefix": "",  # Empty string should be allowed
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+
+        # Verify the batch import was created with empty prefix
+        batch_import = BatchImport.objects.get(id=response.json()["id"])
+        self.assertEqual(batch_import.import_config["source"]["prefix"], "")
+
+    def test_s3_prefix_can_be_omitted(self):
+        """Test that s3_prefix field can be omitted from the request"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "s3",
+                "content_type": "captured",
+                "s3_bucket": "test-bucket",
+                "s3_region": "us-east-1",
+                # s3_prefix omitted entirely
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+
+        # Verify the batch import was created
+        batch_import = BatchImport.objects.get(id=response.json()["id"])
+        self.assertIsNotNone(batch_import)

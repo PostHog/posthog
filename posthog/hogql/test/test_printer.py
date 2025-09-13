@@ -2506,6 +2506,14 @@ class TestPrinter(BaseTest):
                 dialect="clickhouse",
             )
 
+    def test_team_id_guarding_events(self):
+        sql = self._select(
+            "SELECT event FROM events",
+        )
+        assert (
+            sql == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000"
+        )
+
     @parameterized.expand([[True], [False]])
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_s3_tables_global_join_with_cte(self, using_global_joins):

@@ -2,21 +2,18 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSwitch, Link, Spinner, Tooltip, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSwitch, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { cn } from 'lib/utils/css-classes'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
-import { queryDatabaseLogic } from 'scenes/data-warehouse/editor/sidebar/queryDatabaseLogic'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { DataWarehouseViewLink, ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
+import { ExternalDataSource } from '~/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
@@ -28,9 +25,8 @@ export function ExternalDataSourceConfiguration({
     buttonRef?: React.RefObject<HTMLButtonElement>
 }): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading, joins } = useValues(revenueAnalyticsSettingsLogic)
-    const { updateSourceRevenueAnalyticsConfig } = useActions(revenueAnalyticsSettingsLogic)
+    const { updateSourceRevenueAnalyticsConfig, deleteJoin } = useActions(revenueAnalyticsSettingsLogic)
     const { toggleEditJoinModal, toggleNewJoinModal } = useActions(viewLinkLogic)
-    const { loadDatabase, loadJoins } = useActions(queryDatabaseLogic)
 
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     const revenueSources =
@@ -44,22 +40,6 @@ export function ExternalDataSourceConfiguration({
             return 'Updating...'
         }
         return undefined
-    }
-
-    const deleteJoin = (join: DataWarehouseViewLink): void => {
-        void deleteWithUndo({
-            endpoint: api.dataWarehouseViewLinks.determineDeleteEndpoint(),
-            object: {
-                id: join.id,
-                name: `${join.field_name} on ${join.source_table_name}`,
-            },
-            callback: () => {
-                loadDatabase()
-                loadJoins()
-            },
-        }).catch((e) => {
-            lemonToast.error(`Failed to delete warehouse view link: ${e.detail}`)
-        })
     }
 
     return (
@@ -90,7 +70,7 @@ export function ExternalDataSourceConfiguration({
                     icon={<IconPlus />}
                     size="small"
                     onClick={() => {
-                        router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { source: 'Stripe' }))
+                        router.actions.push(urls.dataWarehouseSourceNew('stripe'))
                     }}
                 >
                     Add new source
@@ -120,13 +100,7 @@ export function ExternalDataSourceConfiguration({
                         render: (_, source: ExternalDataSource) => {
                             return (
                                 <span className="inline-flex items-centet gap-2">
-                                    <Link
-                                        to={urls.pipelineNode(
-                                            PipelineStage.Source,
-                                            `managed-${source.id}`,
-                                            PipelineNodeTab.Schemas
-                                        )}
-                                    >
+                                    <Link to={urls.dataWarehouseSource(`managed-${source.id}`)}>
                                         {source.source_type}&nbsp;{source.prefix && `(${source.prefix})`}
                                     </Link>
                                     <LemonSwitch

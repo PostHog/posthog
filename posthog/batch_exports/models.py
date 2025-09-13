@@ -79,6 +79,7 @@ class BatchExportRun(UUIDTModel):
         CONTINUED_AS_NEW = "ContinuedAsNew"
         FAILED = "Failed"
         FAILED_RETRYABLE = "FailedRetryable"
+        FAILED_BILLING = "FailedBilling"
         TERMINATED = "Terminated"
         TIMEDOUT = "TimedOut"
         RUNNING = "Running"

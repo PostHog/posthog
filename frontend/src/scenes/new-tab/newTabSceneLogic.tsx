@@ -9,6 +9,7 @@ import {
     ProductIconWrapper,
     getDefaultTreeData,
     getDefaultTreeNew,
+    getDefaultTreePersons,
     getDefaultTreeProducts,
     iconForType,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -86,7 +87,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     .filter(({ path }) => path.startsWith('Insight/'))
                     .map((fs) => ({
                         href: fs.href,
-                        name: 'new ' + fs.path.substring(8),
+                        name: fs.path.substring(8),
                         icon: getIconForFileSystemItem(fs),
                         flag: fs.flag,
                     }))
@@ -104,13 +105,13 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     .filter(({ path }) => !path.startsWith('Insight/') && !path.startsWith('Data/'))
                     .map((fs) => ({
                         href: fs.href,
-                        name: 'new ' + fs.path,
+                        name: fs.path,
                         icon: getIconForFileSystemItem(fs),
                         flag: fs.flag,
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
-                const products = getDefaultTreeProducts()
+                const products = [...getDefaultTreeProducts(), ...getDefaultTreePersons()]
                     .map((fs) => ({
                         href: fs.href,
                         name: fs.path,
@@ -118,6 +119,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         flag: fs.flag,
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
+                    .toSorted((a, b) => a.name.localeCompare(b.name))
 
                 const data = getDefaultTreeData()
                     .map((fs) => ({
@@ -131,7 +133,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 const queryTree: ItemsGridItem[] = [
                     {
                         category: 'Create new insight',
-                        types: [{ name: 'SQL', icon: <IconDatabase />, href: '/sql' }, ...newInsightItems],
+                        types: [{ name: 'SQL editor', icon: <IconDatabase />, href: '/sql' }, ...newInsightItems],
                     },
                     {
                         category: 'Create new ...',

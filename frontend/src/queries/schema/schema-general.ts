@@ -652,6 +652,7 @@ export interface EntityNode extends Node {
     properties?: AnyPropertyFilter[]
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?: AnyPropertyFilter[]
+    optionalInFunnel?: boolean
 }
 
 export interface EventsNode extends EntityNode {
@@ -2364,6 +2365,9 @@ export type FileSystemIconType =
     | 'llm_analytics'
     | 'product_analytics'
     | 'revenue_analytics'
+    | 'revenue_analytics_metadata'
+    | 'marketing_settings'
+    | 'embedded_analytics'
     | 'sql_editor'
     | 'web_analytics'
     | 'error_tracking'
@@ -2375,6 +2379,7 @@ export type FileSystemIconType =
     | 'experiment'
     | 'feature_flag'
     | 'data_pipeline'
+    | 'data_pipeline_metadata'
     | 'data_warehouse'
     | 'task'
     | 'link'

@@ -1299,6 +1299,9 @@ class FileSystemIconType(StrEnum):
     LLM_ANALYTICS = "llm_analytics"
     PRODUCT_ANALYTICS = "product_analytics"
     REVENUE_ANALYTICS = "revenue_analytics"
+    REVENUE_ANALYTICS_METADATA = "revenue_analytics_metadata"
+    MARKETING_SETTINGS = "marketing_settings"
+    EMBEDDED_ANALYTICS = "embedded_analytics"
     SQL_EDITOR = "sql_editor"
     WEB_ANALYTICS = "web_analytics"
     ERROR_TRACKING = "error_tracking"
@@ -1310,6 +1313,7 @@ class FileSystemIconType(StrEnum):
     EXPERIMENT = "experiment"
     FEATURE_FLAG = "feature_flag"
     DATA_PIPELINE = "data_pipeline"
+    DATA_PIPELINE_METADATA = "data_pipeline_metadata"
     DATA_WAREHOUSE = "data_warehouse"
     TASK = "task"
     LINK = "link"
@@ -1405,6 +1409,7 @@ class FunnelExclusionLegacy(BaseModel):
     id: Optional[Union[str, float]] = None
     index: Optional[float] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     order: Optional[float] = None
     type: Optional[EntityType] = None
 
@@ -1631,6 +1636,7 @@ class IntegrationKind(StrEnum):
     GITHUB = "github"
     META_ADS = "meta-ads"
     CLICKUP = "clickup"
+    REDDIT_ADS = "reddit-ads"
 
 
 class IntervalType(StrEnum):
@@ -4648,6 +4654,7 @@ class SessionRecordingType(BaseModel):
     )
     person: Optional[PersonType] = None
     recording_duration: float = Field(..., description="Length of recording in seconds.")
+    retention_period_days: Optional[float] = Field(default=None, description="retention period for this recording")
     snapshot_source: SnapshotSource
     start_time: str = Field(..., description="When the recording starts in ISO format.")
     start_url: Optional[str] = None
@@ -5641,6 +5648,7 @@ class AssistantTrendsActionsNode(BaseModel):
     math_property: Optional[str] = None
     math_property_type: Optional[str] = None
     name: str = Field(..., description="Action name from the plan.")
+    optionalInFunnel: Optional[bool] = None
     properties: Optional[
         list[
             Union[
@@ -5688,6 +5696,7 @@ class AssistantTrendsEventsNode(BaseModel):
     math_property: Optional[str] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     properties: Optional[
         list[
             Union[
@@ -7151,6 +7160,7 @@ class ConversionGoalFilter1(BaseModel):
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
         list[
@@ -7236,6 +7246,7 @@ class ConversionGoalFilter2(BaseModel):
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     properties: Optional[
         list[
             Union[
@@ -7323,6 +7334,7 @@ class ConversionGoalFilter3(BaseModel):
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     properties: Optional[
         list[
             Union[
@@ -7885,6 +7897,7 @@ class DataWarehouseNode(BaseModel):
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     properties: Optional[
         list[
             Union[
@@ -7993,6 +8006,7 @@ class EntityNode(BaseModel):
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     properties: Optional[
         list[
             Union[
@@ -8204,6 +8218,7 @@ class EventsNode(BaseModel):
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
         list[
@@ -8316,6 +8331,7 @@ class ExperimentDataWarehouseNode(BaseModel):
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     properties: Optional[
         list[
             Union[
@@ -8491,6 +8507,7 @@ class FunnelExclusionActionsNode(BaseModel):
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     properties: Optional[
         list[
             Union[
@@ -8575,6 +8592,7 @@ class FunnelExclusionEventsNode(BaseModel):
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
         list[
@@ -11040,6 +11058,7 @@ class ActionsNode(BaseModel):
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     properties: Optional[
         list[
             Union[
@@ -13489,6 +13508,7 @@ class VisualizationMessage(BaseModel):
     initiator: Optional[str] = None
     plan: Optional[str] = None
     query: Optional[str] = ""
+    short_id: Optional[str] = None
     type: Literal["ai/viz"] = "ai/viz"
 
 

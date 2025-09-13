@@ -385,7 +385,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 raise serializers.ValidationError("Feature Flag with this ID does not exist")
 
         # Validate linkedFlagVariant if provided
-        linked_flag_variant = data.get("conditions", {}).get("linkedFlagVariant")
+        conditions = data.get("conditions") or {}
+        linked_flag_variant = conditions.get("linkedFlagVariant")
         if linked_flag_variant and linked_flag and linked_flag_variant != "any":
             # Get available variants from the linked feature flag
             available_variants = [variant["key"] for variant in linked_flag.variants]

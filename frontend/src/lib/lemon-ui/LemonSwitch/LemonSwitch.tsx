@@ -33,7 +33,7 @@ export interface LemonSwitchProps {
     accessControl?: {
         resourceType: AccessControlResourceType
         minAccessLevel: AccessControlLevel
-        userAccessLevel: AccessControlLevel
+        userAccessLevel?: AccessControlLevel
     }
 }
 
@@ -75,7 +75,9 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
         // Handle access control
         if (accessControl) {
             const { userAccessLevel, minAccessLevel, resourceType } = accessControl
-            const hasAccess = accessLevelSatisfied(resourceType, userAccessLevel, minAccessLevel)
+            const hasAccess = userAccessLevel
+                ? accessLevelSatisfied(resourceType, userAccessLevel, minAccessLevel)
+                : true
             if (!hasAccess) {
                 disabled = true
                 if (!disabledReason) {
