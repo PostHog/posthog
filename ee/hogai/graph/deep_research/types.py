@@ -64,9 +64,13 @@ class _SharedDeepResearchState(BaseStateWithMessages):
     """
     The ID of the previous OpenAI Responses API response.
     """
-    notebook_short_id: Optional[str] = Field(default=None)
+    planning_notebook_short_id: Optional[str] = Field(default=None)
     """
-    The short ID of the notebook being used.
+    The short ID of the planning notebook.
+    """
+    final_report_notebook_short_id: Optional[str] = Field(default=None)
+    """
+    The short ID of the final notebook.
     """
 
 
@@ -93,3 +97,4 @@ class DeepResearchNodeName(StrEnum):
     PLANNER_TOOLS = "planner_tools"
     TASK_EXECUTOR = "task_executor"
     REPORT = "report"
+    REPLANNER = "replanner"

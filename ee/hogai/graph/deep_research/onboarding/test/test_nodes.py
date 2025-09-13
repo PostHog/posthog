@@ -84,7 +84,7 @@ class TestDeepResearchOnboardingNode:
         assert result == "planning"
 
         # Test with 2 human messages and notebook
-        state_with_notebook = DeepResearchState(messages=messages_2_human, notebook_short_id="abc123")
+        state_with_notebook = DeepResearchState(messages=messages_2_human, planning_notebook_short_id="abc123")
         result = self.node.should_run_onboarding_at_start(state_with_notebook)
         assert result == "continue"
 
