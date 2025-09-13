@@ -200,5 +200,10 @@ export function LemonRichContentEditor({
 const RichContent = ({ editor }: { editor: TTEditor }): JSX.Element => {
     const text = editor?.getText(serializationOptions)
 
-    return <TextContent text={text && text.length != 0 ? text : '_Nothing to preview_'} className="p-2" />
+    return (
+        <TextContent
+            text={text && text.length != 0 ? text : '_Nothing to preview_'}
+            className="p-2 rounded-t bg-fill-input"
+        />
+    )
 }
