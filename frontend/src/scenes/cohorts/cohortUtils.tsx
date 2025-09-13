@@ -98,7 +98,7 @@ export function createCohortFormData(cohort: CohortType): FormData {
         ...(cohort.csv ? { csv: cohort.csv } : {}),
         ...(cohort.is_static ? { is_static: cohort.is_static } : {}),
         ...(typeof cohort._create_in_folder === 'string' ? { _create_in_folder: cohort._create_in_folder } : {}),
-        _create_static_person_ids: cohort._create_static_person_ids,
+        ...(cohort._create_static_person_ids ? { _create_static_person_ids: cohort._create_static_person_ids } : {}),
         filters: JSON.stringify(
             cohort.is_static
                 ? {
