@@ -80,7 +80,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             billingLogic,
             ['billing', 'billingPeriodUTC'],
             preflightLogic,
-            ['isCloudOrDev'],
+            ['isHobby'],
         ],
         actions: [eventUsageLogic, ['reportBillingSpendInteraction']],
     }),
@@ -105,7 +105,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             null as BillingSpendResponse | null,
             {
                 loadBillingSpend: async () => {
-                    if (!canAccessBilling(values.currentOrganization) || !values.isCloudOrDev) {
+                    if (!canAccessBilling(values.currentOrganization) || values.isHobby) {
                         return null
                     }
                     const { usage_types, team_ids, breakdowns, interval } = values.filters

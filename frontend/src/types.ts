@@ -3578,8 +3578,10 @@ export interface PreflightStatus {
             client_id?: string
         }
     }
-    /** Whether PostHog is running in DEBUG mode. */
+    /** Whether PostHog is running in settings.DEBUG or settings.E2E_TESTING. */
     is_debug?: boolean
+    /** Whether PostHog is running with settings.TEST. */
+    is_test?: boolean
     licensed_users_available?: number | null
     openai_available?: boolean
     site_url?: string

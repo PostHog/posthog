@@ -175,6 +175,9 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
     if settings.DEBUG or settings.E2E_TESTING:
         response["is_debug"] = True
 
+    if settings.TEST:
+        response["is_test"] = True
+
     if settings.DEV_DISABLE_NAVIGATION_HOOKS:
         response["dev_disable_navigation_hooks"] = True
 
