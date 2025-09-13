@@ -1083,10 +1083,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.playerErrorSeen(error)
                 },
                 logger: logging.logger,
-                enableResourceErrorTracking: {
-                    enabled: true,
-                    nonce: `posthog-resource-monitor-${Math.random().toString(36).substring(2, 15)}`,
-                },
             }
             const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
 
