@@ -2724,18 +2724,18 @@ email@example.org,
             is_static=True,
         )
 
-        person = _create_person(
-            team_id=self.team.pk, distinct_ids=["test-person-1"], properties={"email": "test@example.com"}
+        personToRemove = _create_person(
+            team_id=self.team.pk, distinct_ids=["test-person-to-remove"], properties={"email": "test@example.com"}
         )
-        person2 = _create_person(
-            team_id=self.team.pk, distinct_ids=["test-person-2"], properties={"email": "test@example.com"}
+        personToKeep = _create_person(
+            team_id=self.team.pk, distinct_ids=["test-person-to-keep"], properties={"email": "test@example.com"}
         )
         flush_persons_and_events()
-        static_cohort.insert_users_by_list(["test-person-1", "test-person-2"])
+        static_cohort.insert_users_by_list(["test-person-to-remove", "test-person-to-keep"])
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/remove_person_from_static_cohort",
-            {"person_id": str(person.uuid)},
+            {"person_id": str(personToRemove.uuid)},
             format="json",
         )
 
@@ -2757,8 +2757,8 @@ email@example.org,
         assert cohort_persons_response.status_code == 200
         cohort_persons = cohort_persons_response.json()["results"]
         person_uuids_in_cohort = [p["uuid"] for p in cohort_persons]
-        assert str(person.uuid) not in person_uuids_in_cohort
-        assert str(person2.uuid) in person_uuids_in_cohort
+        assert str(personToRemove.uuid) not in person_uuids_in_cohort
+        assert str(personToKeep.uuid) in person_uuids_in_cohort
 
     def test_remove_person_from_static_cohort_validation_errors(self):
         static_cohort = Cohort.objects.create(
