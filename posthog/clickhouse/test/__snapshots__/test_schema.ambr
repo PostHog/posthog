@@ -775,7 +775,7 @@
       , elements_chain_texts Array(String) COMMENT 'column_materializer::elements_chain::texts'
       , elements_chain_ids Array(String) COMMENT 'column_materializer::elements_chain::ids'
       , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) COMMENT 'column_materializer::elements_chain::elements'
-      , properties_group_custom Map(String, String), properties_group_ai Map(String, String), properties_group_feature_flags Map(String, String), person_properties_map_custom Map(String, String)
+      , properties_group_custom Map(String, String), properties_group_ai Map(String, String), properties_group_feature_flags Map(String, String), properties_group_system Map(String, String), person_properties_map_custom Map(String, String)
   
       
   , _timestamp DateTime
@@ -2956,7 +2956,13 @@
                   CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
               )
               CODEC(ZSTD(1))
-          , INDEX properties_group_feature_flags_keys_bf mapKeys(properties_group_feature_flags) TYPE bloom_filter, INDEX properties_group_feature_flags_values_bf mapValues(properties_group_feature_flags) TYPE bloom_filter,             person_properties_map_custom Map(String, String)
+          , INDEX properties_group_feature_flags_keys_bf mapKeys(properties_group_feature_flags) TYPE bloom_filter, INDEX properties_group_feature_flags_values_bf mapValues(properties_group_feature_flags) TYPE bloom_filter,             properties_group_system Map(String, String)
+              MATERIALIZED mapSort(
+                  mapFilter((key, _) -> key LIKE '$%' AND key NOT LIKE '$ai_%' AND key NOT LIKE '$feature/%',
+                  CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
+              )
+              CODEC(ZSTD(1))
+          , INDEX properties_group_system_keys_bf mapKeys(properties_group_system) TYPE bloom_filter, INDEX properties_group_system_values_bf mapValues(properties_group_system) TYPE bloom_filter,             person_properties_map_custom Map(String, String)
               MATERIALIZED mapSort(
                   mapFilter((key, _) -> key NOT LIKE '$%',
                   CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)'))
@@ -4866,7 +4872,13 @@
                   CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
               )
               CODEC(ZSTD(1))
-          , INDEX properties_group_feature_flags_keys_bf mapKeys(properties_group_feature_flags) TYPE bloom_filter, INDEX properties_group_feature_flags_values_bf mapValues(properties_group_feature_flags) TYPE bloom_filter,             person_properties_map_custom Map(String, String)
+          , INDEX properties_group_feature_flags_keys_bf mapKeys(properties_group_feature_flags) TYPE bloom_filter, INDEX properties_group_feature_flags_values_bf mapValues(properties_group_feature_flags) TYPE bloom_filter,             properties_group_system Map(String, String)
+              MATERIALIZED mapSort(
+                  mapFilter((key, _) -> key LIKE '$%' AND key NOT LIKE '$ai_%' AND key NOT LIKE '$feature/%',
+                  CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
+              )
+              CODEC(ZSTD(1))
+          , INDEX properties_group_system_keys_bf mapKeys(properties_group_system) TYPE bloom_filter, INDEX properties_group_system_values_bf mapValues(properties_group_system) TYPE bloom_filter,             person_properties_map_custom Map(String, String)
               MATERIALIZED mapSort(
                   mapFilter((key, _) -> key NOT LIKE '$%',
                   CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)'))
