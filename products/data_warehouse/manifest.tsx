@@ -21,10 +21,20 @@ export const manifest: ProductManifest = {
     urls: {
         dataWarehouse: (): string => '/data-warehouse',
     },
+    fileSystemTypes: {
+        data_warehouse: {
+            name: 'Data Warehouse',
+            iconType: 'data_warehouse' as FileSystemIconType,
+            href: () => urls.dataWarehouse(),
+            iconColor: ['var(--color-product-data-warehouse-light)'],
+            filterKey: 'data_warehouse',
+        },
+    },
     treeItemsProducts: [
         {
             path: 'Data Warehouse',
             category: 'Tools',
+            type: 'data_warehouse',
             href: urls.dataWarehouse(),
             flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
             iconType: 'data_warehouse' as FileSystemIconType,

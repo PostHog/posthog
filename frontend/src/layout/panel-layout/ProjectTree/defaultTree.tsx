@@ -426,6 +426,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
         {
             path: 'Heatmaps',
             category: 'Behavior',
+            type: 'heatmap',
             iconType: 'heatmap' as FileSystemIconType,
             iconColor: [
                 'var(--color-product-heatmaps-light)',

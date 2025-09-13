@@ -108,12 +108,21 @@ export const manifest: ProductManifest = {
         llmAnalyticsDataset: (id: string, params?: { item?: string }): string =>
             combineUrl(`/llm-analytics/datasets/${id}`, params).url,
     },
-    fileSystemTypes: {},
+    fileSystemTypes: {
+        llm_analytics: {
+            name: 'LLM analytics',
+            iconType: 'llm_analytics' as FileSystemIconType,
+            href: () => urls.llmAnalyticsDashboard(),
+            iconColor: ['var(--color-product-llm-analytics-light)'],
+            filterKey: 'llm_analytics',
+        },
+    },
     treeItemsNew: [],
     treeItemsProducts: [
         {
             path: 'LLM analytics',
             category: 'Analytics',
+            type: 'llm_analytics',
             iconType: 'llm_analytics' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
             href: urls.llmAnalyticsDashboard(),

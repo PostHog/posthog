@@ -21,12 +21,21 @@ export const manifest: ProductManifest = {
     },
     redirects: {},
     urls: { logs: (): string => '/logs' },
-    fileSystemTypes: {},
+    fileSystemTypes: {
+        logs: {
+            name: 'Logs',
+            iconType: 'logs' as FileSystemIconType,
+            href: () => urls.logs(),
+            iconColor: ['var(--color-product-logs-light)'],
+            filterKey: 'logs',
+        },
+    },
     treeItemsNew: [],
     treeItemsProducts: [
         {
             path: 'Logs',
             category: 'Tools',
+            type: 'logs',
             iconType: 'logs' as FileSystemIconType,
             iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
             href: urls.logs(),

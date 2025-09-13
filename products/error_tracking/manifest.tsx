@@ -50,7 +50,15 @@ export const manifest: ProductManifest = {
         errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
         errorTrackingAlertNew: (templateId: string): string => `/error_tracking/alerts/new/${templateId}`,
     },
-    fileSystemTypes: {},
+    fileSystemTypes: {
+        error_tracking: {
+            name: 'Error tracking',
+            iconType: 'error_tracking' as FileSystemIconType,
+            href: (ref: string) => urls.errorTrackingIssue(ref),
+            iconColor: ['var(--color-product-error-tracking-light)', 'var(--color-product-error-tracking-dark)'],
+            filterKey: 'error_tracking',
+        },
+    },
     treeItemsNew: [],
     treeItemsProducts: [
         {
