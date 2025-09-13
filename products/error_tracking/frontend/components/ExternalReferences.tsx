@@ -21,7 +21,7 @@ import { urls } from 'scenes/urls'
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { IntegrationKind, IntegrationType } from '~/types'
 
-import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
+import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
 const ERROR_TRACKING_INTEGRATIONS: IntegrationKind[] = ['linear', 'github']
 

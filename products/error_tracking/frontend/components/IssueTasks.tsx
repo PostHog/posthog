@@ -16,7 +16,7 @@ import { IntegrationType } from '~/types'
 
 import { OriginProduct, TaskStatus, TaskUpsertProps } from 'products/tasks/frontend/types'
 
-import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
+import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
 export const IssueTasks = (): JSX.Element => {
     const { issue, issueLoading, selectedEvent } = useValues(errorTrackingIssueSceneLogic)

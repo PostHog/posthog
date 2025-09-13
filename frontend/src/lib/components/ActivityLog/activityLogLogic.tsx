@@ -2,7 +2,7 @@ import { actions, events, kea, key, listeners, path, props, reducers, selectors 
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
-import { errorTrackingActivityDescriber } from '@posthog/products-error-tracking/frontend/errorTrackingActivityDescriber'
+import { ActivityDescriber as errorTrackingActivityDescriber } from '@posthog/products-error-tracking/frontend/components/ActivityDescriber'
 
 import api, { ActivityLogPaginatedResponse } from 'lib/api'
 import { tagActivityDescriber } from 'lib/components/ActivityLog/activityDescriptions/tagActivityDescriber'

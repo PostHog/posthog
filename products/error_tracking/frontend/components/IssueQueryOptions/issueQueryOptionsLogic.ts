@@ -20,7 +20,7 @@ const DEFAULT_ASSIGNEE = null
 const DEFAULT_STATUS = 'active'
 
 export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
-    path(['scenes', 'error-tracking', 'issueQueryOptionsLogic']),
+    path(['products', 'error_tracking', 'components', 'IssueQueryOptions', 'issueQueryOptionsLogic']),
 
     actions({
         setOrderBy: (orderBy: ErrorTrackingQueryOrderBy) => ({ orderBy }),

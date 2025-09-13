@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
-import { errorTrackingDataNodeLogic } from '../../errorTrackingDataNodeLogic'
+import { issuesDataNodeLogic } from '../../logics/issuesDataNodeLogic'
 import { issueQueryOptionsLogic } from './issueQueryOptionsLogic'
 
 export const IssueQueryOptions = (): JSX.Element => {
@@ -65,8 +65,8 @@ export const IssueQueryOptions = (): JSX.Element => {
 }
 
 const Reload = (): JSX.Element => {
-    const { responseLoading } = useValues(errorTrackingDataNodeLogic)
-    const { reloadData, cancelQuery } = useActions(errorTrackingDataNodeLogic)
+    const { responseLoading } = useValues(issuesDataNodeLogic)
+    const { reloadData, cancelQuery } = useActions(issuesDataNodeLogic)
 
     return (
         <LemonButton
