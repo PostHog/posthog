@@ -24,7 +24,7 @@ from posthog.schema import PersonsOnEventsMode, PropertyOperator
 
 from posthog.api.test.test_exports import TestExportMixin
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models import Action, FeatureFlag, Person
+from posthog.models import Action, FeatureFlag, Person, User
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.cohort import CohortType
@@ -937,6 +937,112 @@ email@example.org,
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=nomatch").json()
         self.assertEqual(len(response["results"]), 0)
+
+    def test_cohort_list_with_type_filter(self):
+        Person.objects.create(team=self.team, properties={"prop": 5})
+
+        # Create dynamic cohort
+        self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "dynamic_cohort", "groups": [{"properties": {"prop": 5}}]},
+        )
+
+        # Create static cohort
+        self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "static_cohort", "is_static": True},
+        )
+
+        # Test no filter returns both
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()
+        self.assertEqual(len(response["results"]), 2)
+
+        # Test static filter
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?type=static").json()
+        self.assertEqual(len(response["results"]), 1)
+        self.assertEqual(response["results"][0]["name"], "static_cohort")
+        self.assertTrue(response["results"][0]["is_static"])
+
+        # Test dynamic filter
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?type=dynamic").json()
+        self.assertEqual(len(response["results"]), 1)
+        self.assertEqual(response["results"][0]["name"], "dynamic_cohort")
+        self.assertFalse(response["results"][0]["is_static"])
+
+    def test_cohort_list_with_created_by_filter(self):
+        Person.objects.create(team=self.team, properties={"prop": 5})
+
+        # Create cohorts by self.user
+        self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "self_user_cohort_1", "groups": [{"properties": {"prop": 5}}]},
+        )
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "self_user_cohort_2", "groups": [{"properties": {"prop": 5}}]},
+        )
+        other_user = User.objects.create_user(email="other@test.com", password="password", first_name="Other")
+        other_user_cohort = Cohort.objects.create(
+            team=self.team,
+            name="other_user_cohort",
+            created_by=other_user,
+        )
+
+        # Test no filter returns all cohorts
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()
+        self.assertEqual(len(response["results"]), 3)
+
+        # Test filter by self.user's cohorts
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?created_by_id={self.user.id}").json()
+        self.assertEqual(len(response["results"]), 2)
+        for cohort in response["results"]:
+            self.assertEqual(cohort["created_by"]["id"], self.user.id)
+            self.assertEqual(cohort["name"][:-2], "self_user_cohort")
+
+        # Test filter by other_user's cohorts
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?created_by_id={other_user.id}").json()
+        self.assertEqual(len(response["results"]), 1)
+        self.assertEqual(response["results"][0]["name"], other_user_cohort.name)
+
+        # Test filter by blank user (should return no cohorts)
+        blank_user = User.objects.create_user(email="blank@test.com", password="password", first_name="blank")
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?created_by_id={blank_user.id}").json()
+        self.assertEqual(len(response["results"]), 0)
+
+    def test_cohort_list_with_combined_filters(self):
+        Person.objects.create(team=self.team, properties={"prop": 5})
+
+        # Create dynamic cohort
+        self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "dynamic_test", "groups": [{"properties": {"prop": 5}}]},
+        )
+
+        # Create static cohort
+        self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "static_test", "is_static": True},
+        )
+
+        # Test combined type and search filters
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?type=dynamic&search=dynamic").json()
+        self.assertEqual(len(response["results"]), 1)
+        self.assertEqual(response["results"][0]["name"], "dynamic_test")
+        self.assertFalse(response["results"][0]["is_static"])
+
+        # Test combined filters with no matches
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?type=static&search=dynamic").json()
+        self.assertEqual(len(response["results"]), 0)
+
+        # Test all filters combined
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/cohorts?type=static&search=static&created_by_id={self.user.id}"
+        ).json()
+        self.assertEqual(len(response["results"]), 1)
+        self.assertEqual(response["results"][0]["name"], "static_test")
+        self.assertTrue(response["results"][0]["is_static"])
+        self.assertEqual(response["results"][0]["created_by"]["id"], self.user.id)
 
     @patch("posthog.api.cohort.report_user_action")
     def test_list_cohorts_excludes_behavioral_cohorts(self, patch_capture):

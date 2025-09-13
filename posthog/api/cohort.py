@@ -628,13 +628,26 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     serializer_class = CohortSerializer
     scope_object = "cohort"
 
+    def _filter_request(self, request: Request, queryset: QuerySet) -> QuerySet:
+        filters = request.GET.dict()
+
+        for key in filters:
+            if key == "type":
+                cohort_type = filters[key]
+                if cohort_type == "static":
+                    queryset = queryset.filter(is_static=True)
+                elif cohort_type == "dynamic":
+                    queryset = queryset.filter(is_static=False)
+            elif key == "created_by_id":
+                queryset = queryset.filter(created_by_id=request.GET["created_by_id"])
+            elif key == "search":
+                queryset = queryset.filter(name__icontains=request.GET["search"])
+
+        return queryset
+
     def safely_get_queryset(self, queryset) -> QuerySet:
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
-
-            search_query = self.request.query_params.get("search", None)
-            if search_query:
-                queryset = queryset.filter(name__icontains=search_query)
 
             # TODO: remove this filter once we can support behavioral cohorts for feature flags, it's only
             # used in the feature flag property filter UI
@@ -642,6 +655,9 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 all_cohorts = {cohort.id: cohort for cohort in queryset.all()}
                 behavioral_cohort_ids = self._find_behavioral_cohorts(all_cohorts)
                 queryset = queryset.exclude(id__in=behavioral_cohort_ids)
+
+            # add additional filters provided by the client
+            queryset = self._filter_request(self.request, queryset)
 
         return queryset.prefetch_related("experiment_set", "created_by", "team").order_by("-created_at")
 

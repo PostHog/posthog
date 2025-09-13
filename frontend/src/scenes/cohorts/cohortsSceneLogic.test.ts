@@ -104,6 +104,24 @@ describe('cohortsSceneLogic', () => {
                     .toMatchValues({
                         cohortFilters: expect.objectContaining({ page: 2 }),
                     })
+
+                // Test type filter
+                await expectLogic(logic, () => {
+                    logic.actions.setCohortFilters({ type: 'static' })
+                })
+                    .toDispatchActions(['setCohortFilters', 'loadCohorts', 'loadCohortsSuccess'])
+                    .toMatchValues({
+                        cohortFilters: expect.objectContaining({ type: 'static' }),
+                    })
+
+                // Test created_by_id filter
+                await expectLogic(logic, () => {
+                    logic.actions.setCohortFilters({ created_by_id: 123 })
+                })
+                    .toDispatchActions(['setCohortFilters', 'loadCohorts', 'loadCohortsSuccess'])
+                    .toMatchValues({
+                        cohortFilters: expect.objectContaining({ created_by_id: 123 }),
+                    })
             })
         })
 
@@ -143,6 +161,22 @@ describe('cohortsSceneLogic', () => {
                         entryCount: 2,
                     }),
                 })
+            })
+
+            it('calculates shouldShowEmptyState correctly', async () => {
+                router.actions.push(urls.cohorts())
+
+                // With cohorts loaded, should not show empty state
+                await expectLogic(logic).toDispatchActions(['loadCohortsSuccess'])
+                expect(logic.values.shouldShowEmptyState).toBe(false)
+
+                // With no cohorts and default filters, should show empty state
+                logic.actions.loadCohortsSuccess({ count: 0, results: [] })
+                expect(logic.values.shouldShowEmptyState).toBe(true)
+
+                // With no cohorts but with search filter, should not show empty state
+                logic.actions.setCohortFilters({ search: 'test' })
+                expect(logic.values.shouldShowEmptyState).toBe(false)
             })
         })
     })
