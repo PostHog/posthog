@@ -16,6 +16,10 @@ type Config struct {
 	// Kubernetes configuration
 	KubeNamespace     string
 	KubeLabelSelector string
+	DeploymentName    string // Container name for metrics queries (literal match)
+
+	// Metrics configuration
+	MetricsTimeWindow time.Duration // Time window for rate calculations
 
 	// Decision making thresholds
 	CPUVarianceThreshold float64
@@ -34,8 +38,10 @@ func LoadFromEnv() (*Config, error) {
 	// Set defaults
 	v.SetDefault("PROMETHEUS_ENDPOINT", "http://localhost:9090")
 	v.SetDefault("PROMETHEUS_TIMEOUT", "30s")
-	v.SetDefault("KUBE_NAMESPACE", "default")
+	v.SetDefault("KUBE_NAMESPACE", "posthog")
 	v.SetDefault("KUBE_LABEL_SELECTOR", "app=consumer")
+	// DEPLOYMENT_NAME has no default - must be explicitly configured
+	v.SetDefault("METRICS_TIME_WINDOW", "5m")
 	v.SetDefault("CPU_VARIANCE_THRESHOLD", 0.3)
 	v.SetDefault("LAG_VARIANCE_THRESHOLD", 0.5)
 	v.SetDefault("MIN_PODS_REQUIRED", 3)
@@ -52,11 +58,20 @@ func LoadFromEnv() (*Config, error) {
 		return nil, fmt.Errorf("invalid PROMETHEUS_TIMEOUT: %w", err)
 	}
 
+	// Parse metrics time window
+	timeWindowStr := v.GetString("METRICS_TIME_WINDOW")
+	timeWindow, err := time.ParseDuration(timeWindowStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid METRICS_TIME_WINDOW: %w", err)
+	}
+
 	config := &Config{
 		PrometheusEndpoint:   v.GetString("PROMETHEUS_ENDPOINT"),
 		PrometheusTimeout:    timeout,
 		KubeNamespace:        v.GetString("KUBE_NAMESPACE"),
 		KubeLabelSelector:    v.GetString("KUBE_LABEL_SELECTOR"),
+		DeploymentName:       v.GetString("DEPLOYMENT_NAME"),
+		MetricsTimeWindow:    timeWindow,
 		CPUVarianceThreshold: v.GetFloat64("CPU_VARIANCE_THRESHOLD"),
 		LagVarianceThreshold: v.GetFloat64("LAG_VARIANCE_THRESHOLD"),
 		MinPodsRequired:      v.GetInt("MIN_PODS_REQUIRED"),
@@ -88,6 +103,10 @@ func (c *Config) Validate() error {
 
 	if c.KubeLabelSelector == "" {
 		return fmt.Errorf("KUBE_LABEL_SELECTOR is required")
+	}
+
+	if c.DeploymentName == "" {
+		return fmt.Errorf("DEPLOYMENT_NAME is required")
 	}
 
 	if c.CPUVarianceThreshold < 0 || c.CPUVarianceThreshold > 1 {
