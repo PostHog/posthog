@@ -113,7 +113,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     )
 
     // insightDataLogic
-    const { query, queryChanged, showQueryEditor, showDebugPanel, hogQL, exportContext } = useValues(
+    const { query, queryChanged, showQueryEditor, showDebugPanel, hogQL, exportContext, hogQLVariables } = useValues(
         insightDataLogic(insightProps)
     )
     const { toggleQueryEditorPanel, toggleDebugPanel } = useActions(insightDataLogic(insightProps))
@@ -489,6 +489,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                             createStaticCohort(name, {
                                                                 kind: NodeKind.HogQLQuery,
                                                                 query: hogQL,
+                                                                variables: hogQLVariables,
                                                             })
                                                         },
                                                     })
@@ -774,6 +775,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             createStaticCohort(name, {
                                                 kind: NodeKind.HogQLQuery,
                                                 query: hogQL,
+                                                variables: hogQLVariables,
                                             })
                                         },
                                     })
