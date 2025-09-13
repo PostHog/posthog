@@ -186,6 +186,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     fixedProperties: [
                         { type: PropertyFilterType.Cohort, key: 'id', value: parseInt(String(props.id)) },
                     ],
+                    select: ['person_display_name -- Person', 'id', 'created_at', 'person.$delete'],
                 },
                 full: true,
                 showPropertyFilter: false,

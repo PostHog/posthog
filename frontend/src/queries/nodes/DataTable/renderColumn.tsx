@@ -35,7 +35,6 @@ import {
     isTracesQuery,
     trimQuotes,
 } from '~/queries/utils'
-import { RemovePersonFromCohortButton } from '~/scenes/cohorts/RemovePersonFromCohortButton'
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { extractExpressionComment, removeExpressionComment } from './utils'
@@ -307,11 +306,6 @@ export function renderColumn(
             return ''
         }
         const personRecord = record[0] as PersonType
-
-        // Check if we're in a cohort context and it's a static cohort
-        if (context?.cohortId && context?.isStaticCohort) {
-            return <RemovePersonFromCohortButton person={personRecord} cohortId={context.cohortId} />
-        }
 
         return <DeletePersonButton person={personRecord} />
     } else if (key.startsWith('context.columns.')) {
