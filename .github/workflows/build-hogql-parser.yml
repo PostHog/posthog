@@ -17,7 +17,7 @@ jobs:
         outputs:
             parser-release-needed: ${{ steps.version.outputs.parser-release-needed }}
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v5
               with:
                   fetch-depth: 0 # Fetching all for comparison since last push (not just last commit)
 
@@ -62,7 +62,7 @@ jobs:
                 os: [ubuntu-22.04, buildjet-2vcpu-ubuntu-2204-arm, macos-13]
 
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v5
 
             - uses: actions/setup-python@v5
               with:
@@ -118,7 +118,7 @@ jobs:
             - name: Publish package to PyPI
               uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # release/v1
 
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v5
               with:
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
                   ref: ${{ github.event.pull_request.head.ref }}
