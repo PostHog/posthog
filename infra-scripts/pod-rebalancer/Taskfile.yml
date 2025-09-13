@@ -1,0 +1,84 @@
+version: '3'
+
+vars:
+    BINARY_NAME: rebalancer
+    BUILD_DIR: bin
+    COVERAGE_FILE: coverage.out
+    COVERAGE_HTML: coverage.html
+
+tasks:
+    tools:
+        desc: Install development tools
+        cmds:
+            - go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+            - go install golang.org/x/vuln/cmd/govulncheck@latest
+            - go install golang.org/x/tools/cmd/goimports@latest
+
+    deps:
+        desc: Download and tidy dependencies
+        cmds:
+            - go mod download
+            - go mod tidy
+
+    fmt:
+        desc: Format code and organize imports
+        cmds:
+            - gofmt -s -w .
+            - goimports -w .
+            - test -z "$(gofmt -l .)"
+
+    vet:
+        desc: Run go vet
+        cmds:
+            - go vet ./...
+
+    lint:
+        desc: Run golangci-lint
+        cmds:
+            - golangci-lint run
+
+    test:
+        desc: Run tests with race detection
+        cmds:
+            - go test -v -race ./...
+
+    test-coverage:
+        desc: Run tests with coverage report
+        cmds:
+            - go test -v -race -coverprofile={{.COVERAGE_FILE}} ./...
+            - go tool cover -html={{.COVERAGE_FILE}} -o {{.COVERAGE_HTML}}
+            - go tool cover -func={{.COVERAGE_FILE}}
+            - echo "Coverage report generated at {{.COVERAGE_HTML}}"
+
+    security:
+        desc: Check for security vulnerabilities
+        cmds:
+            - govulncheck ./...
+
+    build:
+        desc: Build optimized binary
+        cmds:
+            - mkdir -p {{.BUILD_DIR}}
+            - go build -ldflags="-s -w" -o {{.BUILD_DIR}}/{{.BINARY_NAME}} ./cmd/rebalancer
+
+    docker:
+        desc: Build Docker image
+        cmds:
+            - docker build -t pod-rebalancer .
+
+    check:
+        desc: Run all quality checks
+        deps: [fmt, vet, lint, test, security]
+
+    clean:
+        desc: Clean build artifacts
+        cmds:
+            - rm -rf {{.BUILD_DIR}}/
+            - rm -f {{.COVERAGE_FILE}} {{.COVERAGE_HTML}}
+
+    dev-setup:
+        desc: Set up development environment
+        deps: [tools, deps]
+        cmds:
+            - echo "Development environment setup complete!"
+            - echo "Run 'task check' to verify everything is working"

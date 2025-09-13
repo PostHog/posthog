@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+    # VictoriaMetrics for testing metrics collection
+    victoriametrics:
+        image: victoriametrics/victoria-metrics:latest
+        ports:
+            - '8428:8428'
+        volumes:
+            - vm_data:/victoria-metrics-data
+        command:
+            - '--storageDataPath=/victoria-metrics-data'
+            - '--httpListenAddr=:8428'
+        restart: unless-stopped
+
+    # Prometheus for alternative testing
+    prometheus:
+        image: prom/prometheus:latest
+        ports:
+            - '9090:9090'
+        volumes:
+            - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+            - prom_data:/prometheus
+        command:
+            - '--config.file=/etc/prometheus/prometheus.yml'
+            - '--storage.tsdb.path=/prometheus'
+            - '--web.console.libraries=/etc/prometheus/console_libraries'
+            - '--web.console.templates=/etc/prometheus/consoles'
+            - '--web.enable-lifecycle'
+        restart: unless-stopped
+
+    # Node Exporter for generating test metrics
+    node-exporter:
+        image: prom/node-exporter:latest
+        ports:
+            - '9100:9100'
+        volumes:
+            - /proc:/host/proc:ro
+            - /sys:/host/sys:ro
+            - /:/rootfs:ro
+        command:
+            - '--path.procfs=/host/proc'
+            - '--path.sysfs=/host/sys'
+            - '--path.rootfs=/rootfs'
+            - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+        restart: unless-stopped
+
+    # Mock Kafka Consumer (for generating test metrics)
+    mock-consumer:
+        image: prom/prometheus:latest # Using as a mock service
+        labels:
+            - 'app=consumer'
+            - 'component=kafka-consumer'
+        environment:
+            - CONSUMER_ID=consumer-1
+        command: |
+            sh -c "
+              echo 'Mock Kafka Consumer running...'
+              while true; do sleep 30; done
+            "
+        restart: unless-stopped
+
+volumes:
+    vm_data:
+    prom_data:

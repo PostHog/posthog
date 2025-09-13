@@ -1,0 +1,21 @@
+global:
+    scrape_interval: 15s
+    evaluation_interval: 15s
+
+rule_files:
+    # Add rules here if needed
+
+scrape_configs:
+    - job_name: 'prometheus'
+      static_configs:
+          - targets: ['localhost:9090']
+
+    - job_name: 'node-exporter'
+      static_configs:
+          - targets: ['node-exporter:9100']
+
+    - job_name: 'mock-consumers'
+      static_configs:
+          - targets: ['mock-consumer:9090']
+      metrics_path: /metrics
+      scrape_interval: 5s

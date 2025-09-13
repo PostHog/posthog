@@ -1,0 +1,64 @@
+run:
+    timeout: 5m
+    tests: true
+
+linters-settings:
+    gofmt:
+        simplify: true
+    goimports:
+        local-prefixes: github.com/posthog/pod-rebalancer
+    misspell:
+        locale: US
+    govet:
+        enable-all: true
+    staticcheck:
+        checks: ['all']
+    gosec:
+        excludes:
+            - G104 # Unhandled errors are checked by other linters
+    cyclop:
+        max-complexity: 15
+    funlen:
+        lines: 100
+        statements: 50
+
+linters:
+    enable:
+        - gofmt
+        - goimports
+        - govet
+        - staticcheck
+        - gosec
+        - misspell
+        - ineffassign
+        - unused
+        - deadcode
+        - varcheck
+        - structcheck
+        - errcheck
+        - gosimple
+        - typecheck
+        - cyclop
+        - funlen
+        - gocognit
+        - nestif
+        - lll
+    disable:
+        - exhaustivestruct # Too strict for this project
+        - wsl # Whitespace linter is too opinionated
+
+issues:
+    exclude-rules:
+        - path: _test\.go
+          linters:
+              - funlen
+              - cyclop
+              - gocognit
+        - path: tools\.go
+          linters:
+              - deadcode
+              - unused
+              - varcheck
+
+    max-issues-per-linter: 0
+    max-same-issues: 0
