@@ -1087,9 +1087,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
             const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
 
-            // Expose replayer on window for testing
-            ;(window as any).__posthog_replayer__ = replayer
-
             // Listen for resource errors from rrweb
             replayer.on('fullsnapshot-rebuilded', () => {
                 const iframeFetch = replayer.iframe.contentWindow?.fetch
