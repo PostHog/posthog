@@ -511,12 +511,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     def remove_user_by_uuid(self, user_uuid: str, *, team_id: int) -> bool:
         """
-        Remove a single user identified by their UUID from the cohort.
-        
+        Remove a user from the cohort by their UUID.
+
         Args:
             user_uuid: UUID of the user to be removed from the cohort.
-            team_id: ID of the team for which to remove the user.
-            
+            team_id: ID of the team to which the cohort belongs
         Returns:
             True if user was removed, False if user was not in the cohort.
         """
@@ -524,15 +523,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         try:
             # Get person by UUID
-            person = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(
-                team_id=team_id, uuid=user_uuid
-            )
+            person = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(team_id=team_id, uuid=user_uuid)
 
             # Check if person is in the cohort
             cohort_person = CohortPeople.objects.filter(
                 cohort_id=self.id,
                 person_id=person.id,
-                version=self.version
             ).first()
 
             if not cohort_person:
@@ -546,7 +542,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             try:
                 count = get_static_cohort_size(cohort_id=self.id, team_id=team_id)
                 self.count = count
-                self.save(update_fields=['count'])
+                self.save(update_fields=["count"])
             except Exception as count_err:
                 logger.exception("Failed to update cohort count after removal", cohort_id=self.id, team_id=team_id)
                 capture_exception(count_err, additional_properties={"cohort_id": self.id, "team_id": team_id})
@@ -556,8 +552,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         except Person.DoesNotExist:
             return False
         except Exception as err:
-            logger.exception("Failed to remove user from cohort", cohort_id=self.id, team_id=team_id, user_uuid=user_uuid)
-            capture_exception(err, additional_properties={"cohort_id": self.id, "team_id": team_id, "user_uuid": user_uuid})
+            logger.exception(
+                "Failed to remove user from cohort", cohort_id=self.id, team_id=team_id, user_uuid=user_uuid
+            )
+            capture_exception(
+                err, additional_properties={"cohort_id": self.id, "team_id": team_id, "user_uuid": user_uuid}
+            )
             raise
 
     def to_dict(self) -> dict:

@@ -2717,53 +2717,48 @@ email@example.org,
         cohort_data = response.json()
         self.assertIsNotNone(cohort_data.get("id"))
 
-    @parameterized.expand([("valid_person_uuid", True), ("invalid_person_uuid", False)])
-    def test_remove_person_from_static_cohort(self, _name, person_exists):
+    def test_remove_person_from_static_cohort(self):
         static_cohort = Cohort.objects.create(
             team=self.team,
             name="Test Static Cohort",
             is_static=True,
         )
 
-        if person_exists:
-            person = _create_person(
-                team_id=self.team.pk, distinct_ids=["test-person-1"], properties={"email": "test@example.com"}
-            )
-            flush_persons_and_events()
-            static_cohort.insert_users_by_list([str(person.uuid)])
-            person_id = str(person.uuid)
-        else:
-            person_id = "12345678-1234-1234-1234-123456789abc"  # Valid UUID format but non-existent
+        person = _create_person(
+            team_id=self.team.pk, distinct_ids=["test-person-1"], properties={"email": "test@example.com"}
+        )
+        person2 = _create_person(
+            team_id=self.team.pk, distinct_ids=["test-person-2"], properties={"email": "test@example.com"}
+        )
+        flush_persons_and_events()
+        static_cohort.insert_users_by_list(["test-person-1", "test-person-2"])
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/remove_person_from_static_cohort",
-            {"person_id": person_id},
+            {"person_id": str(person.uuid)},
             format="json",
         )
 
-        if person_exists:
-            assert response.status_code == 200
-            assert response.json() == {"success": True}
+        assert response.json() == {"success": True}
+        assert response.status_code == 200
 
-            # Verify activity was logged
-            activity_response = self._get_cohort_activity(static_cohort.id)
-            activity = activity_response["results"]
-            assert len(activity) == 1
+        # Verify activity was logged
+        activity_response = self._get_cohort_activity(static_cohort.id)
+        activity = activity_response["results"]
+        assert len(activity) == 1
+        activity_entry = activity[0]
+        assert activity_entry["activity"] == "person_removed_manually"
+        assert activity_entry["scope"] == "Cohort"
+        assert activity_entry["item_id"] == str(static_cohort.id)
+        assert activity_entry["user"]["email"] == self.user.email
 
-            activity_entry = activity[0]
-            assert activity_entry["activity"] == "person_removed_manually"
-            assert activity_entry["scope"] == "Cohort"
-            assert activity_entry["item_id"] == str(static_cohort.id)
-            assert activity_entry["user"]["first_name"] == self.user.first_name
-            assert activity_entry["user"]["email"] == self.user.email
-            # Check that the changes contain the expected data (ignoring extra fields like field, before, after)
-            changes = activity_entry["detail"]["changes"]
-            assert len(changes) == 1
-            assert changes[0]["type"] == "Cohort"
-            assert changes[0]["action"] == "changed"
-        else:
-            assert response.status_code == 400
-            assert "Person not found" in response.json()["detail"]
+        # Verify only the correct person was removed
+        cohort_persons_response = self.client.get(f"/api/cohort/{static_cohort.id}/persons")
+        assert cohort_persons_response.status_code == 200
+        cohort_persons = cohort_persons_response.json()["results"]
+        person_uuids_in_cohort = [p["uuid"] for p in cohort_persons]
+        assert str(person.uuid) not in person_uuids_in_cohort
+        assert str(person2.uuid) in person_uuids_in_cohort
 
     def test_remove_person_from_static_cohort_validation_errors(self):
         static_cohort = Cohort.objects.create(
@@ -2814,18 +2809,29 @@ email@example.org,
         assert response.status_code == 400
         assert "Can only remove users from static cohorts" in response.json()["detail"]
 
-    def test_remove_person_from_static_cohort_success(self):
+    def test_remove_person_from_static_cohort_person_not_in_cohort(self):
         static_cohort = Cohort.objects.create(
             team=self.team,
             name="Test Static Cohort",
             is_static=True,
         )
+        # Person does not exist at all
+        not_existant_person_UUID = "12345678-1234-1234-1234-123456789abc"
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/remove_person_from_static_cohort",
+            {"person_id": not_existant_person_UUID},
+            format="json",
+        )
+        assert response.status_code == 404
+        assert "Person with this UUID does not exist" in response.json()["detail"]
 
+        # Person exists but is not in the cohort
         person = _create_person(
-            team_id=self.team.pk, distinct_ids=["test-person-success"], properties={"email": "success@example.com"}
+            team_id=self.team.pk,
+            distinct_ids=["test-person-not-in-cohort"],
+            properties={"email": "notincohort@example.com"},
         )
         flush_persons_and_events()
-        static_cohort.insert_users_by_list([str(person.uuid)])
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/remove_person_from_static_cohort",
@@ -2833,8 +2839,8 @@ email@example.org,
             format="json",
         )
 
-        assert response.status_code == 200
-        assert response.json() == {"success": True}
+        assert response.status_code == 404
+        assert "Person is not part of the cohort" in response.json()["detail"]
 
 
 class TestCalculateCohortCommand(APIBaseTest):

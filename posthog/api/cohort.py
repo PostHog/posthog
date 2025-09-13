@@ -19,7 +19,7 @@ from pydantic import (
     model_validator,
 )
 from rest_framework import request, serializers, status, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -865,9 +865,12 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         try:
             person_uuid = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(team_id=self.team_id, uuid=person_id).uuid
         except Person.DoesNotExist:
-            raise ValidationError("Person not found")
+            raise NotFound("Person with this UUID does not exist in the cohort's team")
 
-        cohort.remove_user_by_uuid(str(person_uuid), team_id=self.team_id)
+        success = cohort.remove_user_by_uuid(str(person_uuid), team_id=self.team_id)
+
+        if not success:
+            raise NotFound("Person is not part of the cohort")
 
         log_activity(
             organization_id=cast(UUIDT, self.organization_id),
