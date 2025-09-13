@@ -43,9 +43,13 @@ export const commentsLogic = kea<commentsLogicType>([
 
     actions({
         loadComments: true,
+        focusComposer: true,
+        clearItemContext: true,
         maybeLoadComments: true,
-        setComposedComment: (content: string) => ({ content }),
         sendComposedContent: true,
+        persistEditedComment: true,
+        onRichContentEditorUpdate: (isEmpty: boolean) => ({ isEmpty }),
+        onEditingCommentRichContentEditorUpdate: (isEmpty: boolean) => ({ isEmpty }),
         sendEmojiReaction: (emoji: string, sourceCommentId: string) => ({ emoji, sourceCommentId }),
         deleteComment: (comment: CommentType) => ({ comment }),
         setEditingComment: (comment: CommentType | null) => ({ comment }),
@@ -54,11 +58,8 @@ export const commentsLogic = kea<commentsLogicType>([
             context,
             callback,
         }),
-        clearItemContext: true,
-        persistEditedComment: true,
-        setComposerRef: (ref: HTMLTextAreaElement | null) => ({ ref }),
-        focusComposer: true,
         setRichContentEditor: (editor: RichContentEditorType) => ({ editor }),
+        setEditingCommentRichContentEditor: (editor: RichContentEditorType | null) => ({ editor }),
     }),
     reducers({
         replyingCommentId: [
@@ -75,6 +76,18 @@ export const commentsLogic = kea<commentsLogicType>([
                 sendComposedContentSuccess: () => null,
             },
         ],
+        richContentEditor: [
+            null as RichContentEditorType | null,
+            {
+                setRichContentEditor: (_, { editor }) => editor,
+            },
+        ],
+        isEmpty: [
+            true as boolean,
+            {
+                onRichContentEditorUpdate: (_, { isEmpty }) => isEmpty,
+            },
+        ],
         editingComment: [
             null as CommentType | null,
             {
@@ -82,24 +95,18 @@ export const commentsLogic = kea<commentsLogicType>([
                 persistEditedCommentSuccess: () => null,
             },
         ],
-        composedComment: [
-            '',
-            { persist: true },
-            {
-                setComposedComment: (_, { content }) => content,
-                sendComposedContentSuccess: () => '',
-            },
-        ],
-        richContentEditor: [
+        editingCommentRichContentEditor: [
             null as RichContentEditorType | null,
             {
-                setRichContentEditor: (_, { editor }) => editor,
+                setEditingCommentRichContentEditor: (_, { editor }) => editor,
+                persistEditedCommentSuccess: () => null,
             },
         ],
-        composerRef: [
-            null as HTMLTextAreaElement | null,
+        isEditingCommentEmpty: [
+            false as boolean,
             {
-                setComposerRef: (_, { ref }) => ref,
+                onEditingCommentRichContentEditorUpdate: (_, { isEmpty }) => isEmpty,
+                persistEditedCommentSuccess: () => false,
             },
         ],
     }),
@@ -127,7 +134,6 @@ export const commentsLogic = kea<commentsLogicType>([
                     }
 
                     const newComment = await api.comments.create({
-                        content: values.composedComment,
                         rich_content: values.richContentEditor?.getJSON(),
                         scope: props.scope,
                         item_id: props.item_id,
@@ -145,11 +151,10 @@ export const commentsLogic = kea<commentsLogicType>([
                         return values.comments
                     }
 
+                    const { id, rich_content } = editedComment
+
                     const existingComments = values.comments ?? []
-                    const updatedComment = await api.comments.update(editedComment.id, {
-                        content: editedComment.content,
-                        rich_content: values.richContentEditor?.getJSON(),
-                    })
+                    const updatedComment = await api.comments.update(id, { rich_content, content: null })
                     return [...existingComments.filter((c) => c.id !== editedComment.id), updatedComment]
                 },
 
@@ -199,11 +204,11 @@ export const commentsLogic = kea<commentsLogicType>([
         },
         setItemContext: ({ context }) => {
             if (context) {
-                values.composerRef?.focus()
+                values.richContentEditor?.focus()
             }
         },
         focusComposer: () => {
-            values.composerRef?.focus()
+            values.richContentEditor?.focus()
         },
         maybeLoadComments: () => {
             if (!values.comments && !values.commentsLoading) {
@@ -212,6 +217,7 @@ export const commentsLogic = kea<commentsLogicType>([
         },
         sendComposedContentSuccess: () => {
             actions.incrementCommentCount()
+            values.richContentEditor?.clear()
         },
     })),
 
@@ -270,7 +276,8 @@ export const commentsLogic = kea<commentsLogicType>([
                         if (!reactions[comment.source_comment]) {
                             reactions[comment.source_comment] = {}
                         }
-                        const emoji = comment.content
+                        // TODO: emoji reactions still use the content field for now
+                        const emoji = comment.content!
                         if (!reactions[comment.source_comment][emoji]) {
                             reactions[comment.source_comment][emoji] = []
                         }

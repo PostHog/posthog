@@ -20,6 +20,7 @@ export function createEditor(editor: TTEditor): RichContentEditorType {
         setSelection: (position: number) => editor.commands.setNodeSelection(position),
         setTextSelection: (position: number | EditorRange) => editor.commands.setTextSelection(position),
         focus: (position?: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
+        clear: () => editor.commands.clearContent(),
         chain: () => editor.chain().focus(),
         destroy: () => editor.destroy(),
         getMarks: (type: string) => getMarks(editor, type),

@@ -46,4 +46,5 @@ export interface RichContentEditorType {
     hasChildOfType: (node: RichContentNode, type: string) => boolean
     scrollToSelection: () => void
     scrollToPosition: (position: number) => void
+    clear: () => void
 }

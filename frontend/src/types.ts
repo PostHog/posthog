@@ -4628,7 +4628,7 @@ export enum ActivityScope {
 
 export type CommentType = {
     id: string
-    content: string
+    content: string | null
     rich_content: JSONContent | null
     version: number
     created_at: string

@@ -1,18 +1,19 @@
 import './LemonRichContentEditor.scss'
 
-import { JSONContent, generateText } from '@tiptap/core'
+import { JSONContent, TextSerializer } from '@tiptap/core'
 import ExtensionDocument from '@tiptap/extension-document'
 import { Placeholder } from '@tiptap/extensions'
 import StarterKit from '@tiptap/starter-kit'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { IconEye, IconImage, IconPencil } from '@posthog/icons'
 
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { RichContentEditor } from 'lib/components/RichContentEditor'
+import { CommandEnterExtension } from 'lib/components/RichContentEditor/CommandEnterExtension'
 import { MentionsExtension } from 'lib/components/RichContentEditor/MentionsExtension'
 import { RichContentNodeMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
 import { RichContentEditorType, RichContentNodeType, TTEditor } from 'lib/components/RichContentEditor/types'
@@ -40,14 +41,14 @@ const DEFAULT_INITIAL_CONTENT: JSONContent = {
             content: [
                 {
                     type: 'text',
-                    text: 'This is my content',
+                    text: '',
                 },
             ],
         },
     ],
 }
 
-const extensions = [
+export const DEFAULT_EXTENSIONS = [
     MentionsExtension,
     RichContentNodeMention,
     ExtensionDocument,
@@ -73,21 +74,28 @@ const extensions = [
     }),
 ]
 
+export const serializationOptions: { textSerializers?: Record<string, TextSerializer> } = {
+    textSerializers: { [RichContentNodeType.Mention]: ({ node }) => `@member:${node.attrs.id}` },
+}
+
 export function LemonRichContentEditor({
     logicKey = uuid(),
     initialContent,
     placeholder,
-    onChange,
     onCreate,
+    onUpdate,
+    onPressCmdEnter,
+    disabled = false,
 }: {
     logicKey?: string
-    initialContent?: JSONContent
+    initialContent?: JSONContent | null
     placeholder?: string
-    onChange: (content: JSONContent) => void
     onCreate?: (editor: RichContentEditorType) => void
+    onUpdate?: (isEmpty: boolean) => void
+    onPressCmdEnter?: () => void
+    disabled?: boolean
 }): JSX.Element {
     const [isPreviewShown, setIsPreviewShown] = useState<boolean>(false)
-    const [content, setContent] = useState<JSONContent | undefined>(initialContent ?? DEFAULT_INITIAL_CONTENT)
     const [ttEditor, setTTEditor] = useState<TTEditor | null>(null)
     const { objectStorageAvailable } = useValues(preflightLogic)
     const { emojiUsed } = useActions(emojiUsageLogic)
@@ -109,25 +117,31 @@ export function LemonRichContentEditor({
 
     return (
         <div ref={dropRef} className="LemonRichContentEditor flex flex-col border rounded divide-y mt-4">
-            {isPreviewShown ? (
-                <RichContent content={content} />
+            {isPreviewShown && ttEditor ? (
+                <RichContent editor={ttEditor} />
             ) : (
                 <RichContentEditor
                     logicKey={logicKey}
-                    extensions={[...extensions, Placeholder.configure({ placeholder })]}
+                    extensions={[
+                        ...DEFAULT_EXTENSIONS,
+                        Placeholder.configure({ placeholder }),
+                        CommandEnterExtension.configure({ onPressCmdEnter }),
+                    ]}
                     autoFocus
-                    initialContent={content}
-                    onUpdate={(newContent) => {
-                        setContent(newContent)
-                        onChange(newContent)
-                    }}
+                    initialContent={initialContent ?? DEFAULT_INITIAL_CONTENT}
                     onCreate={(editor) => {
                         if (onCreate) {
                             onCreate(createEditor(editor))
                         }
                         setTTEditor(editor)
                     }}
+                    onUpdate={() => {
+                        if (onUpdate && ttEditor) {
+                            onUpdate(ttEditor.isEmpty)
+                        }
+                    }}
                     className="p-2"
+                    disabled={disabled}
                 />
             )}
             <div className="flex justify-between p-0.5">
@@ -178,24 +192,10 @@ export function LemonRichContentEditor({
                     )}
                 </div>
                 <div className="flex items-center gap-0.5">
-                    <LemonButton
-                        size="small"
-                        active={!isPreviewShown}
-                        onClick={() => {
-                            setIsPreviewShown(false)
-                            ttEditor?.setOptions({ editable: true })
-                        }}
-                    >
+                    <LemonButton size="small" active={!isPreviewShown} onClick={() => setIsPreviewShown(false)}>
                         <IconPencil />
                     </LemonButton>
-                    <LemonButton
-                        size="small"
-                        active={isPreviewShown}
-                        onClick={() => {
-                            setIsPreviewShown(true)
-                            ttEditor?.setOptions({ editable: false })
-                        }}
-                    >
+                    <LemonButton size="small" active={isPreviewShown} onClick={() => setIsPreviewShown(true)}>
                         <IconEye />
                     </LemonButton>
                 </div>
@@ -204,18 +204,8 @@ export function LemonRichContentEditor({
     )
 }
 
-const RichContent = ({ content }: { content?: JSONContent }): JSX.Element => {
-    const text = useMemo(() => {
-        const hasContent = content && content.content && content.content[0].content
-        const text = hasContent
-            ? generateText(content, extensions, {
-                  textSerializers: {
-                      [RichContentNodeType.Mention]: ({ node }) => `@member:${node.attrs.id}`,
-                  },
-              })
-            : ''
-        return text.length === 0 ? '_Nothing to preview_' : text
-    }, [content])
+const RichContent = ({ editor }: { editor?: TTEditor }): JSX.Element => {
+    const text = editor?.getText(serializationOptions)
 
-    return <TextContent text={text} className="p-2" />
+    return <TextContent text={text && text.length != 0 ? text : '_Nothing to preview_'} className="p-2" />
 }
