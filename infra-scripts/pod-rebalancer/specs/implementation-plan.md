@@ -15,9 +15,15 @@
 
 ### Current State
 - **Active Branch**: `pl/ingestion/ingestion_pod_rebalancer`
-- **Last Completed**: Commit 2 - Environment Configuration & Basic Logging (d96c791037)
+- **Last Completed**: Commit 2 - Environment Configuration & Basic Logging (3c801905cb)
 - **Next Target**: Commit 3 - Prometheus Client & Metrics
 - **Project Location**: `/Users/posthog/Projects/src/PostHog/posthog/infra-scripts/pod-rebalancer/`
+
+### Recent Improvements (2025-01-13)
+- **Config Management**: Upgraded to Viper for robust environment variable handling
+- **Testing Framework**: Added Ginkgo+Gomega for BDD-style testing alongside traditional Go tests
+- **Code Quality**: Simplified configuration loading while maintaining full test coverage
+- **Benefits**: Industry-standard libraries, reduced complexity, better maintainability
 
 ### Resume Instructions
 To continue development from any point:
