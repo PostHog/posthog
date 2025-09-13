@@ -1,6 +1,7 @@
 import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import type { MaxUIContext } from 'scenes/max/maxTypes'
 
+import type { Category, NotebookInfo } from '~/types'
 import { InsightShortId } from '~/types'
 
 import {
@@ -126,6 +127,9 @@ export interface NotebookUpdateMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Notebook
     notebook_id: string
     content: ProsemirrorJSONContent
+    notebook_type?: Category
+    conversation_notebooks?: NotebookInfo[]
+    current_run_notebooks?: NotebookInfo[]
     tool_calls?: AssistantToolCall[]
 }
 

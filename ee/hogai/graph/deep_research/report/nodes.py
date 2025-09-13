@@ -1,6 +1,9 @@
+from uuid import uuid4
+
 from langchain_core.messages import ToolMessage as LangchainToolMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
+from langgraph.config import get_stream_writer
 from pydantic import BaseModel
 
 from posthog.schema import (
@@ -9,6 +12,9 @@ from posthog.schema import (
     AssistantRetentionQuery,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
+    DeepResearchNotebook,
+    DeepResearchType,
+    NotebookUpdateMessage,
 )
 
 from posthog.exceptions_capture import capture_exception
@@ -19,11 +25,11 @@ from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
     DeepResearchNodeName,
     DeepResearchState,
-    InsightArtifact,
     PartialDeepResearchState,
 )
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor
 from ee.hogai.notebook.notebook_serializer import NotebookContext
+from ee.hogai.utils.types import InsightArtifact
 
 
 class FormattedInsight(BaseModel):
@@ -78,7 +84,7 @@ class DeepResearchReportNode(DeepResearchNode):
 
         context = self._create_context(all_artifacts)
 
-        notebook_update_message = await self._astream_notebook(
+        notebook = await self._astream_notebook(
             chain,
             config,
             DeepResearchNodeName.REPORT,
@@ -89,8 +95,36 @@ class DeepResearchReportNode(DeepResearchNode):
             context=context,
         )
 
+        notebook_title = notebook.title if notebook else "Research Report"
+        current_notebook_info = DeepResearchNotebook(
+            notebook_type=DeepResearchType.REPORT,
+            notebook_id=notebook.short_id,
+            title=notebook_title,
+        )
+
+        # Update current run notebooks with the report
+        current_run_notebooks = (state.current_run_notebooks or []) + [current_notebook_info]
+
+        # Combine all conversation notebooks with the current report for the final display
+        all_conversation_notebooks = [*state.conversation_notebooks, current_notebook_info]
+
+        notebook_update_message = NotebookUpdateMessage(
+            id=str(uuid4()),
+            notebook_id=notebook.short_id,
+            content=notebook.content,
+            notebook_type="deep_research",
+            conversation_notebooks=all_conversation_notebooks,
+            current_run_notebooks=current_run_notebooks,
+        )
+
+        writer = get_stream_writer()
+        custom_message = self._message_to_langgraph_update(notebook_update_message, DeepResearchNodeName.REPORT)
+        writer(custom_message)
+
         return PartialDeepResearchState(
             messages=[notebook_update_message],
+            conversation_notebooks=[current_notebook_info],
+            current_run_notebooks=current_run_notebooks,
         )
 
     def _collect_all_artifacts(self, state: DeepResearchState) -> list[InsightArtifact]:

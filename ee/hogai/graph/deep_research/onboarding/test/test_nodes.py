@@ -8,7 +8,7 @@ from langchain_core.messages import AIMessage as LangchainAIMessage
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
-from posthog.schema import AssistantMessage, HumanMessage
+from posthog.schema import AssistantMessage, DeepResearchNotebook, DeepResearchType, HumanMessage
 
 from posthog.models import Team, User
 
@@ -58,7 +58,19 @@ class TestDeepResearchOnboardingNode:
     )
     def test_should_run_onboarding_at_start(self, messages, expected_result, notebook_id=None):
         """Test the decision logic for when to run onboarding vs planning vs continue."""
-        state = DeepResearchState(messages=messages, notebook_short_id=notebook_id)
+        # Set up state based on whether we have notebooks
+        if notebook_id:
+            current_run_notebooks = [
+                DeepResearchNotebook(
+                    notebook_id=notebook_id, notebook_type=DeepResearchType.PLANNING, title="Test Notebook"
+                )
+            ]
+        else:
+            current_run_notebooks = None
+
+        state = DeepResearchState(
+            messages=messages, conversation_notebooks=[], current_run_notebooks=current_run_notebooks
+        )
         result = self.node.should_run_onboarding_at_start(state)
         assert result == expected_result
 
@@ -70,7 +82,7 @@ class TestDeepResearchOnboardingNode:
             HumanMessage(content="Second human message"),
             AssistantMessage(content="Another assistant response"),
         ]
-        state = DeepResearchState(messages=messages)
+        state = DeepResearchState(messages=messages, conversation_notebooks=[], current_run_notebooks=None)
         result = self.node.should_run_onboarding_at_start(state)
         # Should be "planning" because there are 2 human messages and no notebook
         assert result == "planning"
@@ -79,12 +91,17 @@ class TestDeepResearchOnboardingNode:
         """Test edge cases for the onboarding decision logic."""
         # Test with exactly 2 human messages and no notebook
         messages_2_human = [HumanMessage(content="First"), HumanMessage(content="Second")]
-        state = DeepResearchState(messages=messages_2_human)
+        state = DeepResearchState(messages=messages_2_human, conversation_notebooks=[], current_run_notebooks=None)
         result = self.node.should_run_onboarding_at_start(state)
         assert result == "planning"
 
         # Test with 2 human messages and notebook
-        state_with_notebook = DeepResearchState(messages=messages_2_human, notebook_short_id="abc123")
+        test_notebook = DeepResearchNotebook(
+            notebook_id="abc123", notebook_type=DeepResearchType.PLANNING, title="Test Notebook"
+        )
+        state_with_notebook = DeepResearchState(
+            messages=messages_2_human, conversation_notebooks=[], current_run_notebooks=[test_notebook]
+        )
         result = self.node.should_run_onboarding_at_start(state_with_notebook)
         assert result == "continue"
 
@@ -96,7 +113,9 @@ class TestDeepResearchOnboardingNode:
             AssistantMessage(content="Response2"),
             HumanMessage(content="Third"),
         ]
-        state_3_human = DeepResearchState(messages=messages_3_human)
+        state_3_human = DeepResearchState(
+            messages=messages_3_human, conversation_notebooks=[], current_run_notebooks=None
+        )
         result = self.node.should_run_onboarding_at_start(state_3_human)
         assert result == "planning"
 

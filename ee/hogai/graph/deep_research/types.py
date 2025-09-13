@@ -5,10 +5,12 @@ from typing import Annotated, Literal, Optional
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
-from posthog.schema import PlanningStepStatus, TaskExecutionItem, TaskExecutionStatus
+from posthog.schema import DeepResearchNotebook, PlanningStepStatus, TaskExecutionItem, TaskExecutionStatus
 
 from ee.hogai.utils.types import AssistantMessageUnion, InsightArtifact, add_and_merge_messages
 from ee.hogai.utils.types.base import BaseStateWithMessages, append, replace
+
+NotebookInfo = DeepResearchNotebook
 
 
 class DeepResearchTodo(BaseModel):
@@ -64,9 +66,13 @@ class _SharedDeepResearchState(BaseStateWithMessages):
     """
     The ID of the previous OpenAI Responses API response.
     """
-    notebook_short_id: Optional[str] = Field(default=None)
+    conversation_notebooks: Annotated[list[NotebookInfo], append] = Field(default=[])
     """
-    The short ID of the notebook being used.
+    All notebooks created across the entire conversation.
+    """
+    current_run_notebooks: Annotated[Optional[list[NotebookInfo]], replace] = Field(default=None)
+    """
+    Notebooks created in the current deep research run (reset on new run).
     """
 
 

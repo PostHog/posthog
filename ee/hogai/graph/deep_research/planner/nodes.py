@@ -136,7 +136,12 @@ class DeepResearchPlannerNode(DeepResearchNode):
             else:
                 raise ValueError("Unexpected message type.")
         else:
-            notebook = await Notebook.objects.aget(short_id=state.notebook_short_id)
+            # Get the planning notebook from current_run_notebooks (should be the first one)
+            if not state.current_run_notebooks:
+                raise ValueError("No notebooks found in current run.")
+
+            planning_notebook_id = state.current_run_notebooks[0].notebook_id
+            notebook = await Notebook.objects.aget(short_id=planning_notebook_id)
             if not notebook:
                 raise ValueError("Notebook not found.")
 

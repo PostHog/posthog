@@ -57,10 +57,14 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
         node_name: DeepResearchNodeName,
         stream_parameters: Optional[dict] = None,
         context: Optional[NotebookContext] = None,
-    ) -> NotebookUpdateMessage:
+    ) -> Notebook:
+        if self.notebook is None:
+            self.notebook = await self._create_notebook()
+
         notebook_update_message = None
         writer = get_stream_writer()
         chunk = AIMessageChunk(content="")
+
         async for new_chunk in chain.astream(
             stream_parameters or {},
             config,
@@ -70,16 +74,18 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
 
             chunk = merge_message_chunk(chunk, new_chunk)
             notebook_update_message = await self._llm_chunk_to_notebook_update_message(chunk, context)
+
             custom_message = self._message_to_langgraph_update(notebook_update_message, node_name)
             writer(custom_message)
 
         if not notebook_update_message:
             raise ValueError("No notebook update message found.")
 
-        # We set the id to mark this as the last completed chunk
+        # Mark completion and emit a final update.
         notebook_update_message.id = str(uuid4())
+        writer(self._message_to_langgraph_update(notebook_update_message, node_name))
 
-        return notebook_update_message
+        return self.notebook
 
     def _get_notebook_serializer(self, context: Optional[NotebookContext] = None) -> NotebookSerializer:
         """Get or create a reusable notebook serializer to avoid repeated query conversions during streaming."""
@@ -113,3 +119,6 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
             notebook_id=str(self.notebook.short_id),
             content=ProsemirrorJSONContent.model_validate(self.notebook.content),
         )
+
+    def _generate_notebook_update_message(self, notebook: Notebook) -> NotebookUpdateMessage:
+        return NotebookUpdateMessage(notebook_id=notebook.short_id, content=notebook.content)

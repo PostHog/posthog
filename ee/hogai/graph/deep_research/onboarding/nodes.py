@@ -24,7 +24,8 @@ class DeepResearchOnboardingNode(DeepResearchNode):
             # So there will be 2 human messages during the onboarding flow
             return "onboarding"
 
-        if state.notebook_short_id:
+        # If we have current_run_notebooks, we're continuing an existing run
+        if state.current_run_notebooks:
             return "continue"
         return "planning"
 
@@ -62,4 +63,5 @@ class DeepResearchOnboardingNode(DeepResearchNode):
         return PartialDeepResearchState(
             messages=[AssistantMessage(content=content, id=str(uuid4()))],
             previous_response_id=response_id,
+            current_run_notebooks=[],  # Reset current run notebooks on new run
         )

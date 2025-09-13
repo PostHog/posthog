@@ -917,6 +917,11 @@ class DatetimeDay(RootModel[datetime]):
     root: datetime
 
 
+class DeepResearchType(StrEnum):
+    PLANNING = "planning"
+    REPORT = "report"
+
+
 class DefaultChannelTypes(StrEnum):
     CROSS_NETWORK = "Cross Network"
     PAID_SEARCH = "Paid Search"
@@ -3598,6 +3603,16 @@ class Day(RootModel[int]):
     root: int
 
 
+class DeepResearchNotebook(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    category: Literal["deep_research"] = "deep_research"
+    notebook_id: str
+    notebook_type: Optional[DeepResearchType] = None
+    title: str
+
+
 class ElementPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4103,8 +4118,11 @@ class NotebookUpdateMessage(BaseModel):
         extra="forbid",
     )
     content: ProsemirrorJSONContent
+    conversation_notebooks: Optional[list[DeepResearchNotebook]] = None
+    current_run_notebooks: Optional[list[DeepResearchNotebook]] = None
     id: Optional[str] = None
     notebook_id: str
+    notebook_type: Literal["deep_research"] = "deep_research"
     tool_calls: Optional[list[AssistantToolCall]] = None
     type: Literal["ai/notebook"] = "ai/notebook"
 
