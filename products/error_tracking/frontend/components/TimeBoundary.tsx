@@ -9,7 +9,7 @@ import { Dayjs } from 'lib/dayjs'
 
 import { DateRange } from '~/queries/schema/schema-general'
 
-import { errorFiltersLogic } from './ErrorFilters/errorFiltersLogic'
+import { errorFiltersLogic } from './IssueFilters/filtersLogic'
 
 type TimeBoundaryProps = {
     label: string

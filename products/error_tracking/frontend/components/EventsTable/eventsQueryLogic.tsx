@@ -6,7 +6,7 @@ import { ErrorTrackingRelationalIssue, EventsQuery } from '~/queries/schema/sche
 
 import { errorTrackingIssueEventsQuery } from '../../queries'
 import { DataQueryLogic } from '../DataSourceTable'
-import { errorFiltersLogic } from '../ErrorFilters/errorFiltersLogic'
+import { errorFiltersLogic } from '../IssueFilters/filtersLogic'
 import type { eventsQueryLogicType } from './eventsQueryLogicType'
 
 export interface EventDataLogicProps {
@@ -14,7 +14,7 @@ export interface EventDataLogicProps {
 }
 
 export const eventsQueryLogic: LogicWrapper<DataQueryLogic<EventsQuery>> = kea<eventsQueryLogicType>([
-    path((key) => ['scenes', 'error-tracking', 'eventsQueryLogic', key]),
+    path((key) => ['products', 'error_tracking', 'components', 'EventsTable', 'eventsQueryLogic', key]),
     props({} as EventDataLogicProps),
     key((props) => props.issueId),
 

@@ -1,4 +1,4 @@
-import { ErrorFilters } from 'products/error_tracking/frontend/components/ErrorFilters'
+import { ErrorFilters } from 'products/error_tracking/frontend/components/IssueFilters'
 
 export function IssuesFilters(): JSX.Element {
     return (

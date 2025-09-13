@@ -4,18 +4,21 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyLargeNumber } from 'lib/utils'
 
+import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { Query } from '~/queries/Query/Query'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
-import { ErrorTrackingListOptions } from 'products/error_tracking/frontend/ErrorTrackingListOptions'
-import { OccurrenceSparkline } from 'products/error_tracking/frontend/OccurrenceSparkline'
+import { IssueActions } from 'products/error_tracking/frontend/components/IssueActions/IssueActions'
+import { IssueQueryOptions } from 'products/error_tracking/frontend/components/IssueQueryOptions/IssueQueryOptions'
+import { OccurrenceSparkline } from 'products/error_tracking/frontend/components/OccurrenceSparkline'
 import { IssueListTitleColumn, IssueListTitleHeader } from 'products/error_tracking/frontend/components/TableColumns'
-import { errorTrackingDataNodeLogic } from 'products/error_tracking/frontend/errorTrackingDataNodeLogic'
-import { errorTrackingSceneLogic } from 'products/error_tracking/frontend/errorTrackingSceneLogic'
 import { useSparklineData } from 'products/error_tracking/frontend/hooks/use-sparkline-data'
+import { bulkSelectLogic } from 'products/error_tracking/frontend/logics/bulkSelectLogic'
+import { issuesDataNodeLogic } from 'products/error_tracking/frontend/logics/issuesDataNodeLogic'
+import { errorTrackingSceneLogic } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/errorTrackingSceneLogic'
 import { ERROR_TRACKING_LISTING_RESOLUTION } from 'products/error_tracking/frontend/utils'
 
 export function IssuesList(): JSX.Element {
@@ -43,9 +46,9 @@ export function IssuesList(): JSX.Element {
     }
 
     return (
-        <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
+        <BindLogic logic={issuesDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
             <div>
-                <ErrorTrackingListOptions />
+                <ListOptions />
                 <Query query={query} context={context} />
             </div>
         </BindLogic>
@@ -74,12 +77,12 @@ const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) =>
 }
 
 const TitleHeader: QueryContextColumnTitleComponent = (): JSX.Element => {
-    const { results } = useValues(errorTrackingDataNodeLogic)
+    const { results } = useValues(issuesDataNodeLogic)
     return <IssueListTitleHeader results={results} />
 }
 
 const TitleColumn: QueryContextColumnComponent = (props): JSX.Element => {
-    const { results } = useValues(errorTrackingDataNodeLogic)
+    const { results } = useValues(issuesDataNodeLogic)
 
     return <IssueListTitleColumn results={results} {...props} />
 }
@@ -98,5 +101,20 @@ const CountColumn = ({ record, columnName }: { record: unknown; columnName: stri
                 humanFriendlyLargeNumber(count)
             )}
         </span>
+    )
+}
+
+const ListOptions = (): JSX.Element => {
+    const { selectedIssueIds } = useValues(bulkSelectLogic)
+    const { results } = useValues(issuesDataNodeLogic)
+
+    return (
+        <SceneStickyBar showBorderBottom={false}>
+            {selectedIssueIds.length > 0 ? (
+                <IssueActions issues={results} selectedIds={selectedIssueIds} />
+            ) : (
+                <IssueQueryOptions />
+            )}
+        </SceneStickyBar>
     )
 }

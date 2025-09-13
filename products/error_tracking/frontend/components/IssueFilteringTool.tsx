@@ -6,9 +6,9 @@ import MaxTool from 'scenes/max/MaxTool'
 import { ErrorTrackingIssueFilteringToolOutput } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
-import { errorTrackingSceneLogic } from '../errorTrackingSceneLogic'
-import { taxonomicFilterLogicKey, taxonomicGroupTypes } from './ErrorFilters/FilterGroup'
-import { errorFiltersLogic } from './ErrorFilters/errorFiltersLogic'
+import { errorTrackingSceneLogic } from '../scenes/ErrorTrackingScene/errorTrackingSceneLogic'
+import { taxonomicFilterLogicKey, taxonomicGroupTypes } from './IssueFilters/FilterGroup'
+import { errorFiltersLogic } from './IssueFilters/filtersLogic'
 import { issueQueryOptionsLogic } from './IssueQueryOptions/issueQueryOptionsLogic'
 
 function updateFilterGroup(
