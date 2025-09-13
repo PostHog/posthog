@@ -34,8 +34,8 @@ export const scene: SceneExport = {
 }
 
 export function Cohorts(): JSX.Element {
-    const { cohorts, cohortsLoading, pagination, cohortFilters } = useValues(cohortsSceneLogic)
-    const { deleteCohort, exportCohortPersons, setCohortFilters } = useActions(cohortsSceneLogic)
+    const { cohorts, cohortsLoading, pagination, cohortFilters, cohortSorting } = useValues(cohortsSceneLogic)
+    const { deleteCohort, exportCohortPersons, setCohortFilters, setCohortSorting } = useActions(cohortsSceneLogic)
     const { searchParams } = useValues(router)
     const [searchTerm, setSearchTerm] = useState(cohortFilters.search || '')
 
@@ -207,6 +207,11 @@ export function Cohorts(): JSX.Element {
                 dataSource={cohorts.results}
                 nouns={['cohort', 'cohorts']}
                 data-attr="cohorts-table"
+                sorting={cohortSorting}
+                onSort={(sorting) => {
+                    setCohortSorting(sorting)
+                }}
+                useURLForSorting={false}
             />
         </SceneContent>
     )
