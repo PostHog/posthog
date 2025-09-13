@@ -24,7 +24,7 @@ const _commonActionFields = {
     id: z.string(),
     name: z.string(),
     description: z.string(),
-    on_error: z.enum(['continue', 'abort', 'complete', 'branch']).optional().nullable(),
+    on_error: z.enum(['continue', 'abort']).optional().nullable(),
     created_at: z.number(),
     updated_at: z.number(),
     filters: ActionFiltersSchema.optional().nullable(),
