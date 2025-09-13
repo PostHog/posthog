@@ -17,8 +17,7 @@ var _ = Describe("Configuration", func() {
 		envVars := []string{
 			"PROMETHEUS_ENDPOINT", "PROMETHEUS_TIMEOUT", "KUBE_NAMESPACE",
 			"KUBE_LABEL_SELECTOR", "DEPLOYMENT_NAME", "METRICS_TIME_WINDOW",
-			"CPU_VARIANCE_THRESHOLD", "LAG_VARIANCE_THRESHOLD",
-			"MIN_PODS_REQUIRED", "DRY_RUN", "LOG_LEVEL",
+			"CPU_VARIANCE_THRESHOLD", "MIN_PODS_REQUIRED", "DRY_RUN", "LOG_LEVEL",
 		}
 		
 		for _, envVar := range envVars {
@@ -75,7 +74,6 @@ var _ = Describe("Configuration", func() {
 				os.Setenv("DEPLOYMENT_NAME", "ingestion-events")
 				os.Setenv("METRICS_TIME_WINDOW", "2m")
 				os.Setenv("CPU_VARIANCE_THRESHOLD", "0.4")
-				os.Setenv("LAG_VARIANCE_THRESHOLD", "0.6")
 				os.Setenv("MIN_PODS_REQUIRED", "5")
 				os.Setenv("DRY_RUN", "true")
 				os.Setenv("LOG_LEVEL", "debug")
@@ -126,8 +124,6 @@ var _ = Describe("Configuration", func() {
 				},
 				Entry("invalid CPU threshold becomes zero", "CPU_VARIANCE_THRESHOLD", "invalid", 
 					func(c *Config) { Expect(c.CPUVarianceThreshold).To(Equal(0.0)) }),
-				Entry("invalid LAG threshold becomes zero", "LAG_VARIANCE_THRESHOLD", "invalid",
-					func(c *Config) { Expect(c.LagVarianceThreshold).To(Equal(0.0)) }),
 				Entry("invalid dry run becomes false", "DRY_RUN", "invalid", 
 					func(c *Config) { Expect(c.DryRun).To(BeFalse()) }),
 			)
@@ -157,7 +153,6 @@ var _ = Describe("Configuration", func() {
 					DeploymentName:       "ingestion-consumer",
 					MetricsTimeWindow:    5 * time.Minute,
 					CPUVarianceThreshold: 0.3,
-					LagVarianceThreshold: 0.5,
 					MinPodsRequired:      3,
 					DryRun:               false,
 					LogLevel:             "info",
@@ -179,7 +174,6 @@ var _ = Describe("Configuration", func() {
 						DeploymentName:       "ingestion-consumer",
 						MetricsTimeWindow:    5 * time.Minute,
 						CPUVarianceThreshold: 0.3,
-						LagVarianceThreshold: 0.5,
 						MinPodsRequired:      3,
 						DryRun:               false,
 						LogLevel:             "info",
@@ -197,7 +191,6 @@ var _ = Describe("Configuration", func() {
 				Entry("empty label selector", func(c *Config) { c.KubeLabelSelector = "" }, "KUBE_LABEL_SELECTOR is required"),
 				Entry("empty deployment name", func(c *Config) { c.DeploymentName = "" }, "DEPLOYMENT_NAME is required"),
 				Entry("CPU threshold too high", func(c *Config) { c.CPUVarianceThreshold = 1.5 }, "CPU_VARIANCE_THRESHOLD must be between 0 and 1"),
-				Entry("LAG threshold negative", func(c *Config) { c.LagVarianceThreshold = -0.1 }, "LAG_VARIANCE_THRESHOLD must be between 0 and 1"),
 				Entry("min pods too low", func(c *Config) { c.MinPodsRequired = 0 }, "MIN_PODS_REQUIRED must be at least 1"),
 				Entry("invalid log level", func(c *Config) { c.LogLevel = "invalid" }, "LOG_LEVEL must be one of: debug, info, warn, error"),
 			)
@@ -222,7 +215,6 @@ var _ = Describe("Configuration", func() {
 							DeploymentName:       "ingestion-consumer",
 							MetricsTimeWindow:    window,
 							CPUVarianceThreshold: 0.3,
-							LagVarianceThreshold: 0.5,
 							MinPodsRequired:      3,
 							DryRun:               false,
 							LogLevel:             "info",

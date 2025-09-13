@@ -23,7 +23,6 @@ type Config struct {
 
 	// Decision making thresholds
 	CPUVarianceThreshold float64
-	LagVarianceThreshold float64
 	MinPodsRequired      int
 
 	// Safety and debugging
@@ -43,7 +42,6 @@ func LoadFromEnv() (*Config, error) {
 	// DEPLOYMENT_NAME has no default - must be explicitly configured
 	v.SetDefault("METRICS_TIME_WINDOW", "5m")
 	v.SetDefault("CPU_VARIANCE_THRESHOLD", 0.3)
-	v.SetDefault("LAG_VARIANCE_THRESHOLD", 0.5)
 	v.SetDefault("MIN_PODS_REQUIRED", 3)
 	v.SetDefault("DRY_RUN", false)
 	v.SetDefault("LOG_LEVEL", "info")
@@ -73,7 +71,6 @@ func LoadFromEnv() (*Config, error) {
 		DeploymentName:       v.GetString("DEPLOYMENT_NAME"),
 		MetricsTimeWindow:    timeWindow,
 		CPUVarianceThreshold: v.GetFloat64("CPU_VARIANCE_THRESHOLD"),
-		LagVarianceThreshold: v.GetFloat64("LAG_VARIANCE_THRESHOLD"),
 		MinPodsRequired:      v.GetInt("MIN_PODS_REQUIRED"),
 		DryRun:               v.GetBool("DRY_RUN"),
 		LogLevel:             v.GetString("LOG_LEVEL"),
@@ -111,10 +108,6 @@ func (c *Config) Validate() error {
 
 	if c.CPUVarianceThreshold < 0 || c.CPUVarianceThreshold > 1 {
 		return fmt.Errorf("CPU_VARIANCE_THRESHOLD must be between 0 and 1")
-	}
-
-	if c.LagVarianceThreshold < 0 || c.LagVarianceThreshold > 1 {
-		return fmt.Errorf("LAG_VARIANCE_THRESHOLD must be between 0 and 1")
 	}
 
 	if c.MinPodsRequired < 1 {

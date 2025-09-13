@@ -6,24 +6,24 @@
 |-------|--------|--------|---------|-------------|------|
 | 1 | 1. Project Bootstrap | ✅ **COMPLETED** | `feat/pod-rebalancer-bootstrap` | `242747c31d` | 2025-01-13 |
 | 1 | 2. Environment Config & Logging | ✅ **COMPLETED** | `pl/ingestion/ingestion_pod_rebalancer` | `d96c791037` | 2025-01-13 |
-| 1 | 3. Prometheus Client & Metrics | ⏳ **NEXT** | `feat/prometheus-client` | - | - |
-| 2 | 4. Complete Metrics Fetchers | 📋 **PLANNED** | `feat/all-metrics-fetchers` | - | - |
-| 2 | 5. Pod State & Decision Engine | 📋 **PLANNED** | `feat/podstate-and-decision` | - | - |
-| 3 | 6. Kubernetes Pod Management | 📋 **PLANNED** | `feat/kubernetes-manager` | - | - |
-| 3 | 7. Main Application Integration | 📋 **PLANNED** | `feat/main-application` | - | - |
-| 3 | 8. Docker & Documentation | 📋 **PLANNED** | `feat/deployment-and-docs` | - | - |
+| 1 | 3. Prometheus Client & CPU Metrics | ✅ **COMPLETED** | `pl/ingestion/ingestion_pod_rebalancer` | `cffd3b4438` | 2025-01-13 |
+| 2 | 4. Pod State & Decision Engine | ⏳ **NEXT** | `pl/ingestion/ingestion_pod_rebalancer` | - | - |
+| 2 | 5. Kubernetes Pod Management | 📋 **PLANNED** | `feat/kubernetes-manager` | - | - |
+| 3 | 6. Main Application Integration | 📋 **PLANNED** | `feat/main-application` | - | - |
+| 3 | 7. Docker & Documentation | 📋 **PLANNED** | `feat/deployment-and-docs` | - | - |
 
 ### Current State
 - **Active Branch**: `pl/ingestion/ingestion_pod_rebalancer`
-- **Last Completed**: Commit 2 - Environment Configuration & Basic Logging (3c801905cb)
-- **Next Target**: Commit 3 - Prometheus Client & Metrics
+- **Last Completed**: Commit 3 - Prometheus Client & CPU Metrics (cffd3b4438)
+- **Next Target**: Commit 4 - Pod State & Decision Engine (CPU-only approach)
 - **Project Location**: `/Users/posthog/Projects/src/PostHog/posthog/infra-scripts/pod-rebalancer/`
 
 ### Recent Improvements (2025-01-13)
 - **Config Management**: Upgraded to Viper for robust environment variable handling
 - **Testing Framework**: Added Ginkgo+Gomega for BDD-style testing alongside traditional Go tests
 - **Code Quality**: Simplified configuration loading while maintaining full test coverage
-- **Benefits**: Industry-standard libraries, reduced complexity, better maintainability
+- **Architecture Simplification**: Decided to focus solely on CPU metrics for initial implementation
+- **Benefits**: Industry-standard libraries, reduced complexity, better maintainability, focused scope
 
 ### Resume Instructions
 To continue development from any point:
@@ -205,12 +205,11 @@ task build
 ```bash
 PROMETHEUS_ENDPOINT=http://victoriametrics:8428
 PROMETHEUS_TIMEOUT=30s
-KUBE_NAMESPACE=default
+KUBE_NAMESPACE=posthog
 KUBE_LABEL_SELECTOR=app=consumer
-STRATEGY=balanced
+DEPLOYMENT_NAME=ingestion-consumer
+METRICS_TIME_WINDOW=5m
 CPU_VARIANCE_THRESHOLD=0.3
-LAG_VARIANCE_THRESHOLD=0.5
-MAX_PODS_TO_DELETE=2
 MIN_PODS_REQUIRED=3
 DRY_RUN=false
 LOG_LEVEL=info
@@ -222,111 +221,97 @@ LOG_LEVEL=info
 - Structured JSON logging works
 - Basic Prometheus metrics are defined
 
-#### Commit 3: Prometheus Client & Basic Metrics Fetching
-**Branch**: `feat/prometheus-client`
+#### Commit 3: Prometheus Client & CPU Metrics ✅ **COMPLETED**
+**Branch**: `pl/ingestion/ingestion_pod_rebalancer`
+**Status**: ✅ Completed on 2025-01-13 (commit `cffd3b4438`)
 **Files**:
 - `pkg/prometheus/client.go`
-- `pkg/prometheus/client_test.go`
+- `pkg/prometheus/client_ginkgo_test.go`
+- `pkg/prometheus/prometheus_suite_test.go`
 - `pkg/metrics/cpu.go`
-- `pkg/metrics/metrics_test.go`
+- `pkg/metrics/cpu_ginkgo_test.go`
+- `pkg/metrics/metrics_suite_test.go`
+- `examples/cpu_metrics_example.go`
 
-**Tasks**:
-1. Implement Prometheus client using official Go client library
-2. Add query execution with timeout and error handling
-3. Create CPUMetricsFetcher as first concrete implementation
-4. Add response parsing for Prometheus vector/matrix types
-5. Test with mocked HTTP responses
+**Tasks** ✅:
+1. ✅ Implement Prometheus client using official Go client library
+2. ✅ Add query execution with timeout and error handling
+3. ✅ Create CPUMetricsFetcher with per-pod CPU usage, limits, and requests
+4. ✅ Add response parsing for Prometheus vector/matrix types
+5. ✅ Test with mocked HTTP responses using testify mocks
+6. ✅ Migrate all tests to Ginkgo BDD framework
+7. ✅ Use PostHog-specific container queries with literal matching
 
 **Prometheus Client Features**:
-- Uses official github.com/prometheus/client_golang/api
-- Query execution with context cancellation using v1.API
+- Uses custom HTTP client with configurable timeout
+- Query execution with context cancellation
 - Response parsing (model.Vector and model.Matrix types)
-- Basic error handling for network/API errors
+- Health check endpoint validation
+- Comprehensive error handling for network/API errors
 
-**CPU Metrics Query**:
+**CPU Metrics Queries**:
 ```promql
-rate(container_cpu_usage_seconds_total{pod=~"consumer-.*"}[5m])
+# Per-pod CPU usage (main query)
+sum by(pod) (rate(container_cpu_usage_seconds_total{namespace="posthog", container="ingestion-consumer"}[5m]))
+
+# CPU limits and requests for resource planning
+median(sum(median by (container) (kube_pod_container_resource_limits{resource="cpu", namespace="posthog", container="ingestion-consumer"})))
+median(sum(median by (container) (kube_pod_container_resource_requests{resource="cpu", namespace="posthog", container="ingestion-consumer"})))
 ```
 
-**Acceptance Criteria**:
-- Prometheus client successfully queries endpoints
-- CPU metrics fetcher returns pod->usage map
-- Error handling for network failures
-- Unit tests with mocked HTTP client
+**Acceptance Criteria** ✅:
+- ✅ Prometheus client successfully queries endpoints
+- ✅ CPU metrics fetcher returns pod->usage map
+- ✅ Comprehensive error handling for network failures
+- ✅ All tests using Ginkgo BDD framework with testify mocks
+- ✅ PostHog-specific queries with literal container matching
+- ✅ Configurable time windows and deployment names
+- ✅ Tests focus on interface behavior, not struct properties
 
-### Phase 2: Core Metrics & State Management (Commits 4-5)
+### Phase 2: Core Logic - CPU-Only Approach (Commits 4-6)
 
-#### Commit 4: Complete Metrics Fetchers
-**Branch**: `feat/all-metrics-fetchers`
-**Files**:
-- `pkg/metrics/kafka.go`
-- `pkg/metrics/memory.go`
-- `pkg/metrics/metrics_test.go` (expanded)
-- `internal/testutil/mocks.go`
-
-**Tasks**:
-1. Implement KafkaMetricsFetcher for lag and consumption rate
-2. Implement MemoryMetricsFetcher for memory usage
-3. Add parallel fetching capability for all metrics
-4. Create comprehensive test mocks for all metric types
-5. Add error handling for missing/invalid metrics
-
-**Key Queries**:
-```promql
-# Kafka consumer lag
-kafka_consumer_lag_sum{pod=~"consumer-.*"}
-
-# Message consumption rate  
-rate(kafka_consumer_messages_consumed_total{pod=~"consumer-.*"}[5m])
-
-# Memory usage per pod
-container_memory_working_set_bytes{pod=~"consumer-.*"}
-```
-
-**Acceptance Criteria**:
-- All three metric fetchers work independently
-- Parallel fetching reduces total query time
-- Handles missing metrics gracefully
-- Comprehensive unit tests with realistic data
-
-### Phase 2: Core Logic (Commits 5-8)
-
-#### Commit 5: Pod State Aggregation & Decision Engine
-**Branch**: `feat/podstate-and-decision`
+#### Commit 4: Pod State Aggregation & Decision Engine (CPU-Only)
+**Branch**: `pl/ingestion/ingestion_pod_rebalancer`
 **Files**:
 - `pkg/podstate/aggregator.go`
 - `pkg/podstate/aggregator_test.go`
 - `pkg/decision/engine.go`
-- `pkg/decision/outliers.go`
-- `pkg/decision/decision_test.go`
+- `pkg/decision/engine_test.go`
 
 **Tasks**:
-1. Implement PodState aggregator that combines all metrics
-2. Create composite scoring algorithm (weighted CPU, lag, memory)
-3. Implement statistical analysis (variance, std dev, percentiles)
-4. Add decision engine with threshold-based rebalancing logic
-5. Implement rotate outliers strategy (most busy + least busy)
+1. Implement PodState aggregator that works with CPU metrics only
+2. Create CPU-based scoring algorithm using per-pod CPU usage
+3. Implement statistical analysis (variance, std dev, percentiles) for CPU metrics
+4. Add decision engine with CPU variance threshold-based rebalancing logic
+5. Implement simplified strategy: remove highest and lowest CPU usage pods
 
-**Composite Scoring**:
+**CPU-Only Scoring**:
 ```go
-// Weight different metrics for composite score
-func calculateCompositeScore(cpu, lag, memory float64) float64 {
-    return (cpu * 0.4) + (normalizedLag * 0.4) + (memory * 0.2)
+// Simplified scoring based solely on CPU usage
+func calculateCPUScore(cpuUsage float64) float64 {
+    return cpuUsage // Direct CPU usage as score
+}
+
+// Statistical analysis for CPU variance
+func analyzeVariance(cpuUsages map[string]float64) CPUStatistics {
+    // Calculate mean, std dev, variance for CPU usage distribution
 }
 ```
 
 **Strategy**:
-- Always rotates outliers: Deletes the pod with the highest composite score (most busy) and the pod with the lowest composite score (least busy)
+- Focus exclusively on CPU load balancing
+- Remove pod with highest CPU usage (most busy) and lowest CPU usage (least busy)
+- Trigger rebalancing when CPU variance exceeds threshold
+- Simple, focused approach for initial implementation
 
 **Acceptance Criteria**:
-- Aggregator combines metrics from all fetchers correctly
-- Decision engine calculates proper statistics
-- Strategy correctly selects most busy and least busy pods
+- Aggregator processes CPU metrics correctly
+- Decision engine calculates CPU statistics properly
+- Strategy correctly identifies highest and lowest CPU usage pods
 - Handles edge cases (too few pods, equal load)
+- Clean separation of concerns between aggregation and decision logic
 
-### Phase 3: Kubernetes Integration & Main Application (Commits 6-8)
-
-#### Commit 6: Kubernetes Pod Management
+#### Commit 5: Kubernetes Pod Management
 **Branch**: `feat/kubernetes-manager`
 **Files**:
 - `pkg/kubernetes/manager.go`
@@ -360,20 +345,22 @@ func (m *Manager) DeletePods(ctx context.Context, podNames []string) (*DeletionR
 - Dry-run mode logs actions without deleting
 - Uses kubernetes.Interface for easy mocking in tests
 
-#### Commit 7: Main Application Integration
+### Phase 3: Application Integration & Deployment (Commits 6-7)
+
+#### Commit 6: Main Application Integration
 **Branch**: `feat/main-application`
 **Files**:
 - `cmd/rebalancer/main.go` (complete implementation)
 - Integration between all packages
 
 **Tasks**:
-1. Implement complete main.go with all components
+1. Implement complete main.go with CPU-only workflow
 2. Wire together all packages in the correct order
 3. Add proper error handling and exit codes
 4. Implement structured logging throughout execution
 5. Add basic performance measurement
 
-**Main Application Flow**:
+**Main Application Flow (CPU-Only)**:
 ```go
 func main() {
     ctx := context.Background()
@@ -383,30 +370,29 @@ func main() {
     logger := logging.New(config.LogLevel)
     
     // 2. Create Prometheus client
-    promClient := prometheus.NewHTTPClient(config.PrometheusEndpoint, config.Timeout)
+    promClient := prometheus.NewClient(config.PrometheusEndpoint, config.PrometheusTimeout)
     
-    // 3. Create and wire all components
-    aggregator := podstate.NewAggregator(
-        metrics.NewCPUFetcher(promClient),
-        metrics.NewKafkaFetcher(promClient),
-        metrics.NewMemoryFetcher(promClient),
-    )
+    // 3. Create and wire CPU-focused components
+    cpuFetcher := metrics.NewCPUMetricsFetcher(promClient, logger, 
+        config.KubeNamespace, config.DeploymentName, config.MetricsTimeWindow)
     
-    engine := decision.NewEngine(config.Thresholds)
-    k8sManager := kubernetes.NewManager(config.Namespace, config.DryRun, config.MinPods)
+    aggregator := podstate.NewAggregator(cpuFetcher, logger)
+    engine := decision.NewEngine(config.CPUVarianceThreshold, logger)
+    k8sManager := kubernetes.NewManager(config.KubeNamespace, config.DryRun, config.MinPodsRequired)
     
-    // 4. Execute the complete workflow
+    // 4. Execute the CPU-based rebalancing workflow
     // 5. Log results and exit with appropriate code
 }
 ```
 
 **Acceptance Criteria**:
-- Complete application runs end-to-end
+- Complete CPU-based application runs end-to-end
 - All error cases handled with proper exit codes  
 - Structured logging shows complete execution flow
 - Performance is measured and logged
+- Focused on CPU metrics only
 
-#### Commit 8: Docker & Documentation
+#### Commit 7: Docker & Documentation
 **Branch**: `feat/deployment-and-docs`
 **Files**:
 - `deploy/docker/Dockerfile`
@@ -476,22 +462,25 @@ kubectl apply -f ../k8s-manifests/pod-rebalancer/
 kubectl logs -l job-name=pod-rebalancer-<timestamp>
 ```
 
-## Monitoring & Alerting
+## Monitoring & Alerting (CPU-Only Focus)
 
 ### Key Metrics
 - `rebalancer_executions_total{status="success|error"}`
 - `rebalancer_pods_analyzed_total`
-- `rebalancer_pods_deleted_total{type="most_busy|least_busy"}`
+- `rebalancer_pods_deleted_total{type="highest_cpu|lowest_cpu"}`
 - `rebalancer_execution_duration_seconds`
-- `rebalancer_load_variance_current`
+- `rebalancer_cpu_variance_current`
+- `rebalancer_cpu_usage_mean`
+- `rebalancer_cpu_usage_stddev`
 
 ### Critical Alerts
 - Consecutive execution failures (3+)
 - No pods found matching selector
 - Excessive pod deletions (>50% of pods)
-- High load variance persisting (>threshold for 30+ minutes)
+- High CPU variance persisting (>threshold for 30+ minutes)
+- CPU metrics collection failures
 
-This simplified plan delivers a production-ready stateless application in 8 focused commits, with each commit building working functionality incrementally.
+This simplified CPU-focused plan delivers a production-ready stateless application in 7 focused commits, with each commit building working functionality incrementally. Future iterations can add Kafka lag and memory metrics if needed.
 
 ---
 
