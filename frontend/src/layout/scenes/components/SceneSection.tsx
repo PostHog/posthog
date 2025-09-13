@@ -1,10 +1,14 @@
+import { IconInfo } from '@posthog/icons'
+
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 
 interface SceneSectionProps {
     title?: React.ReactNode
     description?: React.ReactNode
+    titleHelper?: React.ReactNode
     isLoading?: boolean
     children: React.ReactNode
     className?: string
@@ -17,6 +21,7 @@ interface SceneSectionProps {
 export function SceneSection({
     title,
     description,
+    titleHelper,
     isLoading,
     children,
     className,
@@ -85,12 +90,18 @@ export function SceneSection({
                     <div className="flex flex-col gap-y-0 flex-1 justify-center">
                         <Component
                             className={cn(
-                                'font-semibold my-0 mb-1 max-w-prose',
+                                'font-semibold my-0 mb-1 max-w-prose flex items-center gap-x-1',
                                 titleClassName,
                                 !description && 'mb-0'
                             )}
                         >
                             {title}
+
+                            {titleHelper && (
+                                <ButtonPrimitive tooltip={titleHelper} size="sm">
+                                    <IconInfo className="size-4 text-sm text-secondary" />
+                                </ButtonPrimitive>
+                            )}
                         </Component>
                         {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
                     </div>

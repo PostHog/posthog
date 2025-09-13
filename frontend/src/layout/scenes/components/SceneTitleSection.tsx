@@ -14,7 +14,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
-import { FileSystemIconColor } from '~/types'
+import { Breadcrumb, FileSystemIconColor } from '~/types'
 
 import '../../panel-layout/ProjectTree/defaultTree'
 import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/defaultTree'
@@ -64,6 +64,11 @@ type SceneMainTitleProps = {
      * @default false
      */
     actions?: boolean
+    /**
+     * If provided, the back button will be forced to this breadcrumb
+     * @default undefined
+     */
+    forceBackTo?: Breadcrumb
 }
 
 export function SceneTitleSection({
@@ -78,13 +83,14 @@ export function SceneTitleSection({
     forceEdit = false,
     renameDebounceMs,
     actions = true,
+    forceBackTo,
 }: SceneMainTitleProps): JSX.Element | null {
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     if (!newSceneLayout) {
         return null
     }
-    const willShowBreadcrumbs = breadcrumbs.length > 2
+    const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
 
     const icon = resourceType.forceIcon ? (
         <ProductIconWrapper type={resourceType.type} colorOverride={resourceType.forceIconColorOverride}>
@@ -99,11 +105,11 @@ export function SceneTitleSection({
                 {/* If we're showing breadcrumbs, we want to show the actions inline with the back button */}
                 {willShowBreadcrumbs && (
                     <div className="flex justify-between w-full">
-                        <SceneBreadcrumbBackButton />
+                        <SceneBreadcrumbBackButton forceBackTo={forceBackTo} />
                         {actions && <SceneActions className="shrink-0 ml-auto" />}
                     </div>
                 )}
-                <div className="flex w-full justify-between">
+                <div className="flex w-full justify-between gap-2">
                     <div className="flex gap-2 [&_svg]:size-6 items-center w-full">
                         <span
                             className={buttonPrimitiveVariants({
@@ -317,7 +323,7 @@ function SceneDescription({
                             }),
                             '[&_.LemonIcon]:size-4'
                         )}
-                        markdown
+                        markdown={markdown}
                         placeholder={emptyText}
                         onBlur={() => !forceEdit && setIsEditing(false)}
                         autoFocus={!forceEdit}
