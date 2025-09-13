@@ -142,17 +142,18 @@ export function Playlist({
         .filter((s): s is PlaylistRecordingPreviewBlock => 'items' in s)
         .flatMap((s) => s.items).length
 
+    const showCinemaMode = isCinemaMode && itemsCount > 0 && activeItemId !== null
     return (
         <>
             <div
                 className={clsx('w-full gap-2 h-full', {
-                    'flex flex-col xl:flex-row order-last': !isCinemaMode,
+                    'flex flex-col xl:flex-row order-last': !showCinemaMode,
                 })}
             >
                 <div
                     className={clsx('Playlist w-full min-w-96', {
-                        'h-full min-h-96 lg:min-w-[560px] order-first xl:order-none': !isCinemaMode,
-                        'order-first mb-2': isCinemaMode,
+                        'h-full min-h-96 lg:min-w-[560px] order-first xl:order-none': !showCinemaMode,
+                        'order-first mb-2': showCinemaMode,
                         'Playlist--wide': size !== 'small',
                         'Playlist--embedded': embedded,
                     })}
@@ -170,7 +171,7 @@ export function Playlist({
                 </div>
                 <div
                     className={clsx('flex flex-col min-w-60', {
-                        'xl:max-w-80 xl:min-w-80 order-first mt-2': !isCinemaMode,
+                        'xl:max-w-80 xl:min-w-80 order-first mt-2': !showCinemaMode,
                     })}
                 >
                     {filterActions && (
@@ -182,8 +183,8 @@ export function Playlist({
                         ref={playlistRef}
                         data-attr={dataAttr}
                         className={clsx('Playlist w-full min-w-60', {
-                            'min-h-96': !isCinemaMode,
-                            'h-96': isCinemaMode,
+                            'min-h-96': !showCinemaMode,
+                            'h-96': showCinemaMode,
                             'Playlist--wide': size !== 'small',
                             'Playlist--embedded': embedded,
                         })}

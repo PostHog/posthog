@@ -7,7 +7,15 @@ from unittest.mock import Mock, patch
 
 from test_funnel import PseudoFunnelActors, funnel_test_factory
 
-from posthog.schema import FunnelsQuery, FunnelsQueryResponse
+from posthog.schema import (
+    DateRange,
+    EventPropertyFilter,
+    EventsNode,
+    FunnelsFilter,
+    FunnelsQuery,
+    FunnelsQueryResponse,
+    PropertyOperator,
+)
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels import Funnel
@@ -187,6 +195,151 @@ class TestFOSSFunnelUDF(funnel_test_factory(Funnel, _create_event, _create_perso
 
         self.assertEqual(1, results[0]["count"])
         self.assertEqual(0, results[1]["count"])
+
+    def test_funnel_with_optional_steps(self):
+        # Define all the different user journeys
+        journeys_for(
+            {
+                "no_events": [],  # person who does nothing
+                "step1_only": [{"event": "step one", "timestamp": datetime(2012, 1, 15, 0, 0, 0)}],
+                "step123": [
+                    {"event": "step one", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
+                    {"event": "step two", "timestamp": datetime(2012, 1, 15, 0, 1, 0)},
+                    {"event": "step three", "timestamp": datetime(2012, 1, 15, 0, 2, 0)},
+                ],
+                "step13": [
+                    {"event": "step one", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
+                    {"event": "step three", "timestamp": datetime(2012, 1, 15, 0, 2, 0)},
+                ],
+                "step12345": [
+                    {"event": "step one", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
+                    {"event": "step two", "timestamp": datetime(2012, 1, 15, 0, 1, 0)},
+                    {"event": "step three", "timestamp": datetime(2012, 1, 15, 0, 2, 0)},
+                    {"event": "step four", "timestamp": datetime(2012, 1, 15, 0, 3, 0)},
+                    {"event": "step five", "timestamp": datetime(2012, 1, 15, 0, 4, 0)},
+                ],
+                "step1235": [
+                    {"event": "step one", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
+                    {"event": "step two", "timestamp": datetime(2012, 1, 15, 0, 1, 0)},
+                    {"event": "step three", "timestamp": datetime(2012, 1, 15, 0, 2, 0)},
+                    {"event": "step five", "timestamp": datetime(2012, 1, 15, 0, 4, 0)},
+                ],
+                "step134": [
+                    {"event": "step one", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
+                    {"event": "step three", "timestamp": datetime(2012, 1, 15, 0, 2, 0)},
+                    {"event": "step four", "timestamp": datetime(2012, 1, 15, 0, 3, 0)},
+                ],
+                "step1345": [
+                    {"event": "step one", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
+                    {"event": "step three", "timestamp": datetime(2012, 1, 15, 0, 2, 0)},
+                    {"event": "step four", "timestamp": datetime(2012, 1, 15, 0, 3, 0)},
+                    {"event": "step five", "timestamp": datetime(2012, 1, 15, 0, 4, 0)},
+                ],
+                "step135": [
+                    {"event": "step one", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
+                    {"event": "step three", "timestamp": datetime(2012, 1, 15, 0, 2, 0)},
+                    {"event": "step five", "timestamp": datetime(2012, 1, 15, 0, 4, 0)},
+                ],
+            },
+            self.team,
+        )
+
+        query = FunnelsQuery(
+            series=[
+                EventsNode(event="step one"),
+                EventsNode(event="step two", optionalInFunnel=True),  # Optional
+                EventsNode(event="step three"),
+                EventsNode(event="step four", optionalInFunnel=True),  # Optional
+                EventsNode(event="step five"),
+            ],
+            dateRange=DateRange(
+                date_from="2012-01-01 00:00:00",
+                date_to="2012-02-01 23:59:59",
+            ),
+            funnelsFilter=FunnelsFilter(),
+        )
+
+        result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        self.assertEqual(result[0]["name"], "step one")
+        self.assertEqual(result[0]["count"], 8)  # all users who did at least step 1
+
+        self.assertEqual(result[1]["name"], "step two")
+        self.assertEqual(result[1]["count"], 3)  # users who did step 2 (optional)
+
+        self.assertEqual(result[2]["name"], "step three")
+        self.assertEqual(result[2]["count"], 7)  # users who did step 3 (required)
+
+        self.assertEqual(result[3]["name"], "step four")
+        self.assertEqual(result[3]["count"], 3)  # users who did step 4 (optional)
+
+        self.assertEqual(result[4]["name"], "step five")
+        self.assertEqual(result[4]["count"], 4)  # users who completed the funnel
+
+    def test_funnel_with_optional_steps_same_event(self):
+        # Define users with different numbers of the same event
+        journeys_for(
+            {
+                "zero_events": [],  # person who does nothing
+                "one_event": [{"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 0, 0)}],
+                "two_events": [
+                    {"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
+                    {
+                        "event": "same_event",
+                        "timestamp": datetime(2012, 1, 15, 0, 1, 0),
+                    },
+                ],
+                "three_events": [
+                    {"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
+                    {"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 1, 0)},
+                    {"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 2, 0)},
+                ],
+                "three_events_with_match": [
+                    {"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
+                    {
+                        "event": "same_event",
+                        "timestamp": datetime(2012, 1, 15, 0, 1, 0),
+                        "properties": {"$current_url": "url"},
+                    },
+                    {"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 2, 0)},
+                ],
+            },
+            self.team,
+        )
+
+        query = FunnelsQuery(
+            series=[
+                EventsNode(event="same_event"),  # Step 1: required
+                EventsNode(
+                    event="same_event",
+                    optionalInFunnel=True,
+                ),  # Step 2: optional
+                EventsNode(
+                    event="same_event",
+                    properties=[EventPropertyFilter(key="$current_url", operator=PropertyOperator.EXACT, value="url")],
+                ),  # Step 3: required
+                EventsNode(event="same_event"),  # Step 4: required
+            ],
+            dateRange=DateRange(
+                date_from="2012-01-01 00:00:00",
+                date_to="2012-02-01 23:59:59",
+            ),
+            funnelsFilter=FunnelsFilter(),
+        )
+
+        result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        self.assertEqual(result[0]["name"], "same_event")
+        self.assertEqual(result[0]["count"], 4)  # all users who did at least 1 event
+
+        self.assertEqual(result[1]["name"], "same_event")
+        self.assertEqual(result[1]["count"], 2)  # both of the users with two events and no $current_url
+
+        self.assertEqual(result[2]["name"], "same_event")
+        self.assertEqual(result[2]["count"], 1)  # the user with $current_url set in the second event
+
+        self.assertEqual(result[3]["name"], "same_event")
+        self.assertEqual(result[3]["count"], 1)  # the user with $current_url set in the second event
 
     maxDiff = None
 
