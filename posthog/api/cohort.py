@@ -302,7 +302,7 @@ class CohortSerializer(serializers.ModelSerializer):
             validated_data["is_calculating"] = True
         if validated_data.get("query") and validated_data.get("filters"):
             raise ValidationError("Cannot set both query and filters at the same time.")
-        person_ids = validated_data.pop("_create_static_person_ids")
+        person_ids = validated_data.pop("_create_static_person_ids", None)
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
 
         if cohort.is_static:
