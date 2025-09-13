@@ -104,6 +104,7 @@ export enum SessionRecordingPlayerMode {
     Screenshot = 'screenshot',
     Video = 'video',
 }
+
 const ModesThatCanBeMarkedViewed = [SessionRecordingPlayerMode.Standard, SessionRecordingPlayerMode.Notebook]
 
 export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLogicProps {
@@ -202,6 +203,7 @@ const updatePlayerTimeTracking = (
         bufferTime: newBufferTime,
     }
 }
+
 const updatePlayerTimeTrackingIfChanged = (
     current: PlayerTimeTracking,
     newState: PlayerTimeTracking['state']
@@ -212,6 +214,109 @@ const updatePlayerTimeTrackingIfChanged = (
 
     return updatePlayerTimeTracking(current, newState)
 }
+
+interface ResourceErrorDetails {
+    resourceType: string
+    resourceUrl: string
+    message: string
+    error?: any
+}
+
+function wrapFetchAndReport({
+    fetch,
+    onError,
+}: {
+    fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+    onError: (errorDetails: ResourceErrorDetails) => void
+}) {
+    // we wrap fetch in the player iframe so we can react to errors loading resources
+    return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        try {
+            const response = await fetch(input, init)
+            if (!response.ok) {
+                onError({
+                    resourceType: 'fetch',
+                    resourceUrl:
+                        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url,
+                    message: `Failed to load resource: ${response.status} ${response.statusText}`,
+                })
+            }
+            return response
+        } catch (error: any) {
+            console.error('Error in wrapped fetch', error)
+            throw error
+        }
+    }
+}
+
+function isHTMLElement(target: EventTarget | null): target is HTMLElement {
+    return !!target && 'tagName' in target && typeof target.tagName === 'string'
+}
+
+function registerErrorListeners({
+    iframeWindow,
+    onError,
+}: {
+    iframeWindow: Window
+    onError: (error: ResourceErrorDetails) => void
+}): void {
+    // Catch resource load errors (IMG, SCRIPT, LINK rel=stylesheet, etc.)
+    iframeWindow.addEventListener(
+        'error',
+        (e) => {
+            const t = e.target
+            if (!isHTMLElement(t)) {
+                return
+            }
+
+            const tag = t.tagName.toLowerCase()
+            if (tag === 'img' && t instanceof HTMLImageElement) {
+                onError({
+                    resourceType: 'img',
+                    resourceUrl: t.src,
+                    message: 'Failed to load image',
+                    error: e.error,
+                })
+            } else if (tag === 'link' && t instanceof HTMLLinkElement && t.rel === 'stylesheet') {
+                onError({
+                    resourceType: 'stylesheet',
+                    resourceUrl: t.href,
+                    message: 'Failed to load stylesheet',
+                    error: e.error,
+                })
+            } else {
+                onError({
+                    resourceType: tag,
+                    resourceUrl: (t as any).src || (t as any).href || '',
+                    message: `Failed to load resource of type ${tag}`,
+                    error: e.error,
+                })
+            }
+        },
+        /* capture */ true
+    )
+
+    // Runtime JS errors
+    iframeWindow.addEventListener('error', (e) => {
+        onError({
+            resourceType: 'js',
+            resourceUrl: e.filename,
+            message: e.message,
+            error: e.error,
+        })
+    })
+
+    // Optional: CSP violations show up here
+    iframeWindow.document.addEventListener('securitypolicyviolation', (e) => {
+        onError({
+            resourceType: 'csp',
+            resourceUrl: e.blockedURI,
+            message: `CSP violation: ${e.violatedDirective}`,
+            error: null,
+        })
+    })
+}
+
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
@@ -285,6 +390,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         initializePlayerFromStart: true,
         incrementErrorCount: true,
         incrementWarningCount: (count: number = 1) => ({ count }),
+        caughtAssetErrorFromIframe: (errorDetails: ResourceErrorDetails) => ({ errorDetails }),
         syncSnapshotsWithPlayer: true,
         exportRecordingToFile: true,
         deleteRecording: true,
@@ -852,6 +958,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
     }),
     listeners(({ props, values, actions, cache }) => ({
+        caughtAssetErrorFromIframe: ({ errorDetails }) => {},
         [playerCommentModel.actionTypes.startCommenting]: async ({ comment }) => {
             actions.setIsCommenting(true)
             if (comment) {
@@ -967,8 +1074,40 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.playerErrorSeen(error)
                 },
                 logger: logging.logger,
+                enableResourceErrorTracking: {
+                    enabled: true,
+                    nonce: `posthog-resource-monitor-${Math.random().toString(36).substring(2, 15)}`,
+                },
             }
             const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
+
+            // Expose replayer on window for testing
+            ;(window as any).__posthog_replayer__ = replayer
+
+            // Listen for resource errors from rrweb
+            replayer.on('fullsnapshot-rebuilded', () => {
+                const iframeFetch = replayer.iframe.contentWindow?.fetch
+
+                if (iframeFetch && !(iframeFetch as any).__isWrappedForErrorReporting) {
+                    // We have to monkey patch fetch as rrweb doesn't provide a way to listen for these errors
+                    // We do this after every fullsnapshot-rebuilded as rrweb creates a new iframe each time
+                    replayer.iframe.contentWindow!.fetch = wrapFetchAndReport({
+                        fetch: iframeFetch,
+                        onError: (errorDetails: ResourceErrorDetails) => {
+                            actions.caughtAssetErrorFromIframe(errorDetails)
+                        },
+                    })
+                    ;(replayer.iframe.contentWindow!.fetch as any).__isWrappedForErrorReporting = true
+                }
+
+                const iframeContentWindow = replayer.iframe.contentWindow
+                if (iframeContentWindow) {
+                    registerErrorListeners({
+                        iframeWindow: iframeContentWindow,
+                        onError: (error) => actions.caughtAssetErrorFromIframe(error),
+                    })
+                }
+            })
 
             actions.setPlayer({ replayer, windowId })
         },
@@ -1604,6 +1743,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         cache.hasInitialized = false
         document.removeEventListener('fullscreenchange', cache.fullScreenListener)
+        if (cache.resourceErrorListener) {
+            window.removeEventListener('message', cache.resourceErrorListener)
+        }
+        if (cache.resourceMonitorCleanup) {
+            cache.resourceMonitorCleanup()
+        }
         cache.pausedMediaElements = []
         values.player?.replayer?.destroy()
         actions.setPlayer(null)
@@ -1654,7 +1799,26 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.setIsFullScreen(document.fullscreenElement !== null)
         }
 
+        // Create message listener for resource errors
+        cache.resourceErrorListener = (e: MessageEvent) => {
+            if (e.data?.__rrweb_instrumentation) {
+                const errorDetails = {
+                    resourceType: e.data.tagName,
+                    resourceUrl: e.data.src,
+                    message: e.data.message,
+                }
+
+                actions.incrementErrorCount()
+                actions.caughtAssetErrorFromIframe(errorDetails)
+                posthog.capture('recording_resource_error', {
+                    sessionId: props.sessionRecordingId,
+                    ...errorDetails,
+                })
+            }
+        }
+
         document.addEventListener('fullscreenchange', cache.fullScreenListener)
+        window.addEventListener('message', cache.resourceErrorListener)
 
         if (props.sessionRecordingId) {
             actions.maybeLoadRecordingMeta()
