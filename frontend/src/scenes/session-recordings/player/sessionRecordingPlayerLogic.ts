@@ -65,6 +65,13 @@ const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const PLAYBACK_SPEEDS = [0.5, 1, 1.5, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
 
+export interface ResourceErrorDetails {
+    resourceType: string
+    resourceUrl: string
+    message: string
+    error?: any
+}
+
 export interface PlayerTimeTracking {
     state: 'buffering' | 'playing' | 'paused' | 'errored' | 'ended' | 'unknown'
     lastTimestamp: number | null
@@ -213,13 +220,6 @@ const updatePlayerTimeTrackingIfChanged = (
     }
 
     return updatePlayerTimeTracking(current, newState)
-}
-
-interface ResourceErrorDetails {
-    resourceType: string
-    resourceUrl: string
-    message: string
-    error?: any
 }
 
 function wrapFetchAndReport({
