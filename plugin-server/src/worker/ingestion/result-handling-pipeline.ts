@@ -21,7 +21,6 @@ import { logDroppedMessage, redirectMessageToTopic, sendMessageToDLQ } from './p
 export type PipelineConfig = {
     kafkaProducer: KafkaProducerWrapper
     dlqTopic: string
-    consumerGroupId?: string
     promiseScheduler: PromiseScheduler
 }
 
@@ -89,8 +88,7 @@ abstract class BaseResultHandlingPipeline<T> {
             result.topic,
             stepName,
             result.preserveKey ?? true,
-            result.awaitAck ?? true,
-            this.config.consumerGroupId
+            result.awaitAck ?? true
         )
     }
 }

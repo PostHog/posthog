@@ -1,6 +1,5 @@
 import { Message } from 'node-rdkafka'
 
-import { addBreadcrumbsToHeaders } from '../../ingestion/event-preprocessing/breadcrumb-helpers'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PipelineEvent } from '../../types'
 import { logger } from '../../utils/logger'
@@ -265,8 +264,7 @@ export async function redirectMessageToTopic(
     topic: string,
     stepName?: string,
     preserveKey: boolean = true,
-    awaitAck: boolean = true,
-    consumerGroupId?: string
+    awaitAck: boolean = true
 ): Promise<void> {
     const step = stepName || 'unknown'
 
@@ -277,27 +275,10 @@ export async function redirectMessageToTopic(
     })
 
     try {
-        let headers = copyAndExtendHeaders(originalMessage, {
+        const headers = copyAndExtendHeaders(originalMessage, {
             'redirect-step': step,
             'redirect-timestamp': new Date().toISOString(),
         })
-
-        if (topic.includes('overflow') && consumerGroupId) {
-            const headersWithBreadcrumbs = addBreadcrumbsToHeaders(originalMessage, consumerGroupId)
-            const breadcrumbHeaders: Record<string, string> = {}
-            for (const header of headersWithBreadcrumbs) {
-                if (header.key && header.value !== undefined) {
-                    const key = typeof header.key === 'string' ? header.key : header.key.toString()
-                    const value = header.value instanceof Buffer ? header.value.toString() : String(header.value)
-                    breadcrumbHeaders[key] = value
-                }
-            }
-            headers = copyAndExtendHeaders(originalMessage, {
-                ...breadcrumbHeaders,
-                'redirect-step': step,
-                'redirect-timestamp': new Date().toISOString(),
-            })
-        }
 
         const producePromise = kafkaProducer.produce({
             topic: topic,

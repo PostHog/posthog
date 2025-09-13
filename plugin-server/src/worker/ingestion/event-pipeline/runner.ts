@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { HogTransformerService } from '../../../cdp/hog-transformations/hog-transformer.service'
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
-import { EventHeaders, Hub, KafkaConsumerBreadcrumb, PipelineEvent, Team } from '../../../types'
+import { EventHeaders, Hub, PipelineEvent, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { normalizeProcessPerson } from '../../../utils/event'
@@ -60,7 +60,6 @@ export class EventPipelineRunner {
     originalEvent: PipelineEvent
     eventsProcessor: EventsProcessor
     hogTransformer: HogTransformerService | null
-    breadcrumbs: KafkaConsumerBreadcrumb[]
     personsStoreForBatch: PersonsStoreForBatch
     groupStoreForBatch: GroupStoreForBatch
     mergeMode: MergeMode
@@ -70,7 +69,6 @@ export class EventPipelineRunner {
         hub: Hub,
         event: PipelineEvent,
         hogTransformer: HogTransformerService | null = null,
-        breadcrumbs: KafkaConsumerBreadcrumb[] = [],
         personsStoreForBatch: PersonsStoreForBatch,
         groupStoreForBatch: GroupStoreForBatch,
         headers?: EventHeaders
@@ -79,7 +77,6 @@ export class EventPipelineRunner {
         this.originalEvent = event
         this.eventsProcessor = new EventsProcessor(hub)
         this.hogTransformer = hogTransformer
-        this.breadcrumbs = breadcrumbs
         this.personsStoreForBatch = personsStoreForBatch
         this.groupStoreForBatch = groupStoreForBatch
         this.mergeMode = determineMergeMode(hub)

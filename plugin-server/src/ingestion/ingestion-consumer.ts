@@ -1,6 +1,5 @@
-import { Message, MessageHeader } from 'node-rdkafka'
+import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
-import { z } from 'zod'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { MessageSizeTooLarge } from '~/utils/db/error'
@@ -18,14 +17,11 @@ import {
     Hub,
     IncomingEvent,
     IncomingEventWithTeam,
-    KafkaConsumerBreadcrumb,
-    KafkaConsumerBreadcrumbSchema,
     PipelineEvent,
     PluginServerService,
     PluginsServerConfig,
 } from '../types'
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restriction-manager'
-import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
@@ -184,7 +180,6 @@ export class IngestionConsumer {
             const pipelineConfig: PipelineConfig = {
                 kafkaProducer: this.kafkaProducer!,
                 dlqTopic: this.dlqTopic,
-                consumerGroupId: this.groupId,
                 promiseScheduler: this.promiseScheduler,
             }
 
@@ -271,54 +266,6 @@ export class IngestionConsumer {
 
     private runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {
         return instrumentFn<T>(`ingestionConsumer.${name}`, func)
-    }
-
-    private createBreadcrumb(message: Message): KafkaConsumerBreadcrumb {
-        return {
-            topic: message.topic,
-            partition: message.partition,
-            offset: message.offset,
-            processed_at: new Date().toISOString(),
-            consumer_id: this.groupId,
-        }
-    }
-
-    private getExistingBreadcrumbsFromHeaders(message: Message): KafkaConsumerBreadcrumb[] {
-        const existingBreadcrumbs: KafkaConsumerBreadcrumb[] = []
-        if (message.headers) {
-            for (const header of message.headers) {
-                if ('kafka-consumer-breadcrumbs' in header) {
-                    try {
-                        const headerValue = header['kafka-consumer-breadcrumbs']
-                        const valueString = headerValue instanceof Buffer ? headerValue.toString() : String(headerValue)
-                        const parsedValue = parseJSON(valueString)
-                        if (Array.isArray(parsedValue)) {
-                            const validatedBreadcrumbs = z.array(KafkaConsumerBreadcrumbSchema).safeParse(parsedValue)
-                            if (validatedBreadcrumbs.success) {
-                                existingBreadcrumbs.push(...validatedBreadcrumbs.data)
-                            } else {
-                                logger.warn('Failed to validated breadcrumbs array from header', {
-                                    error: validatedBreadcrumbs.error.format(),
-                                })
-                            }
-                        } else {
-                            const validatedBreadcrumb = KafkaConsumerBreadcrumbSchema.safeParse(parsedValue)
-                            if (validatedBreadcrumb.success) {
-                                existingBreadcrumbs.push(validatedBreadcrumb.data)
-                            } else {
-                                logger.warn('Failed to validate breadcrumb from header', {
-                                    error: validatedBreadcrumb.error.format(),
-                                })
-                            }
-                        }
-                    } catch (e) {
-                        logger.warn('Failed to parse breadcrumb from header', { error: e })
-                    }
-                }
-            }
-        }
-
-        return existingBreadcrumbs
     }
 
     private logBatchStart(messages: Message[]): void {
@@ -572,16 +519,11 @@ export class IngestionConsumer {
     ): Promise<EventPipelineResult | undefined> {
         const { event, message, team, headers } = incomingEvent
 
-        const existingBreadcrumbs = this.getExistingBreadcrumbsFromHeaders(message)
-        const currentBreadcrumb = this.createBreadcrumb(message)
-        const allBreadcrumbs = existingBreadcrumbs.concat(currentBreadcrumb)
-
         try {
             const result = await this.runInstrumented('runEventPipeline', () =>
                 retryIfRetriable(async () => {
                     const runner = this.getEventPipelineRunnerV1(
                         event,
-                        allBreadcrumbs,
                         personsStoreForBatch,
                         groupStoreForBatch,
                         headers
@@ -654,7 +596,6 @@ export class IngestionConsumer {
 
     private getEventPipelineRunnerV1(
         event: PipelineEvent,
-        breadcrumbs: KafkaConsumerBreadcrumb[] = [],
         personsStoreForBatch: PersonsStoreForBatch,
         groupStoreForBatch: GroupStoreForBatch,
         headers?: EventHeaders
@@ -663,7 +604,6 @@ export class IngestionConsumer {
             this.hub,
             event,
             this.hogTransformer,
-            breadcrumbs,
             personsStoreForBatch,
             groupStoreForBatch,
             headers
@@ -741,13 +681,6 @@ export class IngestionConsumer {
 
         await Promise.all(
             kafkaMessages.map((message) => {
-                const headers: MessageHeader[] = message.headers ?? []
-                const existingBreadcrumbs = this.getExistingBreadcrumbsFromHeaders(message)
-                const breadcrumb = this.createBreadcrumb(message)
-                const allBreadcrumbs = [...existingBreadcrumbs, breadcrumb]
-                headers.push({
-                    'kafka-consumer-breadcrumbs': Buffer.from(JSON.stringify(allBreadcrumbs)),
-                })
                 return this.kafkaOverflowProducer!.produce({
                     topic: this.overflowTopic!,
                     value: message.value,
@@ -755,7 +688,7 @@ export class IngestionConsumer {
                     // (extremely) unlikely event that it is, set it to ``null``
                     // instead as that behavior is safer.
                     key: preservePartitionLocality ? (message.key ?? null) : null,
-                    headers: parseKafkaHeaders(headers),
+                    headers: parseKafkaHeaders(message.headers),
                 })
             })
         )

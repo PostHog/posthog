@@ -73,7 +73,6 @@ describe('events dead letter queue', () => {
             hub,
             event,
             null,
-            [],
             personsStoreForBatch,
             groupStoreForBatch
         ).runEventPipeline(event, team)

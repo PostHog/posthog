@@ -4,7 +4,6 @@ import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { VM } from 'vm2'
-import { z } from 'zod'
 
 import {
     Element,
@@ -855,22 +854,6 @@ export interface RawClickHouseEvent extends BaseEvent {
     group4_created_at?: ClickHouseTimestamp
     person_mode: PersonMode
 }
-
-export type KafkaConsumerBreadcrumb = {
-    topic: string
-    offset: string | number
-    partition: number
-    processed_at: string
-    consumer_id: string
-}
-
-export const KafkaConsumerBreadcrumbSchema = z.object({
-    topic: z.string(),
-    offset: z.union([z.string(), z.number()]),
-    partition: z.number(),
-    processed_at: z.string(),
-    consumer_id: z.string(),
-})
 
 export interface RawKafkaEvent extends RawClickHouseEvent {
     /**

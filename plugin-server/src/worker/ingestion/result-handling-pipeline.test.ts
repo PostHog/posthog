@@ -49,7 +49,6 @@ describe('ResultHandlingPipeline', () => {
         config = {
             kafkaProducer: mockKafkaProducer,
             dlqTopic: 'test-dlq',
-            consumerGroupId: 'test-group',
             promiseScheduler: mockPromiseScheduler,
         }
     })
@@ -296,7 +295,6 @@ describe('AsyncResultHandlingPipeline', () => {
         config = {
             kafkaProducer: mockKafkaProducer,
             dlqTopic: 'test-dlq',
-            consumerGroupId: 'test-group',
             promiseScheduler: mockPromiseScheduler,
         }
     })
@@ -521,7 +519,6 @@ describe('Integration tests', () => {
         config = {
             kafkaProducer: mockKafkaProducer,
             dlqTopic: 'test-dlq',
-            consumerGroupId: 'test-group',
             promiseScheduler: mockPromiseScheduler,
         }
     })

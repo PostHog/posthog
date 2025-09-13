@@ -1,6 +1,5 @@
 import { Message } from 'node-rdkafka'
 
-import { addBreadcrumbsToHeaders } from '../../ingestion/event-preprocessing/breadcrumb-helpers'
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import { PipelineEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
@@ -19,7 +18,6 @@ import { captureIngestionWarning } from './utils'
 // Mock all dependencies
 jest.mock('../../utils/logger')
 jest.mock('../../utils/posthog')
-jest.mock('../../ingestion/event-preprocessing/breadcrumb-helpers')
 
 // Mock only specific functions from utils, not the whole module
 jest.mock('./utils', () => {
@@ -33,7 +31,6 @@ jest.mock('./utils', () => {
 const mockLogger = logger as jest.Mocked<typeof logger>
 const mockCaptureException = captureException as jest.MockedFunction<typeof captureException>
 const mockCaptureIngestionWarning = captureIngestionWarning as jest.MockedFunction<typeof captureIngestionWarning>
-const mockAddBreadcrumbsToHeaders = addBreadcrumbsToHeaders as jest.MockedFunction<typeof addBreadcrumbsToHeaders>
 
 describe('sendEventToDLQ', () => {
     let mockKafkaProducer: jest.Mocked<KafkaProducerWrapper>
@@ -560,11 +557,6 @@ describe('redirectMessageToTopic', () => {
                 { event: 'pageview' },
             ],
         } as Message
-
-        mockAddBreadcrumbsToHeaders.mockReturnValue([
-            { key: 'breadcrumb-1', value: 'value-1' },
-            { key: 'breadcrumb-2', value: Buffer.from('value-2') },
-        ])
     })
 
     it('should redirect message to topic with default parameters', async () => {
@@ -630,56 +622,6 @@ describe('redirectMessageToTopic', () => {
         expect(scheduleCalled).toBe(true)
         expect(mockKafkaProducer.produce).toHaveBeenCalled()
         expect(mockPromiseScheduler.schedule).toHaveBeenCalled()
-    })
-
-    it('should add breadcrumbs for overflow topics', async () => {
-        const topic = 'overflow-topic'
-        const stepName = 'test-step'
-        const consumerGroupId = 'test-group'
-
-        await redirectMessageToTopic(
-            mockKafkaProducer,
-            mockPromiseScheduler,
-            mockMessage,
-            topic,
-            stepName,
-            true,
-            true,
-            consumerGroupId
-        )
-
-        expect(mockAddBreadcrumbsToHeaders).toHaveBeenCalledWith(mockMessage, consumerGroupId)
-
-        expect(mockKafkaProducer.produce).toHaveBeenCalledWith({
-            topic: topic,
-            value: mockMessage.value,
-            key: mockMessage.key,
-            headers: expect.objectContaining({
-                'breadcrumb-1': 'value-1',
-                'breadcrumb-2': 'value-2',
-                'redirect-step': stepName,
-                'redirect-timestamp': expect.any(String),
-            }),
-        })
-    })
-
-    it('should not add breadcrumbs for non-overflow topics', async () => {
-        const topic = 'regular-topic'
-        const stepName = 'test-step'
-        const consumerGroupId = 'test-group'
-
-        await redirectMessageToTopic(
-            mockKafkaProducer,
-            mockPromiseScheduler,
-            mockMessage,
-            topic,
-            stepName,
-            true,
-            true,
-            consumerGroupId
-        )
-
-        expect(mockAddBreadcrumbsToHeaders).not.toHaveBeenCalled()
     })
 
     it('should handle redirect failures', async () => {
