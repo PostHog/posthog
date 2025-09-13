@@ -202,6 +202,16 @@ describe('Hogflow Executor', () => {
                 finished: true,
                 logs: [
                     {
+                        level: 'debug',
+                        message: 'Starting workflow execution at trigger',
+                        timestamp: expect.any(DateTime),
+                    },
+                    {
+                        level: 'debug',
+                        message: 'Executing action [Action:function_id_1]',
+                        timestamp: expect.any(DateTime),
+                    },
+                    {
                         level: 'info',
                         timestamp: expect.any(DateTime),
                         message: '[Action:function_id_1] Hello, Mr John Doe!',
@@ -220,6 +230,11 @@ describe('Hogflow Executor', () => {
                         level: 'info',
                         timestamp: expect.any(DateTime),
                         message: 'Workflow moved to action [Action:exit]',
+                    },
+                    {
+                        level: 'debug',
+                        timestamp: expect.any(DateTime),
+                        message: 'Executing action [Action:exit]',
                     },
                     {
                         level: 'info',
@@ -268,6 +283,8 @@ describe('Hogflow Executor', () => {
             expect(result.invocation.queueScheduledAt).toEqual(expect.any(DateTime))
             expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
+                  "Starting workflow execution at trigger",
+                  "Executing action [Action:function_id_1]",
                   "[Action:function_id_1] Hello, Mr John Doe!",
                   "[Action:function_id_1] Fetch 1, 200",
                   "Workflow will pause until 2025-01-01T00:00:00.000Z",
@@ -280,6 +297,8 @@ describe('Hogflow Executor', () => {
             expect(result2.invocation.state.currentAction!.hogFunctionState).toEqual(expect.any(Object))
             expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
+                  "Resuming workflow execution at [Action:function_id_1]",
+                  "Executing action [Action:function_id_1]",
                   "[Action:function_id_1] Fetch 2, 200",
                   "Workflow will pause until 2025-01-01T00:00:00.000Z",
                 ]
@@ -290,10 +309,13 @@ describe('Hogflow Executor', () => {
             expect(result3.finished).toEqual(true)
             expect(cleanLogs(result3.logs.map((log) => log.message))).toMatchInlineSnapshot(`
                 [
+                  "Resuming workflow execution at [Action:function_id_1]",
+                  "Executing action [Action:function_id_1]",
                   "[Action:function_id_1] Fetch 3, 200",
                   "[Action:function_id_1] All fetches done!",
                   "[Action:function_id_1] Function completed in REPLACEDms. Sync: 0ms. Mem: 0.099kb. Ops: 32. Event: 'http://localhost:8000/events/1'",
                   "Workflow moved to action [Action:exit]",
+                  "Executing action [Action:exit]",
                   "Workflow completed",
                 ]
             `)
@@ -375,6 +397,7 @@ describe('Hogflow Executor', () => {
                 expect(result1.finished).toBe(false)
                 expect(result1.invocation.state.currentAction?.id).toBe('function_id_1')
                 expect(result1.logs.map((log) => log.message)).toEqual([
+                    'Executing action [Action:trigger]',
                     'Workflow moved to action [Action:function_id_1]',
                 ])
 
@@ -383,10 +406,13 @@ describe('Hogflow Executor', () => {
                 expect(result2.finished).toBe(true)
                 expect(result2.invocation.state.currentAction?.id).toBe('exit')
                 expect(result2.logs.map((log) => log.message)).toEqual([
+                    'Resuming workflow execution at [Action:function_id_1]',
+                    'Executing action [Action:function_id_1]',
                     '[Action:function_id_1] Hello, Mr Debug User!',
                     '[Action:function_id_1] Fetch 1, 200',
                     expect.stringContaining('[Action:function_id_1] Function completed in'),
                     'Workflow moved to action [Action:exit]',
+                    'Executing action [Action:exit]',
                     'Workflow completed',
                 ])
             })
