@@ -1799,26 +1799,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.setIsFullScreen(document.fullscreenElement !== null)
         }
 
-        // Create message listener for resource errors
-        cache.resourceErrorListener = (e: MessageEvent) => {
-            if (e.data?.__rrweb_instrumentation) {
-                const errorDetails = {
-                    resourceType: e.data.tagName,
-                    resourceUrl: e.data.src,
-                    message: e.data.message,
-                }
-
-                actions.incrementErrorCount()
-                actions.caughtAssetErrorFromIframe(errorDetails)
-                posthog.capture('recording_resource_error', {
-                    sessionId: props.sessionRecordingId,
-                    ...errorDetails,
-                })
-            }
-        }
-
         document.addEventListener('fullscreenchange', cache.fullScreenListener)
-        window.addEventListener('message', cache.resourceErrorListener)
 
         if (props.sessionRecordingId) {
             actions.maybeLoadRecordingMeta()
