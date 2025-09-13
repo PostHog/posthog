@@ -45,6 +45,10 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataNodeLogicKey?: string
     /** Override the maximum pagination limit for Data Tables. */
     dataTableMaxPaginationLimit?: number
+    /** Cohort ID if we're viewing a cohort */
+    cohortId?: number
+    /** Whether we're viewing a static cohort */
+    isStaticCohort?: boolean
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

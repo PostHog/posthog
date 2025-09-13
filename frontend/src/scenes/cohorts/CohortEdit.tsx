@@ -577,6 +577,11 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                                 refresh: 'force_blocking',
                                                 fileNameForExport: cohort.name,
                                                 dataNodeLogicKey: dataNodeLogicKey,
+                                                cohortId:
+                                                    cohort.id !== 'new' && cohort.id !== undefined
+                                                        ? cohort.id
+                                                        : undefined,
+                                                isStaticCohort: cohort.is_static,
                                             }}
                                         />
                                     )}
