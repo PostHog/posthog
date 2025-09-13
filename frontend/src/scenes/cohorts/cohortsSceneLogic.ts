@@ -20,7 +20,7 @@ import type { cohortsSceneLogicType } from './cohortsSceneLogicType'
 export interface CohortFilters {
     search?: string
     page?: number
-    type?: string
+    type?: 'static' | 'dynamic'
     created_by_id?: number
 }
 
