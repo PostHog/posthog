@@ -97,7 +97,31 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
         },
     })),
 
+    listeners(({ actions }) => ({
+        deleteSymbolSet: async ({ id }: { id: ErrorTrackingSymbolSet['id'] }) => {
+            await api.errorTracking.symbolSets.delete(id)
+            lemonToast.success('Symbol set deleted')
+            actions.loadSymbolSets()
+        },
+        setSymbolSetStatusFilter: () => actions.loadSymbolSets(),
+        setPage: () => actions.loadSymbolSets(),
+    })),
+
     selectors(({ actions }) => ({
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: Scene.ErrorTracking,
+                    name: 'Error tracking',
+                    path: urls.errorTracking(),
+                },
+                {
+                    key: Scene.ErrorTrackingConfiguration,
+                    name: 'Configuration',
+                },
+            ],
+        ],
         symbolSets: [
             (s) => [s.symbolSetResponse],
             (response: ErrorTrackingSymbolSetResponse): ErrorTrackingSymbolSet[] => {
@@ -117,29 +141,5 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
                 }
             },
         ],
-        breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => [
-                {
-                    key: Scene.ErrorTracking,
-                    name: 'Error tracking',
-                    path: urls.errorTracking(),
-                },
-                {
-                    key: Scene.ErrorTrackingConfiguration,
-                    name: 'Configuration',
-                },
-            ],
-        ],
-    })),
-
-    listeners(({ actions }) => ({
-        deleteSymbolSet: async ({ id }: { id: ErrorTrackingSymbolSet['id'] }) => {
-            await api.errorTracking.symbolSets.delete(id)
-            lemonToast.success('Symbol set deleted')
-            actions.loadSymbolSets()
-        },
-        setSymbolSetStatusFilter: () => actions.loadSymbolSets(),
-        setPage: () => actions.loadSymbolSets(),
     })),
 ])
