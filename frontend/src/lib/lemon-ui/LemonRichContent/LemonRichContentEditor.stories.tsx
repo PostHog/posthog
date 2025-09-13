@@ -1,6 +1,4 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { JSONContent } from '@tiptap/core'
-import { useState } from 'react'
 
 import { LemonRichContentEditor, LemonRichContentEditorProps } from './LemonRichContentEditor'
 
@@ -14,9 +12,8 @@ const meta: Meta<typeof LemonRichContentEditor> = {
 export default meta
 
 const Template: StoryFn<typeof LemonRichContentEditor> = (props: LemonRichContentEditorProps) => {
-    const [value, setValue] = useState<JSONContent | undefined>(props.initialContent)
-    return <LemonRichContentEditor {...props} content={value} onChange={(newValue) => setValue(newValue)} />
+    return <LemonRichContentEditor {...props} />
 }
 
 export const EmptyLemonRichContentEditor: Story = Template.bind({})
-EmptyLemonRichContentEditor.args = { content: undefined }
+EmptyLemonRichContentEditor.args = { initialContent: undefined }

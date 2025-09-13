@@ -28,9 +28,13 @@ import { uuid } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export type LemonRichContentEditorProps = {
-    initialContent?: JSONContent
-    onChange: (content: JSONContent) => void
-    className?: string
+    logicKey?: string
+    initialContent?: JSONContent | null
+    placeholder?: string
+    onCreate?: (editor: RichContentEditorType) => void
+    onUpdate?: (isEmpty: boolean) => void
+    onPressCmdEnter?: () => void
+    disabled?: boolean
 }
 
 const DEFAULT_INITIAL_CONTENT: JSONContent = {
@@ -86,15 +90,7 @@ export function LemonRichContentEditor({
     onUpdate,
     onPressCmdEnter,
     disabled = false,
-}: {
-    logicKey?: string
-    initialContent?: JSONContent | null
-    placeholder?: string
-    onCreate?: (editor: RichContentEditorType) => void
-    onUpdate?: (isEmpty: boolean) => void
-    onPressCmdEnter?: () => void
-    disabled?: boolean
-}): JSX.Element {
+}: LemonRichContentEditorProps): JSX.Element {
     const [isPreviewShown, setIsPreviewShown] = useState<boolean>(false)
     const [ttEditor, setTTEditor] = useState<TTEditor | null>(null)
     const { objectStorageAvailable } = useValues(preflightLogic)
