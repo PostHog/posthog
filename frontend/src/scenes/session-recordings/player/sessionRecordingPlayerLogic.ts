@@ -253,6 +253,19 @@ function isHTMLElement(target: EventTarget | null): target is HTMLElement {
     return !!target && 'tagName' in target && typeof target.tagName === 'string'
 }
 
+function isHtmlImageElement(target: HTMLElement): target is HTMLImageElement {
+    return target.tagName.toLowerCase() === 'img' && 'src' in target && typeof (target as any).src === 'string'
+}
+
+function isHtmlStyleLinkElement(target: HTMLElement): target is HTMLLinkElement {
+    return (
+        target.tagName.toLowerCase() === 'link' &&
+        'href' in target &&
+        typeof (target as any).href === 'string' &&
+        (target as HTMLLinkElement).rel === 'stylesheet'
+    )
+}
+
 function registerErrorListeners({
     iframeWindow,
     onError,
@@ -268,14 +281,14 @@ function registerErrorListeners({
         }
 
         const tag = t.tagName.toLowerCase()
-        if (tag === 'img' && t instanceof HTMLImageElement) {
+        if (isHtmlImageElement(t)) {
             onError({
                 resourceType: 'img',
                 resourceUrl: t.src,
                 message: 'Failed to load image',
                 error: e.error,
             })
-        } else if (tag === 'link' && t instanceof HTMLLinkElement && t.rel === 'stylesheet') {
+        } else if (isHtmlStyleLinkElement(t)) {
             onError({
                 resourceType: 'stylesheet',
                 resourceUrl: t.href,
@@ -286,8 +299,8 @@ function registerErrorListeners({
             onError({
                 resourceType: tag,
                 resourceUrl: (t as any).src || (t as any).href || '',
-                message: `Failed to load resource of type ${tag}`,
-                error: e.error,
+                message: `Failed to load resource of type ${tag}. ${typeof t}`,
+                error: e,
             })
         }
     }
