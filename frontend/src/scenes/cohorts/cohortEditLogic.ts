@@ -162,8 +162,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                                 isCohortCriteriaGroup(oldCriteria)
                                     ? oldCriteria
                                     : criteriaI === criteriaIndex
-                                      ? cleanCriteria({ ...oldCriteria, ...newCriteria })
-                                      : oldCriteria
+                                        ? cleanCriteria({ ...oldCriteria, ...newCriteria })
+                                        : oldCriteria
                             ),
                         groupIndex
                     ),
@@ -437,6 +437,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 fallbackErrorMessage:
                     'There was an error submitting this cohort. Make sure the cohort filters are correct.',
             })
+        },
+        submitCohort: () => {
+            if (values.cohortHasErrors) {
+                lemonToast.error('There was an error submitting this cohort. Make sure the cohort filters are correct.')
+            }
         },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
             if (cohort.is_calculating) {
