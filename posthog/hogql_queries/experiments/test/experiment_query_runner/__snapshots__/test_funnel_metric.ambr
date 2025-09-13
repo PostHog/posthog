@@ -8,7 +8,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v8(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -65,7 +65,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v8(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -122,7 +122,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v8(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -179,7 +179,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v8(2, 94608000, 'first_touch', 'unordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 94608000, 'first_touch', 'unordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -236,7 +236,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v8(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -293,7 +293,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v8(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -350,7 +350,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v8(2, 86400, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 86400, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -407,7 +407,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 5), 0), aggregate_funnel_array_v8(6, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2), multiply(4, metric_events.step_3), multiply(5, metric_events.step_4), multiply(6, metric_events.step_5)]))))))), 0), 0), 1, 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 5), 0), aggregate_funnel_array_v7(6, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2), multiply(4, metric_events.step_3), multiply(5, metric_events.step_4), multiply(6, metric_events.step_5)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -468,7 +468,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 2), 0), aggregate_funnel_array_v8(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)]))))))), 0), 0), 1, 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 2), 0), aggregate_funnel_array_v7(3, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -526,7 +526,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v8(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -583,7 +583,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v8(2, 94608000, 'first_touch', 'unordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 94608000, 'first_touch', 'unordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -640,7 +640,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v8(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -696,7 +696,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v8(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT events.`$group_0` AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -783,7 +783,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v8(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -956,7 +956,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v8(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1129,7 +1129,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v8(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1302,7 +1302,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v8(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1495,7 +1495,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v8(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1688,7 +1688,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v8(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1881,7 +1881,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v8(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT events.person_id AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -2040,7 +2040,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v8(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT events.person_id AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -2199,7 +2199,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v8(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT events.person_id AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,

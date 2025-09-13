@@ -2950,9 +2950,9 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         # Extract distinct_ids from results to check (order might vary)
         # Format is [[person_dict, intervals_list], ...]
-        distinct_ids = {frozenset(actor[0]["distinct_ids"]) for actor in actors_day1_interval0}
-        self.assertIn(frozenset(["alias1", "person1"]), distinct_ids)
-        self.assertIn(frozenset(["person2"]), distinct_ids)
+        distinct_ids = {tuple(actor[0]["distinct_ids"]) for actor in actors_day1_interval0}
+        self.assertIn(("alias1", "person1"), distinct_ids)
+        self.assertIn(("person2",), distinct_ids)
 
         # Test actors for day 1 interval 3 (people who signed up on day 1 and returned on day 4)
         actors_day1_interval3 = self.run_actors_query(interval=1, query=query)
