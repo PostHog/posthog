@@ -74,6 +74,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         setQuery: (query: Node) => ({ query }),
         duplicateCohort: (asStatic: boolean) => ({ asStatic }),
         updateCohortCount: true,
+        removePersonFromCohort: (personId: string) => ({ personId }),
     }),
 
     reducers(({ props }) => ({
@@ -374,6 +375,35 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     } catch (error: any) {
                         lemonToast.error(error.detail || 'Failed to duplicate cohort')
                         return null
+                    }
+                },
+            },
+        ],
+
+        removePersonFromCohort: [
+            null as any,
+            {
+                removePersonFromCohort: async ({ personId }) => {
+                    if (!values.cohort.id || values.cohort.id === 'new') {
+                        throw new Error('Cannot remove person from unsaved cohort')
+                    }
+
+                    try {
+                        await api.cohorts.removePersonFromCohort(values.cohort.id, personId)
+                        lemonToast.success('Person removed from cohort')
+                        // Refresh the data by reloading the data node
+                        const dataLogic = dataNodeLogic.findMounted({
+                            key: createCohortDataNodeLogicKey(values.cohort.id),
+                        })
+                        if (dataLogic) {
+                            dataLogic.actions.loadData()
+                        }
+                        // Update cohort count
+                        actions.updateCohortCount()
+                        return null
+                    } catch (error: any) {
+                        lemonToast.error(error.detail || 'Failed to remove person from cohort')
+                        throw error
                     }
                 },
             },
