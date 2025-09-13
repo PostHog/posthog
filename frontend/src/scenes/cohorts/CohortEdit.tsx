@@ -39,7 +39,6 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
-import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
 import { PersonType } from '~/types'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
@@ -52,11 +51,22 @@ const RESOURCE_TYPE = 'cohort'
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
 
+    const renderRemovePersonFromCohortButton = ({ record }: { record: unknown }): JSX.Element => {
+        if (!Array.isArray(record)) {
+            console.error('Expected record to be an array for person.$delete column')
+            return <></>
+        }
+        const personRecord = record[0] as PersonType
+
+        return <RemovePersonFromCohortButton person={personRecord} cohortId={id as number} />
+    }
+
     const logic = cohortEditLogic(logicProps)
     const { deleteCohort, setOuterGroupsType, setQuery, duplicateCohort, setCohortValue } = useActions(logic)
     const modalLogic = addPersonToCohortModalLogic(logicProps)
     const { showAddPersonToCohortModal } = useActions(modalLogic)
-    const { cohort, cohortLoading, cohortMissing, query, duplicatedCohortLoading } = useValues(logic)
+    const { cohort, cohortLoading, cohortMissing, query, duplicatedCohortLoading, canRemovePersonFromCohort } =
+        useValues(logic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
@@ -580,31 +590,13 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                                 refresh: 'force_blocking',
                                                 fileNameForExport: cohort.name,
                                                 dataNodeLogicKey: dataNodeLogicKey,
-                                                columns: {
-                                                    'person.$delete': {
-                                                        render: ({ record }) => {
-                                                            if (!Array.isArray(record)) {
-                                                                console.error(
-                                                                    'Expected record to be an array for person.$delete column'
-                                                                )
-                                                                return ''
-                                                            }
-                                                            const personRecord = record[0] as PersonType
-
-                                                            // Check if we're in a static cohort context
-                                                            if (cohort.is_static && typeof cohort.id === 'number') {
-                                                                return (
-                                                                    <RemovePersonFromCohortButton
-                                                                        person={personRecord}
-                                                                        cohortId={cohort.id}
-                                                                    />
-                                                                )
-                                                            }
-
-                                                            return <DeletePersonButton person={personRecord} />
-                                                        },
-                                                    },
-                                                },
+                                                columns: canRemovePersonFromCohort
+                                                    ? {
+                                                          'person.$delete': {
+                                                              render: renderRemovePersonFromCohortButton,
+                                                          },
+                                                      }
+                                                    : undefined,
                                             }}
                                         />
                                     )}

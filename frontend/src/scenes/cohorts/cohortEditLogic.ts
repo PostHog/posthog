@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
@@ -197,6 +197,15 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             },
         ],
     })),
+
+    selectors({
+        canRemovePersonFromCohort: [
+            (s) => [s.cohort],
+            (cohort: CohortType) => {
+                return cohort.is_static && typeof cohort.id === 'number'
+            },
+        ],
+    }),
 
     forms(({ actions }) => ({
         cohort: {
