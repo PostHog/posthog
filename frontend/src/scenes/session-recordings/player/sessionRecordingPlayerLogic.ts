@@ -964,7 +964,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
     }),
     listeners(({ props, values, actions, cache }) => ({
-        caughtAssetErrorFromIframe: ({ errorDetails }) => {},
+        caughtAssetErrorFromIframe: ({ errorDetails }) => {
+            // eslint-disable-next-line no-console
+            console.log('caughtAssetErrorFromIframe', errorDetails)
+        },
         [playerCommentModel.actionTypes.startCommenting]: async ({ comment }) => {
             actions.setIsCommenting(true)
             if (comment) {
