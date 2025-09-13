@@ -218,23 +218,25 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
 
             <Form id="cohort" logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
                 <SceneContent>
-                    <SceneTitleSection
-                        name={cohort.name}
-                        description={cohort.description || ''}
-                        resourceType={{
-                            to: urls.cohorts(),
-                            type: RESOURCE_TYPE,
-                        }}
-                        isLoading={cohortLoading}
-                        onNameChange={(value) => {
-                            setCohortValue('name', value)
-                        }}
-                        onDescriptionChange={(value) => {
-                            setCohortValue('description', value)
-                        }}
-                        canEdit
-                        forceEdit={isNewCohort}
-                    />
+                    <LemonField name="name">
+                        <SceneTitleSection
+                            name={cohort.name}
+                            description={cohort.description || ''}
+                            resourceType={{
+                                to: urls.cohorts(),
+                                type: RESOURCE_TYPE,
+                            }}
+                            isLoading={cohortLoading}
+                            onNameChange={(value) => {
+                                setCohortValue('name', value)
+                            }}
+                            onDescriptionChange={(value) => {
+                                setCohortValue('description', value)
+                            }}
+                            canEdit
+                            forceEdit={isNewCohort}
+                        />
+                    </LemonField>
 
                     <SceneDivider />
 

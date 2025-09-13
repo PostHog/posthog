@@ -1,4 +1,5 @@
 import { BindLogic, useValues } from 'kea'
+import { useEffect, useState } from 'react'
 
 import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
 
@@ -97,9 +98,19 @@ export function RevenueAnalyticsScene(): JSX.Element {
 }
 
 const RevenueAnalyticsSceneContent = (): JSX.Element => {
+    const [isOnboarding, setIsOnboarding] = useState(false)
     const { hasRevenueTables, hasRevenueEvents } = useValues(revenueAnalyticsLogic)
 
     const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
+
+    // Turn onboarding on if we haven't connected any revenue sources or events yet
+    // We'll keep that stored in the state to make sure we don't "leave" the onboarding state
+    // after we've entered it once
+    useEffect(() => {
+        if (!isOnboarding && !hasRevenueTables && !hasRevenueEvents) {
+            setIsOnboarding(true)
+        }
+    }, [hasRevenueTables, hasRevenueEvents, isOnboarding])
 
     // Still loading from the server, so we'll show a spinner
     if (hasRevenueTables === null) {
@@ -107,8 +118,10 @@ const RevenueAnalyticsSceneContent = (): JSX.Element => {
     }
 
     // Hasn't connected any revenue sources or events yet, so we'll show the onboarding
-    if (!hasRevenueTables && !hasRevenueEvents) {
-        return <Onboarding />
+    // Also, once we've entered the onboarding state, we'll stay in it until we purposefully leave it
+    // rather than leaving as soon as we've connected a revenue source or event
+    if (isOnboarding || (!hasRevenueTables && !hasRevenueEvents)) {
+        return <Onboarding closeOnboarding={() => setIsOnboarding(false)} />
     }
 
     return (
