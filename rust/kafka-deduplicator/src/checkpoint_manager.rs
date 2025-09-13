@@ -55,7 +55,7 @@ pub struct CheckpointPath {
 impl CheckpointPath {
     pub fn new(partition: Partition, local_checkpoint_base_dir: &Path) -> Result<Self> {
         let checkpoint_epoch_micros = Self::generate_checkpoint_timestamp()?;
-        let cp_epoch_micros_str = format!("{:020}", checkpoint_epoch_micros);
+        let cp_epoch_micros_str = format!("{checkpoint_epoch_micros:020}");
         let cp_topic_partition = format!(
             "{}{}_{}",
             CHECKPOINT_NAME_PREFIX,

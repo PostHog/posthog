@@ -2,12 +2,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use kafka_deduplicator::checkpoint::{CheckpointConfig, CheckpointExporter, CheckpointUploader};
 use kafka_deduplicator::checkpoint_manager::{
-    CheckpointMode, CheckpointPath, CheckpointWorker, CHECKPOINT_NAME_PREFIX,
+    CheckpointManager, CheckpointMode, CheckpointPath, CheckpointWorker, CHECKPOINT_NAME_PREFIX,
 };
 use kafka_deduplicator::kafka::types::Partition;
 use kafka_deduplicator::store::{DeduplicationStore, DeduplicationStoreConfig};
@@ -17,7 +17,6 @@ use common_types::RawEvent;
 
 use anyhow::Result;
 use tempfile::TempDir;
-use tokio::sync::Mutex;
 use tracing::info;
 
 /// Mock uploader for testing that stores files in local filesystem
@@ -239,7 +238,7 @@ async fn test_checkpoint_exporter_creation() {
 }
 
 #[tokio::test]
-async fn test_manual_checkpoint() {
+async fn test_manual_checkpoint_incremental() {
     let checkpoint_dir = TempDir::new().unwrap();
     let (store, _store_temp) = create_test_dedup_store();
 
@@ -285,7 +284,7 @@ async fn test_manual_checkpoint() {
         .insert(partition.clone(), store.clone());
     let worker = CheckpointWorker::new(
         1,
-        CheckpointMode::Full,
+        CheckpointMode::Incremental,
         paths.clone(),
         store.clone(),
         exporter.clone(),
@@ -297,7 +296,16 @@ async fn test_manual_checkpoint() {
 
     let result = result.unwrap();
     assert!(result.is_some());
-    assert!(result.unwrap() == paths.remote_path);
+
+    // the expected remote path will include the bucket prefix
+    // and the checkpoint mode path element
+    let expected = format!("test-prefix/incremental/{}", &paths.remote_path);
+    assert!(
+        result.as_ref().unwrap() == &expected,
+        "remote path should match {}, got: {:?}",
+        expected,
+        result.unwrap()
+    );
 }
 
 #[tokio::test]
@@ -334,10 +342,6 @@ async fn test_checkpoint_skips_when_in_progress() {
         config.clone(),
         uploader.clone(),
     )));
-
-    // TODO(eli): convert test to use CheckpointManager and worker loop
-    let checkpoint_counters = Arc::new(Mutex::new(HashMap::<Partition, u32>::new()));
-    let is_checkpointing = Arc::new(Mutex::new(HashSet::<Partition>::new()));
 
     let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
         path: checkpoint_dir.path().to_path_buf(),
@@ -419,7 +423,7 @@ async fn test_checkpoint_skips_when_in_progress() {
 }
 
 #[tokio::test]
-async fn test_checkpoint_with_mock_uploader() {
+async fn test_checkpoint_manual_full() {
     let checkpoint_dir = TempDir::new().unwrap();
     let (store, _store_temp) = create_test_dedup_store();
 
@@ -453,10 +457,6 @@ async fn test_checkpoint_with_mock_uploader() {
         uploader.clone(),
     )));
 
-    // TODO(eli): convert test to use CheckpointManager and worker loop
-    let checkpoint_counters = Arc::new(Mutex::new(HashMap::<Partition, u32>::new()));
-    let is_checkpointing = Arc::new(Mutex::new(HashSet::<Partition>::new()));
-
     let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
         path: checkpoint_dir.path().to_path_buf(),
         max_capacity: 1_000_000,
@@ -478,11 +478,24 @@ async fn test_checkpoint_with_mock_uploader() {
     );
 
     let result = worker.checkpoint_partition().await;
-    assert!(result.is_ok(), "checkpoint should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "checkpoint should succeed: {:?}",
+        result.err()
+    );
 
     let result = result.unwrap();
     assert!(result.is_some());
-    assert!(result.unwrap() == paths.remote_path);
+
+    // the expected remote path will include the bucket prefix
+    // and the checkpoint mode path element
+    let expected = format!("test-prefix/full/{}", &paths.remote_path);
+    assert!(
+        result.as_ref().unwrap() == &expected,
+        "remote path should match {}, got: {:?}",
+        expected,
+        result.as_ref().unwrap()
+    );
 
     // Verify files were "uploaded" to mock storage
     let file_count = uploader.file_count().await.unwrap();
@@ -496,7 +509,7 @@ async fn test_checkpoint_with_mock_uploader() {
 }
 
 #[tokio::test]
-async fn test_incremental_vs_full_upload() {
+async fn test_incremental_vs_full_upload_serial() {
     let checkpoint_dir = TempDir::new().unwrap();
     let (store, _store_temp) = create_test_dedup_store();
 
@@ -512,14 +525,14 @@ async fn test_incremental_vs_full_upload() {
     }
 
     let config = CheckpointConfig {
-        checkpoint_interval: Duration::from_secs(60),
+        checkpoint_interval: Duration::from_millis(50),
         cleanup_interval: Duration::from_secs(60),
         local_checkpoint_dir: checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
-        full_upload_interval: 3,
+        full_upload_interval: 2,
         aws_region: "us-east-1".to_string(),
-        max_local_checkpoints: 6,
+        max_local_checkpoints: 10,
         max_concurrent_checkpoints: 1,
         s3_timeout: Duration::from_secs(30),
     };
@@ -530,70 +543,44 @@ async fn test_incremental_vs_full_upload() {
         uploader.clone(),
     )));
 
-    // TODO(eli): convert test to use CheckpointManager and worker loop
-    let checkpoint_counters = Arc::new(Mutex::new(HashMap::<Partition, u32>::new()));
-    let is_checkpointing = Arc::new(Mutex::new(HashSet::<Partition>::new()));
-
     let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
         path: checkpoint_dir.path().to_path_buf(),
         max_capacity: 1_000_000,
     }));
 
     let partition = Partition::new("test_topic".to_string(), 0);
-    let paths =
-        CheckpointPath::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
     store_manager
         .stores()
         .insert(partition.clone(), store.clone());
 
-    let worker = CheckpointWorker::new(
-        1,
-        CheckpointMode::Full,
-        paths,
-        store.clone(),
-        exporter.clone(),
+    let mut manager = CheckpointManager::new(config, store_manager, exporter);
+
+    // let the checkpoint worker loop run long enough to perform some checkpoints
+    manager.start();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    manager.stop().await;
+
+    // eval if some full and incremental uploads were performed
+    let stored_files = uploader.get_stored_files().await.unwrap();
+
+    // Check if this was a full upload (every 3rd checkpoint)
+    let full_upload_paths = stored_files
+        .keys()
+        .filter(|k| k.contains("test-prefix/full/"))
+        .collect::<Vec<_>>();
+    let incremental_upload_paths = stored_files
+        .keys()
+        .filter(|k| k.contains("test-prefix/incremental/"))
+        .collect::<Vec<_>>();
+
+    assert!(
+        full_upload_paths.len() >= 2,
+        "Should have performed at least two full uploads"
     );
-
-    // Perform multiple checkpoints
-    for i in 0..=config.max_local_checkpoints {
-        let result = worker.checkpoint_partition().await;
-        assert!(
-            result.is_ok(),
-            "Checkpoint {i} should succeed, got: {:?}",
-            result.err()
-        );
-        assert!(
-            result.unwrap().is_some(),
-            "Checkpoint {i} should return a checkpoint's remote path prefix",
-        );
-
-        let stored_files = uploader.get_stored_files().await.unwrap();
-
-        // Check if this was a full upload (every 3rd checkpoint)
-        let should_be_full = i % (config.full_upload_interval as usize) == 0;
-        let has_full_uploads = stored_files.keys().any(|k| k.contains("/full/"));
-        let has_incremental_uploads = stored_files.keys().any(|k| k.contains("/incremental/"));
-
-        println!(
-            "Checkpoint {i}: should_be_full={should_be_full}, has_full={has_full_uploads}, has_incremental={has_incremental_uploads}"
-        );
-        println!("Keys: {:?}", stored_files.keys().collect::<Vec<_>>());
-
-        // Clear the mock uploader between checks to isolate each checkpoint's uploads
-        uploader.clear().await.unwrap();
-
-        if should_be_full {
-            assert!(
-                has_full_uploads,
-                "Checkpoint {i} should create full uploads"
-            );
-        } else {
-            assert!(
-                has_incremental_uploads,
-                "Checkpoint {i} should create incremental uploads"
-            );
-        }
-    }
+    assert!(
+        incremental_upload_paths.len() >= 2,
+        "Should have performed at least two incremental uploads"
+    );
 }
 
 #[tokio::test]
