@@ -60,9 +60,6 @@
                 "name": {
                     "type": "string"
                 },
-                "optionalInFunnel": {
-                    "type": "boolean"
-                },
                 "properties": {
                     "description": "Properties configurable in the interface",
                     "items": {
@@ -1883,9 +1880,6 @@
                     "description": "Action name from the plan.",
                     "type": "string"
                 },
-                "optionalInFunnel": {
-                    "type": "boolean"
-                },
                 "properties": {
                     "items": {
                         "$ref": "#/definitions/AssistantPropertyFilter"
@@ -2000,9 +1994,6 @@
                 },
                 "name": {
                     "type": "string"
-                },
-                "optionalInFunnel": {
-                    "type": "boolean"
                 },
                 "properties": {
                     "items": {
@@ -6998,9 +6989,6 @@
                         "name": {
                             "type": "string"
                         },
-                        "optionalInFunnel": {
-                            "type": "boolean"
-                        },
                         "orderBy": {
                             "description": "Columns to order by",
                             "items": {
@@ -7079,9 +7067,6 @@
                         },
                         "name": {
                             "type": "string"
-                        },
-                        "optionalInFunnel": {
-                            "type": "boolean"
                         },
                         "properties": {
                             "description": "Properties configurable in the interface",
@@ -7163,9 +7148,6 @@
                         },
                         "name": {
                             "type": "string"
-                        },
-                        "optionalInFunnel": {
-                            "type": "boolean"
                         },
                         "properties": {
                             "description": "Properties configurable in the interface",
@@ -9110,9 +9092,6 @@
                 "name": {
                     "type": "string"
                 },
-                "optionalInFunnel": {
-                    "type": "boolean"
-                },
                 "properties": {
                     "description": "Properties configurable in the interface",
                     "items": {
@@ -9802,9 +9781,6 @@
                 },
                 "name": {
                     "type": "string"
-                },
-                "optionalInFunnel": {
-                    "type": "boolean"
                 },
                 "properties": {
                     "description": "Properties configurable in the interface",
@@ -10787,9 +10763,6 @@
                 "name": {
                     "type": "string"
                 },
-                "optionalInFunnel": {
-                    "type": "boolean"
-                },
                 "orderBy": {
                     "description": "Columns to order by",
                     "items": {
@@ -11046,9 +11019,6 @@
                 },
                 "name": {
                     "type": "string"
-                },
-                "optionalInFunnel": {
-                    "type": "boolean"
                 },
                 "properties": {
                     "description": "Properties configurable in the interface",
@@ -12645,9 +12615,6 @@
                 "name": {
                     "type": "string"
                 },
-                "optionalInFunnel": {
-                    "type": "boolean"
-                },
                 "properties": {
                     "description": "Properties configurable in the interface",
                     "items": {
@@ -12721,9 +12688,6 @@
                 "name": {
                     "type": "string"
                 },
-                "optionalInFunnel": {
-                    "type": "boolean"
-                },
                 "orderBy": {
                     "description": "Columns to order by",
                     "items": {
@@ -12769,9 +12733,6 @@
                 },
                 "name": {
                     "type": ["string", "null"]
-                },
-                "optionalInFunnel": {
-                    "type": "boolean"
                 },
                 "order": {
                     "type": "number"

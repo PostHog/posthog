@@ -733,7 +733,6 @@ def funnel_evaluation_expr(team: Team, funnel_metric: ExperimentFunnelMetric, ev
                     'first_touch',
                     '{funnel_order_type}',
                     array(array('')),
-                    [],
                     arraySort(t -> t.1, groupArray(tuple(
                         toFloat({timestamp_field}),
                         {uuid_field},
