@@ -182,7 +182,6 @@ describe('EventPipelineRunner', () => {
             hub,
             pluginEvent,
             undefined,
-            undefined,
             personsStoreForBatch,
             groupStoreForBatch,
             undefined // headers
@@ -432,7 +431,6 @@ describe('EventPipelineRunner', () => {
                 runner = new TestEventPipelineRunner(
                     hub,
                     heatmapEvent,
-                    undefined,
                     undefined,
                     personsStore,
                     groupStoreForBatch,

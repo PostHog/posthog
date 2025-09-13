@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { HogTransformerService } from '../../../cdp/hog-transformations/hog-transformer.service'
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
-import { EventHeaders, Hub, KafkaConsumerBreadcrumb, PipelineEvent, Team } from '../../../types'
+import { EventHeaders, Hub, PipelineEvent, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { normalizeProcessPerson } from '../../../utils/event'
@@ -12,6 +12,7 @@ import { GroupStoreForBatch } from '../groups/group-store-for-batch.interface'
 import { PersonMergeLimitExceededError } from '../persons/person-merge-types'
 import { MergeMode, determineMergeMode } from '../persons/person-merge-types'
 import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'
+import { redirectEventToTopic, sendEventToDLQ } from '../pipeline-helpers'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
@@ -59,7 +60,6 @@ export class EventPipelineRunner {
     originalEvent: PipelineEvent
     eventsProcessor: EventsProcessor
     hogTransformer: HogTransformerService | null
-    breadcrumbs: KafkaConsumerBreadcrumb[]
     personsStoreForBatch: PersonsStoreForBatch
     groupStoreForBatch: GroupStoreForBatch
     mergeMode: MergeMode
@@ -69,7 +69,6 @@ export class EventPipelineRunner {
         hub: Hub,
         event: PipelineEvent,
         hogTransformer: HogTransformerService | null = null,
-        breadcrumbs: KafkaConsumerBreadcrumb[] = [],
         personsStoreForBatch: PersonsStoreForBatch,
         groupStoreForBatch: GroupStoreForBatch,
         headers?: EventHeaders
@@ -78,7 +77,6 @@ export class EventPipelineRunner {
         this.originalEvent = event
         this.eventsProcessor = new EventsProcessor(hub)
         this.hogTransformer = hogTransformer
-        this.breadcrumbs = breadcrumbs
         this.personsStoreForBatch = personsStoreForBatch
         this.groupStoreForBatch = groupStoreForBatch
         this.mergeMode = determineMergeMode(hub)
@@ -381,85 +379,11 @@ export class EventPipelineRunner {
     }
 
     private async sendToDLQ(event: PluginEvent, error: any, stepName: string): Promise<void> {
-        logger.warn('Event sent to DLQ', {
-            step: stepName,
-            team_id: event.team_id,
-            distinct_id: event.distinct_id,
-            event: event.event,
-            error: error?.message || 'Unknown error',
-        })
-
-        pipelineStepDLQCounter.labels(stepName).inc()
-
-        await captureIngestionWarning(
-            this.hub.db.kafkaProducer,
-            event.team_id,
-            'pipeline_step_dlq',
-            {
-                distinctId: event.distinct_id,
-                eventUuid: event.uuid,
-                error: error?.message || 'Unknown error',
-                event: event.event,
-                step: stepName,
-            },
-            { alwaysSend: true }
-        )
-
-        try {
-            const message = generateEventDeadLetterQueueMessage(
-                this.originalEvent,
-                error || new Error('Pipeline step returned DLQ result'),
-                event.team_id,
-                `plugin_server_ingest_event:${stepName}`
-            )
-            await this.hub.db.kafkaProducer.queueMessages(message)
-        } catch (dlqError) {
-            logger.error('Failed to send event to DLQ', {
-                step: stepName,
-                team_id: event.team_id,
-                distinct_id: event.distinct_id,
-                error: dlqError,
-            })
-            captureException(dlqError, {
-                tags: { team_id: event.team_id, pipeline_step: stepName },
-                extra: { event, error: dlqError },
-            })
-        }
+        await sendEventToDLQ(this.hub.db.kafkaProducer, this.originalEvent, error, stepName, event.team_id)
     }
 
     private async redirectToTopic(event: PluginEvent, topic: string): Promise<void> {
-        try {
-            // Send the original event in capture format to the specified topic
-            // This preserves the exact event structure for the async processing pipeline
-            await this.hub.db.kafkaProducer.produce({
-                topic: topic,
-                key: `${event.team_id}:${event.distinct_id}`,
-                value: Buffer.from(JSON.stringify(this.originalEvent)),
-                headers: {
-                    distinct_id: event.distinct_id,
-                    team_id: event.team_id.toString(),
-                },
-            })
-
-            logger.info('Event redirected to topic', {
-                team_id: event.team_id,
-                distinct_id: event.distinct_id,
-                event: event.event,
-                topic: topic,
-            })
-        } catch (redirectError) {
-            logger.error('Failed to redirect event to topic', {
-                team_id: this.originalEvent.team_id,
-                distinct_id: this.originalEvent.distinct_id,
-                topic: topic,
-                error: redirectError,
-            })
-            captureException(redirectError, {
-                tags: { team_id: this.originalEvent.team_id, pipeline_step: 'redirectToTopic' },
-                extra: { originalEvent: this.originalEvent, topic, error: redirectError },
-            })
-            throw redirectError // Re-throw to ensure the pipeline handles the failure appropriately
-        }
+        await redirectEventToTopic(this.hub.db.kafkaProducer, this.originalEvent, topic, 'redirectToTopic')
     }
 
     private reportStalled(stepName: string) {
