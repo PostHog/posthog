@@ -259,62 +259,68 @@ function registerErrorListeners({
 }: {
     iframeWindow: Window
     onError: (error: ResourceErrorDetails) => void
-}): void {
-    // Catch resource load errors (IMG, SCRIPT, LINK rel=stylesheet, etc.)
-    iframeWindow.addEventListener(
-        'error',
-        (e) => {
-            const t = e.target
-            if (!isHTMLElement(t)) {
-                return
-            }
+}): () => void {
+    // Create named listener functions so we can remove them later
+    const resourceErrorListener = (e: ErrorEvent): void => {
+        const t = e.target
+        if (!isHTMLElement(t)) {
+            return
+        }
 
-            const tag = t.tagName.toLowerCase()
-            if (tag === 'img' && t instanceof HTMLImageElement) {
-                onError({
-                    resourceType: 'img',
-                    resourceUrl: t.src,
-                    message: 'Failed to load image',
-                    error: e.error,
-                })
-            } else if (tag === 'link' && t instanceof HTMLLinkElement && t.rel === 'stylesheet') {
-                onError({
-                    resourceType: 'stylesheet',
-                    resourceUrl: t.href,
-                    message: 'Failed to load stylesheet',
-                    error: e.error,
-                })
-            } else {
-                onError({
-                    resourceType: tag,
-                    resourceUrl: (t as any).src || (t as any).href || '',
-                    message: `Failed to load resource of type ${tag}`,
-                    error: e.error,
-                })
-            }
-        },
-        /* capture */ true
-    )
+        const tag = t.tagName.toLowerCase()
+        if (tag === 'img' && t instanceof HTMLImageElement) {
+            onError({
+                resourceType: 'img',
+                resourceUrl: t.src,
+                message: 'Failed to load image',
+                error: e.error,
+            })
+        } else if (tag === 'link' && t instanceof HTMLLinkElement && t.rel === 'stylesheet') {
+            onError({
+                resourceType: 'stylesheet',
+                resourceUrl: t.href,
+                message: 'Failed to load stylesheet',
+                error: e.error,
+            })
+        } else {
+            onError({
+                resourceType: tag,
+                resourceUrl: (t as any).src || (t as any).href || '',
+                message: `Failed to load resource of type ${tag}`,
+                error: e.error,
+            })
+        }
+    }
 
-    // Runtime JS errors
-    iframeWindow.addEventListener('error', (e) => {
+    const runtimeErrorListener = (e: ErrorEvent): void => {
         onError({
             resourceType: 'js',
             resourceUrl: e.filename,
             message: e.message,
             error: e.error,
         })
-    })
+    }
 
-    // Optional: CSP violations show up here
-    iframeWindow.document.addEventListener('securitypolicyviolation', (e) => {
+    const cspViolationListener = (e: SecurityPolicyViolationEvent): void => {
         onError({
             resourceType: 'csp',
             resourceUrl: e.blockedURI,
             message: `CSP violation: ${e.violatedDirective}`,
             error: null,
         })
-    })
+    }
+
+    // Add listeners
+    iframeWindow.addEventListener('error', resourceErrorListener, /* capture */ true)
+    iframeWindow.addEventListener('error', runtimeErrorListener)
+    iframeWindow.document.addEventListener('securitypolicyviolation', cspViolationListener)
+
+    // Return cleanup function
+    return () => {
+        iframeWindow.removeEventListener('error', resourceErrorListener, true)
+        iframeWindow.removeEventListener('error', runtimeErrorListener)
+        iframeWindow.document.removeEventListener('securitypolicyviolation', cspViolationListener)
+    }
 }
 
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
@@ -1102,7 +1108,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                 const iframeContentWindow = replayer.iframe.contentWindow
                 if (iframeContentWindow) {
-                    registerErrorListeners({
+                    // Clean up any previous listeners before adding new ones
+                    cache.iframeErrorListenerCleanup?.()
+
+                    cache.iframeErrorListenerCleanup = registerErrorListeners({
                         iframeWindow: iframeContentWindow,
                         onError: (error) => actions.caughtAssetErrorFromIframe(error),
                     })
