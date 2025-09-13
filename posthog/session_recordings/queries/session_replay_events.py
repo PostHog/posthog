@@ -63,6 +63,7 @@ class SessionReplayEvents:
             AND session_id = %(session_id)s
             AND min_first_timestamp >= %(python_now)s - INTERVAL %(days)s DAY
             AND min_first_timestamp <= %(python_now)s
+            AND addDays(dateTrunc('DAY', min_first_timestamp), 1) >= %(python_now)s - interval coalesce(retention_period_days, 365) days
             """,
             {
                 "team_id": team.pk,
@@ -114,6 +115,7 @@ class SessionReplayEvents:
             AND session_id IN %(session_ids)s
             AND min_first_timestamp >= %(python_now)s - INTERVAL %(days)s DAY
             AND min_first_timestamp <= %(python_now)s
+            AND addDays(dateTrunc('DAY', min_first_timestamp), 1) >= %(python_now)s - interval coalesce(retention_period_days, 365) days
             GROUP BY session_id
             """,
             {
@@ -154,13 +156,14 @@ class SessionReplayEvents:
                 groupArrayArray(block_first_timestamps) as block_first_timestamps,
                 groupArrayArray(block_last_timestamps) as block_last_timestamps,
                 groupArrayArray(block_urls) as block_urls,
-                max(retention_period_days) as retention_period_days
+                max(retention_period_days)
             FROM
                 session_replay_events
             PREWHERE
                 team_id = %(team_id)s
                 AND session_id = %(session_id)s
                 AND min_first_timestamp <= %(python_now)s
+                AND addDays(dateTrunc('DAY', min_first_timestamp), 1) >= %(python_now)s - interval coalesce(retention_period_days, 365) days
                 {optional_timestamp_clause}
             GROUP BY
                 session_id
@@ -193,6 +196,7 @@ class SessionReplayEvents:
                     AND session_id = %(session_id)s
                     AND min_first_timestamp <= %(python_now)s
                     AND min_first_timestamp >= %(python_now)s - interval %(ttl_days)s days
+                    AND addDays(dateTrunc('DAY', min_first_timestamp), 1) >= %(python_now)s - interval coalesce(retention_period_days, 365) days
                     {optional_timestamp_clause}
                 GROUP BY
                     session_id
@@ -291,12 +295,13 @@ class SessionReplayEvents:
                 groupArrayArray(block_first_timestamps) as block_first_timestamps,
                 groupArrayArray(block_last_timestamps) as block_last_timestamps,
                 groupArrayArray(block_urls) as block_urls,
-                max(retention_period_days) as retention_period_days
+                max(retention_period_days)
             FROM
                 session_replay_events
             PREWHERE
                 team_id = %(team_id)s
                 AND session_id IN %(session_ids)s
+                AND addDays(dateTrunc('DAY', min_first_timestamp), 1) >= %(python_now)s - interval coalesce(retention_period_days, 365) days
                 {optional_max_timestamp_clause if recordings_max_timestamp else "AND min_first_timestamp <= %(python_now)s"}
                 {optional_min_timestamp_clause}
             GROUP BY
