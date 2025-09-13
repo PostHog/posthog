@@ -10,7 +10,9 @@ use tracing::{debug, error, info, warn};
 
 use crate::kafka::types::Partition;
 use crate::metrics::MetricsHelper;
-use crate::rocksdb::metrics_consts::*;
+use crate::metrics_const::{
+    CLEANUP_BYTES_FREED_HISTOGRAM, CLEANUP_DURATION_HISTOGRAM, CLEANUP_OPERATIONS_COUNTER,
+};
 use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
 
 /// Information about folder sizes on disk

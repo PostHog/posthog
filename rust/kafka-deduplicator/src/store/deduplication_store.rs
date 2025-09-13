@@ -8,7 +8,8 @@ use rocksdb::{ColumnFamilyDescriptor, Options};
 use tracing::info;
 
 use crate::metrics::MetricsHelper;
-use crate::rocksdb::{metrics_consts::*, store::RocksDbStore};
+use crate::metrics_const::*;
+use crate::rocksdb::store::RocksDbStore;
 
 use super::keys::{TimestampKey, UuidIndexKey, UuidKey};
 use super::metadata::{TimestampMetadata, UuidMetadata};
@@ -157,14 +158,38 @@ impl DeduplicationStore {
                 .increment(1);
 
             self.metrics
-                .histogram("timestamp_dedup_unique_uuids")
+                .histogram(TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM)
                 .with_label("lib", &lib_name)
                 .record(metadata.seen_uuids.len() as f64);
 
             self.metrics
-                .histogram("timestamp_dedup_similarity_score")
+                .histogram(TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM)
                 .with_label("lib", &lib_name)
                 .record(similarity.overall_score);
+
+            self.metrics
+                .histogram(TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM)
+                .with_label("lib", &lib_name)
+                .record(similarity.different_field_count as f64);
+
+            self.metrics
+                .histogram(TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM)
+                .with_label("lib", &lib_name)
+                .record(similarity.different_property_count as f64);
+
+            self.metrics
+                .histogram(TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM)
+                .with_label("lib", &lib_name)
+                .record(similarity.properties_similarity);
+
+            // Emit counters for specific fields that differ
+            for (field_name, _, _) in &similarity.different_fields {
+                self.metrics
+                    .counter(TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER)
+                    .with_label("lib", &lib_name)
+                    .with_label("field", field_name)
+                    .increment(1);
+            }
 
             // Store updated metadata
             let serialized = bincode::serde::encode_to_vec(&metadata, bincode::config::standard())
@@ -239,19 +264,43 @@ impl DeduplicationStore {
                 .increment(1);
 
             self.metrics
-                .histogram("uuid_dedup_timestamp_variance_ms")
+                .histogram(UUID_DEDUP_TIMESTAMP_VARIANCE_HISTOGRAM)
                 .with_label("lib", &lib_name)
                 .record(metadata.get_timestamp_variance() as f64);
 
             self.metrics
-                .histogram("uuid_dedup_unique_timestamps")
+                .histogram(UUID_DEDUP_UNIQUE_TIMESTAMPS_HISTOGRAM)
                 .with_label("lib", &lib_name)
                 .record(metadata.seen_timestamps.len() as f64);
 
             self.metrics
-                .histogram("uuid_dedup_similarity_score")
+                .histogram(UUID_DEDUP_SIMILARITY_SCORE_HISTOGRAM)
                 .with_label("lib", &lib_name)
                 .record(similarity.overall_score);
+
+            self.metrics
+                .histogram(UUID_DEDUP_DIFFERENT_FIELDS_HISTOGRAM)
+                .with_label("lib", &lib_name)
+                .record(similarity.different_field_count as f64);
+
+            self.metrics
+                .histogram(UUID_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM)
+                .with_label("lib", &lib_name)
+                .record(similarity.different_property_count as f64);
+
+            self.metrics
+                .histogram(UUID_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM)
+                .with_label("lib", &lib_name)
+                .record(similarity.properties_similarity);
+
+            // Emit counters for specific fields that differ
+            for (field_name, _, _) in &similarity.different_fields {
+                self.metrics
+                    .counter(UUID_DEDUP_FIELD_DIFFERENCES_COUNTER)
+                    .with_label("lib", &lib_name)
+                    .with_label("field", field_name)
+                    .increment(1);
+            }
 
             // Store updated metadata
             let serialized = bincode::serde::encode_to_vec(&metadata, bincode::config::standard())
