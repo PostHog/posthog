@@ -87,7 +87,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     join_use_nulls=1
   '''
 # ---
 # name: ClickhouseTestUnorderedFunnelGroups.test_unordered_funnel_with_groups.1
