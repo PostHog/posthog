@@ -9,37 +9,31 @@ import { cn } from 'lib/utils/css-classes'
 import { richContentEditorLogic } from './richContentEditorLogic'
 import { JSONContent, TTEditor } from './types'
 
-export const RichContentEditor = ({
-    logicKey,
-    extensions,
-    className,
-    children,
-    initialContent = [],
-    disabled = false,
-    onCreate = () => {},
-    onUpdate = () => {},
-    onSelectionUpdate = () => {},
-    autoFocus = false,
-}: PropsWithChildren<{
-    logicKey: string
+type RichContentEditorProps = {
     initialContent?: JSONContent
     onCreate?: (editor: TTEditor) => void
     onUpdate?: (content: JSONContent) => void
     onSelectionUpdate?: () => void
     extensions: Extensions
     disabled?: boolean
-    className?: string
     autoFocus?: boolean
-}>): JSX.Element => {
-    const editor = useEditor({
-        shouldRerenderOnTransaction: true,
-        extensions,
-        editable: !disabled,
-        content: initialContent ?? [],
-        onSelectionUpdate: onSelectionUpdate,
-        onUpdate: ({ editor }) => onUpdate(editor.getJSON()),
-        onCreate: ({ editor }) => onCreate(editor),
-    })
+}
+
+export const RichContentEditor = ({
+    logicKey,
+    className,
+    children,
+    disabled = false,
+    autoFocus = false,
+    ...editorProps
+}: PropsWithChildren<
+    {
+        logicKey: string
+        className?: string
+        autoFocus?: boolean
+    } & RichContentEditorProps
+>): JSX.Element => {
+    const editor = useRichContentEditor(editorProps)
 
     useEffect(() => {
         editor.setOptions({ editable: !disabled })
@@ -54,4 +48,29 @@ export const RichContentEditor = ({
             )}
         </EditorContent>
     )
+}
+
+export const useRichContentEditor = ({
+    extensions,
+    disabled,
+    initialContent,
+    onCreate = () => {},
+    onUpdate = () => {},
+    onSelectionUpdate = () => {},
+}: RichContentEditorProps): TTEditor => {
+    const editor = useEditor({
+        shouldRerenderOnTransaction: true,
+        extensions,
+        editable: !disabled,
+        content: initialContent,
+        onSelectionUpdate: onSelectionUpdate,
+        onUpdate: ({ editor }) => onUpdate(editor.getJSON()),
+        onCreate: ({ editor }) => onCreate(editor),
+    })
+
+    useEffect(() => {
+        editor.setOptions({ editable: !disabled })
+    }, [editor, disabled])
+
+    return editor
 }

@@ -3,6 +3,7 @@ import './LemonRichContentEditor.scss'
 import { JSONContent, TextSerializer } from '@tiptap/core'
 import ExtensionDocument from '@tiptap/extension-document'
 import { Placeholder } from '@tiptap/extensions'
+import { EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
@@ -12,7 +13,7 @@ import { IconEye, IconImage, IconPencil } from '@posthog/icons'
 
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
-import { RichContentEditor } from 'lib/components/RichContentEditor'
+import { useRichContentEditor } from 'lib/components/RichContentEditor'
 import { CommandEnterExtension } from 'lib/components/RichContentEditor/CommandEnterExtension'
 import { MentionsExtension } from 'lib/components/RichContentEditor/MentionsExtension'
 import { RichContentNodeMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
@@ -24,7 +25,6 @@ import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { uuid } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export type LemonRichContentEditorProps = {
@@ -83,7 +83,6 @@ export const serializationOptions: { textSerializers?: Record<string, TextSerial
 }
 
 export function LemonRichContentEditor({
-    logicKey = uuid(),
     initialContent,
     placeholder,
     onCreate,
@@ -95,6 +94,26 @@ export function LemonRichContentEditor({
     const [ttEditor, setTTEditor] = useState<TTEditor | null>(null)
     const { objectStorageAvailable } = useValues(preflightLogic)
     const { emojiUsed } = useActions(emojiUsageLogic)
+    const editor = useRichContentEditor({
+        extensions: [
+            ...DEFAULT_EXTENSIONS,
+            Placeholder.configure({ placeholder }),
+            CommandEnterExtension.configure({ onPressCmdEnter }),
+        ],
+        disabled,
+        initialContent: initialContent ?? DEFAULT_INITIAL_CONTENT,
+        onCreate: (editor) => {
+            if (onCreate) {
+                onCreate(createEditor(editor))
+            }
+            setTTEditor(editor)
+        },
+        onUpdate: () => {
+            if (onUpdate && ttEditor) {
+                onUpdate(ttEditor.isEmpty)
+            }
+        },
+    })
 
     const dropRef = useRef<HTMLDivElement>(null)
 
@@ -116,29 +135,7 @@ export function LemonRichContentEditor({
             {isPreviewShown && ttEditor ? (
                 <RichContent editor={ttEditor} />
             ) : (
-                <RichContentEditor
-                    logicKey={logicKey}
-                    extensions={[
-                        ...DEFAULT_EXTENSIONS,
-                        Placeholder.configure({ placeholder }),
-                        CommandEnterExtension.configure({ onPressCmdEnter }),
-                    ]}
-                    autoFocus
-                    initialContent={initialContent ?? DEFAULT_INITIAL_CONTENT}
-                    onCreate={(editor) => {
-                        if (onCreate) {
-                            onCreate(createEditor(editor))
-                        }
-                        setTTEditor(editor)
-                    }}
-                    onUpdate={() => {
-                        if (onUpdate && ttEditor) {
-                            onUpdate(ttEditor.isEmpty)
-                        }
-                    }}
-                    className="p-2"
-                    disabled={disabled}
-                />
+                <EditorContent editor={editor} className="RichContentEditor p-2" autoFocus />
             )}
             <div className="flex justify-between p-0.5">
                 <div className="flex">
@@ -200,7 +197,7 @@ export function LemonRichContentEditor({
     )
 }
 
-const RichContent = ({ editor }: { editor?: TTEditor }): JSX.Element => {
+const RichContent = ({ editor }: { editor: TTEditor }): JSX.Element => {
     const text = editor?.getText(serializationOptions)
 
     return <TextContent text={text && text.length != 0 ? text : '_Nothing to preview_'} className="p-2" />
