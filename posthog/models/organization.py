@@ -234,29 +234,46 @@ class Organization(ModelActivityMixin, UUIDTModel):
             # Since billing V2 we just use the field which is updated when the billing service is called
             return self.available_product_features or []
 
+        prev_features = {f.get("key") for f in (self.available_product_features or [])}
+
         try:
             from ee.models.license import License
         except ImportError:
             self.available_product_features = []
-            return []
-
-        self.available_product_features = []
-
-        # Self hosted legacy license so we just sync the license features
-        # Demo gets all features
-        if settings.DEMO or "generate_demo_data" in sys.argv[1:2]:
-            features = License.PLANS.get(License.ENTERPRISE_PLAN, [])
-            self.available_product_features = [
-                {"key": feature, "name": " ".join(feature.split(" ")).capitalize()} for feature in features
-            ]
+            current_features = set()
         else:
-            # Otherwise, try to find a valid license on this instance
-            license = License.objects.first_valid()
-            if license:
+            self.available_product_features = []
+
+            # Self hosted legacy license so we just sync the license features
+            # Demo gets all features
+            if settings.DEMO or "generate_demo_data" in sys.argv[1:2]:
                 features = License.PLANS.get(License.ENTERPRISE_PLAN, [])
                 self.available_product_features = [
                     {"key": feature, "name": " ".join(feature.split(" ")).capitalize()} for feature in features
                 ]
+            else:
+                # Otherwise, try to find a valid license on this instance
+                license = License.objects.first_valid()
+                if license:
+                    features = License.PLANS.get(License.ENTERPRISE_PLAN, [])
+                    self.available_product_features = [
+                        {"key": feature, "name": " ".join(feature.split(" ")).capitalize()} for feature in features
+                    ]
+
+            current_features = {f.get("key") for f in (self.available_product_features or [])}
+
+        if prev_features != current_features:
+            removed_features = list(prev_features - current_features)
+            added_features = list(current_features - prev_features)
+
+            # Dispatch a task to cleanup various settings
+            from posthog.tasks.organization_feature_cleanup import organization_feature_cleanup
+
+            if not self._state.adding and self.pk:
+                organization_feature_cleanup.apply_async(
+                    args=[self.id, added_features, removed_features],
+                    countdown=5 * 24 * 60 * 60,  # 5 days
+                )
 
         return self.available_product_features
 
