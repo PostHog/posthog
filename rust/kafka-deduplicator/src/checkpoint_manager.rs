@@ -945,6 +945,7 @@ mod tests {
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_millis(100),
             cleanup_interval: Duration::from_secs(10),
+            local_checkpoint_dir: "test_checkpoints".to_string(),
             ..Default::default()
         };
         let mut manager = CheckpointManager::new(config, store_manager.clone(), None);
