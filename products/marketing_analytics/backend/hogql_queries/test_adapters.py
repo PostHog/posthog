@@ -40,8 +40,8 @@ from products.marketing_analytics.backend.hogql_queries.adapters.self_managed im
 TEST_DATE_FROM = "2024-01-01"
 TEST_DATE_TO = "2024-12-31"
 TEST_BUCKET_BASE = "test_storage_bucket-posthog.marketing_analytics"
-EXPECTED_COLUMN_COUNT = 5
-EXPECTED_COLUMN_ALIASES = ["campaign", "source", "impressions", "clicks", "cost"]
+EXPECTED_COLUMN_COUNT = 6
+EXPECTED_COLUMN_ALIASES = ["campaign", "source", "impressions", "clicks", "cost", "reported_conversion"]
 
 
 logger = logging.getLogger(__name__)
@@ -110,6 +110,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                     "impressions1": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "clicks1": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "source1": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "conversions1": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                 },
             ),
             "google_campaign": DataConfig(
@@ -140,6 +141,11 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                         "schema_valid": True,
                     },
                     "metrics_impressions": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "metrics_conversions": {
                         "hogql": "FloatDatabaseField",
                         "clickhouse": "Float64",
                         "schema_valid": True,
@@ -352,6 +358,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             "impressions": "impressions",
             "clicks": "clicks",
             "currency": "currency",
+            "reported_conversion": "conversions",
         }
         defaults.update(overrides)
 
@@ -776,6 +783,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         source_map.impressions = "impressions1"
         source_map.clicks = "clicks1"
         source_map.currency = None
+        source_map.reported_conversion = "conversions1"
 
         config = ExternalConfig(
             table=table_info.table,
@@ -880,6 +888,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         bigquery_source_map.impressions = "impressions1"
         bigquery_source_map.clicks = "clicks1"
         bigquery_source_map.currency = None
+        bigquery_source_map.reported_conversion = "conversions1"
 
         facebook_config = ExternalConfig(
             table=bigquery_info.table,
@@ -897,6 +906,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         s3_source_map.impressions = "impressions2"
         s3_source_map.clicks = "clicks2"
         s3_source_map.currency = None
+        s3_source_map.reported_conversion = None
 
         tiktok_config = ExternalConfig(
             table=s3_info.table,
