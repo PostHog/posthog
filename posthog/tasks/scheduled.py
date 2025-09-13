@@ -14,6 +14,7 @@ from posthog.tasks.alerts.checks import (
     checks_cleanup_task,
     reset_stuck_alerts_task,
 )
+from posthog.tasks.cohort_dependencies import warm_cohort_dependencies_cache_for_all_teams
 from posthog.tasks.email import send_hog_functions_daily_digest
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.periodic_digest.periodic_digest import send_all_periodic_digest_reports
@@ -102,6 +103,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         600,  # Every 10 minutes (no TTL, just fill missing entries)
         warm_all_team_access_caches_task.s(),
         name="warm team access caches",
+    )
+
+    # Warm cohort dependencies cache daily at 2 AM
+    sender.add_periodic_task(
+        crontab(hour="2", minute="0"),
+        warm_cohort_dependencies_cache_for_all_teams.s(),
+        name="warm cohort dependencies cache",
     )
 
     # Update events table partitions twice a week
