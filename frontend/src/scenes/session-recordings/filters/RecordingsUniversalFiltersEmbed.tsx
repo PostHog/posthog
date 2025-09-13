@@ -48,6 +48,9 @@ import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLo
 import { DurationFilter } from './DurationFilter'
 import { SavedFilters } from './SavedFilters'
 
+import { ReplayActiveScreensTable } from '../components/ReplayActiveScreensTable'
+import { ReplayActiveUsersTable } from '../components/ReplayActiveUsersTable'
+
 function HideRecordingsMenu(): JSX.Element {
     const { hideViewedRecordings, hideRecordingsMenuLabelFor } = useValues(playerSettingsLogic)
     const { setHideViewedRecordings } = useActions(playerSettingsLogic)
@@ -503,6 +506,10 @@ export const RecordingsUniversalFiltersEmbed = ({
                         </LemonButton>
                     </div>
                     {SaveFiltersModal()}
+                    <div className="flex flex-row gap-2 w-full mt-40">
+                        <ReplayActiveUsersTable />
+                        <ReplayActiveScreensTable />
+                    </div>
                 </div>
             ),
             'data-attr': 'session-recordings-filters-tab',
