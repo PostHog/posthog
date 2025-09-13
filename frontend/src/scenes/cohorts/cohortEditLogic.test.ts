@@ -618,7 +618,7 @@ describe('cohortEditLogic', () => {
                     id: 'new',
                 })
                 logic.actions.submitCohort()
-            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
+            }).toDispatchActions(['setCohort', 'submitCohort'])
             expect(api.update).toHaveBeenCalledTimes(0)
         })
 

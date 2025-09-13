@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
-import { IconCopy, IconInfo, IconTrash } from '@posthog/icons'
+import { IconCopy, IconInfo, IconMinusSmall, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonDivider, LemonFileInput, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -39,6 +39,7 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
+import { QueryContext } from '~/queries/types'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
@@ -50,14 +51,61 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
 
     const logic = cohortEditLogic(logicProps)
-    const { deleteCohort, setOuterGroupsType, setQuery, duplicateCohort, setCohortValue } = useActions(logic)
+    const {
+        deleteCohort,
+        setOuterGroupsType,
+        setQuery,
+        duplicateCohort,
+        setCohortValue,
+        addPersonToCreateStaticCohort,
+        removePersonFromCreateStaticCohort,
+        setCreationPersonQuery,
+    } = useActions(logic)
     const modalLogic = addPersonToCohortModalLogic(logicProps)
     const { showAddPersonToCohortModal } = useActions(modalLogic)
-    const { cohort, cohortLoading, cohortMissing, query, duplicatedCohortLoading } = useValues(logic)
+    const {
+        cohort,
+        cohortLoading,
+        cohortMissing,
+        query,
+        duplicatedCohortLoading,
+        creationPersonQuery,
+        personsToCreateStaticCohort,
+    } = useValues(logic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
+
+    const createStaticCohortContext: QueryContext = {
+        columns: {
+            id: {
+                renderTitle: () => null,
+                render: (props) => {
+                    const id = props.value as string
+                    const isAdded = personsToCreateStaticCohort[id] != null
+                    return (
+                        <LemonButton
+                            type="secondary"
+                            status={isAdded ? 'danger' : 'default'}
+                            size="small"
+                            onClick={(e) => {
+                                e.preventDefault()
+                                if (isAdded) {
+                                    removePersonFromCreateStaticCohort(id)
+                                } else {
+                                    addPersonToCreateStaticCohort(id)
+                                }
+                            }}
+                        >
+                            {isAdded ? <IconMinusSmall /> : <IconPlusSmall />}
+                        </LemonButton>
+                    )
+                },
+            },
+        },
+        showOpenEditorButton: false,
+    }
 
     if (cohortMissing) {
         return <NotFound object="cohort" />
@@ -467,6 +515,22 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     )}
                                 </LemonField>
                             </SceneSection>
+                            {isNewCohort && (
+                                <>
+                                    <LemonDivider label="OR" />
+                                    <div>
+                                        <h3 className="font-semibold my-0 mb-1 max-w-prose">Add users manually</h3>
+                                        <span className="max-w-prose">
+                                            Select the users that you would like to add to the new cohort.
+                                        </span>
+                                    </div>
+                                    <Query
+                                        query={creationPersonQuery}
+                                        setQuery={setCreationPersonQuery}
+                                        context={createStaticCohortContext}
+                                    />
+                                </>
+                            )}
                             {!isNewCohort && (
                                 <>
                                     <LemonDivider label="OR" />

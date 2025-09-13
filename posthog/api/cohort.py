@@ -207,6 +207,7 @@ class CohortSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = get_earliest_timestamp
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    _create_static_person_ids = serializers.ListField(required=False, child=serializers.CharField(), write_only=True)
 
     # If this cohort is an exposure cohort for an experiment
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
@@ -231,6 +232,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "cohort_type",
             "experiment_set",
             "_create_in_folder",
+            "_create_static_person_ids",
         ]
         read_only_fields = [
             "id",
@@ -268,10 +270,19 @@ class CohortSerializer(serializers.ModelSerializer):
 
         return value
 
-    def _handle_static(self, cohort: Cohort, context: dict, validated_data: dict) -> None:
+    def _handle_static(self, cohort: Cohort, context: dict, validated_data: dict, person_ids: list[str] | None) -> None:
         request = self.context["request"]
-        if request.FILES.get("csv"):
-            self._calculate_static_by_csv(request.FILES["csv"], cohort)
+        if request.FILES.get("csv") or person_ids is not None:
+            if person_ids is not None:
+                uuids = [
+                    str(uuid)
+                    for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
+                    .filter(team_id=self.context["team_id"], uuid__in=person_ids)
+                    .values_list("uuid", flat=True)
+                ]
+                cohort.insert_users_list_by_uuid(uuids, team_id=self.context["team_id"])
+            if request.FILES.get("csv"):
+                self._calculate_static_by_csv(request.FILES["csv"], cohort)
         elif context.get("from_feature_flag_key"):
             insert_cohort_from_feature_flag.delay(cohort.pk, context["from_feature_flag_key"], self.context["team_id"])
         elif validated_data.get("query"):
@@ -293,11 +304,11 @@ class CohortSerializer(serializers.ModelSerializer):
             validated_data["is_calculating"] = True
         if validated_data.get("query") and validated_data.get("filters"):
             raise ValidationError("Cannot set both query and filters at the same time.")
-
+        person_ids = validated_data.pop("_create_static_person_ids", None)
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
 
         if cohort.is_static:
-            self._handle_static(cohort, self.context, validated_data)
+            self._handle_static(cohort, self.context, validated_data, person_ids)
         elif cohort.query is not None:
             raise ValidationError("Cannot create a dynamic cohort with a query. Set is_static to true.")
         else:
