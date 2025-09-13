@@ -1,6 +1,7 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useState } from 'react'
 
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -24,28 +25,32 @@ import {
 } from './shared'
 
 let uniqueNode = 0
+
 export function RevenueAnalyticsGrossRevenueNode(props: {
     query: RevenueAnalyticsGrossRevenueQuery
     cachedResults?: AnyResponseType
     context: QueryContext
+    attachTo?: LogicWrapper | BuiltLogic
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `RevenueAnalyticsGrossRevenue.${uniqueNode++}`)
+    const dataNodeLogicProps = {
+        query: props.query,
+        key,
+        cachedResults: props.cachedResults,
+        loadPriority,
+        onData,
+        dataNodeCollectionId: dataNodeCollectionId ?? key,
+    }
+
+    useAttachedLogic(insightLogic(props.context.insightProps ?? {}), props.attachTo)
+    useAttachedLogic(insightVizDataLogic(props.context.insightProps ?? {}), props.attachTo)
+    useAttachedLogic(dataNodeLogic(dataNodeLogicProps), props.attachTo)
 
     return (
         <BindLogic logic={insightLogic} props={props.context.insightProps ?? {}}>
             <BindLogic logic={insightVizDataLogic} props={props.context.insightProps ?? {}}>
-                <BindLogic
-                    logic={dataNodeLogic}
-                    props={{
-                        query: props.query,
-                        key,
-                        cachedResults: props.cachedResults,
-                        loadPriority,
-                        onData,
-                        dataNodeCollectionId: dataNodeCollectionId ?? key,
-                    }}
-                >
+                <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                     <Tile context={props.context} />
                 </BindLogic>
             </BindLogic>

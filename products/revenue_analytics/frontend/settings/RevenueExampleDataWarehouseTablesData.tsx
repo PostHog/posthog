@@ -64,7 +64,11 @@ export function RevenueExampleDataWarehouseTablesData(): JSX.Element | null {
                 </>
             )}
 
-            <Query query={exampleDataWarehouseTablesQuery} context={queryContext} />
+            <Query
+                attachTo={revenueAnalyticsSettingsLogic}
+                query={exampleDataWarehouseTablesQuery}
+                context={queryContext}
+            />
         </SceneSection>
     )
 }

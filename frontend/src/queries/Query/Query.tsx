@@ -179,6 +179,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     } else if (isRevenueAnalyticsGrossRevenueQuery(query)) {
         component = (
             <RevenueAnalyticsGrossRevenueNode
+                attachTo={props.attachTo}
                 query={query}
                 cachedResults={props.cachedResults}
                 context={queryContext}
@@ -186,30 +187,77 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         )
     } else if (isRevenueAnalyticsMetricsQuery(query)) {
         component = (
-            <RevenueAnalyticsMetricsNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+            <RevenueAnalyticsMetricsNode
+                attachTo={props.attachTo}
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+            />
         )
     } else if (isRevenueAnalyticsMRRQuery(query)) {
-        component = <RevenueAnalyticsMRRNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+        component = (
+            <RevenueAnalyticsMRRNode
+                attachTo={props.attachTo}
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+            />
+        )
     } else if (isRevenueAnalyticsOverviewQuery(query)) {
         component = (
-            <RevenueAnalyticsOverviewNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+            <RevenueAnalyticsOverviewNode
+                attachTo={props.attachTo}
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+            />
         )
     } else if (isRevenueAnalyticsTopCustomersQuery(query)) {
         component = (
             <RevenueAnalyticsTopCustomersNode
+                attachTo={props.attachTo}
                 query={query}
                 cachedResults={props.cachedResults}
                 context={queryContext}
             />
         )
     } else if (isWebOverviewQuery(query)) {
-        component = <WebOverview query={query} cachedResults={props.cachedResults} context={queryContext} />
+        component = (
+            <WebOverview
+                attachTo={props.attachTo}
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+                uniqueKey={uniqueKey}
+            />
+        )
     } else if (isWebVitalsQuery(query)) {
-        component = <WebVitals query={query} cachedResults={props.cachedResults} context={queryContext} />
+        component = (
+            <WebVitals
+                attachTo={props.attachTo}
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+            />
+        )
     } else if (isWebVitalsPathBreakdownQuery(query)) {
-        component = <WebVitalsPathBreakdown query={query} cachedResults={props.cachedResults} context={queryContext} />
+        component = (
+            <WebVitalsPathBreakdown
+                attachTo={props.attachTo}
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+            />
+        )
     } else if (isHogQuery(query)) {
-        component = <HogDebug query={query} setQuery={setQuery as (query: any) => void} queryKey={String(uniqueKey)} />
+        component = (
+            <HogDebug
+                attachTo={props.attachTo}
+                query={query}
+                setQuery={setQuery as (query: any) => void}
+                queryKey={String(uniqueKey)}
+            />
+        )
     } else {
         component = <DataNode attachTo={props.attachTo} query={query} cachedResults={props.cachedResults} />
     }

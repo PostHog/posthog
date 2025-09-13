@@ -1,6 +1,6 @@
 import { BreakPointFunction, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import { windowValues } from 'kea-window-values'
 import posthog from 'posthog-js'
 
@@ -14,7 +14,9 @@ import { FEATURE_FLAGS, RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import {
     UnexpectedNeverError,
     getDefaultInterval,
@@ -483,7 +485,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         breadcrumbs: [
             (s) => [s.productTab, s.featureFlags],
-            (productTab: ProductTab, featureFlags): Breadcrumb[] => {
+            (productTab: ProductTab, featureFlags: FeatureFlagsSet): Breadcrumb[] => {
                 const breadcrumbs: Breadcrumb[] = [
                     {
                         key: Scene.WebAnalytics,
@@ -2225,7 +2227,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         isGreaterThanMd: (window: Window) => window.innerWidth > 768,
     }),
 
-    actionToUrl(({ values }) => {
+    tabAwareActionToUrl(({ values }) => {
         const stateToUrl = (): string => {
             const searchParams = { ...router.values.searchParams }
             const urlParams = new URLSearchParams(searchParams)
@@ -2347,7 +2349,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }
     }),
 
-    urlToAction(({ actions, values }) => {
+    tabAwareUrlToAction(({ actions, values }) => {
         const toAction = (
             { productTab = ProductTab.ANALYTICS }: { productTab?: ProductTab },
             {
