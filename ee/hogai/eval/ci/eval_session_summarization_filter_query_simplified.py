@@ -34,24 +34,28 @@ async def eval_filter_query_generation(filter_query_tester, pytestconfig):
         task=filter_query_tester,
         scores=[SemanticSimilarity()],
         data=[
-            # Core functionality - removing action verbs
             EvalCase(input="summarize sessions from yesterday", expected="sessions from yesterday"),
-            EvalCase(input="analyze mobile user sessions from last week", expected="mobile sessions last week"),
-            EvalCase(input="I want to understand what users did in checkout flow", expected="checkout flow sessions"),
-            # Preserving key filtering criteria
+            EvalCase(input="analyze mobile user sessions from last week", expected="mobile user sessions last week"),
             EvalCase(
-                input="show me sessions longer than 5 minutes from Chrome users",
-                expected="sessions longer than 5 minutes Chrome users",
+                input="watch last 100 sessions, I want to understand what users did in checkout flow",
+                expected="last 100 sessions",
             ),
-            EvalCase(input="watch recordings of user ID 12345 from past week", expected="user ID 12345 past week"),
-            # Complex queries should keep all conditions
             EvalCase(
-                input="find iOS sessions from California with purchase events over $100",
-                expected="iOS California purchase events over $100",
+                input="hey Max,show me sessions longer than 5 minutes from Chrome users",
+                expected="sessions longer than 5 minutes fromChrome users",
             ),
-            # Edge cases
-            EvalCase(input="summarize everything", expected="all sessions"),
-            EvalCase(input="just the recent stuff", expected="recent sessions"),
+            EvalCase(
+                input="watch recordings of user ID 12345 from past week, I want to see the UX issues they are facing",
+                expected="recordings of user ID 12345 from past week",
+            ),
+            EvalCase(
+                input="summarize iOS sessions from California with purchase events over $100, do we have a lot of these?",
+                expected="iOS sessions from California with purchase events over $100",
+            ),
+            EvalCase(
+                input="Max, I need you to watch replays of German desktop Linux users from 21.03.2024 till 24.03.2024, and tell me what problems did they encounter",
+                expected="replays of German desktop Linux users from 21.03.2024 till 24.03.2024",
+            ),
         ],
         pytestconfig=pytestconfig,
     )
