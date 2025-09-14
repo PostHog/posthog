@@ -31,7 +31,7 @@ class RevenueEvent:
     currency: str
     gateway: str
     timestamp: datetime.datetime
-    properties: dict[str, Any]
+    properties: Dict[str, Any]
     utm_source: str | None = None
     utm_campaign: str | None = None
     utm_medium: str | None = None
