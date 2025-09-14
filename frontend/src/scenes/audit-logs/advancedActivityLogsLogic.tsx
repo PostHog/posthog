@@ -13,12 +13,27 @@ import { ActivityScope } from '~/types'
 
 import type { advancedActivityLogsLogicType } from './advancedActivityLogsLogicType'
 
+export interface DetailFilter {
+    operation: 'exact' | 'contains' | 'in'
+    value: string | string[]
+}
+
 export interface AdvancedActivityLogFilters {
     start_date?: string
     end_date?: string
     users?: string[]
     scopes?: ActivityScope[]
     activities?: string[]
+    detail_filters?: Record<string, DetailFilter>
+}
+
+export interface DetailField {
+    name: string
+    types: string[]
+}
+
+export interface ScopeFields {
+    fields: DetailField[]
 }
 
 export interface AvailableFilters {
@@ -27,6 +42,7 @@ export interface AvailableFilters {
         scopes: Array<{ value: string }>
         activities: Array<{ value: string }>
     }
+    detail_fields?: Record<string, ScopeFields>
 }
 
 export interface ExportedAsset {
@@ -46,6 +62,7 @@ export interface ExportedAsset {
             users?: string[]
             scopes?: string[]
             activities?: string[]
+            detail_filters?: Record<string, DetailFilter>
         }
     }
 }
@@ -55,6 +72,7 @@ const DEFAULT_FILTERS: AdvancedActivityLogFilters = {
     users: [],
     scopes: [],
     activities: [],
+    detail_filters: {},
 }
 
 export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
@@ -120,6 +138,10 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     values.filters.scopes?.forEach((scope) => params.append('scopes', scope))
                     values.filters.activities?.forEach((activity) => params.append('activities', activity))
 
+                    if (values.filters.detail_filters && Object.keys(values.filters.detail_filters).length > 0) {
+                        params.append('detail_filters', JSON.stringify(values.filters.detail_filters))
+                    }
+
                     params.append('page', values.currentPage.toString())
                     params.append('page_size', ADVANCED_ACTIVITY_PAGE_SIZE.toString())
 
@@ -167,7 +189,8 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                         filters.end_date ||
                         filters.users?.length ||
                         filters.scopes?.length ||
-                        filters.activities?.length
+                        filters.activities?.length ||
+                        (filters.detail_filters && Object.keys(filters.detail_filters).length > 0)
                 )
             },
         ],
@@ -214,6 +237,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     users: values.filters.users,
                     scopes: values.filters.scopes,
                     activities: values.filters.activities,
+                    detail_filters: values.filters.detail_filters,
                 }
 
                 await api.create(`api/projects/@current/advanced_activity_logs/export/`, {
