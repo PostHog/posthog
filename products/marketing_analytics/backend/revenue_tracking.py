@@ -149,7 +149,7 @@ class StripeWebhookHandler:
         self.team = team
         self.processor = RevenueEventProcessor(team)
     
-    def handle_payment_intent_succeeded(self, event_data: dict[str, Any]) -> Event | None:
+    def handle_payment_intent_succeeded(self, event_data: Dict[str, Any]) -> Optional[Event]:
         """Handle successful payment intent from Stripe"""
         
         payment_intent = event_data.get('data', {}).get('object', {})
