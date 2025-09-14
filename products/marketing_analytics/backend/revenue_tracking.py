@@ -26,7 +26,7 @@ from posthog.models import Event, Team
 class RevenueEvent:
     """Structured revenue event data"""
     transaction_id: str
-    customer_id: str | None
+    customer_id: Optional[str]
     amount: Decimal
     currency: str
     gateway: str
