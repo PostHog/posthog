@@ -9,6 +9,7 @@ import { formatDateRange } from 'lib/utils'
 
 import { DateMappingOption } from '~/types'
 
+import { EmbeddedTab } from './common'
 import { embeddedAnalyticsLogic } from './embeddedAnalyticsLogic'
 
 const embeddedAnalyticsDateMapping: DateMappingOption[] = [
@@ -72,10 +73,10 @@ const RequestNameBreakdownToggle = (): JSX.Element => {
 }
 
 export const EmbeddedAnalyticsFilters = ({ tabs }: { tabs?: JSX.Element }): JSX.Element => {
-    const { dateFilter } = useValues(embeddedAnalyticsLogic)
+    const { dateFilter, activeTab } = useValues(embeddedAnalyticsLogic)
     const { setDates } = useActions(embeddedAnalyticsLogic)
 
-    return (
+    return activeTab === EmbeddedTab.USAGE_ANALYTICS ? (
         <FilterBar
             top={tabs}
             left={
@@ -91,5 +92,7 @@ export const EmbeddedAnalyticsFilters = ({ tabs }: { tabs?: JSX.Element }): JSX.
                 </>
             }
         />
+    ) : (
+        <></>
     )
 }

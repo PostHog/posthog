@@ -344,6 +344,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Embedded analytics',
         layout: 'app-container',
     },
+    [Scene.EmbeddedAnalyticsNamedQueries]: {
+        projectBased: true,
+        name: 'Named queries',
+        layout: 'app-container',
+    },
     [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },
     ...productConfiguration,
 }
@@ -468,6 +473,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webAnalyticsMarketing()]: [Scene.WebAnalytics, 'webAnalyticsMarketing'],
     [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
     [urls.embeddedAnalytics()]: [Scene.EmbeddedAnalytics, 'embeddedAnalytics'],
+    [urls.embeddedAnalyticsNamedQueries()]: [Scene.EmbeddedAnalyticsNamedQueries, 'embeddedAnalyticsNamedQueries'],
     [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
     [urls.marketingAnalytics()]: [Scene.DataManagement, 'marketingAnalytics'],
