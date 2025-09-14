@@ -28,8 +28,9 @@ type Config struct {
 	HPAPrefix                string  // Optional prefix for HPA name (e.g., "keda-hpa-")
 
 	// Safety and debugging
-	DryRun   bool
-	LogLevel string
+	MinimumPodsRequired int  // Minimum pods that must remain after deletion
+	DryRun              bool
+	LogLevel            string
 }
 
 // LoadFromEnv loads configuration from environment variables with defaults using Viper
@@ -47,6 +48,7 @@ func LoadFromEnv() (*Config, error) {
 	v.SetDefault("TOLERANCE_MULTIPLIER", 1.5)
 	v.SetDefault("MINIMUM_IMPROVEMENT_PERCENT", 10.0)
 	v.SetDefault("HPA_PREFIX", "keda-hpa-")
+	v.SetDefault("MINIMUM_PODS_REQUIRED", 2)
 	v.SetDefault("DRY_RUN", false)
 	v.SetDefault("LOG_LEVEL", "info")
 
@@ -78,6 +80,7 @@ func LoadFromEnv() (*Config, error) {
 		ToleranceMultiplier:       v.GetFloat64("TOLERANCE_MULTIPLIER"),
 		MinimumImprovementPercent: v.GetFloat64("MINIMUM_IMPROVEMENT_PERCENT"),
 		HPAPrefix:                 v.GetString("HPA_PREFIX"),
+		MinimumPodsRequired:       v.GetInt("MINIMUM_PODS_REQUIRED"),
 		DryRun:                    v.GetBool("DRY_RUN"),
 		LogLevel:                  v.GetString("LOG_LEVEL"),
 	}
@@ -122,6 +125,10 @@ func (c *Config) Validate() error {
 
 	if c.MinimumImprovementPercent < 0 || c.MinimumImprovementPercent > 100 {
 		return fmt.Errorf("MINIMUM_IMPROVEMENT_PERCENT must be between 0 and 100")
+	}
+
+	if c.MinimumPodsRequired < 1 {
+		return fmt.Errorf("MINIMUM_PODS_REQUIRED must be at least 1")
 	}
 
 	// Validate log level

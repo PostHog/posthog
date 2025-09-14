@@ -164,6 +164,7 @@ var _ = Describe("Configuration", func() {
 					ToleranceMultiplier:       1.5,
 					MinimumImprovementPercent: 10.0,
 					HPAPrefix:                 "keda-hpa-",
+					MinimumPodsRequired:       2,
 					DryRun:                    false,
 					LogLevel:                  "info",
 				}
@@ -187,6 +188,7 @@ var _ = Describe("Configuration", func() {
 						ToleranceMultiplier:       1.5,
 						MinimumImprovementPercent: 10.0,
 						HPAPrefix:                 "keda-hpa-",
+						MinimumPodsRequired:       2,
 						DryRun:                    false,
 						LogLevel:                  "info",
 					}
@@ -206,6 +208,7 @@ var _ = Describe("Configuration", func() {
 				Entry("tolerance multiplier too low", func(c *Config) { c.ToleranceMultiplier = 0.5 }, "TOLERANCE_MULTIPLIER must be at least 1.0"),
 				Entry("improvement percent negative", func(c *Config) { c.MinimumImprovementPercent = -5 }, "MINIMUM_IMPROVEMENT_PERCENT must be between 0 and 100"),
 				Entry("improvement percent too high", func(c *Config) { c.MinimumImprovementPercent = 150 }, "MINIMUM_IMPROVEMENT_PERCENT must be between 0 and 100"),
+				Entry("minimum pods too low", func(c *Config) { c.MinimumPodsRequired = 0 }, "MINIMUM_PODS_REQUIRED must be at least 1"),
 				Entry("invalid log level", func(c *Config) { c.LogLevel = "invalid" }, "LOG_LEVEL must be one of: debug, info, warn, error"),
 			)
 		})
@@ -232,6 +235,7 @@ var _ = Describe("Configuration", func() {
 							ToleranceMultiplier:       1.5,
 							MinimumImprovementPercent: 10.0,
 							HPAPrefix:                 "keda-hpa-",
+							MinimumPodsRequired:       2,
 							DryRun:                    false,
 							LogLevel:                  "info",
 						}

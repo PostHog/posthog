@@ -46,7 +46,7 @@ func main() {
 
 	// Create CPU metrics fetcher
 	timeWindow := time.Minute // Configurable time window for rate calculations
-	cpuFetcher := metrics.NewCPUMetricsFetcher(client, logger, namespace, deploymentName, timeWindow)
+	cpuFetcher := metrics.NewCPUMetrics(client, logger, namespace, deploymentName, timeWindow)
 
 	// Fetch CPU usage for pods
 	logger.Info("Fetching CPU metrics...", 
