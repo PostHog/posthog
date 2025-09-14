@@ -204,7 +204,7 @@ export function invertDataSource(
         const datumKey = `${s.breakdown_value}-${s.compare_label}`
         if (datumKey in flattenedData) {
             flattenedData[datumKey].seriesData.push(s)
-            flattenedData[datumKey].seriesData = flattenedData[datumKey].seriesData.sort((a, b) => a.order - b.order)
+            flattenedData[datumKey].seriesData = flattenedData[datumKey].seriesData.sort((a, b) => b.count - a.count)
         } else {
             flattenedData[datumKey] = {
                 id: datumKey,
