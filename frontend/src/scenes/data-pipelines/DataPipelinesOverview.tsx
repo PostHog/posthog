@@ -5,6 +5,7 @@ import { Link } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PageHeader } from 'lib/components/PageHeader'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
@@ -13,31 +14,14 @@ import { DataWarehouseSelfManagedSourcesTable } from 'scenes/data-warehouse/sett
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
 import { urls } from 'scenes/urls'
 
-import { PipelineTab } from '~/types'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { nonHogFunctionsLogic } from './utils/nonHogFunctionsLogic'
 
-function Section({
-    title,
-    to,
-    children,
-}: {
-    title: string
-    to: string
-    description?: React.ReactNode
-    children: React.ReactNode
-}): JSX.Element {
-    return (
-        <div>
-            <Link to={to}>
-                <h2>{title}</h2>
-            </Link>
-            <div className="deprecated-space-y-2">{children}</div>
-        </div>
-    )
-}
-
 export function DataPipelinesOverview(): JSX.Element {
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
+
     const menuItems: LemonMenuItems = [
         {
             label: 'Source',
@@ -60,41 +44,101 @@ export function DataPipelinesOverview(): JSX.Element {
         <>
             <PageHeader
                 buttons={
-                    <div className="flex items-center m-2 shrink-0">
-                        <LemonMenu items={menuItems}>
-                            <LemonButton
-                                data-attr="new-pipeline-button"
-                                icon={<IconPlusSmall />}
-                                size="small"
-                                type="primary"
-                            >
-                                New
-                            </LemonButton>
-                        </LemonMenu>
-                    </div>
+                    <LemonMenu items={menuItems}>
+                        <LemonButton
+                            data-attr="new-pipeline-button"
+                            icon={<IconPlusSmall />}
+                            size="small"
+                            type="primary"
+                        >
+                            New
+                        </LemonButton>
+                    </LemonMenu>
                 }
             />
-            <div className="deprecated-space-y-4">
+            <div className="flex flex-col gap-4">
                 <FlaggedFeature flag="cdp-hog-sources">
-                    <Section title="Event sources" to={urls.pipeline(PipelineTab.Sources)}>
-                        <HogFunctionList logicKey="overview-data-sources" type="source_webhook" />
-                    </Section>
+                    <>
+                        <SceneSection
+                            title="Event sources"
+                            actions={<Link to={urls.dataPipelines('sources')}>See all</Link>}
+                            hideTitleAndDescription={!newSceneLayout}
+                        >
+                            {!newSceneLayout && (
+                                <Link to={urls.dataPipelines('sources')}>
+                                    <h2>Event sources</h2>
+                                </Link>
+                            )}
+                            <HogFunctionList logicKey="overview-data-sources" type="source_webhook" />
+                        </SceneSection>
+                        <SceneDivider />
+                    </>
                 </FlaggedFeature>
-                <Section title="Managed data warehouse sources" to={urls.pipeline(PipelineTab.Sources)}>
+                <SceneSection
+                    title="Managed data warehouse sources"
+                    actions={<Link to={urls.dataPipelines('sources')}>See all</Link>}
+                    hideTitleAndDescription={!newSceneLayout}
+                >
+                    {!newSceneLayout && (
+                        <Link to={urls.dataPipelines('sources')}>
+                            <h2>Managed datw warehouse sources</h2>
+                        </Link>
+                    )}
                     <DataWarehouseManagedSourcesTable />
-                </Section>
-                <Section title="Self-managed data warehouse sources" to={urls.pipeline(PipelineTab.Sources)}>
+                </SceneSection>
+                <SceneDivider />
+                <SceneSection
+                    title="Self-managed data warehouse sources"
+                    actions={<Link to={urls.dataPipelines('sources')}>See all</Link>}
+                    hideTitleAndDescription={!newSceneLayout}
+                >
+                    {!newSceneLayout && (
+                        <Link to={urls.dataPipelines('sources')}>
+                            <h2>Self-managed data warehouse sources</h2>
+                        </Link>
+                    )}
                     <DataWarehouseSelfManagedSourcesTable />
-                </Section>
-                <Section title="Transformations" to={urls.pipeline(PipelineTab.Transformations)}>
-                    <p>Modify and enrich your incoming data. Only active transformations are shown here.</p>
+                </SceneSection>
+                <SceneDivider />
+                <SceneSection
+                    title="Transformations"
+                    description="Modify and enrich your incoming data. Only active transformations are shown here."
+                    actions={<Link to={urls.dataPipelines('transformations')}>See all</Link>}
+                    hideTitleAndDescription={!newSceneLayout}
+                >
+                    {!newSceneLayout && (
+                        <>
+                            <Link to={urls.dataPipelines('transformations')}>
+                                <h2>Transformations</h2>
+                            </Link>
+                            <p>
+                                Modify and enrich your incoming data. Only active transformations are shown here.{' '}
+                                <Link to={urls.dataPipelines('transformations')}>See all.</Link>
+                            </p>
+                        </>
+                    )}
                     <HogFunctionList logicKey="transformation" type="transformation" hideFeedback={true} />
-                </Section>
-                <Section title="Destinations" to={urls.pipeline(PipelineTab.Destinations)}>
-                    <p>
-                        Send your data to destinations in real time or with batch exports. Only active Destinations are
-                        shown here.
-                    </p>
+                </SceneSection>
+                <SceneDivider />
+
+                <SceneSection
+                    title="Destinations"
+                    description="Send your data to destinations in real time or with batch exports. Only active Destinations are shown here."
+                    actions={<Link to={urls.dataPipelines('destinations')}>See all</Link>}
+                    hideTitleAndDescription={!newSceneLayout}
+                >
+                    {!newSceneLayout && (
+                        <>
+                            <Link to={urls.dataPipelines('destinations')}>
+                                <h2>Destinations</h2>
+                            </Link>
+                            <p>
+                                Send your data to destinations in real time or with batch exports. Only active
+                                Destinations are shown here.{' '}
+                                <Link to={urls.dataPipelines('destinations')}>See all.</Link>
+                            </p>
+                        </>
+                    )}
                     <HogFunctionList
                         logicKey="destination"
                         type="destination"
@@ -104,7 +148,7 @@ export function DataPipelinesOverview(): JSX.Element {
                             ...(hogFunctionBatchExports ?? []),
                         ]}
                     />
-                </Section>
+                </SceneSection>
             </div>
         </>
     )

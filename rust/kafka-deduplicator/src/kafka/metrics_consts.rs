@@ -21,6 +21,9 @@ pub const PARTITION_SECONDS_SINCE_LAST_COMMIT: &str = "kafka_partition_seconds_s
 /// Counter for messages that were auto-nacked due to being dropped
 pub const MESSAGES_AUTO_NACKED: &str = "kafka_messages_auto_nacked_total";
 
+/// Counter for message completions with status label (acked/nacked/auto_nacked)
+pub const MESSAGES_COMPLETED: &str = "kafka_messages_completed_total";
+
 /// Histogram for message completion processing time
 pub const MESSAGE_COMPLETION_DURATION: &str = "kafka_message_completion_duration_seconds";
 

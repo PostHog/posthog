@@ -1,11 +1,13 @@
 import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router } from 'kea-router'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { Settings } from 'scenes/settings/Settings'
 import { settingsLogic } from 'scenes/settings/settingsLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { Breadcrumb } from '~/types'
 
 import { ErrorTrackingSetupPrompt } from '../components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
@@ -89,9 +91,17 @@ export const scene: SceneExport<ErrorTrackingConfigurationSceneLogicProps> = {
 }
 
 export function ErrorTrackingConfigurationScene(): JSX.Element {
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     return (
-        <ErrorTrackingSetupPrompt>
-            <Settings logicKey={ERROR_TRACKING_LOGIC_KEY} sectionId="environment-error-tracking" handleLocally />
-        </ErrorTrackingSetupPrompt>
+        <>
+            {newSceneLayout && (
+                <div className="mb-2 -ml-[var(--button-padding-x-lg)]">
+                    <SceneBreadcrumbBackButton />
+                </div>
+            )}
+            <ErrorTrackingSetupPrompt>
+                <Settings logicKey={ERROR_TRACKING_LOGIC_KEY} sectionId="environment-error-tracking" handleLocally />
+            </ErrorTrackingSetupPrompt>
+        </>
     )
 }
