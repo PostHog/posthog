@@ -17,7 +17,8 @@ var _ = Describe("Configuration", func() {
 		envVars := []string{
 			"PROMETHEUS_ENDPOINT", "PROMETHEUS_TIMEOUT", "KUBE_NAMESPACE",
 			"KUBE_LABEL_SELECTOR", "DEPLOYMENT_NAME", "METRICS_TIME_WINDOW",
-			"CPU_VARIANCE_THRESHOLD", "MIN_PODS_REQUIRED", "DRY_RUN", "LOG_LEVEL",
+			"REBALANCE_TOP_K_PODS", "TOLERANCE_MULTIPLIER", "MINIMUM_IMPROVEMENT_PERCENT",
+			"HPA_PREFIX", "DRY_RUN", "LOG_LEVEL",
 		}
 		
 		for _, envVar := range envVars {
@@ -73,8 +74,10 @@ var _ = Describe("Configuration", func() {
 				os.Setenv("KUBE_LABEL_SELECTOR", "app=kafka-consumer,env=prod")
 				os.Setenv("DEPLOYMENT_NAME", "ingestion-events")
 				os.Setenv("METRICS_TIME_WINDOW", "2m")
-				os.Setenv("CPU_VARIANCE_THRESHOLD", "0.4")
-				os.Setenv("MIN_PODS_REQUIRED", "5")
+				os.Setenv("REBALANCE_TOP_K_PODS", "3")
+				os.Setenv("TOLERANCE_MULTIPLIER", "2.0")
+				os.Setenv("MINIMUM_IMPROVEMENT_PERCENT", "15")
+				os.Setenv("HPA_PREFIX", "custom-hpa-")
 				os.Setenv("DRY_RUN", "true")
 				os.Setenv("LOG_LEVEL", "debug")
 			})
@@ -114,29 +117,34 @@ var _ = Describe("Configuration", func() {
 			})
 
 			DescribeTable("should handle invalid values by using zero values or defaults",
-				func(envVar, invalidValue string, checkResult func(*Config)) {
+				func(envVar, invalidValue string, checkResult func(*Config), expectError bool) {
 					os.Setenv(envVar, invalidValue)
 					config, err := LoadFromEnv()
-					if checkResult != nil {
+					if expectError {
+						Expect(err).To(HaveOccurred())
+					} else if checkResult != nil {
 						Expect(err).NotTo(HaveOccurred())
 						checkResult(config)
 					}
 				},
-				Entry("invalid CPU threshold becomes zero", "CPU_VARIANCE_THRESHOLD", "invalid", 
-					func(c *Config) { Expect(c.CPUVarianceThreshold).To(Equal(0.0)) }),
+				Entry("invalid rebalance top k becomes zero and fails validation", "REBALANCE_TOP_K_PODS", "invalid", 
+					nil, true),
+				Entry("invalid tolerance multiplier becomes zero and fails validation", "TOLERANCE_MULTIPLIER", "invalid", 
+					nil, true),
 				Entry("invalid dry run becomes false", "DRY_RUN", "invalid", 
-					func(c *Config) { Expect(c.DryRun).To(BeFalse()) }),
+					func(c *Config) { Expect(c.DryRun).To(BeFalse()) }, false),
 			)
 
-			Context("when MIN_PODS_REQUIRED is invalid", func() {
+
+			Context("when REBALANCE_TOP_K_PODS is invalid", func() {
 				BeforeEach(func() {
-					os.Setenv("MIN_PODS_REQUIRED", "invalid")
+					os.Setenv("REBALANCE_TOP_K_PODS", "invalid")
 				})
 
-				It("should fail validation because zero is invalid for min pods", func() {
+				It("should fail validation because zero is invalid for top k pods", func() {
 					_, err := LoadFromEnv()
 					Expect(err).To(HaveOccurred())
-					Expect(err.Error()).To(ContainSubstring("MIN_PODS_REQUIRED must be at least 1"))
+					Expect(err.Error()).To(ContainSubstring("REBALANCE_TOP_K_PODS must be at least 1"))
 				})
 			})
 		})
@@ -146,16 +154,18 @@ var _ = Describe("Configuration", func() {
 		Context("with valid configuration", func() {
 			It("should pass validation", func() {
 				config := &Config{
-					PrometheusEndpoint:   "http://localhost:9090",
-					PrometheusTimeout:    30 * time.Second,
-					KubeNamespace:        "default",
-					KubeLabelSelector:    "app=consumer",
-					DeploymentName:       "ingestion-consumer",
-					MetricsTimeWindow:    5 * time.Minute,
-					CPUVarianceThreshold: 0.3,
-					MinPodsRequired:      3,
-					DryRun:               false,
-					LogLevel:             "info",
+					PrometheusEndpoint:        "http://localhost:9090",
+					PrometheusTimeout:         30 * time.Second,
+					KubeNamespace:             "default",
+					KubeLabelSelector:         "app=consumer",
+					DeploymentName:            "ingestion-consumer",
+					MetricsTimeWindow:         5 * time.Minute,
+					RebalanceTopKPods:         2,
+					ToleranceMultiplier:       1.5,
+					MinimumImprovementPercent: 10.0,
+					HPAPrefix:                 "keda-hpa-",
+					DryRun:                    false,
+					LogLevel:                  "info",
 				}
 
 				err := config.Validate()
@@ -167,16 +177,18 @@ var _ = Describe("Configuration", func() {
 			DescribeTable("should fail validation",
 				func(modifyConfig func(*Config), expectedError string) {
 					config := &Config{
-						PrometheusEndpoint:   "http://localhost:9090",
-						PrometheusTimeout:    30 * time.Second,
-						KubeNamespace:        "default",
-						KubeLabelSelector:    "app=consumer", 
-						DeploymentName:       "ingestion-consumer",
-						MetricsTimeWindow:    5 * time.Minute,
-						CPUVarianceThreshold: 0.3,
-						MinPodsRequired:      3,
-						DryRun:               false,
-						LogLevel:             "info",
+						PrometheusEndpoint:        "http://localhost:9090",
+						PrometheusTimeout:         30 * time.Second,
+						KubeNamespace:             "default",
+						KubeLabelSelector:         "app=consumer", 
+						DeploymentName:            "ingestion-consumer",
+						MetricsTimeWindow:         5 * time.Minute,
+						RebalanceTopKPods:         2,
+						ToleranceMultiplier:       1.5,
+						MinimumImprovementPercent: 10.0,
+						HPAPrefix:                 "keda-hpa-",
+						DryRun:                    false,
+						LogLevel:                  "info",
 					}
 					
 					modifyConfig(config)
@@ -190,8 +202,10 @@ var _ = Describe("Configuration", func() {
 				Entry("empty namespace", func(c *Config) { c.KubeNamespace = "" }, "KUBE_NAMESPACE is required"),
 				Entry("empty label selector", func(c *Config) { c.KubeLabelSelector = "" }, "KUBE_LABEL_SELECTOR is required"),
 				Entry("empty deployment name", func(c *Config) { c.DeploymentName = "" }, "DEPLOYMENT_NAME is required"),
-				Entry("CPU threshold too high", func(c *Config) { c.CPUVarianceThreshold = 1.5 }, "CPU_VARIANCE_THRESHOLD must be between 0 and 1"),
-				Entry("min pods too low", func(c *Config) { c.MinPodsRequired = 0 }, "MIN_PODS_REQUIRED must be at least 1"),
+				Entry("rebalance top k too low", func(c *Config) { c.RebalanceTopKPods = 0 }, "REBALANCE_TOP_K_PODS must be at least 1"),
+				Entry("tolerance multiplier too low", func(c *Config) { c.ToleranceMultiplier = 0.5 }, "TOLERANCE_MULTIPLIER must be at least 1.0"),
+				Entry("improvement percent negative", func(c *Config) { c.MinimumImprovementPercent = -5 }, "MINIMUM_IMPROVEMENT_PERCENT must be between 0 and 100"),
+				Entry("improvement percent too high", func(c *Config) { c.MinimumImprovementPercent = 150 }, "MINIMUM_IMPROVEMENT_PERCENT must be between 0 and 100"),
 				Entry("invalid log level", func(c *Config) { c.LogLevel = "invalid" }, "LOG_LEVEL must be one of: debug, info, warn, error"),
 			)
 		})
@@ -208,16 +222,18 @@ var _ = Describe("Configuration", func() {
 
 					for _, window := range validWindows {
 						config := &Config{
-							PrometheusEndpoint:   "http://localhost:9090",
-							PrometheusTimeout:    30 * time.Second,
-							KubeNamespace:        "default",
-							KubeLabelSelector:    "app=consumer",
-							DeploymentName:       "ingestion-consumer",
-							MetricsTimeWindow:    window,
-							CPUVarianceThreshold: 0.3,
-							MinPodsRequired:      3,
-							DryRun:               false,
-							LogLevel:             "info",
+							PrometheusEndpoint:        "http://localhost:9090",
+							PrometheusTimeout:         30 * time.Second,
+							KubeNamespace:             "default",
+							KubeLabelSelector:         "app=consumer",
+							DeploymentName:            "ingestion-consumer",
+							MetricsTimeWindow:         window,
+							RebalanceTopKPods:         2,
+							ToleranceMultiplier:       1.5,
+							MinimumImprovementPercent: 10.0,
+							HPAPrefix:                 "keda-hpa-",
+							DryRun:                    false,
+							LogLevel:                  "info",
 						}
 
 						err := config.Validate()

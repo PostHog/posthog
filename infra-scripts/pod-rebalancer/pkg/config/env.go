@@ -21,9 +21,11 @@ type Config struct {
 	// Metrics configuration
 	MetricsTimeWindow time.Duration // Time window for rate calculations
 
-	// Decision making thresholds
-	CPUVarianceThreshold float64
-	MinPodsRequired      int
+	// Decision making parameters
+	RebalanceTopKPods        int     // Number of top/bottom pods to consider
+	ToleranceMultiplier      float64 // Only act on pods above this threshold (multiplier of HPA target)
+	MinimumImprovementPercent float64 // Minimum improvement required (% of top pod average CPU)
+	HPAPrefix                string  // Optional prefix for HPA name (e.g., "keda-hpa-")
 
 	// Safety and debugging
 	DryRun   bool
@@ -41,8 +43,10 @@ func LoadFromEnv() (*Config, error) {
 	v.SetDefault("KUBE_LABEL_SELECTOR", "app=consumer")
 	// DEPLOYMENT_NAME has no default - must be explicitly configured
 	v.SetDefault("METRICS_TIME_WINDOW", "5m")
-	v.SetDefault("CPU_VARIANCE_THRESHOLD", 0.3)
-	v.SetDefault("MIN_PODS_REQUIRED", 3)
+	v.SetDefault("REBALANCE_TOP_K_PODS", 2)
+	v.SetDefault("TOLERANCE_MULTIPLIER", 1.5)
+	v.SetDefault("MINIMUM_IMPROVEMENT_PERCENT", 10.0)
+	v.SetDefault("HPA_PREFIX", "keda-hpa-")
 	v.SetDefault("DRY_RUN", false)
 	v.SetDefault("LOG_LEVEL", "info")
 
@@ -64,16 +68,18 @@ func LoadFromEnv() (*Config, error) {
 	}
 
 	config := &Config{
-		PrometheusEndpoint:   v.GetString("PROMETHEUS_ENDPOINT"),
-		PrometheusTimeout:    timeout,
-		KubeNamespace:        v.GetString("KUBE_NAMESPACE"),
-		KubeLabelSelector:    v.GetString("KUBE_LABEL_SELECTOR"),
-		DeploymentName:       v.GetString("DEPLOYMENT_NAME"),
-		MetricsTimeWindow:    timeWindow,
-		CPUVarianceThreshold: v.GetFloat64("CPU_VARIANCE_THRESHOLD"),
-		MinPodsRequired:      v.GetInt("MIN_PODS_REQUIRED"),
-		DryRun:               v.GetBool("DRY_RUN"),
-		LogLevel:             v.GetString("LOG_LEVEL"),
+		PrometheusEndpoint:        v.GetString("PROMETHEUS_ENDPOINT"),
+		PrometheusTimeout:         timeout,
+		KubeNamespace:             v.GetString("KUBE_NAMESPACE"),
+		KubeLabelSelector:         v.GetString("KUBE_LABEL_SELECTOR"),
+		DeploymentName:            v.GetString("DEPLOYMENT_NAME"),
+		MetricsTimeWindow:         timeWindow,
+		RebalanceTopKPods:         v.GetInt("REBALANCE_TOP_K_PODS"),
+		ToleranceMultiplier:       v.GetFloat64("TOLERANCE_MULTIPLIER"),
+		MinimumImprovementPercent: v.GetFloat64("MINIMUM_IMPROVEMENT_PERCENT"),
+		HPAPrefix:                 v.GetString("HPA_PREFIX"),
+		DryRun:                    v.GetBool("DRY_RUN"),
+		LogLevel:                  v.GetString("LOG_LEVEL"),
 	}
 
 	// Validate the configuration after Viper parsing
@@ -106,12 +112,16 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("DEPLOYMENT_NAME is required")
 	}
 
-	if c.CPUVarianceThreshold < 0 || c.CPUVarianceThreshold > 1 {
-		return fmt.Errorf("CPU_VARIANCE_THRESHOLD must be between 0 and 1")
+	if c.RebalanceTopKPods < 1 {
+		return fmt.Errorf("REBALANCE_TOP_K_PODS must be at least 1")
 	}
 
-	if c.MinPodsRequired < 1 {
-		return fmt.Errorf("MIN_PODS_REQUIRED must be at least 1")
+	if c.ToleranceMultiplier < 1.0 {
+		return fmt.Errorf("TOLERANCE_MULTIPLIER must be at least 1.0")
+	}
+
+	if c.MinimumImprovementPercent < 0 || c.MinimumImprovementPercent > 100 {
+		return fmt.Errorf("MINIMUM_IMPROVEMENT_PERCENT must be between 0 and 100")
 	}
 
 	// Validate log level

@@ -14,8 +14,8 @@ type PrometheusClient interface {
 	Query(ctx context.Context, query string) (model.Value, error)
 }
 
-// CPUMetricsFetcher fetches CPU usage metrics for pods
-type CPUMetricsFetcher struct {
+// CPUMetrics implements the CPUMetricsFetcher interface
+type CPUMetrics struct {
 	client         PrometheusClient
 	logger         *zap.Logger
 	namespace      string
@@ -23,9 +23,9 @@ type CPUMetricsFetcher struct {
 	timeWindow     time.Duration
 }
 
-// NewCPUMetricsFetcher creates a new CPU metrics fetcher
-func NewCPUMetricsFetcher(client PrometheusClient, logger *zap.Logger, namespace, deploymentName string, timeWindow time.Duration) *CPUMetricsFetcher {
-	return &CPUMetricsFetcher{
+// NewCPUMetrics creates a new CPU metrics fetcher
+func NewCPUMetrics(client PrometheusClient, logger *zap.Logger, namespace, deploymentName string, timeWindow time.Duration) *CPUMetrics {
+	return &CPUMetrics{
 		client:         client,
 		logger:         logger,
 		namespace:      namespace,
@@ -34,34 +34,9 @@ func NewCPUMetricsFetcher(client PrometheusClient, logger *zap.Logger, namespace
 	}
 }
 
-// FetchCPUUsage fetches CPU usage metrics for pods matching the deployment
-// Returns a map of pod name to CPU usage rate (cores per second)
-func (f *CPUMetricsFetcher) FetchCPUUsage(ctx context.Context) (map[string]float64, error) {
-	// PromQL query to get CPU usage rate per pod, using literal container match
-	query := fmt.Sprintf(`sum by(pod) (rate(container_cpu_usage_seconds_total{namespace="%s", container="%s"}[%s]))`, 
-		f.namespace, f.deploymentName, f.timeWindow)
-	
-	f.logger.Debug("Executing CPU metrics query",
-		zap.String("query", query),
-		zap.String("namespace", f.namespace),
-		zap.String("deployment_name", f.deploymentName),
-		zap.Duration("time_window", f.timeWindow),
-	)
-
-	result, err := f.client.Query(ctx, query)
-	if err != nil {
-		f.logger.Error("Failed to query CPU metrics",
-			zap.Error(err),
-			zap.String("query", query),
-		)
-		return nil, fmt.Errorf("failed to query CPU metrics: %w", err)
-	}
-
-	return f.parseCPUResults(result)
-}
 
 // parseCPUResults parses Prometheus query results into a pod->usage map
-func (f *CPUMetricsFetcher) parseCPUResults(result model.Value) (map[string]float64, error) {
+func (f *CPUMetrics) parseCPUResults(result model.Value) (map[string]float64, error) {
 	cpuUsage := make(map[string]float64)
 
 	// Handle different result types
@@ -123,7 +98,7 @@ func (f *CPUMetricsFetcher) parseCPUResults(result model.Value) (map[string]floa
 
 // FetchCPULimits fetches CPU resource limits for containers
 // Returns the median CPU limit across containers
-func (f *CPUMetricsFetcher) FetchCPULimits(ctx context.Context) (float64, error) {
+func (f *CPUMetrics) FetchCPULimits(ctx context.Context) (float64, error) {
 	query := fmt.Sprintf(`median(sum(median by (container) (kube_pod_container_resource_limits{resource="cpu", namespace="%s", container="%s"})))`,
 		f.namespace, f.deploymentName)
 	
@@ -144,7 +119,7 @@ func (f *CPUMetricsFetcher) FetchCPULimits(ctx context.Context) (float64, error)
 
 // FetchCPURequests fetches CPU resource requests for containers  
 // Returns the median CPU request across containers
-func (f *CPUMetricsFetcher) FetchCPURequests(ctx context.Context) (float64, error) {
+func (f *CPUMetrics) FetchCPURequests(ctx context.Context) (float64, error) {
 	query := fmt.Sprintf(`median(sum(median by (container) (kube_pod_container_resource_requests{resource="cpu", namespace="%s", container="%s"})))`,
 		f.namespace, f.deploymentName)
 	
@@ -163,9 +138,70 @@ func (f *CPUMetricsFetcher) FetchCPURequests(ctx context.Context) (float64, erro
 	return f.parseScalarResult(result, "CPU requests")
 }
 
+// FetchTopKPodsAboveTolerance fetches the top K pods that exceed the tolerance threshold
+// This uses a single PromQL query to find pods above HPA target * tolerance multiplier
+func (f *CPUMetrics) FetchTopKPodsAboveTolerance(ctx context.Context, k int, toleranceMultiplier float64, hpaPrefix string) (map[string]float64, error) {
+	query := fmt.Sprintf(`topk(%d, sum by(pod) (rate(container_cpu_usage_seconds_total{
+  namespace="%s", 
+  container="%s"  
+}[%s]))) >
+scalar(kube_horizontalpodautoscaler_spec_target_metric{
+  horizontalpodautoscaler=~"(%s)?%s", 
+  namespace="%s",
+  metric_name="cpu"
+}) / 100 * %.2f *
+avg(kube_pod_container_resource_requests{
+  resource="cpu", 
+  namespace="%s", 
+  container="%s"
+})`, k, f.namespace, f.deploymentName, f.timeWindow,
+		hpaPrefix, f.deploymentName, f.namespace, toleranceMultiplier,
+		f.namespace, f.deploymentName)
+
+	f.logger.Debug("Executing top K pods above tolerance query",
+		zap.String("query", query),
+		zap.Int("k", k),
+		zap.Float64("tolerance_multiplier", toleranceMultiplier),
+	)
+
+	result, err := f.client.Query(ctx, query)
+	if err != nil {
+		f.logger.Error("Failed to query top K pods above tolerance",
+			zap.Error(err),
+			zap.String("query", query),
+		)
+		return nil, fmt.Errorf("failed to query top K pods above tolerance: %w", err)
+	}
+
+	return f.parseCPUResults(result)
+}
+
+// FetchBottomKPods fetches the K pods with lowest CPU usage
+func (f *CPUMetrics) FetchBottomKPods(ctx context.Context, k int) (map[string]float64, error) {
+	query := fmt.Sprintf(`bottomk(%d, sum by(pod) (rate(container_cpu_usage_seconds_total{
+  namespace="%s", 
+  container="%s"
+}[%s])))`, k, f.namespace, f.deploymentName, f.timeWindow)
+
+	f.logger.Debug("Executing bottom K pods query",
+		zap.String("query", query),
+		zap.Int("k", k),
+	)
+
+	result, err := f.client.Query(ctx, query)
+	if err != nil {
+		f.logger.Error("Failed to query bottom K pods",
+			zap.Error(err),
+			zap.String("query", query),
+		)
+		return nil, fmt.Errorf("failed to query bottom K pods: %w", err)
+	}
+
+	return f.parseCPUResults(result)
+}
 
 // parseScalarResult parses a scalar result from Prometheus
-func (f *CPUMetricsFetcher) parseScalarResult(result model.Value, metricName string) (float64, error) {
+func (f *CPUMetrics) parseScalarResult(result model.Value, metricName string) (float64, error) {
 	switch v := result.(type) {
 	case model.Vector:
 		if len(v) == 0 {

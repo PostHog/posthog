@@ -1,41 +1,34 @@
 # Pod Rebalancer - CPU-Only Architecture
 
-## Core Abstractions (Layered Design)
+## Core Abstractions (Simplified Design)
 
-This is a stateless application that runs once, fetches CPU metrics, makes decisions based on CPU load variance, takes actions, and exits.
+This is a stateless application that runs once, fetches CPU metrics using sophisticated PromQL queries, makes HPA-aware decisions, takes actions, and exits.
 
-**Architecture Decision**: Focus exclusively on CPU metrics for initial implementation to reduce complexity and deliver faster. Kafka lag and memory metrics can be added in future iterations if needed.
+**Architecture Decision**: Focus exclusively on CPU metrics with a simplified 2-layer design. PromQL queries handle filtering and selection directly, eliminating the need for complex Go-based aggregation logic.
 
 ### Layer 1: Generic Metrics Client (`pkg/prometheus/`)
-**Responsibility**: Basic Prometheus/VictoriaMetrics client functionality
+**Responsibility**: Basic Prometheus/VictoriaMetrics HTTP client functionality
 
 ```go
-// Using official Prometheus Go client
-import (
-    "github.com/prometheus/client_golang/api"
-    v1 "github.com/prometheus/client_golang/api/prometheus/v1"
-    "github.com/prometheus/common/model"
-)
-
-// Client wraps the official Prometheus API client
-type Client interface {
+// Custom HTTP client for Prometheus queries
+type PrometheusClient interface {
     Query(ctx context.Context, query string) (model.Value, error)
-    QueryRange(ctx context.Context, query string, r v1.Range) (model.Value, error)
 }
 
-// HTTPClient implements Client using official Prometheus client
+// HTTPClient implements Client using custom HTTP client
 type HTTPClient struct {
-    client   v1.API
+    client   *http.Client
+    endpoint string
     timeout  time.Duration
 }
 ```
 
-### Layer 2: CPU Metrics Fetcher (`pkg/metrics/`)
-**Responsibility**: Fetch CPU usage metrics from Prometheus
+### Layer 2: Specialized CPU Metrics Fetcher (`pkg/metrics/`)
+**Responsibility**: Execute sophisticated PromQL queries for HPA-aware pod selection
 
 ```go
-// CPUMetricsFetcher gets CPU usage per pod using PostHog-specific queries
-type CPUMetricsFetcher struct {
+// CPUMetrics implements specialized queries for the rebalancing algorithm
+type CPUMetrics struct {
     client         PrometheusClient
     logger         *zap.Logger
     namespace      string
@@ -43,74 +36,52 @@ type CPUMetricsFetcher struct {
     timeWindow     time.Duration
 }
 
-func (f *CPUMetricsFetcher) FetchCPUUsage(ctx context.Context) (map[string]float64, error)
-func (f *CPUMetricsFetcher) FetchCPULimits(ctx context.Context) (float64, error)
-func (f *CPUMetricsFetcher) FetchCPURequests(ctx context.Context) (float64, error)
+// Interface focuses on exactly what we need
+type CPUMetricsFetcher interface {
+    FetchCPULimits(ctx context.Context) (float64, error)
+    FetchCPURequests(ctx context.Context) (float64, error)
+    FetchTopKPodsAboveTolerance(ctx context.Context, k int, toleranceMultiplier float64, hpaPrefix string) (map[string]float64, error)
+    FetchBottomKPods(ctx context.Context, k int) (map[string]float64, error)
+}
 
-// Main CPU usage query uses literal container matching
-// sum by(pod) (rate(container_cpu_usage_seconds_total{namespace="posthog", container="ingestion-consumer"}[5m]))
+// Key queries that do the heavy lifting in PromQL:
+// 1. Top K pods above tolerance threshold with HPA integration
+// 2. Bottom K pods for balancing
 ```
 
-### Layer 3: Pod State Aggregator (`pkg/podstate/`)
-**Responsibility**: Process CPU metrics into pod states
+### Layer 3: HPA-Aware Decision Engine (`pkg/decision/`)
+**Responsibility**: Execute the sophisticated tolerance-based rebalancing algorithm
 
 ```go
-// Aggregator processes CPU metrics into pod states
-type Aggregator struct {
-    cpuFetcher metrics.CPUMetricsFetcher
-    logger     *zap.Logger
-}
-
-// PodState represents CPU metrics for a single pod (simplified)
-type PodState struct {
-    Name      string
-    CPUUsage  float64  // CPU cores per second
-    CPUScore  float64  // Direct CPU usage as score
-}
-
-func (a *Aggregator) GetPodStates(ctx context.Context) ([]PodState, error) {
-    // Fetch CPU usage metrics
-    // Convert to PodState objects
-    // CPU usage directly becomes the score (simplified scoring)
-}
-```
-
-### Layer 4: Decision Engine (`pkg/decision/`)
-**Responsibility**: Analyze CPU usage and decide which pods to delete
-
-```go
-// Engine analyzes CPU usage and selects pods for deletion
+// Engine uses the two specialized PromQL queries to make decisions
 type Engine struct {
-    cpuVarianceThreshold float64
-    logger              *zap.Logger
+    cpuFetcher               metrics.CPUMetricsFetcher
+    topKPods                 int
+    toleranceMultiplier      float64
+    minimumImprovementPercent float64
+    hpaPrefix                string
+    logger                   *zap.Logger
 }
 
-// Analysis contains the CPU-based decision results
+// Analysis contains the decision results
 type Analysis struct {
-    PodStates       []podstate.PodState
-    ShouldRebalance bool
-    TargetPods      []string
-    Reason          string
-    CPUStatistics   CPUStatistics
+    ShouldRebalance    bool
+    TargetPods         []string
+    FilteredTopPods    map[string]float64  // Only pods above tolerance
+    BottomPods         map[string]float64  // Bottom K pods
+    Reason             string
+    Metrics            AnalysisMetrics
 }
 
-// CPUStatistics contains statistical analysis of CPU usage
-type CPUStatistics struct {
-    Mean     float64
-    StdDev   float64
-    Variance float64
-    Min      float64
-    Max      float64
-}
-
-func (e *Engine) Analyze(ctx context.Context, podStates []podstate.PodState) (*Analysis, error) {
-    // Calculate CPU variance across pods
-    // Determine if CPU variance exceeds threshold
-    // Select highest and lowest CPU usage pods for deletion
+func (e *Engine) Analyze(ctx context.Context) (*Analysis, error) {
+    // 1. Query top K pods above tolerance threshold (PromQL filtering)
+    // 2. Query bottom K pods
+    // 3. Calculate improvement potential
+    // 4. Make decision based on improvement percentage
 }
 ```
 
-### Layer 5: Pod Operations (`pkg/kubernetes/`)
+### Layer 4: Pod Operations (`pkg/kubernetes/`)
 **Responsibility**: Execute pod deletions safely
 
 ```go
@@ -144,7 +115,7 @@ func (pm *PodManager) DeletePods(ctx context.Context, podNames []string) (*Delet
 }
 ```
 
-### Layer 6: Simple Observability (`pkg/logging/`)
+### Layer 5: Simple Observability (`pkg/logging/`)
 **Responsibility**: Basic structured logging and metrics
 
 ```go
@@ -187,19 +158,18 @@ pod-rebalancer/
 │       └── main.go               # Application entrypoint - run once and exit
 ├── pkg/
 │   ├── prometheus/
-│   │   ├── client.go                    # Prometheus client using custom HTTP client
+│   │   ├── client.go                    # Prometheus HTTP client
 │   │   ├── client_ginkgo_test.go        # Ginkgo BDD tests
 │   │   └── prometheus_suite_test.go     # Ginkgo test suite
 │   ├── metrics/
-│   │   ├── cpu.go                       # CPU metrics fetcher (CPU-only focus)
+│   │   ├── cpu.go                       # Specialized CPU queries with PromQL filtering
+│   │   ├── interfaces.go                # CPUMetricsFetcher interface
 │   │   ├── cpu_ginkgo_test.go           # Ginkgo BDD tests
 │   │   └── metrics_suite_test.go        # Ginkgo test suite
-│   ├── podstate/
-│   │   ├── aggregator.go                # Processes CPU metrics into PodState
-│   │   └── aggregator_test.go           # Tests for CPU aggregation
 │   ├── decision/
-│   │   ├── engine.go                    # CPU variance-based decision logic
-│   │   └── engine_test.go               # Tests for CPU decision making
+│   │   ├── engine.go                    # HPA-aware rebalancing algorithm
+│   │   ├── engine_test.go               # Tests for decision logic
+│   │   └── decision_suite_test.go       # Ginkgo test suite
 │   ├── kubernetes/
 │   │   ├── manager.go                   # Pod operations using official k8s client
 │   │   └── manager_test.go
@@ -227,24 +197,26 @@ pod-rebalancer/
         └── Dockerfile            # Multi-stage optimized Dockerfile
 ```
 
-## CPU-Only Data Flow
+## Simplified Data Flow
 
 ```
 [main.go] - Load config from env vars with Viper
     ↓
-[prometheus.Client] - Create Prometheus client with custom HTTP client
+[prometheus.Client] - Create Prometheus HTTP client  
     ↓
-[metrics.CPUMetricsFetcher] - Fetch CPU usage per pod using PostHog queries
-    ↓ 
-[podstate.Aggregator] - Process CPU metrics into PodState objects
+[metrics.CPUMetrics] - Execute specialized PromQL queries
+    ├─ FetchTopKPodsAboveTolerance() - Get filtered top pods via PromQL
+    ├─ FetchBottomKPods() - Get bottom pods via PromQL
+    └─ FetchCPURequests() - Get resource info for calculations
     ↓
-[decision.Engine] - Calculate CPU variance and statistics
-    ↓ (if CPU variance > threshold)
-[decision.Engine] - Select highest & lowest CPU usage pods
-    ↓
+[decision.Engine] - Analyze with HPA-aware algorithm
+    ├─ Calculate improvement potential from query results
+    ├─ Apply tolerance and improvement thresholds
+    └─ Make rebalancing decision
+    ↓ (if improvement > minimum threshold)
 [kubernetes.Manager] - Delete selected pods (or dry-run)
     ↓
-[logging.Logger] - Log results and exit
+[logging.Logger] - Log detailed results and exit
 ```
 
 ## Configuration (Environment Variables Only)
@@ -260,16 +232,18 @@ KUBE_LABEL_SELECTOR=app=consumer
 DEPLOYMENT_NAME=ingestion-consumer          # Required - container name for literal matching
 METRICS_TIME_WINDOW=5m                      # Time window for rate calculations
 
-# CPU-Only Decision Making
-CPU_VARIANCE_THRESHOLD=0.3                  # Threshold for CPU variance to trigger rebalancing
-MIN_PODS_REQUIRED=3                         # Minimum pods that must remain
+# HPA-Aware Decision Making  
+REBALANCE_TOP_K_PODS=2                      # Number of top/bottom candidate pods
+TOLERANCE_MULTIPLIER=1.5                    # Only act on pods above 150% of HPA target
+MINIMUM_IMPROVEMENT_PERCENT=10              # Minimum improvement required (% of top pod average)
+HPA_PREFIX=keda-hpa-                        # Optional prefix for HPA name
 
 # Safety & Logging
 DRY_RUN=false
 LOG_LEVEL=info
 ```
 
-## CPU-Only Main Application Flow
+## HPA-Aware Main Application Flow
 
 ```go
 func main() {
@@ -284,48 +258,44 @@ func main() {
     // 2. Create zap logger
     logger := logging.New(config.LogLevel)
     
-    // 3. Create Prometheus client with custom HTTP client
+    // 3. Create Prometheus HTTP client
     promClient, err := prometheus.NewClient(config.PrometheusEndpoint, config.PrometheusTimeout)
     if err != nil {
         logger.Fatal("Failed to create Prometheus client", zap.Error(err))
     }
     
-    // 4. Create CPU metrics fetcher
-    cpuFetcher := metrics.NewCPUMetricsFetcher(
+    // 4. Create CPU metrics fetcher with specialized queries
+    cpuMetrics := metrics.NewCPUMetrics(
         promClient, logger, 
         config.KubeNamespace, config.DeploymentName, config.MetricsTimeWindow,
     )
     
-    // 5. Create aggregator (CPU-only)
-    aggregator := podstate.NewAggregator(cpuFetcher, logger)
+    // 5. Create HPA-aware decision engine (no aggregator needed)
+    engine := decision.NewEngine(
+        cpuMetrics, config.RebalanceTopKPods, config.ToleranceMultiplier,
+        config.MinimumImprovementPercent, config.HPAPrefix, logger,
+    )
     
-    // 6. Fetch and process CPU metrics
-    podStates, err := aggregator.GetPodStates(ctx)
+    // 6. Execute sophisticated rebalancing analysis
+    analysis, err := engine.Analyze(ctx)
     if err != nil {
-        logger.Fatal("Failed to fetch CPU metrics", zap.Error(err))
+        logger.Fatal("Failed to analyze pods for rebalancing", zap.Error(err))
     }
     
-    // 7. Make CPU variance-based rebalancing decision
-    engine := decision.NewEngine(config.CPUVarianceThreshold, logger)
-    analysis, err := engine.Analyze(ctx, podStates)
-    if err != nil {
-        logger.Fatal("Failed to analyze CPU data", zap.Error(err))
-    }
-    
-    // 8. Execute deletions if CPU variance exceeds threshold
+    // 7. Execute deletions if improvement exceeds minimum threshold
     if analysis.ShouldRebalance {
-        k8sManager := kubernetes.NewManager(config.KubeNamespace, config.DryRun, config.MinPodsRequired)
+        k8sManager := kubernetes.NewManager(config.KubeNamespace, config.DryRun)
         result, err := k8sManager.DeletePods(ctx, analysis.TargetPods)
         if err != nil {
             logger.Fatal("Failed to delete pods", zap.Error(err))
         }
         logger.Info("Rebalancing completed", 
             zap.Strings("deleted_pods", analysis.TargetPods),
-            zap.Float64("cpu_variance", analysis.CPUStatistics.Variance))
+            zap.Float64("improvement_percent", analysis.Metrics.ImprovementPercent))
     } else {
         logger.Info("No rebalancing needed", 
-            zap.Float64("cpu_variance", analysis.CPUStatistics.Variance),
-            zap.Float64("threshold", config.CPUVarianceThreshold))
+            zap.String("reason", analysis.Reason),
+            zap.Float64("improvement_percent", analysis.Metrics.ImprovementPercent))
     }
 }
 ```
@@ -334,11 +304,10 @@ func main() {
 
 ### Unit Tests (per package using Ginkgo)
 1. **prometheus**: HTTP client, error handling, response parsing with testify mocks
-2. **metrics**: CPU metric fetcher with mocked Prometheus responses using PostHog queries
-3. **podstate**: CPU aggregation logic with known CPU usage inputs/outputs
-4. **decision**: CPU variance statistical analysis and pod selection algorithms
-5. **kubernetes**: Pod deletion logic with mocked K8s client
-6. **config**: Environment variable parsing with Viper and validation
+2. **metrics**: Specialized PromQL queries with mocked Prometheus responses
+3. **decision**: HPA-aware algorithm with tolerance filtering and improvement calculations
+4. **kubernetes**: Pod deletion logic with mocked K8s client
+5. **config**: Environment variable parsing with Viper and validation
 
 ### Test Framework Features
 - **Ginkgo BDD**: Descriptive test organization with Describe/Context/It blocks
@@ -347,14 +316,14 @@ func main() {
 - **Interface Testing**: Focus on behavior, not struct properties
 
 ### Integration Tests
-1. **CPU Metrics + Real Prometheus**: End-to-end CPU metric fetching
+1. **PromQL Queries + Real Prometheus**: End-to-end query validation
 2. **Kubernetes + Test Cluster**: Actual pod operations
-3. **Full CPU Pipeline**: Complete run with CPU test data
+3. **Full Algorithm Pipeline**: Complete run with realistic CPU data
 
 ### Key Testing Principles
 - Mock external dependencies (Prometheus, Kubernetes APIs) using testify
 - Test with realistic CPU usage data (1000+ pods)
-- Validate CPU statistical calculations with known datasets
+- Validate HPA-aware algorithm calculations with known datasets
 - Test error scenarios (network failures, missing CPU metrics)
 - Focus on interface behavior rather than internal struct properties
 
@@ -367,11 +336,12 @@ Simple error handling for a stateless application:
 3. **Graceful Degradation**: Skip pods with missing metrics rather than failing completely
 4. **No Retries**: Let Kubernetes CronJob handle retries at the job level
 
-This CPU-focused architecture ensures:
+This simplified architecture ensures:
 - **Stateless**: No state maintained between runs
-- **Simple**: Minimal abstractions, clear data flow, CPU-only focus
-- **Testable**: Each layer easily tested in isolation using Ginkgo BDD framework
-- **Scalable**: Handles 1000+ pods efficiently with CPU metrics only
-- **Observable**: Simple but effective logging and metrics
-- **Focused**: Single responsibility - CPU load balancing only
-- **Extensible**: Future iterations can add Kafka lag and memory metrics if needed
+- **Simple**: Just 2-3 layers, PromQL does the heavy lifting
+- **Testable**: Clean interfaces tested with Ginkgo BDD framework
+- **Scalable**: Handles 1000+ pods efficiently via PromQL filtering
+- **Observable**: Comprehensive logging with structured metrics
+- **HPA-Aware**: Uses same target utilization as Kubernetes HPA
+- **Sophisticated**: Tolerance-based filtering with improvement calculations
+- **Future-Ready**: Designed for easy Kafka lag integration (iteration 2)
