@@ -121,8 +121,7 @@ describe('ResultHandlingPipeline', () => {
                 'overflow-topic',
                 'pipeline_result_handler',
                 true,
-                false,
-                'test-group'
+                false
             )
         })
 
@@ -257,8 +256,7 @@ describe('ResultHandlingPipeline', () => {
                 'overflow-topic',
                 'pipeline_result_handler',
                 true, // default preserveKey
-                true, // default awaitAck
-                'test-group'
+                true // default awaitAck
             )
         })
     })
@@ -410,8 +408,7 @@ describe('AsyncResultHandlingPipeline', () => {
                 'overflow-topic',
                 'async_pipeline_result_handler',
                 false,
-                true,
-                'test-group'
+                true
             )
         })
 

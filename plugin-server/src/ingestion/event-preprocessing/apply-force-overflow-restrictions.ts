@@ -11,7 +11,6 @@ export type ForceOverflowDecision = {
 
 export type OverflowConfig = {
     overflowTopic: string
-    consumerGroupId: string
     preservePartitionLocality: boolean
     overflowEnabled: boolean
 }

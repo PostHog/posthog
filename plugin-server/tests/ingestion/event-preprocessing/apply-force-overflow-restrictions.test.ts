@@ -19,7 +19,6 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
 
         overflowConfig = {
             overflowTopic: 'overflow-topic',
-            consumerGroupId: 'test-group',
             preservePartitionLocality: true,
             overflowEnabled: true,
         }

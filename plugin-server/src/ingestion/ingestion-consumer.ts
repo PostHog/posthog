@@ -191,7 +191,6 @@ export class IngestionConsumer {
                         createApplyForceOverflowRestrictionsStep(this.eventIngestionRestrictionManager, {
                             overflowEnabled: this.overflowEnabled(),
                             overflowTopic: this.overflowTopic || '',
-                            consumerGroupId: this.groupId,
                             preservePartitionLocality: this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
                         })
                     )
