@@ -32,9 +32,9 @@ class RevenueEvent:
     gateway: str
     timestamp: datetime.datetime
     properties: Dict[str, Any]
-    utm_source: str | None = None
-    utm_campaign: str | None = None
-    utm_medium: str | None = None
+    utm_source: Optional[str] = None
+    utm_campaign: Optional[str] = None
+    utm_medium: Optional[str] = None
 
 
 class WebhookSignatureValidator:
