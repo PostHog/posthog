@@ -7,7 +7,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0851_remove_organizationresourceaccess_project"),
+        ("posthog", "0853_create_index_populate_updated_at_flags"),
     ]
 
     operations = [
