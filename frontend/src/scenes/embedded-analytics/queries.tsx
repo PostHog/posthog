@@ -80,7 +80,7 @@ export const createApiQueriesCountQuery = ({ dateFrom, dateTo, requestNameBreakd
     select 
         event_date, 
         ${requestNameBreakdownEnabled ? 'name,' : ''} 
-        count(1) as number_of_queries
+        count(1) as number_of_api_requests
     from query_log
     where is_personal_api_key_request 
         and event_date >= '${dateFrom}' 

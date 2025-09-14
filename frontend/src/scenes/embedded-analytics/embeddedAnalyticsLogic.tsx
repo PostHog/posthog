@@ -153,7 +153,7 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                                 xAxis: { column: 'event_date' },
                                 yAxis: [
                                     {
-                                        column: 'number_of_queries',
+                                        column: 'number_of_api_requests',
                                         settings: { formatting: { prefix: '', suffix: '' } },
                                     },
                                 ],
