@@ -4,6 +4,7 @@ import { IconTrash } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { asDisplay } from 'scenes/persons/person-utils'
 
 import { cohortEditLogic } from '~/scenes/cohorts/cohortEditLogic'
 import { PersonType } from '~/types'
@@ -20,26 +21,22 @@ export function RemovePersonFromCohortButton({ person, cohortId }: RemovePersonF
         LemonDialog.open({
             title: 'Remove person from cohort',
             description: (
-                <div>
-                    Are you sure you want to remove{' '}
-                    <strong>{person.properties?.email || person.distinct_ids?.[0] || 'this person'}</strong> from this
-                    cohort?
-                    <br />
-                    This action cannot be undone.
-                </div>
+                <>
+                    <p className="mt-4">
+                        Are you sure you want to remove <strong>{asDisplay(person)}</strong> from this cohort?
+                    </p>
+                    <p>This action cannot be undone.</p>
+                </>
             ),
             primaryButton: {
                 type: 'primary',
                 status: 'danger',
                 children: 'Remove',
                 onClick: () => {
-                    const personId = person.uuid || person.id
-                    if (!personId) {
-                        console.error('No person ID found:', person)
+                    if (!person.id) {
                         return
                     }
-
-                    removePersonFromCohort(personId)
+                    removePersonFromCohort(person.id)
                 },
             },
             secondaryButton: {

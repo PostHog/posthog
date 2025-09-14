@@ -306,7 +306,6 @@ export function renderColumn(
             return ''
         }
         const personRecord = record[0] as PersonType
-
         return <DeletePersonButton person={personRecord} />
     } else if (key.startsWith('context.columns.')) {
         const columnName = trimQuotes(key.substring(16)) // 16 = "context.columns.".length

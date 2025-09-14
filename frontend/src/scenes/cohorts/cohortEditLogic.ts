@@ -401,20 +401,17 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     try {
                         await api.cohorts.removePersonFromCohort(values.cohort.id, personId)
                         lemonToast.success('Person removed from cohort')
-                        // Refresh the data by reloading the data node
-                        const dataLogic = dataNodeLogic.findMounted({
-                            key: createCohortDataNodeLogicKey(values.cohort.id),
-                        })
-                        if (dataLogic) {
-                            dataLogic.actions.loadData()
-                        }
-                        // Update cohort count
-                        actions.updateCohortCount()
-                        return null
                     } catch (error: any) {
-                        lemonToast.error(error.detail || 'Failed to remove person from cohort')
                         throw error
                     }
+                    // Refresh cohort data + count
+                    const dataLogic = dataNodeLogic.findMounted({
+                        key: createCohortDataNodeLogicKey(values.cohort.id),
+                    })
+                    if (dataLogic) {
+                        dataLogic.actions.loadData('force_blocking')
+                    }
+                    actions.updateCohortCount()
                 },
             },
         ],
