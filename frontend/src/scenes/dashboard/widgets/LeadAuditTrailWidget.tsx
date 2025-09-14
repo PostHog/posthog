@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconTarget, IconPath, IconGraph } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { humanFriendlyDuration } from 'lib/utils'
@@ -243,11 +243,11 @@ export function LeadAuditTrailWidget({
                     ]}
                     size="small"
                 />
-                <input
-                    className="px-3 py-1 border rounded text-sm"
+                                <LemonInput
                     placeholder="Lead ID (optional)"
                     value={selectedLead}
-                    onChange={(e) => setSelectedLead(e.target.value)}
+                    onChange={(value: string) => setSelectedLead(value)}
+                    size="small"
                 />
             </div>
 
@@ -256,8 +256,8 @@ export function LeadAuditTrailWidget({
             <div className="mt-4">
                 <InsightCard
                     insight={{
-                        id: Math.random(),
-                        short_id: `journey-${Date.now()}`,
+                        id: `lead-journey-${selectedView}-${timeRange}`,
+                        short_id: `journey-${selectedView}-${timeRange}`,
                         name: `${title} - ${selectedView}`,
                         description: `Lead journey analysis using ${selectedView} view`,
                         query,

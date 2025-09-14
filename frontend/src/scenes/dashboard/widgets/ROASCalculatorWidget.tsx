@@ -250,8 +250,8 @@ export function ROASCalculatorWidget({
             ) : (
                 <InsightCard
                     insight={{
-                        id: Math.random(),
-                        short_id: `roas-${Date.now()}`,
+                        id: `roas-calculator-${selectedPlatform}`,
+                        short_id: `roas-${selectedPlatform}`,
                         name: `${title} - ${selectedPlatform}`,
                         description: `Performance metrics for ${selectedPlatform} campaigns`,
                         query,

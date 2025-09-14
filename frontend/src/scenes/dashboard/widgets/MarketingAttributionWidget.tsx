@@ -207,8 +207,8 @@ export function MarketingAttributionWidget({
 
             <InsightCard
                 insight={{
-                    id: Math.random(),
-                    short_id: `attr-${Date.now()}`,
+                    id: `marketing-attribution-${selectedModel}-${selectedWindow}`,
+                    short_id: `attr-${selectedModel}-${selectedWindow}`,
                     name: `${title} - ${selectedModel}`,
                     description: `Attribution analysis using ${selectedModel} model with ${selectedWindow} day window`,
                     query,
