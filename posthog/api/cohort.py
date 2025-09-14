@@ -641,6 +641,12 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             if search_query:
                 queryset = queryset.filter(name__icontains=search_query)
 
+            cohort_type = self.request.query_params.get("type", None)
+            if cohort_type == "static":
+                queryset = queryset.filter(is_static=True)
+            elif cohort_type == "dynamic":
+                queryset = queryset.filter(is_static=False)
+
             # TODO: remove this filter once we can support behavioral cohorts for feature flags, it's only
             # used in the feature flag property filter UI
             if self.request.query_params.get("hide_behavioral_cohorts", "false").lower() == "true":
