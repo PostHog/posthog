@@ -425,8 +425,6 @@ function CyclotronJobInputRenderer({
                     schema={schema}
                     value={input.value}
                     onChange={(newValue) => {
-                        onValueChange(newValue)
-
                         // Clear all integration_field inputs when the integration changes
                         if (configuration.inputs_schema && onInputChange) {
                             configuration.inputs_schema
@@ -435,6 +433,8 @@ function CyclotronJobInputRenderer({
                                     onInputChange(field.key, { value: null })
                                 })
                         }
+
+                        onValueChange(newValue)
                     }}
                 />
             )

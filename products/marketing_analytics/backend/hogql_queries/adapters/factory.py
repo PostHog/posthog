@@ -10,6 +10,8 @@ from posthog.hogql.database.database import create_hogql_database
 
 from posthog.warehouse.models import DataWarehouseTable, ExternalDataSource
 
+from products.marketing_analytics.backend.hogql_queries.adapters.linkedin_ads import LinkedinAdsAdapter
+
 from ..constants import (
     FALLBACK_EMPTY_QUERY,
     TABLE_PATTERNS,
@@ -17,7 +19,7 @@ from ..constants import (
     VALID_NON_NATIVE_MARKETING_SOURCES,
 )
 from ..utils import map_url_to_provider
-from .base import ExternalConfig, GoogleAdsConfig, MarketingSourceAdapter, QueryContext
+from .base import ExternalConfig, GoogleAdsConfig, LinkedinAdsConfig, MarketingSourceAdapter, QueryContext
 from .bigquery import BigQueryAdapter
 from .google_ads import GoogleAdsAdapter
 from .self_managed import AWSAdapter, AzureAdapter, CloudflareR2Adapter, GoogleCloudAdapter
@@ -32,6 +34,7 @@ class MarketingSourceFactory:
     _adapter_registry: dict[str, type[MarketingSourceAdapter]] = {
         # Native adapters
         "GoogleAds": GoogleAdsAdapter,
+        "LinkedinAds": LinkedinAdsAdapter,
         # Non-native adapters
         "BigQuery": BigQueryAdapter,
         # Self-managed adapters
@@ -44,6 +47,7 @@ class MarketingSourceFactory:
     # Config builders for native sources
     _config_builders = {
         "GoogleAds": "_create_googleads_config",
+        "LinkedinAds": "_create_linkedinads_config",
     }
 
     def __init__(self, context: QueryContext):
@@ -128,6 +132,38 @@ class MarketingSourceFactory:
             return None
 
         config = GoogleAdsConfig(
+            source_type=source.source_type,
+            campaign_table=campaign_table,
+            stats_table=campaign_stats_table,
+            source_id=str(source.id),
+        )
+
+        return config
+
+    def _create_linkedinads_config(
+        self, source: ExternalDataSource, tables: list[DataWarehouseTable]
+    ) -> Optional[LinkedinAdsConfig]:
+        """Create LinkedIn Ads adapter config with campaign and stats tables"""
+        patterns = TABLE_PATTERNS["LinkedinAds"]
+        campaign_table = None
+        campaign_stats_table = None
+
+        for table in tables:
+            table_suffix = table.name.split(".")[-1].lower()
+
+            # Check for campaign table
+            if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
+                ex in table_suffix for ex in patterns["campaign_table_exclusions"]
+            ):
+                campaign_table = table
+            # Check for stats table
+            elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
+                campaign_stats_table = table
+
+        if not (campaign_table and campaign_stats_table):
+            return None
+
+        config = LinkedinAdsConfig(
             source_type=source.source_type,
             campaign_table=campaign_table,
             stats_table=campaign_stats_table,

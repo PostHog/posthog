@@ -44,7 +44,7 @@ export const scene: SceneExport = {
     logic: experimentsLogic,
 }
 
-const EXPERIMENTS_PRODUCT_DESCRIPTION =
+export const EXPERIMENTS_PRODUCT_DESCRIPTION =
     'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.'
 
 // Component for the survey button using MaxTool
@@ -421,7 +421,6 @@ export function Experiments(): JSX.Element {
             <SceneTitleSection
                 name="Experiments"
                 description={EXPERIMENTS_PRODUCT_DESCRIPTION}
-                docsURL="https://posthog.com/docs/experiments/installation?utm_medium=in-product&utm_campaign=new-experiment"
                 resourceType={{
                     type: 'experiment',
                 }}

@@ -61,6 +61,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -348,6 +349,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     return (
         <>
             <div className="feature-flag">
+                {isNewFeatureFlag && newSceneLayout && (
+                    <div className="mb-2 -ml-[var(--button-padding-x-lg)]">
+                        <SceneBreadcrumbBackButton />
+                    </div>
+                )}
                 {isNewFeatureFlag || isEditingFlag ? (
                     <Form
                         id="feature-flag"

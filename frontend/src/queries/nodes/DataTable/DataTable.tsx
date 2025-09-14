@@ -12,6 +12,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
+import { ViewLinkButton } from 'scenes/data-warehouse/ViewLinkModal'
 import { groupViewLogic } from 'scenes/groups/groupViewLogic'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
@@ -686,6 +687,9 @@ export function DataTable({
     ].filter((x) => !!x)
 
     const secondRowRight = [
+        sourceFeatures.has(QueryFeature.linkDataButton) && hasCrmIterationOneEnabled ? (
+            <ViewLinkButton tableName="groups" />
+        ) : null,
         (showColumnConfigurator || showPersistentColumnConfigurator) &&
         sourceFeatures.has(QueryFeature.columnConfigurator) ? (
             <ColumnConfigurator key="column-configurator" query={query} setQuery={setQuery} />

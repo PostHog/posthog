@@ -112,6 +112,7 @@ export enum AvailableFeature {
     REPLAY_DOM_EXPLORER = 'replay_dom_explorer',
     WORKS_WITH_POSTHOG_JS = 'works_with_posthog_js',
     REPLAY_AUTOMATIC_PLAYLISTS = 'replay_automatic_playlists',
+    MOBILE_REPLAY = 'mobile_replay',
     GROUP_ANALYTICS = 'group_analytics',
     SURVEYS_UNLIMITED_SURVEYS = 'surveys_unlimited_surveys',
     SURVEYS_ALL_QUESTION_TYPES = 'surveys_all_question_types',
@@ -218,6 +219,7 @@ export enum ProductKey {
     PERSONS = 'persons',
     SURVEYS = 'surveys',
     SESSION_REPLAY = 'session_replay',
+    MOBILE_REPLAY = 'mobile_replay',
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
@@ -844,38 +846,6 @@ export enum ExperimentsTabs {
 export enum ActivityTab {
     ExploreEvents = 'explore',
     LiveEvents = 'live',
-}
-
-export enum PipelineTab {
-    Overview = 'overview',
-    Transformations = 'transformations',
-    Destinations = 'destinations',
-    SiteApps = 'site-apps',
-    Sources = 'sources',
-    ImportApps = 'legacy-sources',
-    AppsManagement = 'apps-management',
-    History = 'history',
-}
-
-export enum PipelineStage {
-    Transformation = 'transformation',
-    Destination = 'destination',
-    Source = 'source',
-    SiteApp = 'site-app',
-    ImportApp = 'legacy-source',
-}
-
-export enum PipelineNodeTab {
-    Backfills = 'backfills',
-    Configuration = 'configuration',
-    Testing = 'testing',
-    Runs = 'runs',
-    Logs = 'logs',
-    Metrics = 'metrics',
-    History = 'history',
-    Schemas = 'schemas',
-    Syncs = 'syncs',
-    SourceConfiguration = 'source configuration',
 }
 
 export enum ProgressStatus {
@@ -1851,6 +1821,7 @@ export type BillingFeatureType = {
     } | null
     icon_key?: string | null
     entitlement_only?: boolean
+    is_plan_default?: boolean
     type?: 'primary' | 'secondary' | null
 }
 
@@ -1901,7 +1872,7 @@ export interface BillingProductV2Type {
     addons: BillingProductV2AddonType[]
     // addons-only: if this addon is included with the base product and not subscribed individually. for backwards compatibility.
     included_with_main_product?: boolean
-    trial?: BillingTrialType
+    trial?: BillingTrialType | null
     legacy_product?: boolean | null
 }
 
@@ -1931,9 +1902,14 @@ export interface BillingProductV2AddonType {
     free_allocation?: number | null
     percentage_usage?: number
     features: BillingFeatureType[]
-    included_if?: 'no_active_subscription' | 'has_subscription' | null
+    included_if?:
+        | 'no_active_subscription'
+        | 'has_subscription'
+        | 'no_active_parent_subscription'
+        | 'has_parent_subscription'
+        | null
     usage_limit?: number | null
-    trial?: BillingTrialType
+    trial?: BillingTrialType | null
     legacy_product?: boolean | null
 }
 export interface BillingType {
@@ -2007,7 +1983,12 @@ export interface BillingPlanType {
     current_plan?: boolean | null
     tiers?: BillingTierType[] | null
     unit_amount_usd: string | null
-    included_if?: 'no_active_subscription' | 'has_subscription' | null
+    included_if?:
+        | 'no_active_subscription'
+        | 'has_subscription'
+        | 'no_active_parent_subscription'
+        | 'has_parent_subscription'
+        | null
     initial_billing_limit?: number | null
     contact_support: boolean | null
 }
@@ -2443,6 +2424,7 @@ export type BreakdownType =
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 export type SimpleIntervalType = 'day' | 'month'
 export type SmoothingType = number
+export type InsightSceneSource = 'web-analytics' | 'llm-analytics'
 
 export enum InsightType {
     TRENDS = 'TRENDS',
@@ -4310,6 +4292,7 @@ export const INTEGRATION_KINDS = [
     'github',
     'meta-ads',
     'clickup',
+    'reddit-ads',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -4944,7 +4927,6 @@ export type BatchExportServiceRedshift = {
 // When adding a new option here also add a icon for it to
 // src/scenes/pipeline/icons/
 // and update RenderBatchExportIcon
-// and update batchExportServiceNames in pipelineNodeNewLogic
 export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
     'S3',
     'Snowflake',
