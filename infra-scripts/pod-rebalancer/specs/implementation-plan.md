@@ -8,13 +8,13 @@
 | 1 | 2. Environment Config & Logging | ✅ **COMPLETED** | `pl/ingestion/ingestion_pod_rebalancer` | `d96c791037` | 2025-01-13 |
 | 1 | 3. Prometheus Client & CPU Metrics | ✅ **COMPLETED** | `pl/ingestion/ingestion_pod_rebalancer` | `cffd3b4438` | 2025-01-13 |
 | 2 | 4. Pod State & Decision Engine | ✅ **COMPLETED** | `pl/ingestion/ingestion_pod_rebalancer` | `6b1927c61a` | 2025-09-14 |
-| 2 | 5. Kubernetes Pod Management | ✅ **COMPLETED** | `pl/ingestion/ingestion_pod_rebalancer` | `pending` | 2025-09-14 |
-| 3 | 6. Main Application Integration | ✅ **COMPLETED** | `pl/ingestion/ingestion_pod_rebalancer` | `pending` | 2025-09-14 |
+| 2 | 5. Kubernetes Pod Management | ✅ **COMPLETED** | `pl/ingestion/ingestion_pod_rebalancer` | `16a9038bd9` | 2025-09-14 |
+| 3 | 6. Main Application Integration | ✅ **COMPLETED** | `pl/ingestion/ingestion_pod_rebalancer` | `16a9038bd9` | 2025-09-14 |
 | 3 | 7. Docker & Documentation | 📋 **PLANNED** | `feat/deployment-and-docs` | - | - |
 
 ### Current State
 - **Active Branch**: `pl/ingestion/ingestion_pod_rebalancer`
-- **Last Completed**: Commit 6 - Main Application Integration (pending commit)
+- **Last Completed**: Commit 6 - Main Application Integration (16a9038bd9)
 - **Next Target**: Commit 7 - Docker & Documentation
 - **Project Location**: `/Users/posthog/Projects/src/PostHog/posthog/infra-scripts/pod-rebalancer/`
 
