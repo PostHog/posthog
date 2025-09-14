@@ -52,7 +52,19 @@ export function Exporter(props: ExportedData): JSX.Element {
                 setCommonFilters(exportedData.heatmap_context.common_filters)
             }
         }
-    }, [type])
+    }, [
+        type,
+        setHref,
+        setHeatmapFilters,
+        setHeatmapColorPalette,
+        setHeatmapFixedPositionMode,
+        exportedData.heatmap_context.common_filters,
+        exportedData.heatmap_context.heatmap_color_palette,
+        exportedData.heatmap_context.heatmap_filters,
+        exportedData.heatmap_context.heatmap_fixed_position_mode,
+        exportedData.heatmap_url,
+        setCommonFilters,
+    ])
 
     useEffect(() => {
         // NOTE: For embedded views we emit an event to indicate the content width / height to allow the parent to correctly resize
@@ -124,32 +136,27 @@ export function Exporter(props: ExportedData): JSX.Element {
                     accessToken={exportToken}
                 />
             ) : type === ExportType.Heatmap ? (
-                <div className="flex justify-center h-screen w-screen overflow-scroll heatmap-exporter">
-                    <div
-                        className="relative h-screen w-screen overflow-scroll"
+                <div className="flex justify-center h-screen w-screen overflow-scroll heatmap-exporter relative">
+                    <HeatmapCanvas
+                        positioning="absolute"
+                        widthOverride={null}
+                        context="in-app"
+                        exportToken={exportToken}
+                    />
+                    <iframe
+                        id="heatmap-iframe"
+                        ref={null}
+                        className="h-screen bg-white w-screen"
                         // eslint-disable-next-line react/forbid-dom-props
-                    >
-                        <HeatmapCanvas
-                            positioning="absolute"
-                            widthOverride={null}
-                            context="in-app"
-                            exportToken={exportToken}
-                        />
-                        <iframe
-                            id="heatmap-iframe"
-                            ref={null}
-                            className="h-screen bg-white w-screen"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            src={exportedData.heatmap_url ?? ''}
-                            onLoad={() => {}}
-                            // these two sandbox values are necessary so that the site and toolbar can run
-                            // this is a very loose sandbox,
-                            // but we specify it so that at least other capabilities are denied
-                            sandbox="allow-scripts allow-same-origin"
-                            // we don't allow things such as camera access though
-                            allow=""
-                        />
-                    </div>
+                        src={exportedData.heatmap_url ?? ''}
+                        onLoad={() => {}}
+                        // these two sandbox values are necessary so that the site and toolbar can run
+                        // this is a very loose sandbox,
+                        // but we specify it so that at least other capabilities are denied
+                        sandbox="allow-scripts allow-same-origin"
+                        // we don't allow things such as camera access though
+                        allow=""
+                    />
                 </div>
             ) : (
                 <h1 className="text-center p-4">Something went wrong...</h1>
