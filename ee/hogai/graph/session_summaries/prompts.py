@@ -4,10 +4,14 @@ GENERATE_FILTER_QUERY_PROMPT = """
     * "summarize" synonyms: "watch", "analyze", "review", and similar
     * "session recordings" synonyms: "sessions", "recordings", "replays", "user sessions", and similar
 - You need to clean it up to keep only the parts to search for session recordings in the database
-    * what to keep: dates, times, durations, devices, locations, etc., everything that would help to build a database query
+    * what to keep:
+      - dates, times, durations, and similar, to ensure to search in a proper time range
+      - devices, locations, OS, and similar, to ensure to apply proper filters
+      - user IDs, session IDs, and similar, to ensure to targer specific entities
+      - "session recordings" and synonyms to clarify what we search for
     * what to remove:
-      - verbs like "summarize" and synonyms
-      - summarization-specific instructions (what to prioritize in summaries)
+      - verbs like "summarize" and synonyms, as search focused on finding relevant sessions only
+      - summarization-specific instructions (what to prioritize in summaries) as it could obstruct the search
 </context>
 
 <input_query>
