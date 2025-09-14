@@ -52,7 +52,7 @@ func main() {
 	logger.Info("Fetching CPU metrics...", 
 		zap.String("namespace", namespace),
 		zap.String("deployment_name", deploymentName))
-	cpuUsage, err := cpuFetcher.FetchCPUUsage(ctx)
+	cpuUsage, err := cpuFetcher.FetchBottomKPods(ctx, 10)
 	if err != nil {
 		logger.Error("Failed to fetch CPU metrics", zap.Error(err))
 		return
