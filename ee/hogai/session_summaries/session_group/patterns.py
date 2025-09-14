@@ -438,7 +438,7 @@ def combine_patterns_with_events_context(
         combined_patterns.append(enriched_pattern)
     # If not enough patterns were properly enriched - fail the activity
     # Using `floor` as for small numbers of patterns - >30% could be filtered as "non-blocking only"
-    minimum_expected_patterns_count = floor(len(patterns.patterns) * FAILED_PATTERNS_ENRICHMENT_MIN_RATIO)
+    minimum_expected_patterns_count = max(1, floor(len(patterns.patterns) * FAILED_PATTERNS_ENRICHMENT_MIN_RATIO))
     successful_patterns_count = len(combined_patterns) + non_failed_empty_patterns_count
     failed_patterns_count = len(patterns.patterns) - successful_patterns_count
     if minimum_expected_patterns_count > successful_patterns_count:
