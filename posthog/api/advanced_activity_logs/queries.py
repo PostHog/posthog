@@ -188,7 +188,6 @@ class QueryBuilder:
         AND jsonb_typeof(detail->k1) = 'array'
         AND jsonb_typeof(elem.value) = 'object'
         AND jsonb_typeof(elem.value->k2) IN ('string', 'number', 'boolean')
-        AND k2 NOT IN ('after', 'before')
         GROUP BY scope, k1, k2
         HAVING COUNT(elem.value->>k2) >= 1
         ORDER BY scope, k1, k2
