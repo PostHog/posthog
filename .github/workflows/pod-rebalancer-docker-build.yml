@@ -1,0 +1,101 @@
+name: Build and deploy pod-rebalancer container image
+
+on:
+    workflow_dispatch:
+    push:
+        paths:
+            - 'infra-scripts/pod-rebalancer/**'
+            - '.github/workflows/pod-rebalancer-docker-build.yml'
+        branches:
+            - 'master'
+
+jobs:
+    build:
+        name: Build pod-rebalancer
+        runs-on: depot-ubuntu-22.04
+        permissions:
+            id-token: write # allow issuing OIDC tokens for this workflow run
+            contents: read # allow reading the repo contents
+            packages: write # allow push to ghcr.io
+
+        outputs:
+            pod-rebalancer_digest: ${{ steps.digest.outputs.pod-rebalancer_digest }}
+
+        defaults:
+            run:
+                working-directory: infra-scripts/pod-rebalancer
+
+        steps:
+            - name: Check Out Repo
+              uses: actions/checkout@v4
+              with:
+                  sparse-checkout: 'infra-scripts/pod-rebalancer/'
+                  sparse-checkout-cone-mode: false
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1
+
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3
+              with:
+                  image: tonistiigi/binfmt:latest
+                  platforms: all
+
+            - name: Login to ghcr.io
+              uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+                  logout: false
+
+            - name: Docker meta
+              id: meta
+              uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5
+              with:
+                  images: ghcr.io/posthog/posthog/pod-rebalancer
+                  tags: |
+                      type=ref,event=pr
+                      type=ref,event=branch
+                      type=semver,pattern={{version}}
+                      type=semver,pattern={{major}}.{{minor}}
+                      type=sha
+
+            - name: Set up Docker Buildx
+              id: buildx
+              uses: docker/setup-buildx-action@885d1462b80bc1c1c7f0b00334ad271f09369c55 # v2
+
+            - name: Build and push image
+              id: docker_build
+              uses: depot/build-push-action@2583627a84956d07561420dcc1d0eb1f2af3fac0 # v1
+              with:
+                  project: vznmbshh6q # PostHog's Depot project ID
+                  context: .
+                  file: ./deploy/docker/Dockerfile
+                  push: true
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+                  platforms: linux/amd64,linux/arm64
+                  cache-from: |
+                      type=gha
+                  cache-to: |
+                      type=gha,mode=max
+
+            - name: Get digest
+              id: digest
+              run: |
+                  echo "pod-rebalancer_digest=${{ steps.docker_build.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
+            - name: Summary
+              run: |
+                  echo "## Container Image Built 🐳" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "**Image**: \`ghcr.io/posthog/posthog/pod-rebalancer\`" >> $GITHUB_STEP_SUMMARY
+                  echo "**Tags**: \`${{ steps.meta.outputs.tags }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "**Digest**: \`${{ steps.docker_build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "**Platforms**: \`linux/amd64,linux/arm64\`" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "### Usage" >> $GITHUB_STEP_SUMMARY
+                  echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+                  echo "docker pull ghcr.io/posthog/posthog/pod-rebalancer:${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+                  echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
