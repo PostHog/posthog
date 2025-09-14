@@ -60,7 +60,7 @@ HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
 ENTRYPOINT ["/app/pod-rebalancer"]
 
 # Labels for metadata
-LABEL maintainer="PostHog Platform Team" \
+LABEL maintainer="PostHog Ingestion Team" \
       description="HPA-aware Kafka consumer pod rebalancer" \
       version="1.0.0" \
       org.opencontainers.image.source="https://github.com/PostHog/posthog" \
