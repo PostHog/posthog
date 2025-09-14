@@ -57,7 +57,6 @@ class SessionSummarizationNode(AssistantNode):
         super().__init__(*args, **kwargs)
         self._session_search = _SessionSearch(self)
         self._session_summarizer = _SessionSummarizer(self)
-        self._writer = self._get_stream_writer()
 
     def _get_stream_writer(self) -> StreamWriter | None:
         """Get the stream writer for custom events"""
@@ -73,7 +72,8 @@ class SessionSummarizationNode(AssistantNode):
 
     def _stream_progress(self, progress_message: str) -> None:
         """Push summarization progress as reasoning messages"""
-        if not self._writer:
+        writer = self._get_stream_writer()
+        if not writer:
             self.logger.warning(
                 "Stream writer is not available, cannot stream progress",
                 extra={"node": "SessionSummarizationNode", "message": progress_message},
@@ -81,12 +81,13 @@ class SessionSummarizationNode(AssistantNode):
             return
         message_chunk = prepare_reasoning_progress_message(progress_message)
         message = (message_chunk, {"langgraph_node": AssistantNodeName.SESSION_SUMMARIZATION})
-        self._writer(("session_summarization_node", "messages", message))
+        writer(("session_summarization_node", "messages", message))
         return
 
     def _stream_notebook_content(self, content: dict, state: AssistantState, partial: bool = True) -> None:
         """Stream TipTap content directly to a notebook if notebook_id is present in state."""
-        if not self._writer:
+        writer = self._get_stream_writer()
+        if not writer:
             self.logger.exception("Stream writer not available for notebook update")
             return
         # Check if we have a notebook_id in the state
@@ -103,7 +104,7 @@ class SessionSummarizationNode(AssistantNode):
             )
         # Stream the notebook update
         message = (notebook_message, {"langgraph_node": AssistantNodeName.SESSION_SUMMARIZATION})
-        self._writer(("session_summarization_node", "messages", message))
+        writer(("session_summarization_node", "messages", message))
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         start_time = time.time()
