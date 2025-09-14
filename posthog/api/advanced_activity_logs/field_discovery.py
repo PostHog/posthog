@@ -4,9 +4,10 @@ from typing import Any, TypedDict
 from django.db import connection
 from django.db.models import QuerySet
 
-from posthog.models.activity_logging.activity_log import Change
+from posthog.models.activity_logging.activity_log import ActivityLog, Change
 from posthog.models.utils import UUIDT
 
+from .fields_cache import cache_fields, get_cached_fields
 from .queries import QueryBuilder
 
 
@@ -19,10 +20,7 @@ DetailFieldsResult = dict[str, ScopeFields]
 
 class AdvancedActivityLogFieldDiscovery:
     """
-    Handles discovery and analysis of filterable fields in advanced activity log details.
-
-    This class analyzes the JSON structure of activity log detail fields to discover
-    what fields are available for filtering across different scopes.
+    Handles discovery and analysis of filterable fields in activity log details.
     """
 
     def __init__(self, organization_id: UUIDT):
@@ -74,26 +72,44 @@ class AdvancedActivityLogFieldDiscovery:
         return [{"value": activity} for activity in sorted(activities) if activity]
 
     def _analyze_detail_fields(self) -> DetailFieldsResult:
+        cached_data = get_cached_fields(str(self.organization_id))
+        if cached_data:
+            return cached_data
+
+        record_count = self._get_org_record_count()
+
         result: DetailFieldsResult = {}
 
         top_level_fields = self._get_top_level_fields()
         self._merge_fields_into_result(result, top_level_fields)
 
-        nested_fields = self._get_nested_fields()
+        nested_fields = self._compute_nested_fields_realtime()
         self._merge_fields_into_result(result, nested_fields)
 
         changes_fields = self._get_changes_fields()
         self._merge_fields_into_result(result, changes_fields)
 
+        cache_fields(str(self.organization_id), result, record_count)
+
         return result
 
-    def _get_nested_fields(self) -> list[tuple[str, str, list[str]]]:
-        """Discover nested fields like context.level, trigger.job_type."""
-        query, params = self.query_builder.build_nested_fields_query(str(self.organization_id))
+    def _get_org_record_count(self) -> int:
+        """Get count of activity log records for this organization."""
+        return ActivityLog.objects.filter(organization_id=self.organization_id).count()
 
+    def _compute_nested_fields_realtime(self) -> list[tuple[str, str, list[str]]]:
+        """Compute nested fields in real-time using iterative approach."""
+        queries = self.query_builder.build_nested_fields_queries(str(self.organization_id))
+
+        results = []
         with connection.cursor() as cursor:
-            cursor.execute(query, params)
-            return [(scope, field_name, field_types) for scope, field_name, field_types in cursor.fetchall()]
+            for query, params in queries:
+                cursor.execute(query, params)
+                results.extend(
+                    [(scope, field_name, field_types) for scope, field_name, field_types in cursor.fetchall()]
+                )
+
+        return results
 
     def _get_top_level_fields(self) -> list[tuple[str, str, list[str]]]:
         """Discover top-level fields like name, label."""
@@ -108,11 +124,30 @@ class AdvancedActivityLogFieldDiscovery:
             if scope not in result:
                 result[scope] = {"fields": []}
 
-            result[scope]["fields"].append({"name": field_name, "types": field_types})
+            existing_field = None
+            for existing in result[scope]["fields"]:
+                if existing["name"] == field_name:
+                    existing_field = existing
+                    break
+
+            if existing_field:
+                existing_types = set(existing_field["types"])
+                new_types = set(field_types)
+                existing_field["types"] = list(existing_types.union(new_types))
+            else:
+                result[scope]["fields"].append({"name": field_name, "types": field_types})
 
     def _get_changes_fields(self) -> list[tuple[str, str, list[str]]]:
         result = []
         for field in dataclasses.fields(Change):
-            field_name = f"changes.{field.name}"
-            result.append(("ActivityLog", field_name, ["string"]))  # TODO: dynamically generate types
+            field_name = f"changes[].{field.name}"
+            if field.name == "type":
+                field_types = ["string"]
+            elif field.name == "action":
+                field_types = ["string"]
+            elif field.name == "field":
+                field_types = ["string"]
+            else:
+                field_types = ["any"]
+            result.append(("General", field_name, field_types))
         return result
