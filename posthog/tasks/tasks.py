@@ -926,11 +926,11 @@ def background_delete_model_task(
 
 
 @shared_task(ignore_result=True)
-def refresh_activity_log_fields_cache():
+def refresh_activity_log_fields_cache() -> None:
     """Refresh fields cache for large organizations every 12 hours"""
     from django.db.models import Count
 
-    from posthog.api.advanced_activity_logs.field_discovery import AdvancedActivityLogFieldDiscovery
+    from posthog.api.advanced_activity_logs.field_discovery import AdvancedActivityLogFieldDiscovery, DetailFieldsResult
     from posthog.api.advanced_activity_logs.fields_cache import REALTIME_FIELD_DISCOVERY_THRESHOLD, cache_fields
     from posthog.exceptions_capture import capture_exception
     from posthog.models import Organization
@@ -948,7 +948,7 @@ def refresh_activity_log_fields_cache():
         try:
             discovery = AdvancedActivityLogFieldDiscovery(org.id)
 
-            result = {}
+            result: DetailFieldsResult = {}
 
             top_level_fields = discovery._get_top_level_fields()
             discovery._merge_fields_into_result(result, top_level_fields)
