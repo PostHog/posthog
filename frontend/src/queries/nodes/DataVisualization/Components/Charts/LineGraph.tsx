@@ -381,7 +381,7 @@ export const LineGraph = ({
                                     dataIndex: referenceDataPoint.dataIndex,
                                     isTotalRow: false,
                                 }
-                            })
+                            }).sort((a, b) => b.rawData - a.rawData)
 
                             const tooltipTotalData = ySeriesData.filter(
                                 (n) => n.settings?.formatting?.style !== 'percent'
