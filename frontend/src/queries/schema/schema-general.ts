@@ -652,7 +652,6 @@ export interface EntityNode extends Node {
     properties?: AnyPropertyFilter[]
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?: AnyPropertyFilter[]
-    optionalInFunnel?: boolean
 }
 
 export interface EventsNode extends EntityNode {
