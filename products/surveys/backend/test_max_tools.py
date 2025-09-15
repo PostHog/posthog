@@ -18,7 +18,7 @@ from posthog.schema import SurveyCreationSchema, SurveyQuestionSchema, SurveyQue
 
 from posthog.models import FeatureFlag, Survey
 
-from products.surveys.backend.max_tools import SurveyAnalysisOutput
+from products.surveys.backend.max_tools import SurveyAnalysisOutput, ThemeWithExamples
 
 from .max_tools import CreateSurveyTool, SurveyAnalysisTool, SurveyLoopNode, SurveyToolkit
 
@@ -570,7 +570,16 @@ class TestSurveyAnalysisTool(BaseTest):
         """Test successful response analysis with mocked LLM"""
         # Mock LLM response
         mock_response = {
-            "themes": ["User Interface", "Performance"],
+            "themes": [
+                ThemeWithExamples(
+                    theme="User Interface",
+                    description="Users like the design but want improvements",
+                    examples=["Great UI design", "Add dark mode"],
+                ),
+                ThemeWithExamples(
+                    theme="Performance", description="Users experience slow loading times", examples=["Slow loading"]
+                ),
+            ],
             "sentiment": "mixed",
             "insights": ["Users appreciate the design but want improvements"],
             "recommendations": ["Implement dark mode", "Optimize loading speed"],
@@ -667,7 +676,13 @@ class TestSurveyAnalysisTool(BaseTest):
                     from products.surveys.backend.max_tools import SurveyAnalysisOutput
 
                     return SurveyAnalysisOutput(
-                        themes=["Analysis completed"],
+                        themes=[
+                            ThemeWithExamples(
+                                theme="Analysis completed",
+                                description="Analysis completed with fallback method",
+                                examples=[],
+                            )
+                        ],
                         sentiment="neutral",
                         insights=[f"LLM Analysis: {response.content[:200]}..."],
                         recommendations=["Review the full analysis for detailed insights"],
@@ -708,7 +723,8 @@ class TestSurveyAnalysisTool(BaseTest):
         result = await tool._analyze_responses(responses_data, "comprehensive")
 
         # Should return fallback structure for JSON parsing failure
-        assert result.themes == ["Analysis completed"]
+        assert len(result.themes) == 1
+        assert result.themes[0].theme == "Analysis completed"
         assert result.sentiment == "neutral"
         assert "LLM Analysis" in result.insights[0]
 
@@ -752,7 +768,18 @@ class TestSurveyAnalysisTool(BaseTest):
         from products.surveys.backend.max_tools import SurveyAnalysisOutput
 
         analysis = SurveyAnalysisOutput(
-            themes=["User Interface", "Performance"],
+            themes=[
+                ThemeWithExamples(
+                    theme="User Interface",
+                    description="Users love the design",
+                    examples=["Great design", "Clean interface"],
+                ),
+                ThemeWithExamples(
+                    theme="Performance",
+                    description="Users want faster loading",
+                    examples=["Slow loading times", "Need optimization"],
+                ),
+            ],
             sentiment="mixed",
             insights=["Users love the design but want faster loading"],
             recommendations=["Implement caching", "Optimize images"],
@@ -763,14 +790,14 @@ class TestSurveyAnalysisTool(BaseTest):
         formatted = tool._format_analysis_for_user(analysis, "Test Product Survey")
 
         assert "✅ **Survey Analysis: 'Test Product Survey'**" in formatted
-        assert "**Key Themes:**" in formatted
+        assert "**🎯 Key Themes:**" in formatted
         assert "User Interface" in formatted
         assert "Performance" in formatted
-        assert "**Overall Sentiment:**" in formatted
+        assert "**📊 Overall Sentiment:**" in formatted
         assert "Mixed" in formatted
-        assert "**Key Insights:**" in formatted
+        assert "**💡 Key Insights:**" in formatted
         assert "Users love the design" in formatted
-        assert "**Recommendations:**" in formatted
+        assert "**🚀 Recommendations:**" in formatted
         assert "Implement caching" in formatted
         assert "5 open-ended responses" in formatted
 
@@ -779,7 +806,11 @@ class TestSurveyAnalysisTool(BaseTest):
         from products.surveys.backend.max_tools import SurveyAnalysisOutput
 
         analysis = SurveyAnalysisOutput(
-            themes=["Test Data"],
+            themes=[
+                ThemeWithExamples(
+                    theme="Test Data", description="Most responses appear to be test data", examples=["test", "asdf"]
+                )
+            ],
             sentiment="neutral",
             insights=["Most responses appear to be test data"],
             recommendations=["Collect genuine user feedback"],
@@ -789,9 +820,9 @@ class TestSurveyAnalysisTool(BaseTest):
         tool = self._setup_tool_with_context()
         formatted = tool._format_analysis_for_user(analysis, "Test Survey")
 
-        assert "**Key Themes:**" in formatted
+        assert "**🎯 Key Themes:**" in formatted
         assert "Test Data" in formatted
-        assert "**Key Insights:**" in formatted
+        assert "**💡 Key Insights:**" in formatted
         assert "Most responses appear" in formatted
 
     def test_format_analysis_for_user_error(self):
@@ -809,7 +840,7 @@ class TestSurveyAnalysisTool(BaseTest):
         tool = self._setup_tool_with_context()
         formatted = tool._format_analysis_for_user(analysis, "Test Survey")
 
-        assert "**Key Insights:**" in formatted
+        assert "**💡 Key Insights:**" in formatted
         assert "❌ Analysis failed" in formatted
         assert "LLM analysis failed due to API timeout" in formatted
 
@@ -850,7 +881,18 @@ class TestSurveyAnalysisTool(BaseTest):
 
         # Mock LLM response
         mock_analysis = {
-            "themes": ["Product Feedback", "Feature Requests"],
+            "themes": [
+                ThemeWithExamples(
+                    theme="Product Feedback",
+                    description="Users appreciate current features",
+                    examples=["Love the app but need dark mode", "Great overall experience"],
+                ),
+                ThemeWithExamples(
+                    theme="Feature Requests",
+                    description="Users want more customization options",
+                    examples=["Mobile version is slow"],
+                ),
+            ],
             "sentiment": "positive",
             "insights": ["Users appreciate current features but want more customization"],
             "recommendations": ["Add theme customization", "Improve mobile experience"],
