@@ -121,6 +121,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             {
                 resetHeatmapData: () => ({ results: [] }),
                 loadHeatmap: async (_, breakpoint) => {
+                    await breakpoint(150)
+
                     if (!values.href || !values.href.trim().length) {
                         return null
                     }
@@ -129,8 +131,6 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     }
 
                     actions.setIsReady(false)
-
-                    await breakpoint(150)
 
                     const { date_from, date_to, filter_test_accounts } = values.commonFilters
                     const { type, aggregation } = values.heatmapFilters
