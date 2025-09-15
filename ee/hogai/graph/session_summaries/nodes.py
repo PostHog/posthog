@@ -319,6 +319,11 @@ class _SessionSearch:
         )
         chain = prompt | model | StrOutputParser()
         filter_query = chain.invoke({}, config=config)
+        # Validate the generated filter query is not empty or just whitespace
+        if not filter_query or not filter_query.strip():
+            raise ValueError(
+                f"Filter query generated for session summarization is empty or just whitespace (initial query: {plain_text_query})"
+            )
         return filter_query
 
     async def search_sessions(
