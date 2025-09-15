@@ -73,4 +73,5 @@ class MetaAdsSource(BaseSource[MetaAdsSourceConfig]):
                 ],
             ),
             betaSource=True,
+            featureFlag="meta-ads-dwh",
         )

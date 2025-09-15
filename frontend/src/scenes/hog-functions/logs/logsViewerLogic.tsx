@@ -32,10 +32,11 @@ export const LOG_VIEWER_LIMIT = 100
 
 export type LogsViewerLogicProps = {
     logicKey?: string
-    sourceType: 'hog_function' | 'hog_flow' | 'batch_export'
+    sourceType: 'hog_function' | 'hog_flow' | 'batch_export' | 'external_data_jobs'
     sourceId: string
     groupByInstanceId?: boolean
     searchGroups?: string[]
+    defaultFilters?: Partial<LogEntryParams>
 }
 
 export type LogsViewerFilters = {
@@ -68,6 +69,7 @@ export type LogEntryParams = {
     dateFrom?: string
     dateTo?: string
     order: 'ASC' | 'DESC'
+    instanceId?: string
 }
 
 const toKey = (log: LogEntry): string => {
@@ -88,12 +90,16 @@ const buildBoundaryFilters = (request: LogEntryParams): string => {
     `
 }
 
-const buildSearchFilters = ({ searchGroups, levels }: LogEntryParams): string => {
+const buildSearchFilters = ({ searchGroups, levels, instanceId }: LogEntryParams): string => {
     let query = hogql`\nAND lower(level) IN (${hogql.raw(levels.map((level) => `'${level.toLowerCase()}'`).join(','))})`
 
     searchGroups.forEach((search) => {
         query = (query + hogql`\nAND message ILIKE '%${hogql.raw(search)}%'`) as HogQLQueryString
     })
+
+    if (instanceId) {
+        query = (query + hogql`\nAND instance_id = ${instanceId}`) as HogQLQueryString
+    }
 
     return query
 }
@@ -223,9 +229,9 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         filters: [
             {
                 search: '',
-                levels: DEFAULT_LOG_LEVELS,
-                date_from: '-7d',
-                date_to: undefined,
+                levels: props.defaultFilters?.levels ?? DEFAULT_LOG_LEVELS,
+                date_from: props.defaultFilters?.dateFrom ?? '-7d',
+                date_to: props.defaultFilters?.dateTo,
             } as LogsViewerFilters,
             {
                 setFilters: (state, { filters }) => ({
@@ -419,6 +425,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             (props, filters): LogEntryParams => {
                 const searchGroups = [filters.search, ...(props.searchGroups || [])].filter((x) => !!x) as string[]
                 return {
+                    ...props.defaultFilters,
                     levels: filters.levels,
                     searchGroups: searchGroups,
                     sourceType: props.sourceType,

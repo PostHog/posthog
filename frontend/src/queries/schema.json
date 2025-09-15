@@ -12265,13 +12265,13 @@
                 "person",
                 "cohort",
                 "group",
-                "insight_funnel",
-                "insight_trend",
-                "insight_retention",
-                "insight_user_path",
-                "insight_lifecycle",
-                "insight_stickiness",
-                "insight_hogql"
+                "insight/funnels",
+                "insight/trends",
+                "insight/retention",
+                "insight/paths",
+                "insight/lifecycle",
+                "insight/stickiness",
+                "insight/hog"
             ],
             "type": "string"
         },
@@ -23205,6 +23205,9 @@
                 },
                 "existingSource": {
                     "type": "boolean"
+                },
+                "featureFlag": {
+                    "type": "string"
                 },
                 "fields": {
                     "items": {
