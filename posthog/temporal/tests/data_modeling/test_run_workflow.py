@@ -1364,7 +1364,7 @@ async def test_create_table_activity_row_count_functionality(minio_client, activ
         async with asyncio.timeout(10):
             await activity_environment.run(create_table_activity, create_table_activity_inputs)
 
-    mock_create_table.assert_called_once_with(str(saved_query.id), ateam.pk)
+    mock_create_table.assert_called_once_with(str(job.id), str(saved_query.id), ateam.pk)
     mock_get_count.assert_called_once()
     await table.arefresh_from_db()
     assert table.row_count == 42
