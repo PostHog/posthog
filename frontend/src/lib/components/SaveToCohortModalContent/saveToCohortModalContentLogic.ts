@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { PaginationManual, lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { delay } from 'lib/utils'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
@@ -90,17 +91,24 @@ export const saveToCohortModalContentLogic = kea<saveToCohortModalContentLogicTy
             actions.loadCohorts()
         },
         saveQueryToCohort: async ({ cohort, query }) => {
+            const toastId = 'toast-' + Math.random()
             try {
+                lemonToast.info('Saving cohort...', { toastId, autoClose: false })
                 await api.update(`api/projects/${values.currentProjectId}/cohorts/${cohort.id}`, {
                     query: query,
                 })
+
+                await delay(500) // just in case the toast is too fast
+                lemonToast.dismiss(toastId)
                 lemonToast.success('Cohort saved', {
+                    toastId: `${toastId}-success`,
                     button: {
                         label: 'View cohort',
                         action: () => router.actions.push(urls.cohort(cohort.id)),
                     },
                 })
             } catch {
+                lemonToast.dismiss(toastId)
                 lemonToast.error('Cohort save failed')
             }
         },
