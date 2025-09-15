@@ -28,7 +28,7 @@ import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from 
 export function FunnelStepsTable(): JSX.Element | null {
     const { insightProps, insightLoading, editingDisabledReason } = useValues(insightLogic)
     const { breakdownFilter } = useValues(insightVizDataLogic(insightProps))
-    const { steps, flattenedBreakdowns, hiddenLegendBreakdowns, getFunnelsColor, isStepOptional } = useValues(
+    const { steps, flattenedBreakdowns, hiddenLegendBreakdowns, getFunnelsColor } = useValues(
         funnelDataLogic(insightProps)
     )
     const { setHiddenLegendBreakdowns, toggleLegendBreakdownVisibility, setBreakdownSortOrder } = useActions(
@@ -175,10 +175,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                     style={{ font: 'inherit', padding: 0 }}
                     size="small"
                 >
-                    <EntityFilterInfo
-                        filter={getActionFilterFromFunnelStep(step)}
-                        isOptional={isStepOptional(stepIndex + 1)}
-                    />
+                    <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
                 </LemonRow>
             ),
             children: [
