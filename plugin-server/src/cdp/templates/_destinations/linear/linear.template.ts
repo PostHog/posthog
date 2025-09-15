@@ -3,7 +3,7 @@ import { HogFunctionTemplate } from '~/cdp/types'
 export const template: HogFunctionTemplate = {
     status: 'stable',
     free: false,
-    type: 'destination',
+    type: 'internal_destination',
     id: 'template-linear',
     name: 'Linear',
     description: 'Creates an issue for a Linear team',
