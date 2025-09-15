@@ -180,7 +180,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         onClick={() => duplicateCohort(false)}
                         disabledReasons={{
                             'Save the cohort first': isNewCohort,
-                            'Cohort must be static to duplicate': !cohort.is_static,
+                            'Cohort must be dynamic to duplicate': cohort.is_static === true,
                             'Cohort is still calculating': cohort.is_calculating ?? false,
                         }}
                         menuItem
@@ -192,7 +192,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         onClick={() => duplicateCohort(true)}
                         disabledReasons={{
                             'Save the cohort first': isNewCohort,
-                            'Cohort must be static to duplicate': !cohort.is_static,
+                            'Cohort must be dynamic to duplicate': cohort.is_static === true,
                             'Cohort is still calculating': cohort.is_calculating ?? false,
                         }}
                         menuItem
@@ -218,24 +218,25 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
 
             <Form id="cohort" logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
                 <SceneContent>
-                    <SceneTitleSection
-                        name={cohort.name}
-                        description={cohort.description || ''}
-                        resourceType={{
-                            to: urls.cohorts(),
-                            type: RESOURCE_TYPE,
-                        }}
-                        isLoading={cohortLoading}
-                        onNameChange={(value) => {
-                            setCohortValue('name', value)
-                        }}
-                        onDescriptionChange={(value) => {
-                            setCohortValue('description', value)
-                        }}
-                        docsURL="https://posthog.com/docs/data/cohorts"
-                        canEdit
-                        forceEdit={isNewCohort}
-                    />
+                    <LemonField name="name">
+                        <SceneTitleSection
+                            name={cohort.name}
+                            description={cohort.description || ''}
+                            resourceType={{
+                                to: urls.cohorts(),
+                                type: RESOURCE_TYPE,
+                            }}
+                            isLoading={cohortLoading}
+                            onNameChange={(value) => {
+                                setCohortValue('name', value)
+                            }}
+                            onDescriptionChange={(value) => {
+                                setCohortValue('description', value)
+                            }}
+                            canEdit
+                            forceEdit={isNewCohort}
+                        />
+                    </LemonField>
 
                     <SceneDivider />
 

@@ -12268,13 +12268,13 @@
                 "person",
                 "cohort",
                 "group",
-                "insight_funnel",
-                "insight_trend",
-                "insight_retention",
-                "insight_user_path",
-                "insight_lifecycle",
-                "insight_stickiness",
-                "insight_hogql"
+                "insight/funnels",
+                "insight/trends",
+                "insight/retention",
+                "insight/paths",
+                "insight/lifecycle",
+                "insight/stickiness",
+                "insight/hog"
             ],
             "type": "string"
         },
@@ -14855,7 +14855,8 @@
                 "linear",
                 "github",
                 "meta-ads",
-                "clickup"
+                "clickup",
+                "reddit-ads"
             ],
             "type": "string"
         },
@@ -23208,11 +23209,17 @@
                 "existingSource": {
                     "type": "boolean"
                 },
+                "featureFlag": {
+                    "type": "string"
+                },
                 "fields": {
                     "items": {
                         "$ref": "#/definitions/SourceFieldConfig"
                     },
                     "type": "array"
+                },
+                "iconPath": {
+                    "type": "string"
                 },
                 "label": {
                     "type": "string"
@@ -23224,7 +23231,7 @@
                     "type": "boolean"
                 }
             },
-            "required": ["name", "caption", "fields"],
+            "required": ["name", "caption", "fields", "iconPath"],
             "type": "object"
         },
         "SourceFieldConfig": {

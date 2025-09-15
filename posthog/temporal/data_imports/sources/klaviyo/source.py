@@ -23,6 +23,7 @@ class KlaviyoSource(BaseSource[KlaviyoSourceConfig]):
             name=SchemaExternalDataSourceType.KLAVIYO,
             label="Klaviyo",
             caption="",
+            iconPath="/static/services/klaviyo.png",
             fields=cast(list[FieldType], []),
             unreleasedSource=True,
         )

@@ -6,6 +6,7 @@ import EmailEditor from 'react-email-editor'
 import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
+import { CyclotronJobTemplateSuggestionsButton } from 'lib/components/CyclotronJob/CyclotronJobTemplateSuggestions'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -209,6 +210,35 @@ function NativeEmailIntegrationChoice({
     )
 }
 
+function LiquidSupportedText({
+    value,
+    onChange,
+    globals,
+}: {
+    value: string
+    onChange: (value?: string) => void
+    globals: any
+}): JSX.Element {
+    const { templatingEngine } = useValues(emailTemplaterLogic)
+    const { setTemplatingEngine } = useActions(emailTemplaterLogic)
+
+    return (
+        <span className="flex grow group relative justify-between">
+            <span className="absolute top-0 right-2 z-20 p-px opacity-0 transition-opacity group-hover:opacity-100">
+                <CyclotronJobTemplateSuggestionsButton
+                    templating={templatingEngine}
+                    setTemplatingEngine={setTemplatingEngine}
+                    value={value}
+                    onOptionSelect={(option) => {
+                        onChange?.(`${value || ''}${option.example}`)
+                    }}
+                />
+            </span>
+            <CodeEditorInline embedded className="flex-1" globals={globals} value={value} onChange={onChange} />
+        </span>
+    )
+}
+
 function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Element {
     const { unlayerEditorProjectId, logicProps, appliedTemplate, templates, templatesLoading, mergeTags } =
         useValues(emailTemplaterLogic)
@@ -246,20 +276,20 @@ function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Elem
                                 {field.key === 'from' ? (
                                     <NativeEmailIntegrationChoice value={value} onChange={onChange} />
                                 ) : field.key === 'to' ? (
-                                    <CodeEditorInline
-                                        embedded
-                                        className="flex-1"
-                                        globals={logicProps.variables}
+                                    /**
+                                     * In email inputs, "to" maps to { email: string; name: string; },
+                                     * whereas other fields map directly to their string value
+                                     */
+                                    <LiquidSupportedText
                                         value={value?.email}
                                         onChange={(email) => onChange({ ...value, email })}
+                                        globals={logicProps.variables}
                                     />
                                 ) : (
-                                    <CodeEditorInline
-                                        embedded
-                                        className="flex-1"
-                                        globals={logicProps.variables}
+                                    <LiquidSupportedText
                                         value={value}
                                         onChange={onChange}
+                                        globals={logicProps.variables}
                                     />
                                 )}
                             </div>

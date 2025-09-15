@@ -14,7 +14,7 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 
-import { ContextDisplay } from '../../ContextDisplay'
+import { ContextDisplay } from '../../ContextDisplay/ContextDisplay'
 import { exceptionCardLogic } from '../exceptionCardLogic'
 import { SubHeader } from './SubHeader'
 
