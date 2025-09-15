@@ -67,8 +67,6 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         loadJoiningTablePreview: (tableName: string) => ({ tableName }),
         setSourceTablePreviewData: (data: Record<string, any>[]) => ({ data }),
         setJoiningTablePreviewData: (data: Record<string, any>[]) => ({ data }),
-        setSourceTablePreviewLoading: (loading: boolean) => ({ loading }),
-        setJoiningTablePreviewLoading: (loading: boolean) => ({ loading }),
         setIsJoinValid: (isValid: boolean) => ({ isValid }),
         validateJoin: () => {},
     })),
@@ -199,15 +197,15 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         sourceTablePreviewLoading: [
             false as boolean,
             {
-                setSourceTablePreviewLoading: (_, { loading }) => loading,
                 loadSourceTablePreview: () => true,
+                setSourceTablePreviewData: () => false,
             },
         ],
         joiningTablePreviewLoading: [
             false as boolean,
             {
-                setJoiningTablePreviewLoading: (_, { loading }) => loading,
                 loadJoiningTablePreview: () => true,
+                setJoiningTablePreviewData: () => false,
             },
         ],
     }),
@@ -303,18 +301,10 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             }
         },
         loadSourceTablePreview: async ({ tableName }) => {
-            await loadTablePreviewData(
-                tableName,
-                actions.setSourceTablePreviewData,
-                actions.setSourceTablePreviewLoading
-            )
+            await loadTablePreviewData(tableName, actions.setSourceTablePreviewData)
         },
         loadJoiningTablePreview: async ({ tableName }) => {
-            await loadTablePreviewData(
-                tableName,
-                actions.setJoiningTablePreviewData,
-                actions.setJoiningTablePreviewLoading
-            )
+            await loadTablePreviewData(tableName, actions.setJoiningTablePreviewData)
         },
         validateJoin: async () => {
             if (
@@ -436,8 +426,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
 
 async function loadTablePreviewData(
     tableName: string,
-    setDataAction: (data: Record<string, any>[]) => void,
-    setLoadingAction: (loading: boolean) => void
+    setDataAction: (data: Record<string, any>[]) => void
 ): Promise<void> {
     try {
         const response = await hogqlQuery(hogql`SELECT * FROM ${hogql.identifier(tableName)} LIMIT 10`)
@@ -448,7 +437,5 @@ async function loadTablePreviewData(
     } catch (error) {
         posthog.captureException(error)
         setDataAction([])
-    } finally {
-        setLoadingAction(false)
     }
 }
