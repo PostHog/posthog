@@ -88,8 +88,12 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
                                       hideInstanceIdColumn={true}
                                       defaultFilters={{
                                           instanceId: job.workflow_run_id,
-                                          dateFrom: dayjsUtcToTimezone(job.created_at, timezone).toISOString(),
-                                          dateTo: dayjsUtcToTimezone(job.finished_at, timezone).toISOString(),
+                                          dateFrom: dayjsUtcToTimezone(job.created_at, timezone)
+                                              .add(-1, 'day')
+                                              .toISOString(),
+                                          dateTo: dayjsUtcToTimezone(job.finished_at, timezone)
+                                              .add(1, 'day')
+                                              .toISOString(),
                                           levels: showDebugLogs ? ['DEBUG', ...LOG_LEVELS] : LOG_LEVELS,
                                       }}
                                   />
