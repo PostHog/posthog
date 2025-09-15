@@ -1,10 +1,14 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
-import { PaginationManual } from '@posthog/lemon-ui'
+import { PaginationManual, lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { projectLogic } from 'scenes/projectLogic'
+import { urls } from 'scenes/urls'
 
+import { ActorsQuery } from '~/queries/schema/schema-general'
 import { CohortType } from '~/types'
 
 import type { saveToCohortModalContentLogicType } from './saveToCohortModalContentLogicType'
@@ -25,8 +29,12 @@ const DEFAULT_COHORT_FILTERS: CohortFilters = {
 
 export const saveToCohortModalContentLogic = kea<saveToCohortModalContentLogicType>([
     path(['lib', 'components', 'SaveToCohortModal', 'saveToCohortModalContentLogic']),
+    connect(() => ({
+        values: [projectLogic, ['currentProjectId']],
+    })),
     actions({
         setCohortFilters: (filters: Partial<CohortFilters>) => ({ filters }),
+        saveQueryToCohort: (cohort: CohortType, query: ActorsQuery) => ({ cohort, query }),
     }),
     reducers({
         cohorts: [{ count: 0, results: [] }],
@@ -77,9 +85,24 @@ export const saveToCohortModalContentLogic = kea<saveToCohortModalContentLogicTy
             },
         ],
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setCohortFilters: async () => {
             actions.loadCohorts()
+        },
+        saveQueryToCohort: async ({ cohort, query }) => {
+            try {
+                await api.update(`api/projects/${values.currentProjectId}/cohorts/${cohort.id}`, {
+                    query: query,
+                })
+                lemonToast.success('Cohort saved', {
+                    button: {
+                        label: 'View cohort',
+                        action: () => router.actions.push(urls.cohort(cohort.id)),
+                    },
+                })
+            } catch {
+                lemonToast.error('Cohort save failed')
+            }
         },
     })),
     afterMount(({ actions }) => {

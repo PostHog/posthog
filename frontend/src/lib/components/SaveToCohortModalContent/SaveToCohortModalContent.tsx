@@ -5,17 +5,19 @@ import { LemonButton, LemonInput, LemonTable, LemonTableColumns } from '@posthog
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
+import { ActorsQuery } from '~/queries/schema/schema-general'
 import { CohortType } from '~/types'
 
 import { saveToCohortModalContentLogic } from './saveToCohortModalContentLogic'
 
 interface SaveToCohortModalContentProps {
     closeModal: () => void
+    query: ActorsQuery
 }
 
-export function SaveToCohortModalContent({ closeModal }: SaveToCohortModalContentProps): JSX.Element {
+export function SaveToCohortModalContent({ closeModal, query }: SaveToCohortModalContentProps): JSX.Element {
     const { cohorts, cohortsLoading, pagination, cohortFilters } = useValues(saveToCohortModalContentLogic)
-    const { setCohortFilters } = useActions(saveToCohortModalContentLogic)
+    const { setCohortFilters, saveQueryToCohort } = useActions(saveToCohortModalContentLogic)
 
     const columns: LemonTableColumns<CohortType> = [
         {
@@ -42,6 +44,7 @@ export function SaveToCohortModalContent({ closeModal }: SaveToCohortModalConten
                         size="xsmall"
                         type="primary"
                         onClick={() => {
+                            saveQueryToCohort(cohort, query)
                             closeModal()
                         }}
                     >
@@ -53,17 +56,15 @@ export function SaveToCohortModalContent({ closeModal }: SaveToCohortModalConten
     ]
     return (
         <div className="text-muted mb-2 w-160">
-            <div className="flex justify-between gap-2 flex-wrap">
-                <LemonInput
-                    className="w-48"
-                    type="search"
-                    placeholder="Search for cohorts"
-                    onChange={(search) => {
-                        setCohortFilters({ search: search || undefined, page: 1 })
-                    }}
-                    value={cohortFilters.search}
-                />
-            </div>
+            <LemonInput
+                className="w-48 mb-2"
+                type="search"
+                placeholder="Search for cohorts"
+                onChange={(search) => {
+                    setCohortFilters({ search: search || undefined, page: 1 })
+                }}
+                value={cohortFilters.search}
+            />
             <LemonTable
                 columns={columns}
                 loading={cohortsLoading}
