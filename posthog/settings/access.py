@@ -30,8 +30,32 @@ raw_site_url = os.getenv("SITE_URL")
 CSRF_TRUSTED_ORIGINS = (
     [raw_site_url.rstrip("/")]
     if raw_site_url
-    else ["http://localhost:8000", "http://localhost:8010"]  # 8000 is just Django, 8010 is Django + Capture via Caddy
+    else [
+        "http://localhost:8000",
+        "http://localhost:8010",
+        "https://localhost:8000",
+        "https://localhost:8010",
+        "http://posthog.local:8000",
+        "http://posthog.local:8010",
+        "https://posthog.local:8000",
+        "https://posthog.local:8010",
+        "https://posthog.local",
+        "http://127.0.0.1:8000",
+        "http://127.0.0.1:8010",
+        "https://127.0.0.1:8000",
+        "https://127.0.0.1:8010",
+    ]  # 8000 is just Django, 8010 is Django + Capture via Caddy
 )
+
+# In development, exempt event ingestion endpoints from CSRF protection
+if DEBUG:
+    CSRF_EXEMPT_URLS = [
+        r"^i/v0/e/",
+        r"^e/",
+        r"^capture/",
+        r"^decide/",
+        r"^batch/",
+    ]
 
 # Proxy settings
 IS_BEHIND_PROXY = get_from_env("IS_BEHIND_PROXY", False, type_cast=str_to_bool)
@@ -55,7 +79,18 @@ if IS_BEHIND_PROXY:
 
 # IP Block settings
 ALLOWED_IP_BLOCKS = get_list(os.getenv("ALLOWED_IP_BLOCKS", ""))
-ALLOWED_HOSTS = get_list(os.getenv("ALLOWED_HOSTS", "*"))
+ALLOWED_HOSTS = [
+    *get_list(os.getenv("ALLOWED_HOSTS", "*")),
+    "posthog.local",
+    "posthog.local:8000",
+    "posthog.local:8010",
+    "localhost",
+    "localhost:8000",
+    "localhost:8010",
+    "127.0.0.1",
+    "127.0.0.1:8000",
+    "127.0.0.1:8010",
+]
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.2/howto/deployment/checklist/
