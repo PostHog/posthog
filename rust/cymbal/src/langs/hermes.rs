@@ -163,3 +163,130 @@ impl From<(&RawHermesFrame, Token<'_>, Option<String>)> for Frame {
         res
     }
 }
+
+#[cfg(test)]
+mod test {
+    use std::sync::Arc;
+
+    use chrono::Utc;
+    use mockall::predicate;
+    use posthog_symbol_data::write_symbol_data;
+    use regex::Regex;
+    use sqlx::PgPool;
+    use uuid::Uuid;
+
+    use crate::{
+        config::Config,
+        frames::RawFrame,
+        langs::{hermes::RawHermesFrame, CommonFrameMetadata},
+        symbol_store::{
+            chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider, saving::SymbolSetRecord,
+            sourcemap::SourcemapProvider, Catalog, S3Client,
+        },
+    };
+
+    const HERMES_MAP: &str = include_str!("../../tests/static/hermes/composed_example.map");
+    const RAW_STACK: &str = include_str!("../../tests/static/hermes/raw_stack.txt");
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_hermes_resolution(db: PgPool) {
+        let team_id = 1;
+        let mut config = Config::init_with_defaults().unwrap();
+        config.object_storage_bucket = "test-bucket".to_string();
+
+        let chunk_id = Uuid::now_v7().to_string();
+
+        let mut record = SymbolSetRecord {
+            id: Uuid::now_v7(),
+            team_id,
+            set_ref: chunk_id.clone(),
+            storage_ptr: Some(chunk_id.clone()),
+            failure_reason: None,
+            created_at: Utc::now(),
+            content_hash: Some("fake-hash".to_string()),
+            last_used: Some(Utc::now()),
+        };
+
+        record.save(&db).await.unwrap();
+
+        let mut client = S3Client::default();
+
+        client
+            .expect_get()
+            .with(
+                predicate::eq(config.object_storage_bucket.clone()),
+                predicate::eq(chunk_id.clone()), // We set the chunk id as the storage ptr above, in production it will be a different value with a prefix
+            )
+            .returning(|_, _| Ok(get_symbol_data_bytes()));
+
+        let client = Arc::new(client);
+
+        let hmp = HermesMapProvider {};
+        let hmp = ChunkIdFetcher::new(
+            hmp,
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let smp = SourcemapProvider::new(&config);
+        let smp = ChunkIdFetcher::new(
+            smp,
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let c = Catalog::new(smp, hmp);
+
+        for (raw_frame, expected_name) in get_frames(chunk_id) {
+            let res = raw_frame.resolve(team_id, &c).await.unwrap();
+            println!("GOT FRAME: {}", serde_json::to_string_pretty(&res).unwrap());
+            assert!(res.resolved);
+            assert_eq!(res.resolved_name, expected_name)
+        }
+    }
+
+    fn get_frames(chunk_id: String) -> Vec<(RawFrame, Option<String>)> {
+        let frame_regex = Regex::new(r"at\s+(\S+)\s+\(address at\s+[^:]+:(\d+):(\d+)\)").unwrap();
+        let mut frames = Vec::new();
+
+        let expected_names = [
+            Some("c"),
+            Some("b"),
+            Some("a"),
+            Some("loadModuleImplementation"),
+            Some("guardedLoadModule"),
+            Some("metroRequire"),
+            None,
+        ];
+
+        for (captures, expected) in frame_regex
+            .captures_iter(RAW_STACK)
+            .zip(expected_names.iter())
+        {
+            let name = &captures[1];
+            let _line: u32 = captures[2].parse().unwrap();
+            let col: u32 = captures[3].parse().unwrap();
+
+            let frame = RawHermesFrame {
+                column: col,
+                source: String::new(),
+                fn_name: name.to_string(),
+                chunk_id: Some(chunk_id.clone()),
+                meta: CommonFrameMetadata::default(),
+            };
+
+            frames.push((RawFrame::Hermes(frame), expected.map(String::from)));
+        }
+
+        frames
+    }
+
+    fn get_symbol_data_bytes() -> Vec<u8> {
+        write_symbol_data(posthog_symbol_data::HermesMap {
+            sourcemap: HERMES_MAP.to_string(),
+        })
+        .unwrap()
+    }
+}
