@@ -519,26 +519,38 @@ async def saved_queries(ateam):
       from events
       where events.event = '$pageview'
     """
-    parent_saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+    parent_saved_query = DataWarehouseSavedQuery(
         team=ateam,
         name="my_model",
         query={"query": parent_query, "kind": "HogQLQuery"},
     )
-    child_saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+    parent_saved_query.columns = await sync_to_async(parent_saved_query.get_columns)()
+    await parent_saved_query.asave()
+
+    child_saved_query = DataWarehouseSavedQuery(
         team=ateam,
         name="my_model_child",
         query={"query": "select * from my_model where distinct_id = 'b'", "kind": "HogQLQuery"},
     )
-    child_2_saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+    child_saved_query.columns = await sync_to_async(child_saved_query.get_columns)()
+    await child_saved_query.asave()
+
+    child_2_saved_query = DataWarehouseSavedQuery(
         team=ateam,
         name="my_model_child_2",
         query={"query": "select * from my_model where distinct_id = 'a'", "kind": "HogQLQuery"},
     )
-    grand_child_saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+    child_2_saved_query.columns = await sync_to_async(child_2_saved_query.get_columns)()
+    await child_2_saved_query.asave()
+
+    grand_child_saved_query = DataWarehouseSavedQuery(
         team=ateam,
         name="my_model_grand_child",
         query={"query": "select * from my_model_child union all select * from my_model_child_2", "kind": "HogQLQuery"},
     )
+    grand_child_saved_query.columns = await sync_to_async(grand_child_saved_query.get_columns)()
+    await grand_child_saved_query.asave()
+
     await database_sync_to_async(DataWarehouseModelPath.objects.create_from_saved_query)(parent_saved_query)
     await database_sync_to_async(DataWarehouseModelPath.objects.create_from_saved_query)(child_saved_query)
     await database_sync_to_async(DataWarehouseModelPath.objects.create_from_saved_query)(child_2_saved_query)

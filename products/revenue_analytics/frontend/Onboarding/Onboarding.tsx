@@ -3,12 +3,12 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { PRODUCT_DESCRIPTION, PRODUCT_KEY, PRODUCT_NAME, PRODUCT_THING_NAME } from '../RevenueAnalyticsScene'
 import { InlineSetup, InlineSetupView } from './InlineSetup'
 
-// NOTE: This should NOT be used except for testing purposes (storybook)
 interface OnboardingProps {
-    initialSetupView?: InlineSetupView
+    closeOnboarding: () => void
+    initialSetupView?: InlineSetupView // NOTE: This should NOT be used except for testing purposes (storybook)
 }
 
-export const Onboarding = ({ initialSetupView }: OnboardingProps): JSX.Element => {
+export const Onboarding = ({ initialSetupView, closeOnboarding }: OnboardingProps): JSX.Element => {
     return (
         <div className="space-y-6">
             <ProductIntroduction
@@ -20,7 +20,7 @@ export const Onboarding = ({ initialSetupView }: OnboardingProps): JSX.Element =
                 titleOverride="Get started with Revenue Analytics"
             />
 
-            <InlineSetup initialSetupView={initialSetupView} />
+            <InlineSetup initialSetupView={initialSetupView} closeOnboarding={closeOnboarding} />
         </div>
     )
 }

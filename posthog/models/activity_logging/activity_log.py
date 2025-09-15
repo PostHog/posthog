@@ -119,10 +119,28 @@ class ActivityLog(UUIDTModel):
         ]
         indexes = [
             models.Index(fields=["team_id", "scope", "item_id"]),
+            models.Index(
+                fields=["organization_id", "scope", "-created_at"],
+                name="idx_alog_org_scope_created_at",
+                condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
+            ),
+            models.Index(
+                fields=["organization_id"],
+                name="idx_alog_org_detail_exists",
+                condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
+            ),
+            # Used for searching on the detail field, e.g. containing a specific value
             GinIndex(
                 name="activitylog_detail_gin",
                 fields=["detail"],
                 opclasses=["jsonb_ops"],
+            ),
+            # Used primarily for available_filters queries
+            GinIndex(
+                name="idx_alog_detail_gin_path_ops",
+                fields=["detail"],
+                opclasses=["jsonb_path_ops"],
+                condition=models.Q(detail__isnull=False),
             ),
         ]
 
@@ -317,6 +335,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "id",
         "secret_api_token",
         "secret_api_token_backup",
+        "_old_api_token",
     ],
     "Project": ["id", "created_at"],
     "DataWarehouseSavedQuery": [

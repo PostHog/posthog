@@ -14,6 +14,7 @@ import IconLinear from 'public/services/linear.png'
 import IconLinkedIn from 'public/services/linkedin.png'
 import IconMailjet from 'public/services/mailjet.png'
 import IconMetaAds from 'public/services/meta-ads.png'
+import IconReddit from 'public/services/reddit.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
 import IconSnapchat from 'public/services/snapchat.png'
@@ -36,20 +37,26 @@ export const ICONS: Record<IntegrationKind, any> = {
     'meta-ads': IconMetaAds,
     twilio: IconTwilio,
     clickup: IconClickUp,
+    'reddit-ads': IconReddit,
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {
-    return kind == 'google-pubsub'
-        ? 'Google Cloud Pub/Sub'
-        : kind == 'google-cloud-storage'
-          ? 'Google Cloud Storage'
-          : kind == 'google-ads'
-            ? 'Google Ads'
-            : kind == 'linkedin-ads'
-              ? 'LinkedIn Ads'
-              : kind == 'email'
-                ? 'email'
-                : kind == 'github'
-                  ? 'GitHub'
-                  : capitalizeFirstLetter(kind)
+    switch (kind) {
+        case 'google-pubsub':
+            return 'Google Cloud Pub/Sub'
+        case 'google-cloud-storage':
+            return 'Google Cloud Storage'
+        case 'google-ads':
+            return 'Google Ads'
+        case 'linkedin-ads':
+            return 'LinkedIn Ads'
+        case 'reddit-ads':
+            return 'Reddit Ads'
+        case 'email':
+            return 'email'
+        case 'github':
+            return 'GitHub'
+        default:
+            return capitalizeFirstLetter(kind)
+    }
 }
