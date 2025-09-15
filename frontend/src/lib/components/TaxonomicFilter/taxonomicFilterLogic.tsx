@@ -19,6 +19,7 @@ import {
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import { Link } from 'lib/lemon-ui/Link'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, isString, pluralize, toParams } from 'lib/utils'
 import {
@@ -216,6 +217,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.allowNonCapturedEvents],
             (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
         ],
+        hideBehavioralCohorts: [
+            () => [(_, props) => props.hideBehavioralCohorts],
+            (hideBehavioralCohorts: boolean | undefined) => hideBehavioralCohorts ?? false,
+        ],
         taxonomicGroups: [
             (s) => [
                 s.currentTeam,
@@ -229,6 +234,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.eventMetadataPropertyDefinitions,
                 s.eventOrdering,
                 s.maxContextOptions,
+                s.hideBehavioralCohorts,
             ],
             (
                 currentTeam: TeamType,
@@ -241,7 +247,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 propertyFilters,
                 eventMetadataPropertyDefinitions: PropertyDefinition[],
                 eventOrdering: string | null,
-                maxContextOptions: MaxContextTaxonomicFilterOption[]
+                maxContextOptions: MaxContextTaxonomicFilterOption[],
+                hideBehavioralCohorts: boolean
             ): TaxonomicFilterGroup[] => {
                 const { id: teamId } = currentTeam
                 const { excludedProperties, propertyAllowList } = propertyFilters
@@ -554,6 +561,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getIcon: function _getIcon(): JSX.Element {
                             return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
                         },
+                        footerMessage: hideBehavioralCohorts ? (
+                            <>
+                                Some cohorts excluded due to containing behavioral filters.{' '}
+                                <Link to="https://posthog.com/docs/feature-flags/common-questions#why-cant-i-use-a-cohort-with-behavioral-filters-in-my-feature-flag">
+                                    Learn more about cohort limitations.
+                                </Link>
+                            </>
+                        ) : undefined,
                     },
                     {
                         name: 'Cohorts',
