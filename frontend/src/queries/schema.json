@@ -24464,7 +24464,6 @@
                     "$ref": "#/definitions/QueryLogTags"
                 },
                 "traceId": {
-                    "description": "ID of the trace to retrieve details for",
                     "type": "string"
                 },
                 "version": {

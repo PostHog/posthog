@@ -10734,7 +10734,7 @@ class TraceQuery(BaseModel):
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[TracesQueryResponse] = None
     tags: Optional[QueryLogTags] = None
-    traceId: str = Field(..., description="ID of the trace to retrieve details for")
+    traceId: str
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
