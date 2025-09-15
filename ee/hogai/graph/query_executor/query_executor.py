@@ -76,7 +76,7 @@ class AssistantQueryExecutor:
         _utc_now_datetime: Current UTC datetime for time-based calculations
     """
 
-    WAIT_TIME_MS = 300
+    WAIT_TIME_S = 0.2
 
     def __init__(self, team: Team, utc_now_datetime: datetime):
         self._team = team
@@ -263,7 +263,7 @@ class AssistantQueryExecutor:
                 if not query_status["complete"]:
                     polling_start = time.time()
                     poll_count = 0
-                    total_wait_ms = 0
+                    total_wait_s = 0.0
 
                     if debug_timing:
                         logger.warning(
@@ -272,24 +272,26 @@ class AssistantQueryExecutor:
 
                     # Poll async query until completion
                     # Total wait time: 5 minutes with linear increments
-                    while total_wait_ms <= 60 * 5 * 1000:
+                    while total_wait_s <= 60 * 5:
                         poll_count += 1
-                        total_wait_ms += self.WAIT_TIME_MS
+                        total_wait_s += self.WAIT_TIME_S
 
                         if poll_count % 10 == 0 and debug_timing:  # Log every 10 polls
                             logger.warning(
-                                f"{TIMING_LOG_PREFIX} Polling attempt {poll_count}, total wait: {total_wait_ms/1000:.1f}s"
+                                f"{TIMING_LOG_PREFIX} Polling attempt {poll_count}, total wait: {total_wait_s:.1f}s"
                             )
 
-                        await asyncio.sleep(self.WAIT_TIME_MS)
+                        await asyncio.sleep(self.WAIT_TIME_S)  # wait in seconds
 
                         status_check_start = time.time()
                         # Fast operation–Redis access
                         query_status_res = await database_sync_to_async(get_query_status, thread_sensitive=True)(
                             team_id=self._team.pk, query_id=query_status["id"]
                         )
-                        query_status = query_status_res.model_dump(mode="json")
                         status_check_elapsed = time.time() - status_check_start
+                        total_wait_s += status_check_elapsed
+
+                        query_status = query_status_res.model_dump(mode="json")
 
                         if status_check_elapsed > 0.5 and debug_timing:  # Log slow status checks
                             logger.warning(f"{TIMING_LOG_PREFIX} Slow status check: {status_check_elapsed:.3f}s")
