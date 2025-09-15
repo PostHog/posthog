@@ -241,7 +241,7 @@ class DeepResearchReportNode(DeepResearchNode):
             frozen = AssistantDateRange(date_from=resolver.date_from_str, date_to=resolver.date_to_str)
 
             # Mutate the query in place
-            query.dateRange = frozen  # type: ignore[attr-defined]
+            query.dateRange = frozen
             artifact.query = query
 
     def _get_interval_for_query(self, query) -> IntervalType:
@@ -255,7 +255,7 @@ class DeepResearchReportNode(DeepResearchNode):
 
         # Retention derives granularity from retentionFilter.period
         if isinstance(query, AssistantRetentionQuery):
-            period = query.retentionFilter and query.retentionFilter.period
+            period = query.retentionFilter.period if query.retentionFilter else None
 
             # Map retention periods to interval types
             period_to_interval = {
@@ -264,6 +264,7 @@ class DeepResearchReportNode(DeepResearchNode):
                 RetentionPeriod.MONTH: IntervalType.MONTH,
             }
 
-            return period_to_interval.get(period, IntervalType.DAY)
+            if period is not None:
+                return period_to_interval.get(period, IntervalType.DAY)
 
         return IntervalType.DAY
