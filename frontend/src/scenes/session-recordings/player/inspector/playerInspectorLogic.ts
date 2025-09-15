@@ -15,6 +15,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventToDescription, humanizeBytes, objectsEqual, toParams } from 'lib/utils'
+import { getText } from 'scenes/comments/Comment'
 import {
     InspectorListItemPerformance,
     performanceEventDataLogic,
@@ -635,7 +636,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             windowId: windowIdForTimestamp(timestamp.valueOf()),
                             windowNumber: windowNumberForID(windowIdForTimestamp(timestamp.valueOf())),
                             data: comment,
-                            search: comment.content,
+                            search: getText(comment),
                         }
                         items.push(item)
                     }

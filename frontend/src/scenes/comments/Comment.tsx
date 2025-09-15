@@ -226,7 +226,7 @@ export const CommentWithReplies = ({ commentWithReplies }: CommentProps): JSX.El
     )
 }
 
-function getText(comment: CommentType): string {
+export function getText(comment: CommentType): string {
     // This is only temporary until all comments are backfilled to rich content
     const content = comment.rich_content
         ? comment.rich_content
