@@ -38,12 +38,12 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             {"name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
                 "slug": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-            },
-            response.json(),
+            }.items(),
+            response.json().items(),
         )
 
         response = self.client.post(
@@ -51,12 +51,12 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             {"name": "#XXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxX"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "name": "#XXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxX",
                 "slug": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-YYYY",
-            },
-            response.json(),
+            }.items(),
+            response.json().items(),
         )
 
     @patch("posthog.api.organization.delete_bulky_postgres_data")

@@ -92,7 +92,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                 available_timezones = cast(dict, response).pop("available_timezones")
 
                 self.assertEqual(response, self.preflight_authenticated_dict())
-                self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
+                self.assertLessEqual({"Europe/Moscow": 3, "UTC": 0}.items(), available_timezones.items())
 
     @patch("posthog.storage.object_storage._client")
     def test_preflight_request_with_object_storage_available(self, patched_s3_client):
@@ -112,7 +112,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                     response,
                     self.preflight_authenticated_dict({"object_storage": True}),
                 )
-                self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
+                self.assertLessEqual({"Europe/Moscow": 3, "UTC": 0}.items(), available_timezones.items())
 
     @pytest.mark.ee
     def test_cloud_preflight_request_unauthenticated(self):
@@ -171,7 +171,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                         }
                     ),
                 )
-                self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
+                self.assertLessEqual({"Europe/Moscow": 3, "UTC": 0}.items(), available_timezones.items())
 
     @pytest.mark.ee
     @snapshot_postgres_queries
@@ -221,7 +221,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                         }
                     ),
                 )
-                self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
+                self.assertLessEqual({"Europe/Moscow": 3, "UTC": 0}.items(), available_timezones.items())
 
     @pytest.mark.skip_on_multitenancy
     def test_demo(self):

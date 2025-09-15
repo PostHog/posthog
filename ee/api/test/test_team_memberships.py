@@ -25,12 +25,12 @@ class TestTeamMembershipsAPI(APILicensedTest):
         response = self.client.post("/api/projects/@current/explicit_members/", {"user_uuid": new_user.uuid})
         response_data = response.json()
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "effective_level": ExplicitTeamMembership.Level.MEMBER,
                 "level": ExplicitTeamMembership.Level.MEMBER,
-            },
-            response_data,
+            }.items(),
+            response_data.items(),
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -47,12 +47,12 @@ class TestTeamMembershipsAPI(APILicensedTest):
         response = self.client.post("/api/projects/@current/explicit_members/", {"user_uuid": new_user.uuid})
         response_data = response.json()
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "effective_level": ExplicitTeamMembership.Level.MEMBER,
                 "level": ExplicitTeamMembership.Level.MEMBER,
-            },
-            response_data,
+            }.items(),
+            response_data.items(),
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -151,12 +151,12 @@ class TestTeamMembershipsAPI(APILicensedTest):
         response = self.client.post("/api/projects/@current/explicit_members/", {"user_uuid": new_user.uuid})
         response_data = response.json()
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "effective_level": ExplicitTeamMembership.Level.MEMBER,
                 "level": ExplicitTeamMembership.Level.MEMBER,
-            },
-            response_data,
+            }.items(),
+            response_data.items(),
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -176,12 +176,12 @@ class TestTeamMembershipsAPI(APILicensedTest):
         response = self.client.post("/api/projects/@current/explicit_members/", {"user_uuid": new_user.uuid})
         response_data = response.json()
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "effective_level": ExplicitTeamMembership.Level.MEMBER,
                 "level": ExplicitTeamMembership.Level.MEMBER,
-            },
-            response_data,
+            }.items(),
+            response_data.items(),
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -197,12 +197,12 @@ class TestTeamMembershipsAPI(APILicensedTest):
         )
         response_data = response.json()
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "effective_level": ExplicitTeamMembership.Level.ADMIN,
                 "level": ExplicitTeamMembership.Level.ADMIN,
-            },
-            response_data,
+            }.items(),
+            response_data.items(),
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -246,12 +246,12 @@ class TestTeamMembershipsAPI(APILicensedTest):
         )
         response_data = response.json()
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "effective_level": ExplicitTeamMembership.Level.ADMIN,
                 "level": ExplicitTeamMembership.Level.ADMIN,
-            },
-            response_data,
+            }.items(),
+            response_data.items(),
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -268,12 +268,12 @@ class TestTeamMembershipsAPI(APILicensedTest):
         )
         response_data = response.json()
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "effective_level": ExplicitTeamMembership.Level.MEMBER,
                 "level": ExplicitTeamMembership.Level.MEMBER,
-            },
-            response_data,
+            }.items(),
+            response_data.items(),
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -337,12 +337,12 @@ class TestTeamMembershipsAPI(APILicensedTest):
         )
         response_data = response.json()
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "effective_level": ExplicitTeamMembership.Level.ADMIN,
                 "level": ExplicitTeamMembership.Level.ADMIN,
-            },
-            response_data,
+            }.items(),
+            response_data.items(),
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -410,12 +410,12 @@ class TestTeamMembershipsAPI(APILicensedTest):
         )
         response_data = response.json()
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "effective_level": ExplicitTeamMembership.Level.ADMIN,
                 "level": ExplicitTeamMembership.Level.ADMIN,
-            },
-            response_data,
+            }.items(),
+            response_data.items(),
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 

@@ -5041,9 +5041,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
             event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
-            self.assertDictContainsSubset({"breakdown_value": "person1", "aggregated_value": 1}, event_response[0])
-            self.assertDictContainsSubset({"breakdown_value": "person2", "aggregated_value": 1}, event_response[1])
-            self.assertDictContainsSubset({"breakdown_value": "person3", "aggregated_value": 1}, event_response[2])
+            self.assertLessEqual(
+                {"breakdown_value": "person1", "aggregated_value": 1}.items(), event_response[0].items()
+            )
+            self.assertLessEqual(
+                {"breakdown_value": "person2", "aggregated_value": 1}.items(), event_response[1].items()
+            )
+            self.assertLessEqual(
+                {"breakdown_value": "person3", "aggregated_value": 1}.items(), event_response[2].items()
+            )
 
         with freeze_time("2020-01-04T13:01:01Z"):
             event_response = self._run(
@@ -5067,9 +5073,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
             event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
-            self.assertDictContainsSubset({"breakdown_value": ["person1"], "aggregated_value": 1}, event_response[0])
-            self.assertDictContainsSubset({"breakdown_value": ["person2"], "aggregated_value": 1}, event_response[1])
-            self.assertDictContainsSubset({"breakdown_value": ["person3"], "aggregated_value": 1}, event_response[2])
+            self.assertLessEqual(
+                {"breakdown_value": ["person1"], "aggregated_value": 1}.items(), event_response[0].items()
+            )
+            self.assertLessEqual(
+                {"breakdown_value": ["person2"], "aggregated_value": 1}.items(), event_response[1].items()
+            )
+            self.assertLessEqual(
+                {"breakdown_value": ["person3"], "aggregated_value": 1}.items(), event_response[2].items()
+            )
 
     @also_test_with_materialized_columns(person_properties=["name"])
     def test_breakdown_by_person_property_pie_with_event_dau_filter(self):
@@ -5111,8 +5123,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
             event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
             self.assertEqual(len(event_response), 2)
-            self.assertDictContainsSubset({"breakdown_value": "person1", "aggregated_value": 1}, event_response[0])
-            self.assertDictContainsSubset({"breakdown_value": "person2", "aggregated_value": 1}, event_response[1])
+            self.assertLessEqual(
+                {"breakdown_value": "person1", "aggregated_value": 1}.items(), event_response[0].items()
+            )
+            self.assertLessEqual(
+                {"breakdown_value": "person2", "aggregated_value": 1}.items(), event_response[1].items()
+            )
 
         # multiple breakdowns
         with freeze_time("2020-01-04T13:01:01Z"):
@@ -5132,8 +5148,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
             event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
             self.assertEqual(len(event_response), 2)
-            self.assertDictContainsSubset({"breakdown_value": ["person1"], "aggregated_value": 1}, event_response[0])
-            self.assertDictContainsSubset({"breakdown_value": ["person2"], "aggregated_value": 1}, event_response[1])
+            self.assertLessEqual(
+                {"breakdown_value": ["person1"], "aggregated_value": 1}.items(), event_response[0].items()
+            )
+            self.assertLessEqual(
+                {"breakdown_value": ["person2"], "aggregated_value": 1}.items(), event_response[1].items()
+            )
 
     @also_test_with_materialized_columns(person_properties=["name"])
     def test_filter_test_accounts_cohorts(self):
@@ -5502,8 +5522,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertDictContainsSubset({"count": 2, "breakdown_value": "2"}, event_response[0])
-        self.assertDictContainsSubset({"count": 1, "breakdown_value": "1"}, event_response[1])
+        self.assertLessEqual({"count": 2, "breakdown_value": "2"}.items(), event_response[0].items())
+        self.assertLessEqual({"count": 1, "breakdown_value": "1"}.items(), event_response[1].items())
         self.assertEntityResponseEqual(event_response, action_response)
 
         # multiple
@@ -5529,8 +5549,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertDictContainsSubset({"count": 2, "breakdown_value": ["2"]}, event_response[0])
-        self.assertDictContainsSubset({"count": 1, "breakdown_value": ["1"]}, event_response[1])
+        self.assertLessEqual({"count": 2, "breakdown_value": ["2"]}.items(), event_response[0].items())
+        self.assertLessEqual({"count": 1, "breakdown_value": ["1"]}.items(), event_response[1].items())
         self.assertEntityResponseEqual(event_response, action_response)
 
     @also_test_with_materialized_columns(["$some_property"])

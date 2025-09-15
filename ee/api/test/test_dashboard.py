@@ -64,12 +64,12 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
                 "effective_restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-            },
-            response_data,
+            }.items(),
+            response_data.items(),
         )
 
     def test_can_set_dashboard_to_restrict_editing_as_creator_who_is_project_admin(self):
@@ -84,12 +84,12 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
                 "effective_restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-            },
-            response_data,
+            }.items(),
+            response_data.items(),
         )
 
     def test_cannot_set_dashboard_to_restrict_editing_as_other_user_who_is_project_member(self):
@@ -128,12 +128,12 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
                 "effective_restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-            },
-            response_data,
+            }.items(),
+            response_data.items(),
         )
 
     def test_can_edit_restricted_dashboard_as_creator_who_is_project_member(self):
@@ -153,13 +153,13 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "name": "Gentle Antelope",
                 "effective_restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
                 "effective_privilege_level": Dashboard.PrivilegeLevel.CAN_EDIT,
-            },
-            response_data,
+            }.items(),
+            response_data.items(),
         )
 
     def test_cannot_edit_restricted_dashboard_as_other_user_who_is_project_member(self):
@@ -203,7 +203,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertDictContainsSubset({"name": "Gentle Antelope"}, response_data)
+        self.assertLessEqual({"name": "Gentle Antelope"}.items(), response_data.items())
 
     def test_dashboard_restrictions_have_no_effect_without_license(self):
         dashboard = Dashboard.objects.create(
@@ -220,12 +220,12 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
                 "effective_restriction_level": Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-            },
-            response_data,
+            }.items(),
+            response_data.items(),
         )
 
     def test_dashboard_no_duplicate_tags(self):
