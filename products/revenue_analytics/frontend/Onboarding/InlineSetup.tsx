@@ -1,7 +1,8 @@
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconCheckCircle, IconDatabase, IconPieChart, IconPlus } from '@posthog/icons'
+import { IconArrowRight, IconCheckCircle, IconDatabase, IconPieChart, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCard, Link } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
