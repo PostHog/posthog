@@ -69,6 +69,8 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         setJoiningTablePreviewData: (data: Record<string, any>[]) => ({ data }),
         setSourceTablePreviewLoading: (loading: boolean) => ({ loading }),
         setJoiningTablePreviewLoading: (loading: boolean) => ({ loading }),
+        setIsJoinValid: (isValid: boolean) => ({ isValid }),
+        validateJoin: () => {},
     })),
     reducers({
         joinToEdit: [
@@ -88,6 +90,19 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 toggleEditJoinModal: () => false,
                 toggleNewJoinModal: () => true,
                 clearModalFields: () => false,
+            },
+        ],
+        isJoinValidating: [
+            false as boolean,
+            {
+                validateJoin: () => true,
+                setIsJoinValid: () => false,
+            },
+        ],
+        isJoinValid: [
+            false as boolean,
+            {
+                setIsJoinValid: (_, { isValid }) => isValid,
             },
         ],
         selectedSourceTableName: [
@@ -260,7 +275,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             },
         },
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         toggleNewJoinModal: ({ join }) => {
             actions.setViewLinkValues(join ?? NEW_VIEW_LINK)
         },
@@ -300,6 +315,34 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 actions.setJoiningTablePreviewData,
                 actions.setJoiningTablePreviewLoading
             )
+        },
+        validateJoin: async () => {
+            if (
+                !values.selectedSourceTableName ||
+                !values.selectedJoiningTableName ||
+                !values.selectedSourceKey ||
+                !values.selectedJoiningKey
+            ) {
+                actions.setIsJoinValid(false)
+                return
+            }
+            try {
+                const sourceTable = hogql.identifier(values.selectedSourceTableName)
+                const sourceKey = hogql.identifier(values.selectedSourceKey)
+                const joiningTable = hogql.identifier(values.selectedJoiningTableName)
+                const joiningKey = hogql.identifier(values.selectedJoiningKey)
+                await hogqlQuery(
+                    hogql`
+                    SELECT ${sourceTable}.${sourceKey}, ${sourceTable}.${sourceKey}
+                    FROM ${sourceTable}
+                    JOIN ${joiningTable}
+                    ON ${sourceTable}.${sourceKey} = ${joiningTable}.${joiningKey}
+                    LIMIT 10`
+                )
+                actions.setIsJoinValid(true)
+            } catch {
+                actions.setIsJoinValid(false)
+            }
         },
     })),
     selectors({

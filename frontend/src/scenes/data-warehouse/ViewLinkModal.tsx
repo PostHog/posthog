@@ -411,16 +411,18 @@ export function ViewLinkFormWithPreview({ mode }: ViewLinkModalProps): JSX.Eleme
         joiningTablePreviewData,
         sourceTablePreviewLoading,
         joiningTablePreviewLoading,
+        isJoinValidating,
+        isJoinValid,
     } = useValues(viewLinkLogic)
     const {
         selectJoiningTable,
-        toggleJoinTableModal,
         selectSourceTable,
         setFieldName,
         selectSourceKey,
         selectJoiningKey,
         setExperimentsOptimized,
         selectExperimentsTimestampKey,
+        validateJoin,
     } = useActions(viewLinkLogic)
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
@@ -667,13 +669,24 @@ export function ViewLinkFormWithPreview({ mode }: ViewLinkModalProps): JSX.Eleme
                 )}
             </div>
             <LemonDivider className="mt-4 mb-4" />
-            <div className="flex flex-row justify-end w-full">
-                <LemonButton className="mr-3" type="secondary" onClick={toggleJoinTableModal}>
-                    Close
-                </LemonButton>
-                <LemonButton type="primary" htmlType="submit" loading={isViewLinkSubmitting}>
-                    Save
-                </LemonButton>
+            <div className="flex flex-row gap-2 justify-end w-full">
+                {isJoinValid ? (
+                    <>
+                        <LemonButton disabledReason="Join is valid">Join is valid</LemonButton>
+                        <LemonButton type="primary" onClick={validateJoin} loading={isJoinValidating}>
+                            Save join
+                        </LemonButton>
+                    </>
+                ) : (
+                    <>
+                        <LemonButton htmlType="submit" loading={isViewLinkSubmitting}>
+                            Save join without validating
+                        </LemonButton>
+                        <LemonButton type="primary" onClick={validateJoin} loading={isJoinValidating}>
+                            Validate join
+                        </LemonButton>
+                    </>
+                )}
             </div>
         </Form>
     )
