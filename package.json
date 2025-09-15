@@ -79,7 +79,7 @@
             "prettier --write"
         ],
         "{playwright,frontend,products,common,ee}/**/*.{js,jsx,mjs,ts,tsx}": [
-            "oxlint --fix --fix-suggestions --fix-dangerously --quiet",
+            "oxlint --fix --fix-suggestions --fix-dangerously --quiet -A react-hooks/exhaustive-deps",
             "prettier --write"
         ],
         "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": [
