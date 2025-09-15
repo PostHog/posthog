@@ -3878,6 +3878,7 @@ export interface SourceConfig {
     existingSource?: boolean
     unreleasedSource?: boolean
     betaSource?: boolean
+    iconPath: string
     featureFlag?: string
 }
 

@@ -14712,6 +14712,7 @@ class SourceConfig(BaseModel):
             SourceFieldSSHTunnelConfig,
         ]
     ]
+    iconPath: str
     label: Optional[str] = None
     name: ExternalDataSourceType
     unreleasedSource: Optional[bool] = None
