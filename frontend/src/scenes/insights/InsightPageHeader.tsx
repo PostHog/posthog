@@ -77,6 +77,8 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
+import { getInsightIconTypeFromQuery } from './utils'
+
 const RESOURCE_TYPE = 'insight'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
@@ -537,7 +539,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 name={defaultInsightName || ''}
                 description={insight?.description || ''}
                 resourceType={{
-                    type: 'product_analytics',
+                    type: getInsightIconTypeFromQuery(query),
                 }}
                 onNameChange={(name) => {
                     setInsightMetadata({ name })

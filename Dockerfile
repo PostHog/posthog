@@ -190,7 +190,7 @@ RUN curl https://packages.microsoft.com/config/debian/11/prod.list | tee /etc/ap
 RUN apt-get update
 RUN ACCEPT_EULA=Y apt-get install -y msodbcsql18
 
-# Install NodeJS 18.
+# Install NodeJS 22.17.1
 RUN apt-get install -y --no-install-recommends \
     "curl" \
     && \
