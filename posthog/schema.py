@@ -14061,6 +14061,7 @@ class DataTableNode(BaseModel):
         ExperimentFunnelsQuery,
         ExperimentTrendsQuery,
         TracesQuery,
+        TraceQuery,
     ] = Field(..., description="Source of the events")
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
