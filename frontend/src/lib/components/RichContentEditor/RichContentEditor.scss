@@ -5,7 +5,7 @@
     }
 
     .ProseMirror {
-        > .is-empty::before {
+        > .is-empty:first-child::before {
             float: left;
             height: 0;
             color: rgb(0 0 0 / 60%);
