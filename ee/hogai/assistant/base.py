@@ -412,7 +412,14 @@ class BaseAssistant(ABC):
         return AssistantMessage(content=message_content)
 
     def _chunk_reasoning_headline(self, reasoning: dict[str, Any]) -> Optional[str]:
-        """Process a chunk of OpenAI `reasoning`, and if a new headline was just finalized, return it."""
+        """Process a chunk of OpenAI `reasoning`, and if a new headline was just finalized, return it.
+
+        Captures everything between the first opening ** and the last closing ** as the headline.
+
+        Returns None if no complete headline was found.
+        """
+        BOLD_MARKER = "**"
+
         try:
             if summary := reasoning.get("summary"):
                 summary_text_chunk = summary[0]["text"]
@@ -425,34 +432,45 @@ class BaseAssistant(ABC):
             self._reasoning_headline_chunk = None
             return None
 
-        bold_marker_index = summary_text_chunk.find("**")
-        if bold_marker_index == -1:
-            # No bold markers - continue building headline if in progress
-            if self._reasoning_headline_chunk is not None:
-                self._reasoning_headline_chunk += summary_text_chunk
-            return None
-
-        # Handle bold markers
         if self._reasoning_headline_chunk is None:
-            # Start of headline
-            remaining_text = summary_text_chunk[bold_marker_index + 2 :]
-            end_index = remaining_text.find("**")
+            # Not currently building a headline - look for opening **
+            first_marker = summary_text_chunk.find(BOLD_MARKER)
+            if first_marker == -1:
+                return None  # No markers, nothing to do
 
-            if end_index != -1:
-                # Complete headline in one chunk
-                self._last_reasoning_headline = remaining_text[:end_index]
+            # Found opening marker
+            remaining = summary_text_chunk[first_marker + 2 :]
+            last_marker = remaining.rfind(BOLD_MARKER)
+
+            if last_marker != -1:
+                # Found closing marker - complete headline in one chunk
+                # Filter out any internal ** markers
+                headline = remaining[:last_marker].replace(BOLD_MARKER, "")
+                self._last_reasoning_headline = headline
                 return self._last_reasoning_headline
             else:
-                # Start of multi-chunk headline
-                self._reasoning_headline_chunk = remaining_text
+                # No closing marker yet - start accumulating
+                self._reasoning_headline_chunk = remaining
+                return None
         else:
-            # End of headline
-            self._reasoning_headline_chunk += summary_text_chunk[:bold_marker_index]
-            self._last_reasoning_headline = self._reasoning_headline_chunk
-            self._reasoning_headline_chunk = None
-            return self._last_reasoning_headline
-
-        return None
+            # Currently building a headline - look for closing **
+            last_marker = summary_text_chunk.rfind(BOLD_MARKER)
+            if last_marker != -1:
+                # Found closing marker
+                self._reasoning_headline_chunk += summary_text_chunk[:last_marker]
+                # Filter out any internal ** markers
+                if self._reasoning_headline_chunk:
+                    headline = self._reasoning_headline_chunk.replace(BOLD_MARKER, "")
+                    self._last_reasoning_headline = headline
+                    self._reasoning_headline_chunk = None
+                    return self._last_reasoning_headline
+                else:
+                    self._reasoning_headline_chunk = None
+                    return None
+            else:
+                # Still accumulating
+                self._reasoning_headline_chunk += summary_text_chunk
+                return None
 
     def _extract_commentary_from_tool_call_chunk(self, langchain_message: AIMessageChunk) -> Optional[str]:
         """Extract commentary from tool call chunks.

@@ -65,13 +65,20 @@ class TestVercelAPIClient:
         assert client.session.headers["Content-Type"] == "application/json"
         assert client.timeout == 30
 
-    def test_client_requires_token(self):
-        with pytest.raises(ValueError):
-            VercelAPIClient("")
+    def test_client_allows_empty_token_for_sso(self):
+        client = VercelAPIClient("")
+        assert client.bearer_token == ""
+        assert "Authorization" not in client.session.headers
 
-    def test_client_requires_non_empty_token(self):
-        with pytest.raises(ValueError):
-            VercelAPIClient("   ")
+    def test_client_allows_none_token_for_sso(self):
+        client = VercelAPIClient(None)
+        assert client.bearer_token is None
+        assert "Authorization" not in client.session.headers
+
+    def test_client_allows_whitespace_token_for_sso(self):
+        client = VercelAPIClient("   ")
+        assert client.bearer_token == "   "
+        assert "Authorization" not in client.session.headers
 
     def test_client_with_custom_timeout(self):
         client = VercelAPIClient("test_token", timeout=60)
