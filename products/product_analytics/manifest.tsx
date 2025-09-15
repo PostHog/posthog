@@ -140,13 +140,6 @@ export const manifest: ProductManifest = {
             iconColor: ['var(--color-insight-lifecycle-light)'] as FileSystemIconColor,
             visualOrder: INSIGHT_VISUAL_ORDER.lifecycle,
         },
-        {
-            path: `Insight/HogQL`,
-            type: 'insight',
-            href: urls.insightNew({ type: InsightType.HOG }),
-            iconType: 'insight/hog',
-            iconColor: ['var(--color-insight-hogql-light)'] as FileSystemIconColor,
-        },
     ],
     treeItemsProducts: [
         {
