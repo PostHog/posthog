@@ -31,6 +31,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { getFilterLabel } from '~/taxonomy/helpers'
 import { AnyPropertyFilter, FeatureFlagGroupType, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { COHORT_BEHAVIORAL_LIMITATIONS_URL } from './constants'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
@@ -583,7 +584,7 @@ export function FeatureFlagReleaseConditions({
                                 <>
                                     {' '}
                                     Cohort-based targeting{' '}
-                                    <Link to="https://posthog.com/docs/data/cohorts#can-you-use-a-dynamic-cohort-as-a-feature-flag-target">
+                                    <Link to={COHORT_BEHAVIORAL_LIMITATIONS_URL}>
                                         doesn't support dynamic behavioral cohorts.
                                     </Link>{' '}
                                 </>

@@ -31,6 +31,7 @@ import {
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
+import { COHORT_BEHAVIORAL_LIMITATIONS_URL } from 'scenes/feature-flags/constants'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { NotebookType } from 'scenes/notebooks/types'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
@@ -564,9 +565,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         footerMessage: hideBehavioralCohorts ? (
                             <>
                                 Some cohorts excluded due to containing behavioral filters.{' '}
-                                <Link to="https://posthog.com/docs/feature-flags/common-questions#why-cant-i-use-a-cohort-with-behavioral-filters-in-my-feature-flag">
-                                    Learn more about cohort limitations.
-                                </Link>
+                                <Link to={COHORT_BEHAVIORAL_LIMITATIONS_URL}>Learn more about cohort limitations.</Link>
                             </>
                         ) : undefined,
                     },
