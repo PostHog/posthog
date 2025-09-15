@@ -1972,9 +1972,10 @@ const api = {
         },
 
         async list(
-            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId(),
+            params: Record<string, any> = {}
         ): Promise<PaginatedResponse<ExportedAssetType>> {
-            return new ApiRequest().exports(teamId).get()
+            return new ApiRequest().exports(teamId).withQueryString(toParams(params)).get()
         },
 
         async get(id: number, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<ExportedAssetType> {

@@ -594,6 +594,44 @@ class TestExports(APIBaseTest):
         stuck_export.refresh_from_db()
         self.assertIsNone(stuck_export.exception)
 
+    def test_can_filter_exports_by_format(self) -> None:
+        png_export = ExportedAsset.objects.create(
+            team=self.team, dashboard_id=self.dashboard.id, export_format="image/png", created_by=self.user
+        )
+        csv_export = ExportedAsset.objects.create(
+            team=self.team, insight_id=self.insight.id, export_format="text/csv", created_by=self.user
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/exports?export_format=image/png")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+
+        png_export_ids = {png_export.id, self.exported_asset.id}
+        returned_ids = {result["id"] for result in results}
+        self.assertEqual(returned_ids, png_export_ids)
+
+        for result in results:
+            self.assertEqual(result["export_format"], "image/png")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/exports?export_format=text/csv")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], csv_export.id)
+        self.assertEqual(results[0]["export_format"], "text/csv")
+
+        # Unsupported format should return all exports since filter is ignored
+        response = self.client.get(f"/api/projects/{self.team.id}/exports?export_format=blahblah")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 3)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/exports")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 3)
+
 
 class TestExportMixin(APIBaseTest):
     def _get_export_output(self, path: str) -> list[str]:
