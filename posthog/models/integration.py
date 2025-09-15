@@ -572,15 +572,28 @@ class OauthIntegration:
 
         oauth_config = self.oauth_config_for_kind(self.integration.kind)
 
-        res = requests.post(
-            oauth_config.token_url,
-            data={
-                "client_id": oauth_config.client_id,
-                "client_secret": oauth_config.client_secret,
-                "refresh_token": self.integration.sensitive_config["refresh_token"],
-                "grant_type": "refresh_token",
-            },
-        )
+        # Reddit uses HTTP Basic Auth for token refresh
+        if self.integration.kind == "reddit-ads":
+            res = requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
+                data={
+                    "refresh_token": self.integration.sensitive_config["refresh_token"],
+                    "grant_type": "refresh_token",
+                },
+                # If I use a standard User-Agent, it will throw a 429 too many requests error
+                headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
+            )
+        else:
+            res = requests.post(
+                oauth_config.token_url,
+                data={
+                    "client_id": oauth_config.client_id,
+                    "client_secret": oauth_config.client_secret,
+                    "refresh_token": self.integration.sensitive_config["refresh_token"],
+                    "grant_type": "refresh_token",
+                },
+            )
 
         config: dict = res.json()
 
