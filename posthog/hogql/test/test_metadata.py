@@ -9,6 +9,7 @@ from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse, Ho
 from posthog.hogql.metadata import get_hogql_metadata
 
 from posthog.models import Cohort, PropertyDefinition
+from posthog.warehouse.models import ExternalDataSource, ExternalDataSourceType
 
 
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):
@@ -519,3 +520,21 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         """)
         self.assertEqual(metadata.isValid, True)
         self.assertEqual(sorted(metadata.table_names or []), sorted(["numbers"]))
+
+    def test_views_type_resolution(self):
+        _source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix="prefix",
+        )
+
+        metadata = self._select("SELECT metadata, metadata.name AS name FROM stripe.prefix.customer_revenue_view")
+        self.assertEqual(metadata.isValid, True)
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["stripe.prefix.customer_revenue_view"]))
+
+        # Doesn't include `name` because it's a property access and not a field
+        # TODO: Should *probably* update the code to resolve that type as well
+        self.assertEqual([notice.message for notice in metadata.notices or []], ["Field 'metadata' is of type 'JSON'"])

@@ -7,10 +7,11 @@ from rest_framework.response import Response
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.vercel_error_mixin import VercelErrorResponseMixin
 from ee.api.vercel.vercel_permission import VercelPermission
+from ee.api.vercel.vercel_region_proxy_mixin import VercelRegionProxyMixin
 from ee.vercel.integration import VercelIntegration
 
 
-class VercelProductViewSet(VercelErrorResponseMixin, viewsets.GenericViewSet):
+class VercelProductViewSet(VercelRegionProxyMixin, VercelErrorResponseMixin, viewsets.GenericViewSet):
     authentication_classes = [VercelAuthentication]
     permission_classes = [VercelPermission]
     lookup_field = "product_slug"

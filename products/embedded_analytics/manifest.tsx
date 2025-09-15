@@ -21,7 +21,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Embedded analytics',
-            category: 'Tools',
+            category: 'Unreleased',
             href: urls.embeddedAnalytics(),
             type: 'embedded_analytics',
             flag: FEATURE_FLAGS.EMBEDDED_ANALYTICS,
