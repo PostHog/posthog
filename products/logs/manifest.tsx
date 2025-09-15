@@ -26,7 +26,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Logs',
-            category: 'Tools',
+            category: 'Unreleased',
             iconType: 'logs' as FileSystemIconType,
             iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
             href: urls.logs(),

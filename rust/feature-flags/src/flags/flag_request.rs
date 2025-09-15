@@ -164,11 +164,13 @@ impl FlagRequest {
     /// Extracts the properties from the request.
     /// If the request contains person_properties, they are returned.
     pub fn extract_properties(&self) -> HashMap<String, Value> {
-        let mut properties = HashMap::new();
         if let Some(person_properties) = &self.person_properties {
+            let mut properties = HashMap::with_capacity(person_properties.len());
             properties.extend(person_properties.clone());
+            properties
+        } else {
+            HashMap::new()
         }
-        properties
     }
 
     /// Checks if feature flags should be disabled for this request.
