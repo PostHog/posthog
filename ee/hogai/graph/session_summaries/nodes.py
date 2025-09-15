@@ -1,4 +1,3 @@
-import json
 import time
 import asyncio
 from typing import Any, cast
@@ -275,9 +274,9 @@ class SessionSummarizationNode(AssistantNode):
                     )
                 # Replace the intermediate state with final report
                 summary = data
-                tasks_available = database_sync_to_async(check_is_feature_available_for_team, thread_sensitive=False)(
-                    self._team.id, "TASK_SUMMARIES"
-                )
+                tasks_available = await database_sync_to_async(
+                    check_is_feature_available_for_team, thread_sensitive=False
+                )(self._team.id, "TASK_SUMMARIES")
                 summary_content = generate_notebook_content_from_summary(
                     summary=summary,
                     session_ids=session_ids,
@@ -391,37 +390,11 @@ class SessionSummarizationNode(AssistantNode):
                 summaries_content = await self._summarize_sessions_as_group(
                     session_ids=session_ids, state=state, writer=writer, notebook=notebook, summary_title=summary_title
                 )
-            # Try to build a structured artifact for the frontend MaxTool callback
-            artifact: dict[str, Any]
-            if isinstance(summaries_content, str):
-                try:
-                    # Group summaries path returns JSON; individual summaries path may return plain text
-                    parsed = json.loads(summaries_content)
-                    if isinstance(parsed, dict):
-                        artifact = parsed
-                    else:
-                        artifact = {"summaries_text": summaries_content}
-                except Exception:
-                    artifact = {"summaries_text": summaries_content}
-            else:
-                # Already a dict-like structure
-                artifact = cast(dict[str, Any], summaries_content)
-
-            # Attach notebook id if available
-            if getattr(state, "notebook_id", None):
-                try:
-                    if isinstance(artifact, dict):
-                        artifact["notebook_id"] = state.notebook_id
-                except Exception:
-                    pass
 
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
-                        content=summaries_content
-                        if isinstance(summaries_content, str)
-                        else json.dumps(summaries_content),
-                        ui_payload={"session_summarization": artifact},
+                        content=summaries_content,
                         tool_call_id=state.root_tool_call_id or "unknown",
                         id=str(uuid4()),
                     ),

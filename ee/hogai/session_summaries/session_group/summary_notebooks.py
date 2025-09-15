@@ -410,62 +410,11 @@ def _create_pattern_section(
 
     if tasks_available:
         try:
-            # Action: allow creating a task directly from this pattern in Notebooks (behind feature flag)
-            task_description_lines = [
-                f"Pattern: {pattern.pattern_name}",
-                f"Severity: {(pattern.severity.value if hasattr(pattern.severity, 'value') else pattern.severity).title()}",
-                f"Description: {pattern.pattern_description}",
-            ]
-            # Add a compact list of indicators for quick context
-            if getattr(pattern, "indicators", None):
-                indicators_text = "; ".join(str(x) for x in pattern.indicators[:5])
-                task_description_lines.append(f"Indicators: {indicators_text}")
-
-            # Include a succinct developer-oriented example from the first event
-            try:
-                first_event = next(iter(pattern.events))
-            except Exception:
-                first_event = None
-
-            if first_event is not None:
-                example_lines: list[str] = [
-                    "",
-                    "Example:",
-                    f"  Segment: {getattr(first_event, 'segment_name', 'Unknown')}",
-                    f"  What confirmed: {getattr(getattr(first_event, 'target_event', None), 'description', 'Unknown')}",
-                    f"  Where: {getattr(getattr(first_event, 'target_event', None), 'current_url', 'Unknown')}",
-                    f"  When: {getattr(getattr(first_event, 'target_event', None), 'milliseconds_since_start', 'Unknown')}ms into session",
-                ]
-
-                prev_list = [
-                    getattr(ev, "description", str(ev))
-                    for ev in getattr(first_event, "previous_events_in_segment", [])[:3]
-                ]
-                next_list = [
-                    getattr(ev, "description", str(ev)) for ev in getattr(first_event, "next_events_in_segment", [])[:3]
-                ]
-
-                if prev_list:
-                    example_lines.append(f"  Previous: {'; '.join(prev_list)}")
-                if next_list:
-                    example_lines.append(f"  Next: {'; '.join(next_list)}")
-
-                task_description_lines.extend(example_lines)
-
-            content.append(
-                {
-                    "type": "ph-task-create",
-                    "attrs": {
-                        "title": pattern.pattern_name,
-                        "description": "\n".join(task_description_lines),
-                        "severity": (
-                            pattern.severity.value if hasattr(pattern.severity, "value") else pattern.severity
-                        ).title(),
-                    },
-                }
-            )
+            task_block = _create_task_block(pattern)
+            if task_block is not None:
+                content.append(task_block)
         except Exception:
-            # Don't block notebook rendering
+            logger.exception(f"Failed to create task for pattern {pattern.pattern_name}")
             pass
 
     # Examples section, collapsed to avoid overwhelming the user
@@ -478,6 +427,75 @@ def _create_pattern_section(
         content.extend(example_content)
     content.append(_create_line_separator())
     return content
+
+
+def _create_task_block(pattern: EnrichedSessionGroupSummaryPattern) -> TipTapNode | None:
+    """Build a TipTap node to create a Task from a pattern.
+
+    Returns a `ph-task-create` node with attrs { title, description, severity } or None if invalid.
+    """
+    # Defensive checks in case the object isn't fully populated
+    pattern_name = getattr(pattern, "pattern_name", None)
+    pattern_description = getattr(pattern, "pattern_description", None)
+    pattern_severity = getattr(pattern, "severity", None)
+
+    if not pattern_name or not pattern_description or not pattern_severity:
+        return None
+
+    severity_value = pattern_severity.value if hasattr(pattern_severity, "value") else pattern_severity
+
+    task_description_lines: list[str] = [
+        f"Pattern: {pattern_name}",
+        f"Severity: {str(severity_value).title()}",
+        f"Description: {pattern_description}",
+    ]
+
+    # Add a compact list of indicators for quick context (limit to 5)
+    indicators = getattr(pattern, "indicators", None)
+    if indicators:
+        indicators_text = "; ".join(str(x) for x in indicators[:5])
+        task_description_lines.append(f"Indicators: {indicators_text}")
+
+    # Include a succinct developer-oriented example derived from the first event (if present)
+    first_event = None
+    try:
+        first_event = next(iter(getattr(pattern, "events", []) or []))
+    except Exception:
+        first_event = None
+
+    if first_event is not None:
+        target_event = getattr(first_event, "target_event", None)
+        example_lines: list[str] = [
+            "",
+            "Example:",
+            f"  Segment: {getattr(first_event, 'segment_name', 'Unknown')}",
+            f"  What confirmed: {getattr(target_event, 'description', 'Unknown')}",
+            f"  Where: {getattr(target_event, 'current_url', 'Unknown')}",
+            f"  When: {getattr(target_event, 'milliseconds_since_start', 'Unknown')}ms into session",
+        ]
+
+        prev_list = [
+            getattr(ev, "description", str(ev)) for ev in getattr(first_event, "previous_events_in_segment", [])[:3]
+        ]
+        next_list = [
+            getattr(ev, "description", str(ev)) for ev in getattr(first_event, "next_events_in_segment", [])[:3]
+        ]
+
+        if prev_list:
+            example_lines.append(f"  Previous: {'; '.join(prev_list)}")
+        if next_list:
+            example_lines.append(f"  Next: {'; '.join(next_list)}")
+
+        task_description_lines.extend(example_lines)
+
+    return {
+        "type": "ph-task-create",
+        "attrs": {
+            "title": pattern_name,
+            "description": "\n".join(task_description_lines),
+            "severity": str(severity_value).title(),
+        },
+    }
 
 
 def _create_example_section(event_data: PatternAssignedEventSegmentContext, team_id: int) -> TipTapContent:
