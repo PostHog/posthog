@@ -33,7 +33,6 @@ export const kafkaPartitionFetchErrors = new Counter({
 
 // interfaces pulled from here:
 // https://docs.confluent.io/platform/current/clients/librdkafka/html/md_STATISTICS.html
-
 export interface PartitionData {
     topic: string
     partition: number
@@ -79,7 +78,7 @@ export interface BrokerStats {
     // time since last broker state change (in microseconds)
     stateage: number
     outbuf_cnt: number
-    outbut_msg_cnt: number
+    outbuf_msg_cnt: number
     waitresp_cnt: number
     waitresp_msg_cnt: number
     tx: number
