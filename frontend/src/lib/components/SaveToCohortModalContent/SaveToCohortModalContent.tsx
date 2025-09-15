@@ -29,6 +29,7 @@ export function SaveToCohortModalContent({ closeModal, query }: SaveToCohortModa
                     <>
                         <LemonTableLink
                             to={urls.cohort(id)}
+                            target="_blank"
                             title={name ? <>{name}</> : 'Untitled'}
                             description={description}
                         />
