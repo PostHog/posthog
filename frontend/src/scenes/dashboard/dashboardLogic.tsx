@@ -1,11 +1,24 @@
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
+import {
+    BindLogic,
+    actions,
+    connect,
+    events,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+    sharedListeners,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import uniqBy from 'lodash.uniqby'
 import { Layout, Layouts } from 'react-grid-layout'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { DataColorTheme } from 'lib/colors'
@@ -38,6 +51,7 @@ import {
     HogQLVariable,
     NodeKind,
     RefreshType,
+    TileFilters,
 } from '~/queries/schema/schema-general'
 import {
     AccessControlResourceType,
@@ -61,6 +75,7 @@ import {
 import { getResponseBytes, sortDayJsDates } from '../insights/utils'
 import { teamLogic } from '../teamLogic'
 import { BreakdownColorConfig } from './DashboardInsightColorsModal'
+import { TileFiltersOverride } from './TileFiltersOverride'
 import type { dashboardLogicType } from './dashboardLogicType'
 import {
     AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
@@ -79,6 +94,7 @@ import {
     parseURLVariables,
     runWithLimit,
 } from './dashboardUtils'
+import { tileLogic } from './tileLogic'
 
 export interface DashboardLogicProps {
     id: number
@@ -248,6 +264,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             allowUndo: allowUndo === undefined ? true : allowUndo,
         }),
         setTextTileId: (textTileId: number | 'new' | null) => ({ textTileId }),
+        setTileOverride: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
+        setPendingTileOverrides: (overrides: any) => ({ overrides }),
 
         /**
          * Usage tracking.
@@ -775,6 +793,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             null as number | 'new' | null,
             {
                 setTextTileId: (_, { textTileId }) => textTileId,
+            },
+        ],
+
+        pendingTileOverrides: [
+            null as TileFilters | null,
+            {
+                setPendingTileOverrides: (_, { overrides }) => overrides,
             },
         ],
 
@@ -1810,6 +1835,31 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 id: props.id,
                 last_refresh: lastDashboardRefresh.toISOString(),
                 discardResult: true,
+            })
+        },
+        setTileOverride: ({ tile }) => {
+            const tileLogicProps = { dashboardId: props.id, tileId: tile.id, filtersOverrides: tile.filters_overrides }
+            const logic = tileLogic(tileLogicProps)
+
+            LemonDialog.openForm({
+                title: 'Override Tile Filters',
+                initialValues: {},
+                content: (
+                    <BindLogic logic={tileLogic} props={tileLogicProps}>
+                        <TileFiltersOverride tile={tile} dashboardId={props.id} />
+                    </BindLogic>
+                ),
+                onSubmit: async () => {
+                    const tileFilterOverrides = logic.values.overrides
+
+                    await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${props.id}`, {
+                        tiles: [{ id: tile.id, filters_overrides: tileFilterOverrides }],
+                    })
+
+                    tile.filters_overrides = tileFilterOverrides
+                    actions.refreshDashboardItem({ tile })
+                    lemonToast.success('Tile filters saved')
+                },
             })
         },
     })),
