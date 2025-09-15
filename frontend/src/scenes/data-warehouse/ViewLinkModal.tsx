@@ -7,17 +7,19 @@ import { useState } from 'react'
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import {
     LemonButton,
+    LemonButtonProps,
     LemonCheckbox,
     LemonDivider,
     LemonInput,
     LemonModal,
+    LemonSearchableSelect,
     LemonSelect,
     LemonTag,
 } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
-import { IconSwapHoriz } from 'lib/lemon-ui/icons'
+import { IconLink, IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
@@ -63,7 +65,7 @@ export function ViewLinkModal({ mode }: ViewLinkModalProps): JSX.Element {
 
 const HOGQL_EDITOR_PLACEHOLDER = 'Enter SQL expression, such as:\n- pdi.distinct_id\n- properties.email'
 const HOGQL_EDITOR_PLACEHOLDER_REVENUE_ANALYTICS =
-    "Enter SQL expression, such as:\n- extractJSONString(metadata, 'customer_id')\n- extractJSONString(metadata, 'organization_id')\n- concat(email, ',', customer_id)"
+    "Enter SQL expression, such as:\n- metadata.customer_id\n- metadata.organization_id\n- concat(email, ',', customer_id)"
 
 export function ViewLinkForm({ mode }: ViewLinkModalProps): JSX.Element {
     const {
@@ -124,7 +126,7 @@ export function ViewLinkForm({ mode }: ViewLinkModalProps): JSX.Element {
                                 (selectedJoiningTableName ?? '')
                             ) : (
                                 <Field name="joining_table_name">
-                                    <LemonSelect
+                                    <LemonSearchableSelect
                                         fullWidth
                                         options={tableOptions}
                                         onSelect={selectJoiningTable}
@@ -317,5 +319,25 @@ export function ViewLinkKeyLabel({ column }: KeyLabelProps): JSX.Element {
                 {column.type}
             </LemonTag>
         </span>
+    )
+}
+
+type ViewLinkButtonProps = LemonButtonProps & {
+    tableName: string
+}
+
+export function ViewLinkButton({ tableName, ...props }: ViewLinkButtonProps): JSX.Element {
+    const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
+
+    const handleClick = (): void => {
+        selectSourceTable(tableName)
+        toggleJoinTableModal()
+    }
+
+    return (
+        <>
+            <LemonButton children="Join data" icon={<IconLink />} onClick={handleClick} type="primary" {...props} />
+            <ViewLinkModal />
+        </>
     )
 }

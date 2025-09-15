@@ -1299,6 +1299,9 @@ class FileSystemIconType(StrEnum):
     LLM_ANALYTICS = "llm_analytics"
     PRODUCT_ANALYTICS = "product_analytics"
     REVENUE_ANALYTICS = "revenue_analytics"
+    REVENUE_ANALYTICS_METADATA = "revenue_analytics_metadata"
+    MARKETING_SETTINGS = "marketing_settings"
+    EMBEDDED_ANALYTICS = "embedded_analytics"
     SQL_EDITOR = "sql_editor"
     WEB_ANALYTICS = "web_analytics"
     ERROR_TRACKING = "error_tracking"
@@ -1310,6 +1313,7 @@ class FileSystemIconType(StrEnum):
     EXPERIMENT = "experiment"
     FEATURE_FLAG = "feature_flag"
     DATA_PIPELINE = "data_pipeline"
+    DATA_PIPELINE_METADATA = "data_pipeline_metadata"
     DATA_WAREHOUSE = "data_warehouse"
     TASK = "task"
     LINK = "link"
@@ -1631,6 +1635,7 @@ class IntegrationKind(StrEnum):
     GITHUB = "github"
     META_ADS = "meta-ads"
     CLICKUP = "clickup"
+    REDDIT_ADS = "reddit-ads"
 
 
 class IntervalType(StrEnum):
@@ -4648,6 +4653,7 @@ class SessionRecordingType(BaseModel):
     )
     person: Optional[PersonType] = None
     recording_duration: float = Field(..., description="Length of recording in seconds.")
+    retention_period_days: Optional[float] = Field(default=None, description="retention period for this recording")
     snapshot_source: SnapshotSource
     start_time: str = Field(..., description="When the recording starts in ISO format.")
     start_url: Optional[str] = None
@@ -13489,6 +13495,7 @@ class VisualizationMessage(BaseModel):
     initiator: Optional[str] = None
     plan: Optional[str] = None
     query: Optional[str] = ""
+    short_id: Optional[str] = None
     type: Literal["ai/viz"] = "ai/viz"
 
 

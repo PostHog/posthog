@@ -14,6 +14,12 @@ export type HogFlowStepNodeProps = NodeProps & {
 
 export type StepViewNodeHandle = Omit<Optional<Handle, 'width' | 'height'>, 'nodeId'> & { label?: string }
 
+const ActionFiltersSchema = z.object({
+    events: z.array(z.any()).optional(),
+    properties: z.array(z.any()).optional(),
+    actions: z.array(z.any()).optional(),
+})
+
 const _commonActionFields = {
     id: z.string(),
     name: z.string(),
@@ -21,7 +27,7 @@ const _commonActionFields = {
     on_error: z.enum(['continue', 'abort', 'complete', 'branch']).optional().nullable(),
     created_at: z.number(),
     updated_at: z.number(),
-    filters: z.any(), // TODO: Correct to the right type
+    filters: ActionFiltersSchema.optional().nullable(),
 }
 
 const CyclotronInputSchema = z.object({
@@ -37,11 +43,7 @@ export type CyclotronInputType = z.infer<typeof CyclotronInputSchema>
 export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('event'),
-        filters: z.object({
-            events: z.array(z.any()).optional(),
-            properties: z.array(z.any()).optional(),
-            actions: z.array(z.any()).optional(),
-        }),
+        filters: ActionFiltersSchema,
     }),
     z.object({
         type: z.literal('webhook'),
@@ -65,7 +67,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             conditions: z.array(
                 z.object({
-                    filters: z.any(), // type this stronger
+                    filters: ActionFiltersSchema,
                 })
             ),
             delay_duration: z.string().optional(),
@@ -96,7 +98,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         type: z.literal('wait_until_condition'),
         config: z.object({
             condition: z.object({
-                filters: z.any(), // type this stronger
+                filters: ActionFiltersSchema.optional().nullable(),
             }),
             max_wait_duration: z.string(),
         }),

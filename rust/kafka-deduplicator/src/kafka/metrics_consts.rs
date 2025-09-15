@@ -5,6 +5,9 @@ pub const KAFKA_CONSUMER_IN_FLIGHT_MESSAGES: &str = "kafka_consumer_in_flight_me
 /// Gauge for total memory used by in-flight messages (bytes)
 pub const KAFKA_CONSUMER_IN_FLIGHT_MEMORY_BYTES: &str = "kafka_consumer_in_flight_memory_bytes";
 
+/// Gauge for available permits in the semaphore controlling concurrent processing
+pub const KAFKA_CONSUMER_AVAILABLE_PERMITS: &str = "kafka_consumer_available_permits";
+
 // ==== Partition Health metrics ====
 /// Gauge for pending completions per partition (queue depth)
 pub const PARTITION_PENDING_COMPLETIONS: &str = "kafka_partition_pending_completions";
@@ -21,8 +24,11 @@ pub const PARTITION_SECONDS_SINCE_LAST_COMMIT: &str = "kafka_partition_seconds_s
 /// Counter for messages that were auto-nacked due to being dropped
 pub const MESSAGES_AUTO_NACKED: &str = "kafka_messages_auto_nacked_total";
 
-/// Histogram for message completion processing time
-pub const MESSAGE_COMPLETION_DURATION: &str = "kafka_message_completion_duration_seconds";
+/// Counter for message completions with status label (acked/nacked/auto_nacked)
+pub const MESSAGES_COMPLETED: &str = "kafka_messages_completed_total";
+
+/// Histogram for message processing duration in milliseconds (from receipt to ack/nack)
+pub const MESSAGE_COMPLETION_DURATION: &str = "kafka_message_processing_duration_ms";
 
 /// Gauge for the highest committed offset per partition
 pub const PARTITION_LAST_COMMITTED_OFFSET: &str = "kafka_partition_last_committed_offset";

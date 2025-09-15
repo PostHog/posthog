@@ -12235,6 +12235,9 @@
                 "llm_analytics",
                 "product_analytics",
                 "revenue_analytics",
+                "revenue_analytics_metadata",
+                "marketing_settings",
+                "embedded_analytics",
                 "sql_editor",
                 "web_analytics",
                 "error_tracking",
@@ -12246,6 +12249,7 @@
                 "experiment",
                 "feature_flag",
                 "data_pipeline",
+                "data_pipeline_metadata",
                 "data_warehouse",
                 "task",
                 "link",
@@ -14848,7 +14852,8 @@
                 "linear",
                 "github",
                 "meta-ads",
-                "clickup"
+                "clickup",
+                "reddit-ads"
             ],
             "type": "string"
         },
@@ -23035,6 +23040,10 @@
                     "description": "Length of recording in seconds.",
                     "type": "number"
                 },
+                "retention_period_days": {
+                    "description": "retention period for this recording",
+                    "type": "number"
+                },
                 "snapshot_source": {
                     "enum": ["web", "mobile", "unknown"],
                     "type": "string"
@@ -25075,6 +25084,9 @@
                 "query": {
                     "default": "",
                     "type": "string"
+                },
+                "short_id": {
+                    "$ref": "#/definitions/InsightShortId"
                 },
                 "type": {
                     "const": "ai/viz",

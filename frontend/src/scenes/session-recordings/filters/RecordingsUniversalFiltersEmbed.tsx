@@ -102,7 +102,6 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     const { setIsFiltersExpanded } = useActions(playlistLogic)
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
     const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
-    const { isCinemaMode } = useValues(playerSettingsLogic)
 
     return (
         <>
@@ -141,34 +140,32 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                     </LemonButton>
                 </>
             </MaxTool>
-            {!isCinemaMode && (
-                <div className="flex gap-2 mt-2 justify-between">
-                    <HideRecordingsMenu />
-                    <SettingsMenu
-                        highlightWhenActive={false}
-                        items={[
-                            {
-                                label: 'UTC',
-                                onClick: () => setPlaylistTimestampFormat(TimestampFormat.UTC),
-                                active: playlistTimestampFormat === TimestampFormat.UTC,
-                            },
-                            {
-                                label: 'Device',
-                                onClick: () => setPlaylistTimestampFormat(TimestampFormat.Device),
-                                active: playlistTimestampFormat === TimestampFormat.Device,
-                            },
-                            {
-                                label: 'Relative',
-                                onClick: () => setPlaylistTimestampFormat(TimestampFormat.Relative),
-                                active: playlistTimestampFormat === TimestampFormat.Relative,
-                            },
-                        ]}
-                        icon={<IconClock />}
-                        label={TimestampFormatToLabel[playlistTimestampFormat]}
-                        rounded={true}
-                    />
-                </div>
-            )}
+            <div className="flex gap-2 mt-2 justify-between">
+                <HideRecordingsMenu />
+                <SettingsMenu
+                    highlightWhenActive={false}
+                    items={[
+                        {
+                            label: 'UTC',
+                            onClick: () => setPlaylistTimestampFormat(TimestampFormat.UTC),
+                            active: playlistTimestampFormat === TimestampFormat.UTC,
+                        },
+                        {
+                            label: 'Device',
+                            onClick: () => setPlaylistTimestampFormat(TimestampFormat.Device),
+                            active: playlistTimestampFormat === TimestampFormat.Device,
+                        },
+                        {
+                            label: 'Relative',
+                            onClick: () => setPlaylistTimestampFormat(TimestampFormat.Relative),
+                            active: playlistTimestampFormat === TimestampFormat.Relative,
+                        },
+                    ]}
+                    icon={<IconClock />}
+                    label={TimestampFormatToLabel[playlistTimestampFormat]}
+                    rounded={true}
+                />
+            </div>
         </>
     )
 }

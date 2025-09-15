@@ -70,7 +70,7 @@ export function LemonTabs<T extends string | number>({
                 'LemonTabs',
                 transitioning && 'LemonTabs--transitioning',
                 `LemonTabs--${size}`,
-                sceneInset && '-mt-4 -mx-4 [&>ul]:px-4 [&>ul]:mb-0',
+                sceneInset && '-mt-4 -mx-4 [&>ul]:pl-4 [&>ul]:mb-0',
                 className
             )}
             // eslint-disable-next-line react/forbid-dom-props
