@@ -13,7 +13,7 @@ if ! command -v playwright &> /dev/null; then
     echo "Installing Playwright via flox..."
     flox install playwright
     # Install Playwright browsers
-    flox activate -- playwright install
+    flox activate -- bash -c "playwright install"
 else
     echo "Playwright is already installed"
 fi
