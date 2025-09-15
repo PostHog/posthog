@@ -2010,15 +2010,6 @@
 # name: TestCohortQuery.test_static_cohort_filter
   '''
   
-  SELECT count(DISTINCT person_id)
-  FROM person_static_cohort
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-  '''
-# ---
-# name: TestCohortQuery.test_static_cohort_filter.1
-  '''
-  
     (SELECT person_static_cohort.person_id AS id
      FROM person_static_cohort
      WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999), equals(person_static_cohort.team_id, 99999))
@@ -2032,6 +2023,28 @@
                                 transform_null_in=1,
                                 optimize_min_equality_disjunction_chain_length=4294967295,
                                 allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestCohortQuery.test_static_cohort_filter.1
+  '''
+  
+  SELECT person.person_id AS id
+  FROM
+    (SELECT *,
+            id AS person_id
+     FROM
+       (SELECT id
+        FROM person
+        WHERE team_id = 99999
+        GROUP BY id
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person
+  WHERE 1 = 1
+    AND (((id IN
+             (SELECT person_id as id
+              FROM person_static_cohort
+              WHERE cohort_id = 99999
+                AND team_id = 99999)))) SETTINGS optimize_aggregation_in_order = 1,
+                                                 join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_static_cohort_filter.2
@@ -2057,15 +2070,6 @@
   '''
 # ---
 # name: TestCohortQuery.test_static_cohort_filter_with_extra
-  '''
-  
-  SELECT count(DISTINCT person_id)
-  FROM person_static_cohort
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-  '''
-# ---
-# name: TestCohortQuery.test_static_cohort_filter_with_extra.1
   '''
   
     (SELECT person_static_cohort.person_id AS id
@@ -2107,7 +2111,7 @@
                                                                allow_experimental_join_condition=1
   '''
 # ---
-# name: TestCohortQuery.test_static_cohort_filter_with_extra.2
+# name: TestCohortQuery.test_static_cohort_filter_with_extra.1
   '''
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
@@ -2149,7 +2153,7 @@
                                                                                                    join_algorithm = 'auto'
   '''
 # ---
-# name: TestCohortQuery.test_static_cohort_filter_with_extra.3
+# name: TestCohortQuery.test_static_cohort_filter_with_extra.2
   '''
   (
      (SELECT person_static_cohort.person_id AS id
@@ -2190,6 +2194,48 @@
                                                                                 transform_null_in=1,
                                                                                 optimize_min_equality_disjunction_chain_length=4294967295,
                                                                                 allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestCohortQuery.test_static_cohort_filter_with_extra.3
+  '''
+  
+  SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
+  FROM
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
+            countIf(timestamp > now() - INTERVAL 1 week
+                    AND timestamp < now()
+                    AND event = '$pageview'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_1_level_0_0
+     FROM events e
+     LEFT OUTER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 99999
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     WHERE team_id = 99999
+       AND event IN ['$pageview']
+       AND timestamp <= now()
+       AND timestamp >= now() - INTERVAL 1 week
+     GROUP BY person_id) behavior_query
+  FULL OUTER JOIN
+    (SELECT *,
+            id AS person_id
+     FROM
+       (SELECT id
+        FROM person
+        WHERE team_id = 99999
+        GROUP BY id
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
+  WHERE 1 = 1
+    AND ((((id IN
+              (SELECT person_id as id
+               FROM person_static_cohort
+               WHERE cohort_id = 99999
+                 AND team_id = 99999)))
+          OR ((coalesce(performed_event_condition_None_level_level_0_level_1_level_0_0, false))))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                                            join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_static_cohort_filter_with_extra.4
@@ -2236,15 +2282,6 @@
 # ---
 # name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts
   '''
-  
-  SELECT count(DISTINCT person_id)
-  FROM person_static_cohort
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-  '''
-# ---
-# name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts.1
-  '''
   /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
@@ -2253,7 +2290,7 @@
     AND version = 0
   '''
 # ---
-# name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts.2
+# name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts.1
   '''
   /* cohort_calculation: */
     (SELECT cohort_people.person_id AS id
@@ -2299,6 +2336,48 @@
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
                                                                allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts.2
+  '''
+  /* cohort_calculation: */
+  SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
+  FROM
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
+            countIf(timestamp > now() - INTERVAL 1 week
+                    AND timestamp < now()
+                    AND event = '$pageview'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_1_0
+     FROM events e
+     LEFT OUTER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 99999
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     WHERE team_id = 99999
+       AND event IN ['$pageview']
+       AND timestamp <= now()
+       AND timestamp >= now() - INTERVAL 1 week
+     GROUP BY person_id) behavior_query
+  FULL OUTER JOIN
+    (SELECT *,
+            id AS person_id
+     FROM
+       (SELECT id
+        FROM person
+        WHERE team_id = 99999
+        GROUP BY id
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
+  WHERE 1 = 1
+    AND (((id IN
+             (SELECT person_id
+              FROM cohortpeople
+              WHERE cohort_id = 99999
+                AND team_id = 99999 ))
+          OR (coalesce(performed_event_condition_None_level_level_0_level_1_0, false)))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                                  join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts.3
