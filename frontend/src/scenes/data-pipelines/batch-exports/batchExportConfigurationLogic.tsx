@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
@@ -16,7 +16,6 @@ import {
     BatchExportService,
 } from '~/types'
 
-import { pipelineAccessLogic } from '../../pipeline/pipelineAccessLogic'
 import type { batchExportConfigurationLogicType } from './batchExportConfigurationLogicType'
 import { humanizeBatchExportName } from './utils'
 
@@ -516,9 +515,6 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
         return `NEW:${service}`
     }),
     path((id) => ['scenes', 'data-pipelines', 'batch-exports', 'batchExportConfigurationLogic', id]),
-    connect(() => ({
-        values: [pipelineAccessLogic, ['canEnableNewDestinations']],
-    })),
     actions({
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
         setSelectedModel: (model: string) => ({ model }),
@@ -738,8 +734,14 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
         ],
     })),
     selectors(() => ({
+        logicProps: [() => [(_, props) => props], (props) => props],
         service: [(s, p) => [s.batchExportConfig, p.service], (config, service) => config?.destination.type || service],
         isNew: [(_, p) => [p.id], (id): boolean => !id],
+        loading: [
+            (s) => [s.batchExportConfigLoading, s.batchExportConfigTestLoading],
+            (batchExportConfigLoading, batchExportConfigTestLoading) =>
+                batchExportConfigLoading || batchExportConfigTestLoading,
+        ],
         requiredFields: [
             (s) => [s.service, s.isNew, s.configuration],
             (service, isNew, config): string[] => {

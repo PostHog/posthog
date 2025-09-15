@@ -20,9 +20,9 @@ interface RevenueSource {
     isConnected: boolean
 }
 
-// NOTE: This should NOT be used except for testing purposes (storybook)
 interface InlineSetupProps {
-    initialSetupView?: InlineSetupView
+    closeOnboarding: () => void
+    initialSetupView?: InlineSetupView // NOTE: This should NOT be used except for testing purposes (storybook)
 }
 
 export type InlineSetupView = 'overview' | 'add-source'
@@ -32,7 +32,7 @@ export type InlineSetupView = 'overview' | 'add-source'
 const REVENUE_SOURCE_TYPES: ExternalDataSourceType[] = ['Stripe', 'Chargebee', 'Polar', 'RevenueCat']
 const AVAILABLE_REVENUE_SOURCE_TYPES: Set<ExternalDataSourceType> = new Set(['Stripe'])
 
-export function InlineSetup({ initialSetupView }: InlineSetupProps): JSX.Element {
+export function InlineSetup({ closeOnboarding, initialSetupView }: InlineSetupProps): JSX.Element {
     const { events, enabledDataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
 
     const hasEvents = events.length > 0
@@ -82,7 +82,7 @@ export function InlineSetup({ initialSetupView }: InlineSetupProps): JSX.Element
                             <LemonButton
                                 type="primary"
                                 size="small"
-                                onClick={() => window.location.reload()}
+                                onClick={closeOnboarding}
                                 icon={<IconCheckCircle />}
                             >
                                 View Dashboard
