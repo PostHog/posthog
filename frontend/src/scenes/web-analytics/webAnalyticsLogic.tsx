@@ -471,7 +471,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
     }),
-    selectors({
+    selectors(({ actions, values }) => ({
         preAggregatedEnabled: [
             (s) => [s.featureFlags, s.currentTeam],
             (featureFlags: Record<string, boolean>, currentTeam: TeamPublicType | TeamType | null) => {
@@ -590,7 +590,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.pathTab,
                 s.geographyTab,
                 s.activeHoursTab,
-                s.shouldShowGeoIPQueries,
+                () => values.shouldShowGeoIPQueries,
             ],
             (graphsTab, sourceTab, deviceTab, pathTab, geographyTab, activeHoursTab, shouldShowGeoIPQueries) => ({
                 graphsTab,
@@ -619,7 +619,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.webVitalsTab,
                 s.webVitalsPercentile,
                 s.tablesOrderBy,
-                s.conversionGoal,
+                () => values.conversionGoal,
             ],
             (
                 webAnalyticsFilters,
@@ -641,19 +641,17 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 conversionGoal,
             }),
         ],
-    }),
-    selectors(({ actions }) => ({
         tiles: [
             (s) => [
                 s.productTab,
                 s.tabs,
                 s.controls,
                 s.filters,
-                s.featureFlags,
-                s.isGreaterThanMd,
-                s.currentTeam,
-                s.tileVisualizations,
-                s.preAggregatedEnabled,
+                () => values.featureFlags,
+                () => values.isGreaterThanMd,
+                () => values.currentTeam,
+                () => values.tileVisualizations,
+                () => values.preAggregatedEnabled,
                 s.marketingTiles,
             ],
             (
@@ -1935,8 +1933,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     )
             },
         ],
-    })),
-    selectors({
+
         hasCountryFilter: [
             (s) => [s.webAnalyticsFilters],
             (webAnalyticsFilters: WebAnalyticsPropertyFilters) => {
@@ -2083,7 +2080,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 })
             },
         ],
-    }),
+    })),
     loaders(({ values }) => ({
         // load the status check query here and pass the response into the component, so the response
         // is accessible in this logic
@@ -2508,12 +2505,7 @@ const checkCustomEventConversionGoalHasSessionIdsHelper = async (
     // check if we have any conversion events from the last week without sessions ids
 
     const response = await hogqlQuery(
-        hogql`select count()
-              from events
-              where timestamp >= (now() - toIntervalHour(24))
-                AND ($session_id IS NULL
-                 OR $session_id = '')
-                AND event = {event}`,
+        hogql`select count() from events where timestamp >= (now() - toIntervalHour(24)) AND ($session_id IS NULL OR $session_id = '') AND event = {event}`,
         { event: customEventName }
     )
     breakpoint?.()
