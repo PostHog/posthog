@@ -75,7 +75,7 @@ class TestWebAnalyticsPreAggregatedDateRange(ClickhouseTestMixin, APIBaseTest):
         with patch.object(date_range, "get_available_date_range", return_value=None):
             result = date_range.is_date_range_pre_aggregated(datetime(2023, 11, 15), datetime(2023, 11, 20))
 
-        assert not result
+        self.assertFalse(result)
 
     def test_is_date_range_pre_aggregated_returns_true_when_range_within_available_data(self):
         available_range = (datetime(2023, 11, 1), datetime(2023, 12, 31))
