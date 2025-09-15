@@ -4292,6 +4292,7 @@ export const INTEGRATION_KINDS = [
     'github',
     'meta-ads',
     'clickup',
+    'reddit-ads',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
