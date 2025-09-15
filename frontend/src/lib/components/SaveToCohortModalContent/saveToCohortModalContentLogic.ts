@@ -6,6 +6,7 @@ import { PaginationManual, lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { delay } from 'lib/utils'
+import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
@@ -97,6 +98,9 @@ export const saveToCohortModalContentLogic = kea<saveToCohortModalContentLogicTy
                 await api.update(`api/projects/${values.currentProjectId}/cohorts/${cohort.id}`, {
                     query: query,
                 })
+
+                const mountedCohortEditLogic = cohortEditLogic.findMounted({ id: cohort.id })
+                await mountedCohortEditLogic?.actions.updateCohortCount()
 
                 await delay(500) // just in case the toast is too fast
                 lemonToast.dismiss(toastId)
