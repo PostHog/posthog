@@ -69,7 +69,9 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         setJoiningTablePreviewData: (data: Record<string, any>[]) => ({ data }),
         setIsJoinValid: (isValid: boolean) => ({ isValid }),
         setValidationError: (errorMessage: string) => ({ errorMessage }),
+        setKeyTypeMismatch: (keyTypeMismatch: string | null) => ({ keyTypeMismatch }),
         validateJoin: () => {},
+        checkKeyTypeMismatch: () => {},
     })),
     reducers({
         joinToEdit: [
@@ -102,6 +104,10 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             false as boolean,
             {
                 setIsJoinValid: (_, { isValid }) => isValid,
+                selectSourceKey: () => false,
+                selectSourceTable: () => false,
+                selectJoiningKey: () => false,
+                selectJoiningTable: () => false,
             },
         ],
         selectedSourceTableName: [
@@ -189,7 +195,20 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 setValidationError: (_, { errorMessage }) => errorMessage,
                 clearModalFields: () => null,
                 selectSourceKey: () => null,
+                selectSourceTable: () => null,
                 selectJoiningKey: () => null,
+                selectJoiningTable: () => null,
+            },
+        ],
+        keyTypeMismatch: [
+            null as null | string,
+            {
+                setKeyTypeMismatch: (_, { keyTypeMismatch }) => keyTypeMismatch,
+                clearModalFields: () => null,
+                selectSourceKey: () => null,
+                selectSourceTable: () => null,
+                selectJoiningKey: () => null,
+                selectJoiningTable: () => null,
             },
         ],
         sourceTablePreviewData: [
@@ -314,11 +333,28 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 actions.loadJoiningTablePreview(selectedTableName)
             }
         },
+        checkKeyTypeMismatch: () => {
+            if (values.selectedSourceKey && values.selectedJoiningKey) {
+                const sourceColumn = Object.values(values.selectedSourceTable?.fields ?? {}).find(
+                    (field) => field.name === values.selectedSourceKey
+                )
+                const joiningColumn = Object.values(values.selectedJoiningTable?.fields ?? {}).find(
+                    (field) => field.name === values.selectedJoiningKey
+                )
+                const sourceKeyDataType = sourceColumn?.type ?? 'unknown'
+                const joiningKeyDataType = joiningColumn?.type ?? 'unknown'
+                const keyTypeMismatch =
+                    sourceKeyDataType !== joiningKeyDataType
+                        ? `Key types don't match: Source table key is from type ${sourceKeyDataType} but joining table key is from type ${joiningKeyDataType}`
+                        : null
+                actions.setKeyTypeMismatch(keyTypeMismatch)
+            }
+        },
         selectSourceKey: () => {
-            actions.setIsJoinValid(false)
+            actions.checkKeyTypeMismatch()
         },
         selectJoiningKey: () => {
-            actions.setIsJoinValid(false)
+            actions.checkKeyTypeMismatch()
         },
         loadSourceTablePreview: async ({ tableName }) => {
             await loadTablePreviewData(tableName, actions.setSourceTablePreviewData)

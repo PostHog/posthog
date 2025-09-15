@@ -415,6 +415,7 @@ export function ViewLinkFormWithPreview({ mode }: ViewLinkModalProps): JSX.Eleme
         isJoinValidating,
         isJoinValid,
         validationError,
+        keyTypeMismatch,
     } = useValues(viewLinkLogic)
     const {
         selectJoiningTable,
@@ -675,7 +676,7 @@ export function ViewLinkFormWithPreview({ mode }: ViewLinkModalProps): JSX.Eleme
                     className="mt-2"
                     type="error"
                     children={
-                        <div className="flex flex-row items-center">
+                        <div className="flex flex-row items-center justify-between">
                             <div>
                                 Validation error:
                                 <br />
@@ -695,6 +696,7 @@ export function ViewLinkFormWithPreview({ mode }: ViewLinkModalProps): JSX.Eleme
                     }
                 />
             )}
+            {keyTypeMismatch && <LemonBanner className="mt-2" type="warning" children={keyTypeMismatch} />}
             <LemonDivider className="mt-4 mb-4" />
             <div className="flex flex-row gap-2 justify-end w-full">
                 {isJoinValid ? (
