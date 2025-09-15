@@ -12,6 +12,7 @@ import celery
 import requests.exceptions
 from boto3 import resource
 from botocore.client import Config
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.insight import InsightSerializer
@@ -594,7 +595,15 @@ class TestExports(APIBaseTest):
         stuck_export.refresh_from_db()
         self.assertIsNone(stuck_export.exception)
 
-    def test_can_filter_exports_by_format(self) -> None:
+    @parameterized.expand(
+        [
+            ("image/png", 2, "png_export"),  # PNG format with 2 expected results
+            ("text/csv", 1, "csv_export"),  # CSV format with 1 expected result
+            ("image/jpeg", 3, None),  # Unsupported format returns all (3)
+            (None, 3, None),  # No filter returns all (3)
+        ]
+    )
+    def test_can_filter_exports_by_format(self, export_format, expected_count, expected_export_var):
         png_export = ExportedAsset.objects.create(
             team=self.team, dashboard_id=self.dashboard.id, export_format="image/png", created_by=self.user
         )
@@ -602,35 +611,27 @@ class TestExports(APIBaseTest):
             team=self.team, insight_id=self.insight.id, export_format="text/csv", created_by=self.user
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/exports?export_format=image/png")
+        url = f"/api/projects/{self.team.id}/exports"
+        if export_format:
+            url += f"?export_format={export_format}"
+
+        response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
 
-        png_export_ids = {png_export.id, self.exported_asset.id}
-        returned_ids = {result["id"] for result in results}
-        assert returned_ids == png_export_ids
+        assert len(results) == expected_count
 
-        for result in results:
-            assert result["export_format"] == "image/png"
-
-        response = self.client.get(f"/api/projects/{self.team.id}/exports?export_format=text/csv")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        results = response.json()["results"]
-
-        assert len(results) == 1
-        assert results[0]["id"] == csv_export.id
-        assert results[0]["export_format"] == "text/csv"
-
-        # Unsupported format should return all exports since filter is ignored
-        response = self.client.get(f"/api/projects/{self.team.id}/exports?export_format=image/jpeg")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        results = response.json()["results"]
-        assert len(results) == 3
-
-        response = self.client.get(f"/api/projects/{self.team.id}/exports")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        results = response.json()["results"]
-        assert len(results) == 3
+        if expected_export_var == "png_export":
+            # Should return PNG exports only (including the one from setUpTestData)
+            png_export_ids = {png_export.id, self.exported_asset.id}
+            returned_ids = {result["id"] for result in results}
+            assert returned_ids == png_export_ids
+            for result in results:
+                assert result["export_format"] == "image/png"
+        elif expected_export_var == "csv_export":
+            # Should return CSV export only
+            assert results[0]["id"] == csv_export.id
+            assert results[0]["export_format"] == "text/csv"
 
 
 class TestExportMixin(APIBaseTest):
