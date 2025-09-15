@@ -3,6 +3,7 @@ import 'react-data-grid/lib/styles.css'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useCallback, useMemo, useState } from 'react'
 import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 
@@ -10,6 +11,7 @@ import {
     IconBolt,
     IconBrackets,
     IconCode,
+    IconCode2,
     IconCopy,
     IconDownload,
     IconExpand45,
@@ -464,7 +466,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                         <div
                             key={tab.key}
                             className={clsx(
-                                'flex-1 flex-row flex items-center bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium]',
+                                'flex-1 flex-row flex items-center bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium] whitespace-nowrap',
                                 {
                                     'font-semibold !border-brand-yellow': tab.key === activeTab,
                                     'border-transparent': tab.key !== activeTab,
@@ -592,6 +594,18 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                 onClick={() => shareTab()}
                             />
                         </Tooltip>
+                    )}
+                    {activeTab === OutputTab.NamedQuery && (
+                        <LemonButton
+                            type="primary"
+                            onClick={() => {
+                                // Make API Call to create the Named Query
+                                router.actions.push('/embedded-analytics/named-queries')
+                            }}
+                            icon={<IconCode2 />}
+                        >
+                            Create named query
+                        </LemonButton>
                     )}
                 </div>
             </div>
