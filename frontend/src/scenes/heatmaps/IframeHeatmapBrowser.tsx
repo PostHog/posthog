@@ -1,16 +1,14 @@
 import { useActions, useValues } from 'kea'
 import React, { useEffect } from 'react'
 
-import { IconLlmPromptEvaluation } from '@posthog/icons'
+import { IconDownload } from '@posthog/icons'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
-import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
-import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FilterPanel } from 'scenes/heatmaps/FilterPanel'
 import { heatmapsBrowserLogic } from 'scenes/heatmaps/heatmapsBrowserLogic'
@@ -26,6 +24,7 @@ export function IframeHeatmapBrowser({
 
     const { filterPanelCollapsed, widthOverride, browserUrl } = useValues(logic)
     const { onIframeLoad, setIframeWidth, toggleFilterPanelCollapsed } = useActions(logic)
+    const { startHeatmapExport } = useActions(exportsLogic)
 
     const {
         heatmapFilters,
@@ -60,9 +59,8 @@ export function IframeHeatmapBrowser({
     }
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const { setHtml } = useActions(takeScreenshotLogic({ screenshotKey: 'heatmaps' }))
 
-    const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
+    const { width: iframeWidth, height: iframeHeight } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
     useEffect(() => {
         if (widthOverride === null) {
             setIframeWidth(iframeWidth ?? null)
@@ -70,13 +68,19 @@ export function IframeHeatmapBrowser({
         setWindowWidthOverride(widthOverride)
     }, [iframeWidth, setIframeWidth, widthOverride, setWindowWidthOverride])
 
-    const handleShare = (): void => {
-        const iframe = iframeRef?.current
-        if (!iframe) {
-            lemonToast.error('Cannot take screenshot. Please try again.')
-            return
+    const handleExport = (): void => {
+        if (browserUrl) {
+            startHeatmapExport({
+                heatmap_url: browserUrl,
+                width: iframeWidth,
+                height: iframeHeight,
+                heatmap_color_palette: heatmapColorPalette,
+                heatmap_fixed_position_mode: heatmapFixedPositionMode,
+                common_filters: commonFilters,
+                heatmap_filters: heatmapFilters,
+                filename: `heatmap-${browserUrl}-${Date.now().toString()}`,
+            })
         }
-        setHtml(iframe)
     }
 
     return (
@@ -85,16 +89,23 @@ export function IframeHeatmapBrowser({
             <div className="relative flex-1 w-full h-full mt-2">
                 {featureFlags[FEATURE_FLAGS.SCREENSHOT_EDITOR] ? (
                     <>
-                        <ScreenShotEditor screenshotKey="heatmaps" />
                         <div className="flex justify-between items-center">
                             <ViewportChooser />
                             <LemonButton
                                 className="mb-2 mr-2"
                                 type="secondary"
-                                onClick={handleShare}
-                                icon={<IconLlmPromptEvaluation />}
+                                onClick={handleExport}
+                                icon={<IconDownload />}
+                                tooltip="Export heatmap as PNG"
+                                data-attr="export-heatmap"
+                                disabledReason={!browserUrl ? 'We can export only the URL with heatmaps' : undefined}
                             >
-                                Take screenshot
+                                <div className="flex w-full gap-x-2 justify-between items-center">
+                                    Export{' '}
+                                    <LemonTag type="warning" size="small">
+                                        BETA
+                                    </LemonTag>
+                                </div>
                             </LemonButton>
                         </div>
                     </>

@@ -363,6 +363,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         enableFormOnSubmit
                         className="deprecated-space-y-4"
                     >
+                        <SceneTitleSection name={featureFlag.key} resourceType={{ type: 'feature_flag' }} />
                         <PageHeader
                             buttons={
                                 <div className="flex items-center gap-2">
