@@ -8966,6 +8966,9 @@
                         },
                         {
                             "$ref": "#/definitions/TracesQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/TraceQuery"
                         }
                     ],
                     "description": "Source of the events"

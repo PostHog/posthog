@@ -720,7 +720,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results), 2)  # Should return both traces
         # Find trace2 in the results
         trace2 = next((r for r in response.results if r.id == "trace2"), None)
-        self.assertIsNotNone(trace2)
+        assert trace2 is not None
         self.assertEqual(trace2.traceName, "bar")
 
     def test_returns_metrics_and_feedback_events(self):
