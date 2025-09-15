@@ -12,7 +12,6 @@ import {
     TabsPrimitiveList,
     TabsPrimitiveTrigger,
 } from 'lib/ui/TabsPrimitive/TabsPrimitive'
-import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -136,9 +135,8 @@ const Header = (): JSX.Element => {
 }
 
 const IngestionStatusCheck = (): JSX.Element | null => {
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     return (
-        <LemonBanner type="warning" className={cn(!newSceneLayout && 'mb-4')}>
+        <LemonBanner type="warning">
             <p>
                 <strong>No Exception events have been detected!</strong>
             </p>

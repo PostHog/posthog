@@ -1,6 +1,5 @@
 import { LemonCheckbox } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
@@ -14,27 +13,23 @@ export function ExperimentMetricOutlierHandling({
     metric: ExperimentMeanMetric
     handleSetMetric: (newMetric: ExperimentMetric) => void
 }): JSX.Element {
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     return (
         <SceneSection
             title="Outlier handling"
             titleHelper={<>Prevent outliers from skewing results by capping the lower and upper bounds of a metric.</>}
-            hideTitleAndDescription={!newSceneLayout}
             description={
                 <>Set winsorization lower and upper bounds to cap metric values at the specified percentiles.</>
             }
         >
-            {!newSceneLayout && (
-                <>
-                    <LemonLabel
-                        className="mb-1"
-                        info="Prevent outliers from skewing results by capping the lower and upper bounds of a metric."
-                    />
-                    <p className="text-sm text-muted-alt">
-                        Set winsorization lower and upper bounds to cap metric values at the specified percentiles.
-                    </p>
-                </>
-            )}
+            <>
+                <LemonLabel
+                    className="mb-1"
+                    info="Prevent outliers from skewing results by capping the lower and upper bounds of a metric."
+                />
+                <p className="text-sm text-muted-alt">
+                    Set winsorization lower and upper bounds to cap metric values at the specified percentiles.
+                </p>
+            </>
 
             <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">

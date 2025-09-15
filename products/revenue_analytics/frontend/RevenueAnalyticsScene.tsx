@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react'
 
 import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -34,7 +33,6 @@ export const PRODUCT_THING_NAME = 'revenue source'
 export function RevenueAnalyticsScene(): JSX.Element {
     const { dataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
     const { revenueEnabledDataWarehouseSources } = useValues(revenueAnalyticsLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const sourceRunningForTheFirstTime = revenueEnabledDataWarehouseSources?.find(
         (source) => source.status === 'Running' && !source.last_run_at
@@ -60,7 +58,6 @@ export function RevenueAnalyticsScene(): JSX.Element {
                 <LemonBanner
                     type="info"
                     action={{ children: 'Send feedback', id: 'revenue-analytics-feedback-button' }}
-                    className={cn(!newSceneLayout && 'mb-2')}
                 >
                     <p>
                         Revenue Analytics is in beta. Please let us know what you'd like to see here and/or report any
@@ -82,7 +79,6 @@ export function RevenueAnalyticsScene(): JSX.Element {
                         type="success"
                         dismissKey={`revenue-analytics-sync-in-progress-banner-${sourceRunningForTheFirstTime.id}`}
                         action={{ children: 'Refresh', onClick: () => window.location.reload() }}
-                        className={cn(!newSceneLayout && 'mb-2')}
                     >
                         One of your revenue data warehouse sources is running for the first time. <br />
                         This means you might not see all of your revenue data yet. <br />
@@ -100,8 +96,6 @@ export function RevenueAnalyticsScene(): JSX.Element {
 const RevenueAnalyticsSceneContent = (): JSX.Element => {
     const [isOnboarding, setIsOnboarding] = useState(false)
     const { hasRevenueTables, hasRevenueEvents } = useValues(revenueAnalyticsLogic)
-
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     // Turn onboarding on if we haven't connected any revenue sources or events yet
     // We'll keep that stored in the state to make sure we don't "leave" the onboarding state
@@ -125,7 +119,7 @@ const RevenueAnalyticsSceneContent = (): JSX.Element => {
     }
 
     return (
-        <div className={cn('RevenueAnalyticsDashboard', newSceneLayout && '-mt-2')}>
+        <div className={cn('RevenueAnalyticsDashboard -mt-2')}>
             <RevenueAnalyticsFilters />
             <RevenueAnalyticsTables />
         </div>

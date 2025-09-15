@@ -35,7 +35,6 @@ import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -639,8 +638,6 @@ export function SavedInsights(): JSX.Element {
     const startCount = (page - 1) * INSIGHTS_PER_PAGE + 1
     const endCount = page * INSIGHTS_PER_PAGE < count ? page * INSIGHTS_PER_PAGE : count
 
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-
     const columns: LemonTableColumns<QueryBasedInsightModel> = [
         {
             key: 'id',
@@ -798,7 +795,7 @@ export function SavedInsights(): JSX.Element {
     ]
 
     return (
-        <SceneContent className={cn('saved-insights', !newSceneLayout && 'block')}>
+        <SceneContent className={cn('saved-insights')}>
             <PageHeader buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
             <SceneTitleSection
                 name="Product analytics"
@@ -821,7 +818,7 @@ export function SavedInsights(): JSX.Element {
                         label: <div className="flex items-center gap-2">Alerts</div>,
                     },
                 ]}
-                sceneInset={newSceneLayout}
+                sceneInset
             />
 
             {tab === SavedInsightsTabs.History ? (
@@ -831,13 +828,8 @@ export function SavedInsights(): JSX.Element {
             ) : (
                 <>
                     <SavedInsightsFilters filters={filters} setFilters={setSavedInsightsFilters} />
-                    <LemonDivider className={cn('my-4', newSceneLayout && 'my-0')} />
-                    <div
-                        className={cn(
-                            'flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center',
-                            newSceneLayout && 'my-0'
-                        )}
-                    >
+                    <LemonDivider className={cn('my-4 my-0')} />
+                    <div className={cn('flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center', 'my-0')}>
                         <span className="text-secondary">
                             {count
                                 ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${

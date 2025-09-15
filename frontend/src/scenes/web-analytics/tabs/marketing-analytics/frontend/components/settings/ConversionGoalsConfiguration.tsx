@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { IconCheck, IconPencil, IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { uuid } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
@@ -39,7 +38,6 @@ export function ConversionGoalsConfiguration({
     const [formState, setFormState] = useState<ConversionGoalFormState>(createEmptyFormState())
     const [editingGoalId, setEditingGoalId] = useState<string | null>(null)
     const [editingGoal, setEditingGoal] = useState<ConversionGoalFilter | null>(null)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const handleAddConversionGoal = (): void => {
         let conversionGoalName = formState.name.trim()
@@ -82,12 +80,12 @@ export function ConversionGoalsConfiguration({
 
     return (
         <SceneSection
-            hideTitleAndDescription={!newSceneLayout}
+            hideTitleAndDescription
             title={!hideTitle ? 'Conversion goals' : undefined}
             description="Define conversion goals by selecting events or data warehouse tables. These goals can be used to track and analyze user conversions in your marketing analytics."
-            className={cn(!newSceneLayout && 'gap-y-4')}
+            className={cn('gap-y-4')}
         >
-            {!newSceneLayout && (!hideTitle || !hideDescription) && (
+            {(!hideTitle || !hideDescription) && (
                 <div>
                     {!hideTitle && <h3 className="mb-2">Conversion goals</h3>}
                     {!hideDescription && (
@@ -140,11 +138,7 @@ export function ConversionGoalsConfiguration({
 
             {/* Existing Conversion Goals Table */}
             <div>
-                {newSceneLayout ? (
-                    <h3 className="font-bold mb-4">Configured conversion goals ({conversion_goals.length})</h3>
-                ) : (
-                    <h4 className="font-medium mb-3">Configured conversion goals ({conversion_goals.length})</h4>
-                )}
+                <h3 className="font-bold mb-4">Configured conversion goals ({conversion_goals.length})</h3>
 
                 <LemonTable
                     rowKey={(item) => item.conversion_goal_id}

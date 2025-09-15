@@ -7,7 +7,6 @@ import { LemonButton, LemonModal, Link, ProfilePicture, Tooltip } from '@posthog
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -89,7 +88,6 @@ export function Info(): JSX.Element {
     const { isDescriptionModalOpen } = useValues(modalsLogic)
 
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     useEffect(() => {
         setTempDescription(experiment.description || '')
@@ -208,11 +206,9 @@ export function Info(): JSX.Element {
                             />
                         </div>
                         {experiment.description ? (
-                            <p className={cn('py-2 m-0', newSceneLayout && 'py-0')}>{experiment.description}</p>
+                            <p className={cn('py-2 m-0 py-0')}>{experiment.description}</p>
                         ) : (
-                            <p className={cn('py-2 m-0 text-secondary', newSceneLayout && 'py-0')}>
-                                Add your hypothesis for this test
-                            </p>
+                            <p className={cn('py-2 m-0 text-secondary py-0')}>Add your hypothesis for this test</p>
                         )}
 
                         <LemonModal
@@ -271,7 +267,7 @@ export function Info(): JSX.Element {
                     </div>
                 </div>
             </div>
-            <div className={cn('block mt-4', newSceneLayout && 'mt-0')}>
+            <div className={cn('block mt-4 mt-0')}>
                 <div className="flex gap-6">
                     {experiment.conclusion && experiment.end_date && (
                         <div className="w-[500px]">
@@ -284,7 +280,7 @@ export function Info(): JSX.Element {
                                     onClick={openEditConclusionModal}
                                 />
                             </div>
-                            <div className={cn('py-2', newSceneLayout && 'py-0')}>
+                            <div className={cn('py-2 py-0')}>
                                 <div className="font-semibold flex items-center gap-2">
                                     <div
                                         className={clsx(

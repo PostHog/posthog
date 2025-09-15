@@ -6,10 +6,8 @@ import { IconGridMasonry, IconNotebook, IconPalette, IconScreen, IconTrash } fro
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
-import { EditableField } from 'lib/components/EditableField/EditableField'
-import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
+import { ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
 import { FullScreen } from 'lib/components/FullScreen'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
@@ -19,17 +17,14 @@ import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
-import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
-import { FEATURE_FLAGS, privilegeLevelToName } from 'lib/constants'
+import { SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
+import { privilegeLevelToName } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { isLemonSelectSection } from 'lib/lemon-ui/LemonSelect'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { humanFriendlyDetailedTime, slugify } from 'lib/utils'
+import { slugify } from 'lib/utils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
@@ -104,8 +99,6 @@ export function DashboardHeader(): JSX.Element | null {
     const { push } = useActions(router)
 
     const [isPinned, setIsPinned] = useState(dashboard?.pinned)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
 
     const isNewDashboard = useMemo(() => {
         if (!dashboard || dashboardLoading) {
@@ -233,143 +226,6 @@ export function DashboardHeader(): JSX.Element | null {
                         </LemonButton>
                     ) : (
                         <>
-                            {!newSceneLayout && (
-                                <>
-                                    <More
-                                        data-attr="dashboard-three-dots-options-menu"
-                                        overlay={
-                                            dashboard ? (
-                                                <>
-                                                    {dashboard.created_by && (
-                                                        <>
-                                                            <div className="flex p-2 text-secondary">
-                                                                Created by{' '}
-                                                                {dashboard.created_by.first_name ||
-                                                                    dashboard.created_by.email ||
-                                                                    '-'}{' '}
-                                                                on {humanFriendlyDetailedTime(dashboard.created_at)}
-                                                            </div>
-                                                            <LemonDivider />
-                                                        </>
-                                                    )}
-                                                    {canEditDashboard && hasDashboardColors && (
-                                                        <LemonButton
-                                                            onClick={() => showInsightColorsModal(dashboard.id)}
-                                                            fullWidth
-                                                        >
-                                                            Customize colors
-                                                        </LemonButton>
-                                                    )}
-
-                                                    {canEditDashboard && (
-                                                        <LemonButton
-                                                            onClick={() =>
-                                                                setDashboardMode(
-                                                                    DashboardMode.Edit,
-                                                                    DashboardEventSource.MoreDropdown
-                                                                )
-                                                            }
-                                                            fullWidth
-                                                        >
-                                                            Edit layout (E)
-                                                        </LemonButton>
-                                                    )}
-
-                                                    <LemonButton
-                                                        onClick={() =>
-                                                            setDashboardMode(
-                                                                DashboardMode.Fullscreen,
-                                                                DashboardEventSource.MoreDropdown
-                                                            )
-                                                        }
-                                                        fullWidth
-                                                    >
-                                                        Go full screen (F)
-                                                    </LemonButton>
-
-                                                    {canEditDashboard &&
-                                                        (dashboard.pinned ? (
-                                                            <LemonButton
-                                                                onClick={() =>
-                                                                    unpinDashboard(
-                                                                        dashboard.id,
-                                                                        DashboardEventSource.MoreDropdown
-                                                                    )
-                                                                }
-                                                                fullWidth
-                                                            >
-                                                                Unpin dashboard
-                                                            </LemonButton>
-                                                        ) : (
-                                                            <LemonButton
-                                                                onClick={() =>
-                                                                    pinDashboard(
-                                                                        dashboard.id,
-                                                                        DashboardEventSource.MoreDropdown
-                                                                    )
-                                                                }
-                                                                fullWidth
-                                                            >
-                                                                Pin dashboard
-                                                            </LemonButton>
-                                                        ))}
-                                                    <SubscribeButton dashboardId={dashboard.id} />
-                                                    <ExportButton fullWidth items={exportOptions} />
-                                                    {user?.is_staff && (
-                                                        <LemonButton
-                                                            onClick={() => {
-                                                                if (asDashboardTemplate) {
-                                                                    setDashboardTemplate(asDashboardTemplate)
-                                                                    openDashboardTemplateEditor()
-                                                                }
-                                                            }}
-                                                            fullWidth
-                                                        >
-                                                            Save as template
-                                                        </LemonButton>
-                                                    )}
-                                                    <LemonDivider />
-
-                                                    <LemonButton
-                                                        onClick={() => {
-                                                            showDuplicateDashboardModal(dashboard.id, dashboard.name)
-                                                        }}
-                                                        fullWidth
-                                                    >
-                                                        Duplicate dashboard
-                                                    </LemonButton>
-
-                                                    <LemonButton
-                                                        onClick={() => createNotebookFromDashboard(dashboard)}
-                                                        fullWidth
-                                                    >
-                                                        Create notebook from dashboard
-                                                    </LemonButton>
-
-                                                    {canEditDashboard && (
-                                                        <LemonButton
-                                                            accessControl={{
-                                                                resourceType: AccessControlResourceType.Dashboard,
-                                                                minAccessLevel: AccessControlLevel.Editor,
-                                                                userAccessLevel: dashboard.user_access_level,
-                                                            }}
-                                                            onClick={() => {
-                                                                showDeleteDashboardModal(dashboard.id)
-                                                            }}
-                                                            status="danger"
-                                                            fullWidth
-                                                        >
-                                                            Delete dashboard
-                                                        </LemonButton>
-                                                    )}
-                                                </>
-                                            ) : undefined
-                                        }
-                                    />
-                                    <LemonDivider vertical />
-                                </>
-                            )}
-
                             {dashboard && (
                                 <>
                                     {dashboard.access_control_version === 'v1' && (
@@ -428,45 +284,6 @@ export function DashboardHeader(): JSX.Element | null {
                             ) : null}
                         </>
                     )
-                }
-                caption={
-                    <>
-                        {!newSceneLayout && dashboard && !!(canEditDashboard || dashboard.description) && (
-                            <EditableField
-                                multiline
-                                name="description"
-                                markdown
-                                value={dashboard.description}
-                                placeholder="Description (optional)"
-                                onSave={(value) =>
-                                    updateDashboard({ id: dashboard.id, description: value, allowUndo: true })
-                                }
-                                saveOnBlur={true}
-                                compactButtons
-                                mode={!canEditDashboard ? 'view' : undefined}
-                            />
-                        )}
-                        {!newSceneLayout && dashboard?.tags && (
-                            <>
-                                {canEditDashboard ? (
-                                    <ObjectTags
-                                        tags={dashboard.tags}
-                                        onChange={(tags) => triggerDashboardUpdate({ tags })}
-                                        saving={dashboardLoading}
-                                        tagsAvailable={tags.filter((tag) => !dashboard.tags?.includes(tag))}
-                                        className="mt-2"
-                                    />
-                                ) : dashboard.tags.length ? (
-                                    <ObjectTags
-                                        tags={dashboard.tags}
-                                        saving={dashboardLoading}
-                                        staticOnly
-                                        className="mt-2"
-                                    />
-                                ) : null}
-                            </>
-                        )}
-                    </>
                 }
             />
 
