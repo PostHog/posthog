@@ -192,14 +192,12 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                         ]}
                         buttonSize="xsmall"
                     >
-                        <div className="recordings-event-share-actions">
-                            <LemonButton size="xsmall" icon={<IconShare />}>
-                                Share
-                            </LemonButton>
-                        </div>
+                        <LemonButton size="xsmall" icon={<IconShare />} className="recordings-event-share-actions">
+                            Share
+                        </LemonButton>
                     </LemonMenu>
                 </div>
-                <LemonDivider dashed />
+                <LemonDivider dashed className="my-0" />
 
                 {item.data.fullyLoaded ? (
                     <EventPropertyTabs
