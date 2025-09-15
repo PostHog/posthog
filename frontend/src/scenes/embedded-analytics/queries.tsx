@@ -150,7 +150,8 @@ export const createExpensiveQueriesQuery = ({ dateFrom, dateTo, requestNameBreak
         query,
         query_duration_ms,
         api_key_label,
-        read_bytes / 1e12 as read_tb, 
+        read_bytes / 1e12 as read_tb,
+        formatReadableSize(read_bytes) as human_readable_read_size,
         cpu_microseconds / 1e6 as cpu_sec,
         created_by
     from query_log

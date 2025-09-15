@@ -297,20 +297,6 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                                 query: last20QueriesQuery,
                             },
                             display: ChartDisplayType.ActionsTable,
-                            chartSettings: {
-                                xAxis: { column: 'query_start_time' },
-                                yAxis: [
-                                    {
-                                        column: 'query_duration_ms',
-                                        settings: { formatting: { prefix: '', suffix: '' } },
-                                    },
-                                    {
-                                        column: 'created_by',
-                                        settings: { formatting: { prefix: '', suffix: '' } },
-                                    },
-                                ],
-                                seriesBreakdownColumn: null,
-                            },
                             tableSettings: {
                                 columns: last20QueriesColumns,
                                 conditionalFormatting: [],
@@ -337,20 +323,6 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                                 query: expensiveQueriesQuery,
                             },
                             display: ChartDisplayType.ActionsTable,
-                            chartSettings: {
-                                xAxis: { column: 'query_start_time' },
-                                yAxis: [
-                                    {
-                                        column: 'read_tb',
-                                        settings: { formatting: { prefix: '', suffix: '' } },
-                                    },
-                                    {
-                                        column: 'cpu_sec',
-                                        settings: { formatting: { prefix: '', suffix: '' } },
-                                    },
-                                ],
-                                seriesBreakdownColumn: null,
-                            },
                             tableSettings: {
                                 columns: expensiveQueriesColumns,
                                 conditionalFormatting: [],
