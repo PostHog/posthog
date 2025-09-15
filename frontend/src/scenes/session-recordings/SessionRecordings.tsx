@@ -211,7 +211,7 @@ function MainPanel(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             <Warnings />
 
             {!tab ? (
@@ -294,7 +294,7 @@ function PageTabs(): JSX.Element {
 }
 export function SessionsRecordings(): JSX.Element {
     return (
-        <SceneContent forceNewSpacing className="h-full">
+        <SceneContent className="h-full">
             <Header />
             <PageTabs />
             <MainPanel />

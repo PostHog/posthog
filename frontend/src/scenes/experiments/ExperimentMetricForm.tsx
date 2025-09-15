@@ -168,7 +168,7 @@ export function ExperimentMetricForm({
     const hideDeleteBtn = (_: any, index: number): boolean => index === 0
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             <SceneSection title="Shared metric type" className="max-w-prose">
                 <div>
                     <LemonRadio
