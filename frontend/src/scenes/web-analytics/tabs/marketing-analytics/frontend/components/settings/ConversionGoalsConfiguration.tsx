@@ -6,7 +6,6 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { uuid } from 'lib/utils'
-import { cn } from 'lib/utils/css-classes'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -80,14 +79,12 @@ export function ConversionGoalsConfiguration({
 
     return (
         <SceneSection
-            hideTitleAndDescription
             title={!hideTitle ? 'Conversion goals' : undefined}
             description={
                 !hideDescription
                     ? 'Define conversion goals by selecting events or data warehouse tables. These goals can be used to track and analyze user conversions in your marketing analytics.'
                     : undefined
             }
-            className={cn('gap-y-4')}
         >
             {/* Add New Conversion Goal Form */}
             <div className="border rounded p-4 space-y-4">
