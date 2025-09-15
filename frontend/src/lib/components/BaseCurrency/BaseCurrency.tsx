@@ -13,7 +13,6 @@ export function BaseCurrency({ hideTitle = false }: { hideTitle?: boolean }): JS
 
     return (
         <SceneSection
-            hideTitleAndDescription={false}
             title={!hideTitle ? 'Base currency' : undefined}
             description="PostHog will convert all currency values for the entire team to this currency before displaying them to you. If we can't properly detect your currency, we'll assume it's in this currency as well."
         >
