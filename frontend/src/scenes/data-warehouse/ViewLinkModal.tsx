@@ -702,7 +702,9 @@ export function ViewLinkFormWithPreview({ mode }: ViewLinkModalProps): JSX.Eleme
                 {isJoinValid ? (
                     <>
                         <LemonButton disabledReason="Join is valid">Join is valid</LemonButton>
-                        <LemonButton type="primary" onClick={validateJoin} loading={isJoinValidating}>
+                        <LemonButton type="primary" htmlType="submit" loading={isViewLinkSubmitting}>
+                            Save join
+                        </LemonButton>
                             Save join
                         </LemonButton>
                     </>
