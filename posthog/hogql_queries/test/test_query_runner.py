@@ -99,7 +99,7 @@ class TestQueryRunner(BaseTest):
 
         team = Team.objects.create(
             organization=self.organization,
-            base_currency=CurrencyCode.GBP.value,
+            base_currency=CurrencyCode.USD.value,
         )
 
         # Basic Revenue Analytics config
@@ -135,7 +135,7 @@ class TestQueryRunner(BaseTest):
             },
             "products_modifiers": {
                 "marketing_analytics": {
-                    "base_currency": "GBP",
+                    "base_currency": "USD",
                     "sources_map": {
                         "01977f7b-7f29-0000-a028-7275d1a767a4": {
                             "cost": "cost",
@@ -149,7 +149,7 @@ class TestQueryRunner(BaseTest):
                     },
                 },
                 "revenue_analytics": {
-                    "base_currency": "GBP",
+                    "base_currency": "USD",
                     "filter_test_accounts": False,
                     "events": [
                         {
