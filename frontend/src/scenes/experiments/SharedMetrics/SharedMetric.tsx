@@ -50,7 +50,7 @@ export function SharedMetric(): JSX.Element {
     }
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             {sharedMetric.query.kind !== NodeKind.ExperimentMetric && (
                 <div className="flex gap-4 mb-4">
                     <div

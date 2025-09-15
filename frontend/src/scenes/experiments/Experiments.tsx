@@ -323,7 +323,7 @@ const ExperimentsTable = ({
     ]
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             {match(tab)
                 .with(ExperimentsTabs.All, () => (
                     <ProductIntroduction
@@ -393,7 +393,7 @@ export function Experiments(): JSX.Element {
     const [duplicateModalExperiment, setDuplicateModalExperiment] = useState<Experiment | null>(null)
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             <PageHeader
                 buttons={
                     <LemonButton type="primary" data-attr="create-experiment" to={urls.experiment('new')}>

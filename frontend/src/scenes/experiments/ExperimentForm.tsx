@@ -51,7 +51,7 @@ const ExperimentFormFields = (): JSX.Element => {
     const [showFeatureFlagSelector, setShowFeatureFlagSelector] = useState(false)
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             <SceneTitleSection
                 name={experiment.name}
                 description={null}

@@ -278,7 +278,7 @@ export default function SurveyEdit(): JSX.Element {
     }
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             <div className="flex flex-col gap-y-4">
                 <SceneTitleSection
                     name={survey.name}

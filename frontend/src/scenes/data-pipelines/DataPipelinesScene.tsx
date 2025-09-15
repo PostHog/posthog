@@ -130,7 +130,7 @@ export function DataPipelinesScene(): JSX.Element {
     ]
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             <SceneTitleSection
                 name="Data pipelines"
                 description="Ingest, transform, and send data between hundreds of tools."

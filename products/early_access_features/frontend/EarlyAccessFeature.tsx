@@ -123,7 +123,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
 
     return (
         <Form id="early-access-feature" formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
-            <SceneContent forceNewSpacing>
+            <SceneContent>
                 <PageHeader
                     buttons={
                         !earlyAccessFeatureLoading ? (

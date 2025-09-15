@@ -388,7 +388,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </div>
                             }
                         />
-                        <SceneContent forceNewSpacing>
+                        <SceneContent>
                             {featureFlag.experiment_set && featureFlag.experiment_set.length > 0 && (
                                 <LemonBanner type="warning">
                                     This feature flag is linked to an experiment. Edit settings here only for advanced
@@ -701,7 +701,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </>
                             }
                         />
-                        <SceneContent forceNewSpacing>
+                        <SceneContent>
                             {earlyAccessFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && (
                                 <LemonBanner type="info">
                                     This feature flag is assigned to an early access feature in the{' '}
@@ -935,7 +935,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
     }
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             {readOnly ? (
                 <>
                     <div className="flex flex-col">

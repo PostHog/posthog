@@ -118,7 +118,6 @@ export function ProjectTree({
         onItemChecked,
         moveCheckedItems,
         linkCheckedItems,
-        setCheckedItems,
         assureVisibility,
         clearScrollTarget,
         setEditingItemId,
@@ -904,54 +903,6 @@ export function ProjectTree({
                         }),
                 },
             ]}
-            panelActions={
-                root === 'project://' ? (
-                    <>
-                        {sortMethod !== 'recent' ? (
-                            <ButtonPrimitive
-                                onClick={() => createFolder('')}
-                                tooltip="New root folder"
-                                iconOnly
-                                data-attr="tree-panel-new-root-folder-button"
-                                size="sm"
-                            >
-                                <IconFolderPlus className="text-tertiary size-3" />
-                            </ButtonPrimitive>
-                        ) : null}
-
-                        <ButtonPrimitive
-                            onClick={() => setSelectMode(selectMode === 'default' ? 'multi' : 'default')}
-                            tooltip={selectMode === 'default' ? 'Enable multi-select' : 'Disable multi-select'}
-                            iconOnly
-                            data-attr="tree-panel-enable-multi-select-button"
-                            size="sm"
-                            active={selectMode === 'multi'}
-                            aria-pressed={selectMode === 'multi'}
-                        >
-                            <IconCheckbox
-                                className={cn('size-3', {
-                                    'text-tertiary': selectMode === 'default',
-                                    'text-primary': selectMode === 'multi',
-                                })}
-                            />
-                        </ButtonPrimitive>
-
-                        {checkedItemCountNumeric > 0 && checkedItemsCount !== '0+' && (
-                            <ButtonPrimitive
-                                onClick={() => {
-                                    setCheckedItems({})
-                                    setSelectMode('default')
-                                }}
-                                tooltip="Clear selected and disable multi-select"
-                                data-attr="tree-panel-clear-selected-and-disable-multi-select-button"
-                                size="sm"
-                            >
-                                <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
-                            </ButtonPrimitive>
-                        )}
-                    </>
-                ) : null
-            }
         >
             {root === 'project://' && (
                 <ButtonPrimitive

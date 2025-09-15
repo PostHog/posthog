@@ -217,11 +217,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 s.insight,
                 s.dashboardId,
                 s.dashboardName,
-                s.featureFlags,
                 (_, props: InsightSceneLogicProps) => props.tabId,
                 s.sceneSource,
             ],
-            (insightLogicRef, insight, dashboardId, dashboardName, featureFlags, tabId, sceneSource): Breadcrumb[] => {
+            (insightLogicRef, insight, dashboardId, dashboardName, tabId, sceneSource): Breadcrumb[] => {
                 return [
                     ...(dashboardId !== null && dashboardName
                         ? [

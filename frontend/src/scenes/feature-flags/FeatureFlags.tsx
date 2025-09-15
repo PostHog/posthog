@@ -399,7 +399,7 @@ export function OverViewTab({
     )
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             <ProductIntroduction
                 productName="Feature flags"
                 productKey={ProductKey.FEATURE_FLAGS}
