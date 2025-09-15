@@ -1,11 +1,12 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
+
 import api from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { projectLogic } from 'scenes/projectLogic'
 
 import type { wizardLogicType } from './wizardLogicType'
-import { projectLogic } from 'scenes/projectLogic'
 
 export interface WizardTokenResponseType {
     success: boolean

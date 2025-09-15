@@ -1,8 +1,11 @@
-import { LemonDialog, lemonToast, Link } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { capitalizeFirstLetter, FieldNamePath, forms } from 'kea-forms'
+import { FieldNamePath, capitalizeFirstLetter, forms } from 'kea-forms'
 import { lazyLoaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
+import { LemonDialog, Link, lemonToast } from '@posthog/lemon-ui'
+
 import api, { getJSONOrNull } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -12,9 +15,8 @@ import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import posthog from 'posthog-js'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import {
@@ -27,8 +29,8 @@ import {
     StartupProgramLabel,
 } from '~/types'
 
-import type { billingLogicType } from './billingLogicType'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
+import type { billingLogicType } from './billingLogicType'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
@@ -149,8 +151,8 @@ export const billingLogic = kea<billingLogicType>([
         reportBillingShown: true,
         registerInstrumentationProps: true,
         reportCreditsCTAShown: (creditOverview: any) => ({ creditOverview }),
-        setRedirectPath: true,
-        setIsOnboarding: true,
+        setRedirectPath: (redirectPath: string) => ({ redirectPath }),
+        setIsOnboarding: (isOnboarding: boolean) => ({ isOnboarding }),
         determineBillingAlert: true,
         setUnsubscribeError: (error: null | UnsubscribeError) => ({ error }),
         resetUnsubscribeError: true,
@@ -210,17 +212,13 @@ export const billingLogic = kea<billingLogicType>([
         redirectPath: [
             '' as string,
             {
-                setRedirectPath: () => {
-                    return window.location.pathname.includes('/onboarding')
-                        ? window.location.pathname + window.location.search
-                        : ''
-                },
+                setRedirectPath: (_, { redirectPath }) => redirectPath,
             },
         ],
         isOnboarding: [
             false,
             {
-                setIsOnboarding: () => window.location.pathname.includes('/onboarding'),
+                setIsOnboarding: (_, { isOnboarding }) => isOnboarding,
             },
         ],
         unsubscribeError: [
@@ -900,7 +898,7 @@ export const billingLogic = kea<billingLogicType>([
             })
         },
     })),
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         // IMPORTANT: This needs to be above the "*" so it takes precedence
         '/*/billing': (_params, _search, hash) => {
             if (hash.license) {
@@ -921,12 +919,28 @@ export const billingLogic = kea<billingLogicType>([
                 })
             }
 
-            actions.setRedirectPath()
-            actions.setIsOnboarding()
+            const redirectPath = window.location.pathname.includes('/onboarding')
+                ? window.location.pathname + window.location.search
+                : ''
+            if (values.redirectPath !== redirectPath) {
+                actions.setRedirectPath(redirectPath)
+            }
+            const isOnboarding = window.location.pathname.includes('/onboarding')
+            if (values.isOnboarding !== isOnboarding) {
+                actions.setIsOnboarding(isOnboarding)
+            }
         },
         '*': () => {
-            actions.setRedirectPath()
-            actions.setIsOnboarding()
+            const redirectPath = window.location.pathname.includes('/onboarding')
+                ? window.location.pathname + window.location.search
+                : ''
+            if (values.redirectPath !== redirectPath) {
+                actions.setRedirectPath(redirectPath)
+            }
+            const isOnboarding = window.location.pathname.includes('/onboarding')
+            if (values.isOnboarding !== isOnboarding) {
+                actions.setIsOnboarding(isOnboarding)
+            }
         },
     })),
 ])

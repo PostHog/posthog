@@ -1,12 +1,15 @@
 import { BindLogic, useActions, useValues } from 'kea'
+
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
 import { NewSourcesWizard } from 'scenes/data-warehouse/new/NewSourceWizard'
+import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
 
-import { onboardingLogic } from '../onboardingLogic'
-import { OnboardingStep } from '../OnboardingStep'
 import { OnboardingStepKey } from '~/types'
-import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
-import { LemonSkeleton } from '@posthog/lemon-ui'
+
+import { OnboardingStep } from '../OnboardingStep'
+import { onboardingLogic } from '../onboardingLogic'
 
 export function OnboardingDataWarehouseSourcesStep({
     stepKey = OnboardingStepKey.INSTALL,

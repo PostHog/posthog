@@ -1,11 +1,13 @@
-import { LemonInputSelect, LemonInputSelectOption } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
+
+import { LemonInputSelect, LemonInputSelectOption } from '@posthog/lemon-ui'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { IntegrationType, LinkedInAdsAccountType, LinkedInAdsConversionRuleType } from '~/types'
 
 import { linkedInAdsIntegrationLogic } from './linkedInAdsIntegrationLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const getLinkedInAdsAccountOptions = (
     linkedInAdsAccounts?: LinkedInAdsAccountType[] | null

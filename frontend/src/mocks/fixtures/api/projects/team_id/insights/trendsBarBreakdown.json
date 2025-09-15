@@ -538,7 +538,8 @@
             "trendsFilter": {
                 "display": "ActionsBar",
                 "resultCustomizationBy": "value"
-            }
+            },
+            "version": 2
         },
         "full": true
     }

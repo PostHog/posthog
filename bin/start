@@ -57,9 +57,36 @@ if ! command -v mprocs &>/dev/null; then
     fi
 fi
 
-# Use minimal config if --minimal flag is passed
-if [[ "$*" == *"--minimal"* ]]; then
+# Check for conflicting flags
+if [[ "$*" == *"--custom"* ]] && ([[ "$*" == *"--minimal"* ]] || [[ "$*" == *"--vite"* ]]); then
+    echo "Error: Cannot use --custom with --minimal or --vite"
+    exit 1
+fi
+
+# Use custom config, if provided (e.g. bin/start --custom bin/mprocs-custom.yaml)
+# Ensure to provide config path after --custom flag
+if [[ "$*" == *"--custom"* ]]; then
+    # Extract the path after --custom
+    config_path=""
+    found_custom=false
+    for i in "$@"; do
+        if [[ $found_custom == true ]]; then
+            config_path="$i"
+            break
+        fi
+        if [[ "$i" == "--custom" ]]; then
+            found_custom=true
+        fi
+    done
+    if [[ -z "$config_path" ]]; then
+        echo "Error: --custom requires a config path"
+        exit 1
+    fi
+    exec mprocs --config "$config_path"
+# Use minimal config
+elif [[ "$*" == *"--minimal"* ]]; then
     exec mprocs --config bin/mprocs-minimal.yaml
+# Use vite config
 elif [[ "$*" == *"--vite"* ]]; then
     exec mprocs --config bin/mprocs-vite.yaml
 else

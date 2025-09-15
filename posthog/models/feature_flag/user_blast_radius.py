@@ -3,12 +3,12 @@ from typing import Optional
 from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.property import GroupTypeIndex
 from posthog.models.team.team import Team
 from posthog.queries.base import relative_date_parse_for_feature_flag_matching
-from posthog.clickhouse.client.connection import Workload
 
 
 def replace_proxy_properties(team: Team, feature_flag_condition: dict):
@@ -45,7 +45,11 @@ def get_user_blast_radius(
             filter = cleaned_filter
 
             for property in filter.property_groups.flat:
-                if property.group_type_index is None or (property.group_type_index != group_type_index):
+                # Special case: $group_key doesn't need a group_type_index as it refers to the key itself
+                if property.key == "$group_key":
+                    # Set the group_type_index to match the aggregation group type
+                    property.group_type_index = group_type_index
+                elif property.group_type_index is None or (property.group_type_index != group_type_index):
                     raise ValidationError("Invalid group type index for feature flag condition.")
 
             groups_query, groups_query_params = GroupsJoinQuery(filter, team.id).get_filter_query(

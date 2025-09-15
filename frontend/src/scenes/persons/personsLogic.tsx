@@ -1,6 +1,7 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, decodeParams, router, urlToAction } from 'kea-router'
+
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
@@ -14,7 +15,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { hogqlQuery } from '~/queries/query'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import {
     ActivityScope,
@@ -24,14 +27,12 @@ import {
     ExporterFormat,
     PersonListParams,
     PersonPropertyFilter,
-    PersonsTabType,
     PersonType,
+    PersonsTabType,
 } from '~/types'
 
 import { asDisplay } from './person-utils'
 import type { personsLogicType } from './personsLogicType'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
 export interface PersonsLogicProps {
     cohort?: number | 'new'

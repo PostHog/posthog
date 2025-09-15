@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import * as path from 'path'
 import * as fs from 'fs'
-import { startDevServer, buildInParallel, printResponse } from '../../utils.mjs'
+import * as path from 'path'
 import url from 'url'
+
+import { buildInParallel, printResponse, startDevServer } from '../../utils.mjs'
 
 export const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
 const { name, peerDependencies } = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json')))

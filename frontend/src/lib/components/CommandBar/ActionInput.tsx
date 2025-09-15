@@ -1,10 +1,12 @@
+import { useActions, useValues } from 'kea'
+import React from 'react'
+
 import { IconPencil } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { CommandFlow } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { isMac } from 'lib/utils'
-import React from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 

@@ -1,13 +1,16 @@
-import { IconCheck, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 import { id } from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useMemo } from 'react'
+
+import { IconCheck, IconX } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { ExcludedProperties, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import MaxTool from 'scenes/max/MaxTool'
@@ -17,7 +20,6 @@ import { AnyPropertyFilter, CyclotronJobFiltersType, EntityTypes, FilterType } f
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFiltersInternal } from './HogFunctionFiltersInternal'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 function sanitizeActionFilters(filters?: FilterType): Partial<CyclotronJobFiltersType> {
     if (!filters) {
@@ -56,7 +58,7 @@ export function HogFunctionFilters({
     showTriggerOptions?: boolean
 }): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { configuration, type, useMapping, filtersContainPersonProperties, oldFilters, newFilters } =
+    const { configuration, type, useMapping, filtersContainPersonProperties, oldFilters, newFilters, isLegacyPlugin } =
         useValues(hogFunctionConfigurationLogic)
     const {
         setOldFilters,
@@ -68,9 +70,25 @@ export function HogFunctionFilters({
         reportAIFiltersPromptOpen,
     } = useActions(hogFunctionConfigurationLogic)
 
-    const isLegacyPlugin = configuration?.template?.id?.startsWith('plugin-')
     const isTransformation = type === 'transformation'
     const cdpPersonUpdatesEnabled = useFeatureFlag('CDP_PERSON_UPDATES')
+
+    const excludedProperties: ExcludedProperties = {
+        [TaxonomicFilterGroupType.EventProperties]: [
+            '$exception_types',
+            '$exception_functions',
+            '$exception_values',
+            '$exception_sources',
+            '$exception_list',
+            '$exception_type',
+            '$exception_level',
+            '$exception_message',
+        ],
+    }
+
+    if (type === 'transformation') {
+        excludedProperties[TaxonomicFilterGroupType.Events] = ['$exception']
+    }
 
     const taxonomicGroupTypes = useMemo(() => {
         const types = [
@@ -188,6 +206,7 @@ export function HogFunctionFilters({
                                     onChange(newValue as CyclotronJobFiltersType)
                                 }}
                                 pageKey={`HogFunctionPropertyFilters.${id}`}
+                                excludedProperties={excludedProperties}
                             />
 
                             {showEventMatchers ? (
@@ -227,6 +246,7 @@ export function HogFunctionFilters({
                                             type: EntityTypes.EVENTS,
                                         }}
                                         buttonCopy="Add event matcher"
+                                        excludedProperties={excludedProperties}
                                     />
                                 </>
                             ) : null}
@@ -282,7 +302,7 @@ export function HogFunctionFilters({
                     name="masking"
                     label="Trigger options"
                     info={`
-                        You can configure the destination to only run once within a given time interval or until a certain number of events have been processed. 
+                        You can configure the destination to only run once within a given time interval or until a certain number of events have been processed.
                         This is useful for rate limiting the destination for example if you only want to receive one message per day.
                     `}
                 >
@@ -402,9 +422,7 @@ export function HogFunctionFilters({
 
     return (
         <MaxTool
-            name="create_hog_function_filters"
-            displayName="Set up filters with AI"
-            description="Max can set up filters for your function"
+            identifier="create_hog_function_filters"
             context={{
                 current_filters: JSON.stringify(configuration?.filters ?? {}),
                 function_type: type,

@@ -3,21 +3,18 @@ import sys
 import time
 from typing import Any, Literal
 
-import deltalake as deltalake
-import posthoganalytics
-import pyarrow as pa
-import pyarrow.compute as pc
 from django.db.models import F
 
+import pyarrow as pa
+import deltalake as deltalake
+import pyarrow.compute as pc
+import posthoganalytics
+from structlog.types import FilteringBoundLogger
+
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.common.shutdown import ShutdownMonitor
-from posthog.temporal.data_imports.deltalake_compaction_job import (
-    trigger_compaction_job,
-)
-from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
-    DeltaTableHelper,
-)
+from posthog.temporal.data_imports.deltalake_compaction_job import trigger_compaction_job
+from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
@@ -35,18 +32,12 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import (
     update_last_synced_at_sync,
     validate_schema_and_update_table_sync,
 )
-from posthog.temporal.data_imports.sources.stripe.constants import (
-    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
-)
 from posthog.temporal.data_imports.row_tracking import decrement_rows, increment_rows, will_hit_billing_limit
+from posthog.temporal.data_imports.sources.stripe.constants import CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
-from posthog.warehouse.models import (
-    DataWarehouseTable,
-    ExternalDataJob,
-    ExternalDataSchema,
-    ExternalDataSource,
-)
+from posthog.warehouse.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
 from posthog.warehouse.models.external_data_schema import process_incremental_value
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 class PipelineNonDLT:
@@ -197,7 +188,11 @@ class PipelineNonDLT:
                 # Only raise if we're not running in descending order, otherwise we'll often not
                 # complete the job before the incremental value can be updated
                 # TODO: raise when we're within `x` time of the worker being forced to shutdown
-                if self._schema.should_use_incremental_field and self._resource.sort_mode != "desc":
+                if (
+                    self._schema.should_use_incremental_field
+                    and self._resource.sort_mode != "desc"
+                    and not self._reset_pipeline  # Raising during a full reset will reset our progress back to 0 rows
+                ):
                     self._shutdown_monitor.raise_if_is_worker_shutdown()
 
             if len(buffer) > 0:
@@ -210,6 +205,7 @@ class PipelineNonDLT:
             self._post_run_operations(row_count=row_count)
         finally:
             # Help reduce the memory footprint of each job
+            self._logger.debug("Cleaning up delta table helper")
             delta_table = self._delta_table_helper.get_delta_table()
             self._delta_table_helper.get_delta_table.cache_clear()
             if delta_table:
@@ -375,6 +371,7 @@ class PipelineNonDLT:
             row_count=row_count,
             table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
         )
+        self._logger.debug("Finished validating schema and updating table")
 
 
 def _update_last_synced_at_sync(schema: ExternalDataSchema, job: ExternalDataJob) -> None:
@@ -414,15 +411,15 @@ def supports_partial_data_loading(schema: ExternalDataSchema) -> bool:
     We should be able to roll this out to all source types but initially we only support it for Stripe so we can verify
     the approach.
     """
-    return schema.source.source_type == ExternalDataSource.Type.STRIPE
+    return schema.source.source_type == ExternalDataSourceType.STRIPE
 
 
 def _notify_revenue_analytics_that_sync_has_completed(schema: ExternalDataSchema, logger: FilteringBoundLogger) -> None:
     try:
         if (
             schema.name == STRIPE_CHARGE_RESOURCE_NAME
-            and schema.source.source_type == ExternalDataSource.Type.STRIPE
-            and schema.source.revenue_analytics_enabled
+            and schema.source.source_type == ExternalDataSourceType.STRIPE
+            and schema.source.revenue_analytics_config.enabled
             and not schema.team.revenue_analytics_config.notified_first_sync
         ):
             # For every admin in the org, send a revenue analytics ready event

@@ -1,5 +1,6 @@
-import { LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 
 import { InsightLogicProps } from '~/types'
 

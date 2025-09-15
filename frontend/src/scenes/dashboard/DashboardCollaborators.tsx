@@ -1,6 +1,8 @@
-import { IconLock, IconTrash, IconUnlock } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { IconLock, IconTrash, IconUnlock } from '@posthog/icons'
+
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel, privilegeLevelToName } from 'lib/constants'

@@ -1,10 +1,11 @@
 import { useValues } from 'kea'
-import { ErrorEventType } from 'lib/components/Errors/types'
-import { Dayjs } from 'lib/dayjs'
 import { useMemo } from 'react'
 
+import { ErrorEventType } from 'lib/components/Errors/types'
+import { Dayjs } from 'lib/dayjs'
+
 import { SparklineEvent } from '../components/SparklineChart/SparklineChart'
-import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
+import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
 export function useSparklineEvents(): SparklineEvent<string>[] {
     const { firstSeen, lastSeen, selectedEvent } = useValues(errorTrackingIssueSceneLogic)

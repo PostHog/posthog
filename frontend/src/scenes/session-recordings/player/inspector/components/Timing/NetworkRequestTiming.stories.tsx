@@ -1,4 +1,5 @@
 import { Meta } from '@storybook/react'
+
 import { NetworkRequestTiming } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
 
 import { mswDecorator } from '~/mocks/browser'

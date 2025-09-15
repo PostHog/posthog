@@ -1,5 +1,7 @@
-import { useValues } from 'kea'
+import { BuiltLogic, LogicWrapper, useValues } from 'kea'
+
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -13,12 +15,25 @@ interface InsightProps {
     context?: QueryContext
     embedded?: boolean
     readOnly?: boolean
+    /** Attach ourselves to another logic, such as the scene logic */
+    attachTo?: BuiltLogic | LogicWrapper
+    editMode?: boolean
 }
 
-export function SavedInsight({ query: propsQuery, context, embedded, readOnly }: InsightProps): JSX.Element {
+export function SavedInsight({
+    query: propsQuery,
+    context,
+    embedded,
+    readOnly,
+    attachTo,
+    editMode,
+}: InsightProps): JSX.Element {
     const insightProps: InsightLogicProps = { dashboardItemId: propsQuery.shortId }
     const { insight, insightLoading } = useValues(insightLogic(insightProps))
     const { query: dataQuery } = useValues(insightDataLogic(insightProps))
+
+    useAttachedLogic(insightLogic(insightProps), attachTo)
+    useAttachedLogic(insightDataLogic(insightProps), attachTo)
 
     if (insightLoading) {
         return (
@@ -37,6 +52,7 @@ export function SavedInsight({ query: propsQuery, context, embedded, readOnly }:
             context={{ ...context, insightProps }}
             embedded={embedded}
             readOnly={readOnly}
+            editMode={editMode}
         />
     )
 }

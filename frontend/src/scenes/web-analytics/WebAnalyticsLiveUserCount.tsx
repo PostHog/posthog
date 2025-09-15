@@ -2,9 +2,10 @@ import './WebAnalyticsLiveUserCount.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils'
-import { useEffect } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { liveWebAnalyticsLogic } from 'scenes/web-analytics/liveWebAnalyticsLogic'
 

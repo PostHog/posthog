@@ -1,5 +1,6 @@
-import { dayjs } from 'lib/dayjs'
 import sortBy from 'lodash.sortby'
+
+import { dayjs } from 'lib/dayjs'
 
 import { YC_BATCHES } from './constants'
 

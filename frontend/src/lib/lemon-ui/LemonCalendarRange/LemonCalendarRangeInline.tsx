@@ -1,7 +1,8 @@
 import clsx from 'clsx'
+import { useEffect, useState } from 'react'
+
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendar } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
-import { useEffect, useState } from 'react'
 
 import { LemonCalendarRangeProps } from './LemonCalendarRange'
 

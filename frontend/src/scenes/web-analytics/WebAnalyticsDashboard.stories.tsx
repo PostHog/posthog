@@ -1,6 +1,7 @@
 import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
+
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -8,12 +9,12 @@ import { mswDecorator } from '~/mocks/browser'
 
 import uniqueVisitorsMock from './__mocks__/UniqueVisitors.json'
 import webOverviewMock from './__mocks__/WebOverview.json'
+import { DeviceTab, SourceTab } from './common'
 import browserMock from './tiles/__mocks__/Browser.json'
 import pathMock from './tiles/__mocks__/Path.json'
 import referringDomainMock from './tiles/__mocks__/ReferringDomain.json'
 import retentionMock from './tiles/__mocks__/Retention.json'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
-import { DeviceTab, SourceTab } from './common'
 
 const meta: Meta = {
     component: App,

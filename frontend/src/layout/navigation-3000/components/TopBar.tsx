@@ -1,28 +1,30 @@
 import './TopBar.scss'
 
-import { IconChevronDown, IconFolderMove, IconFolderOpen, IconShortcut, IconX } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import React, { useLayoutEffect, useState } from 'react'
+
+import { IconChevronDown, IconFolderMove, IconFolderOpen, IconShortcut, IconX } from '@posthog/icons'
+import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { MetalyticsSummary } from 'lib/components/Metalytics/MetalyticsSummary'
 import { TopBarSettingsButton } from 'lib/components/TopBarSettingsButton/TopBarSettingsButton'
-import { IconMenu, IconSlash } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import React, { useLayoutEffect, useState } from 'react'
+import { IconMenu, IconSlash } from 'lib/lemon-ui/icons'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ProjectDropdownMenu } from '~/layout/panel-layout/ProjectDropdownMenu'
 import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { Breadcrumb as IBreadcrumb } from '~/types'
 
 /** Sync with --breadcrumbs-height-compact. */

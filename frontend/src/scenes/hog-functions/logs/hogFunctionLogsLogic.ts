@@ -1,6 +1,8 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { beforeUnload } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 
@@ -8,7 +10,7 @@ import { hogql } from '~/queries/utils'
 import { LogEntryLevel } from '~/types'
 
 import type { hogFunctionLogsLogicType } from './hogFunctionLogsLogicType'
-import { GroupedLogEntry, logsViewerLogic, LogsViewerLogicProps } from './logsViewerLogic'
+import { GroupedLogEntry, LogsViewerLogicProps, logsViewerLogic } from './logsViewerLogic'
 
 export type RetryInvocationState = 'pending' | 'success' | 'failure'
 
@@ -91,7 +93,7 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
     props({} as LogsViewerLogicProps), // TODO: Remove `stage` from props, it isn't needed here for anything
     key(({ sourceType, sourceId }) => `${sourceType}:${sourceId}`),
     connect((props: LogsViewerLogicProps) => ({
-        values: [logsViewerLogic(props), ['logs']],
+        values: [logsViewerLogic(props), ['groupedLogs']],
         actions: [logsViewerLogic(props), ['addLogGroups', 'setRowExpanded']],
     })),
     actions({
@@ -170,11 +172,11 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
         ],
 
         eventIdByInvocationId: [
-            (s) => [s.logs],
-            (logs) => {
+            (s) => [s.groupedLogs],
+            (groupedLogs) => {
                 const eventIdByInvocationId: Record<string, string> = {}
 
-                for (const record of logs) {
+                for (const record of groupedLogs) {
                     // TRICKY: We have the event ID in different places in different logs. We will standardise this to be the invocation ID in the future.
                     const entryContainingEventId = record.entries.find(
                         (entry) =>
@@ -268,6 +270,7 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                                         timestamp: dayjs(x.timestamp),
                                         level: x.level.toUpperCase() as LogEntryLevel,
                                         message: x.message,
+                                        instanceId: groupedLogEntry.instanceId,
                                     })),
                                 ],
                             }
@@ -290,7 +293,7 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
         },
 
         retrySelectedInvocations: async () => {
-            const groupsToRetry = values.logs.filter((x) => values.selectedForRetry[x.instanceId])
+            const groupsToRetry = values.groupedLogs.filter((x) => values.selectedForRetry[x.instanceId])
 
             actions.retryInvocations(groupsToRetry)
         },
@@ -298,7 +301,7 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
         selectAllForRetry: async () => {
             actions.setSelectingMany(true)
 
-            for (const groupedLogEntry of values.logs) {
+            for (const groupedLogEntry of values.groupedLogs) {
                 actions.setSelectedForRetry({
                     [groupedLogEntry.instanceId]: true,
                 })

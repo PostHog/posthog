@@ -1,26 +1,28 @@
 import datetime
 from typing import cast
-from unittest.mock import patch
 from uuid import uuid4
+
+from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
+
+from posthog.schema import (
+    AssistantToolCallMessage,
+    BillingSpendResponseBreakdownType,
+    BillingUsageResponseBreakdownType,
+    MaxAddonInfo,
+    MaxBillingContext,
+    MaxBillingContextBillingPeriod,
+    MaxBillingContextBillingPeriodInterval,
+    MaxBillingContextSettings,
+    MaxBillingContextSubscriptionLevel,
+    MaxBillingContextTrial,
+    MaxProductInfo,
+    SpendHistoryItem,
+    UsageHistoryItem,
+)
 
 from ee.hogai.graph.billing.nodes import BillingNode
 from ee.hogai.utils.types import AssistantState
-from posthog.schema import (
-    AssistantToolCallMessage,
-    MaxBillingContextBillingPeriod,
-    BillingSpendResponseBreakdownType,
-    BillingUsageResponseBreakdownType,
-    MaxBillingContextBillingPeriodInterval,
-    MaxAddonInfo,
-    MaxBillingContext,
-    MaxProductInfo,
-    MaxBillingContextSettings,
-    SpendHistoryItem,
-    MaxBillingContextSubscriptionLevel,
-    MaxBillingContextTrial,
-    UsageHistoryItem,
-)
-from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 
 class TestBillingNode(ClickhouseTestMixin, BaseTest):
@@ -345,7 +347,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
         # Check data is properly grouped
         self.assertIn("| Events | 1,000.00 | 2,000.00 |", table)
         self.assertIn("| Recordings | 100.00 | 200.00 |", table)
-        self.assertIn("| Feature Flags | 50.00 | 100.00 |", table)
+        self.assertIn("| Feature Flag Requests | 50.00 | 100.00 |", table)
 
     def test_format_billing_context_edge_cases(self):
         """Test edge cases and potential security issues"""
@@ -561,16 +563,16 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
         # Events: 50000+25000=75000, 75000+30000=105000, 60000+28000=88000
         self.assertIn("| Events | 75,000.00 | 105,000.00 | 88,000.00 |", table)
 
-        # Feature Flags should appear in aggregated (only non-team data)
-        self.assertIn("| Feature Flags | 1,000.00 | 1,500.00 | 1,200.00 |", table)
+        # Feature Flag Requests should appear in aggregated (only non-team data)
+        self.assertIn("| Feature Flag Requests | 1,000.00 | 1,500.00 | 1,200.00 |", table)
 
         # Data Pipelines should show aggregated total (only from team 84444)
-        self.assertIn("| Data Pipelines | 8,036.00 | 10,286.00 | 8,174.00 |", table)
+        self.assertIn("| Data Pipelines (deprecated) | 8,036.00 | 10,286.00 | 8,174.00 |", table)
 
         # Check that team-specific tables show clean labels
-        # Team 84444 should show "Data Pipelines" and "Events", not raw labels
+        # Team 84444 should show "Data Pipelines (deprecated)" and "Events", not raw labels
         team_84444_section = table.split("### Project 84444")[1].split("### Project 12345")[0]
-        self.assertIn("| Data Pipelines |", team_84444_section)
+        self.assertIn("| Data Pipelines (deprecated) |", team_84444_section)
         self.assertIn("| Events |", team_84444_section)
         self.assertNotIn("| 84444::", team_84444_section)  # Should not show raw labels
 
@@ -652,6 +654,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
         events_item = next((item for item in aggregated if "Events" in item.label), None)
         self.assertIsNotNone(events_item)
 
+        events_item = cast(UsageHistoryItem, events_item)
         # Should have all 3 unique dates
         self.assertEqual(len(events_item.dates), 3)
         self.assertEqual(events_item.dates, ["2025-02-01", "2025-02-02", "2025-02-03"])

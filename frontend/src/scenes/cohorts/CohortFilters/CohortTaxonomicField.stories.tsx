@@ -1,8 +1,9 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useMountedLogic } from 'kea'
+import { useState } from 'react'
+
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { useState } from 'react'
 import { renderField } from 'scenes/cohorts/CohortFilters/constants'
 import { CohortTaxonomicFieldProps, FilterType } from 'scenes/cohorts/CohortFilters/types'
 

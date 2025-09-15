@@ -13,6 +13,8 @@ const pathsWithoutProjectId = [
     'create-organization',
     'account',
     'oauth',
+    'shared',
+    'embedded',
 ]
 
 const projectIdentifierInUrlRegex = /^\/project\/(\d+|phc_)/

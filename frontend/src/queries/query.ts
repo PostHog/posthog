@@ -1,6 +1,7 @@
+import posthog from 'posthog-js'
+
 import api, { ApiMethodOptions } from 'lib/api'
 import { delay } from 'lib/utils'
-import posthog from 'posthog-js'
 
 import {
     DashboardFilter,

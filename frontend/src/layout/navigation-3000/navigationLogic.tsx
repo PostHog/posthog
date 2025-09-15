@@ -1,3 +1,9 @@
+import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
+import React from 'react'
+
 import {
     IconAI,
     IconChat,
@@ -22,18 +28,15 @@ import {
     IconToggle,
     IconWarning,
 } from '@posthog/icons'
-import { lemonToast, Spinner } from '@posthog/lemon-ui'
-import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
-import { subscriptions } from 'kea-subscriptions'
+import { Spinner, lemonToast } from '@posthog/lemon-ui'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
-import posthog from 'posthog-js'
-import React from 'react'
 import { editorSceneLogic } from 'scenes/data-warehouse/editor/editorSceneLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -70,6 +73,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             ['mobileLayout'],
             savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home }),
             ['savedFilters', 'savedFiltersLoading'],
+            organizationLogic,
+            ['isCurrentOrganizationUnavailable'],
         ],
         actions: [navigationLogic, ['closeAccountPopover'], sceneLogic, ['setScene']],
     })),
@@ -162,7 +167,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             },
             {
                 showSidebar: (state, { newNavbarItemId }) => newNavbarItemId || state,
-                setScene: (state, { scene }) => scene || state,
+                setScene: (state, { sceneId }) => sceneId || state,
             },
         ],
         isSearchShown: [
@@ -332,8 +337,11 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
     })),
     selectors({
         mode: [
-            (s) => [s.sceneConfig],
-            (sceneConfig): Navigation3000Mode => {
+            (s) => [s.sceneConfig, s.isCurrentOrganizationUnavailable],
+            (sceneConfig, isCurrentOrganizationUnavailable): Navigation3000Mode => {
+                if (isCurrentOrganizationUnavailable) {
+                    return 'minimal'
+                }
                 return sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated
                     ? 'minimal'
                     : sceneConfig?.layout !== 'plain'
@@ -422,7 +430,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             tooltipDocLink: 'https://posthog.com/docs/data/persons',
                         },
                         {
-                            identifier: Scene.Activity,
+                            identifier: Scene.ExploreEvents,
                             label: 'Activity',
                             icon: <IconLive />,
                             to: urls.activity(),
@@ -454,17 +462,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.webAnalytics(),
                             tooltipDocLink: 'https://posthog.com/docs/web-analytics/getting-started',
                         },
-
-                        featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]
-                            ? {
-                                  identifier: Scene.RevenueAnalytics,
-                                  label: 'Revenue analytics',
-                                  icon: <IconPiggyBank />,
-                                  to: urls.revenueAnalytics(),
-                                  tag: 'beta' as const,
-                                  tooltipDocLink: 'https://posthog.com/docs/web-analytics/revenue-tracking',
-                              }
-                            : null,
+                        {
+                            identifier: Scene.RevenueAnalytics,
+                            label: 'Revenue analytics',
+                            icon: <IconPiggyBank />,
+                            to: urls.revenueAnalytics(),
+                            tag: 'beta' as const,
+                            tooltipDocLink: 'https://posthog.com/docs/revenue-analytics/getting-started',
+                        },
                         {
                             identifier: Scene.Replay,
                             label: 'Session replay',
@@ -549,16 +554,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   to: urls.userInterviews(),
                               }
                             : null,
-                        featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY]
-                            ? {
-                                  identifier: 'LLMObservability',
-                                  label: 'LLM observability',
-                                  icon: <IconAI />,
-                                  to: urls.llmObservabilityDashboard(),
-                                  tag: 'beta' as const,
-                                  tooltipDocLink: 'https://posthog.com/docs/ai-engineering/dashboard',
-                              }
-                            : null,
+                        {
+                            identifier: 'LLMAnalytics',
+                            label: 'LLM analytics',
+                            icon: <IconAI />,
+                            to: urls.llmAnalyticsDashboard(),
+                            tooltipDocLink: 'https://posthog.com/docs/llm-analytics/dashboard',
+                        },
                         featureFlags[FEATURE_FLAGS.LOGS]
                             ? {
                                   identifier: 'Logs',
@@ -584,10 +586,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             tooltipDocLink: 'https://posthog.com/docs/data-warehouse/query#querying-sources-with-sql',
                         },
                         {
-                            identifier: Scene.Pipeline,
+                            identifier: Scene.DataPipelines,
                             label: 'Data pipelines',
                             icon: <IconPlug />,
-                            to: urls.pipeline(),
+                            to: urls.dataPipelines('overview'),
                             tooltipDocLink: 'https://posthog.com/docs/cdp',
                         },
                         featureFlags[FEATURE_FLAGS.HEATMAPS_UI]

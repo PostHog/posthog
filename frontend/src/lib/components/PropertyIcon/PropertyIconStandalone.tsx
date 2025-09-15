@@ -1,5 +1,8 @@
-import { IconGearFilled, IconHeadset } from '@posthog/icons'
 import clsx from 'clsx'
+import { Ref, forwardRef } from 'react'
+
+import { IconGearFilled, IconHeadset } from '@posthog/icons'
+
 import {
     IconAndroidOS,
     IconAppleIOS,
@@ -23,7 +26,6 @@ import {
     IconWindows,
 } from 'lib/lemon-ui/icons'
 import { countryCodeToFlag } from 'lib/utils/geography/country'
-import { forwardRef, Ref } from 'react'
 
 import { PropertyIconProps } from './types'
 

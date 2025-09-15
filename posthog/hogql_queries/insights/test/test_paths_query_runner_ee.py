@@ -1,36 +1,32 @@
+import uuid
 from datetime import timedelta
 from typing import Any
-from unittest.mock import MagicMock, patch, Mock
 from uuid import UUID
 
-from django.test import TestCase
-from django.utils import timezone
 from freezegun import freeze_time
-
-from posthog.constants import (
-    FUNNEL_PATH_BETWEEN_STEPS,
-    INSIGHT_FUNNELS,
-)
-from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.insights.paths_query_runner import PathsQueryRunner
-from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.instance_setting import override_instance_config
-from posthog.schema import CachedPathsQueryResponse, PathsLink
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
     _create_person,
     also_test_with_materialized_columns,
-    snapshot_clickhouse_queries,
     create_person_id_override_by_distinct_id,
+    snapshot_clickhouse_queries,
 )
-import uuid
-from django.test import override_settings
+from unittest.mock import MagicMock, Mock, patch
+
+from django.test import TestCase, override_settings
+from django.utils import timezone
+
+from posthog.schema import CachedPathsQueryResponse, PathsLink
+
+from posthog.constants import FUNNEL_PATH_BETWEEN_STEPS, INSIGHT_FUNNELS
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.insights.paths_query_runner import PathsQueryRunner
+from posthog.models.group.util import create_group
+from posthog.models.instance_setting import override_instance_config
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 ONE_MINUTE = 60_000  # 1 minute in milliseconds
 
@@ -40,10 +36,10 @@ class BaseTestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _create_groups(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
         )
 

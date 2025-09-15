@@ -1,6 +1,8 @@
-import { LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
+
+import { LemonLabel } from '@posthog/lemon-ui'
+
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 
 import { FilterType, InsightType } from '~/types'

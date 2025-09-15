@@ -130,7 +130,7 @@ impl<'a> HogVM<'a> {
                     // But if the first element in the chain didn't exist, this is an error (the mental model here
                     // comes from SQL, where a missing column is an error, but a missing field in a column is, or
                     // at least can be, treated as a null value).
-                    return Err(VmError::UnknownGlobal(format!("{:?}", chain)));
+                    return Err(VmError::UnknownGlobal(format!("{chain:?}")));
                 }
             }
             // We don't implement DeclareFn, because it's not used in the current compiler - it uses
@@ -913,7 +913,7 @@ pub fn sync_execute(context: &ExecutionContext, print_debug: bool) -> Result<Jso
     let mut i = 0;
     while i < context.max_steps {
         let res = if print_debug {
-            vm.debug_step(&|s| println!("{}", s))
+            vm.debug_step(&|s| println!("{s}"))
                 .map_err(|e| fail(e, Some(&vm), i))?
         } else {
             vm.step().map_err(|e| fail(e, Some(&vm), i))?

@@ -1,6 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
 import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
+
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SessionReplayUrlTriggerConfig, TeamPublicType, TeamType } from '~/types'

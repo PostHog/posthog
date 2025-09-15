@@ -1,12 +1,13 @@
-import { IconInfo, IconRewindPlay } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import posthog from 'posthog-js'
 
+import { IconInfo, IconRewindPlay } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
+
+import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
-import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 
 import {
@@ -15,7 +16,6 @@ import {
     ExperimentTrendsQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
-
 import {
     FilterLogicalOperator,
     FunnelExperimentVariant,
@@ -25,6 +25,7 @@ import {
     TrendExperimentVariant,
 } from '~/types'
 
+import { experimentLogic } from '../experimentLogic'
 import {
     calculateDelta,
     conversionRateForVariant,
@@ -33,17 +34,16 @@ import {
     exposureCountDataForVariant,
     getHighestProbabilityVariant,
 } from '../legacyExperimentCalculations'
-import { experimentLogic } from '../experimentLogic'
 import { getViewRecordingFilters, getViewRecordingFiltersLegacy, isLegacyExperimentQuery } from '../utils'
 import { VariantTag } from './components'
 
 export function SummaryTable({
     metric,
-    metricIndex = 0,
+    displayOrder = 0,
     isSecondary = false,
 }: {
     metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
-    metricIndex?: number
+    displayOrder?: number
     isSecondary?: boolean
 }): JSX.Element {
     const {
@@ -57,8 +57,8 @@ export function SummaryTable({
     } = useValues(experimentLogic)
     const insightType = getInsightType(metric)
     const result = isSecondary
-        ? legacySecondaryMetricsResults?.[metricIndex]
-        : legacyPrimaryMetricsResults?.[metricIndex]
+        ? legacySecondaryMetricsResults?.[displayOrder]
+        : legacyPrimaryMetricsResults?.[displayOrder]
     if (!result) {
         return <></>
     }
@@ -396,7 +396,7 @@ export function SummaryTable({
             <LemonTable
                 loading={false}
                 columns={columns}
-                dataSource={tabularExperimentResults(metricIndex, isSecondary)}
+                dataSource={tabularExperimentResults(displayOrder, isSecondary)}
             />
         </div>
     )

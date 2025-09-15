@@ -1,18 +1,19 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import FuseClass from 'fuse.js'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { CyclotronJobFiltersType, HogFunctionType, HogFunctionTypeType, UserType } from '~/types'
+import { AvailableFeature, CyclotronJobFiltersType, HogFunctionType, HogFunctionTypeType, UserType } from '~/types'
 
 import type { hogFunctionsListLogicType } from './hogFunctionsListLogicType'
 
@@ -59,8 +60,6 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             ['currentProjectId'],
             userLogic,
             ['user', 'hasAvailableFeature'],
-            pipelineAccessLogic,
-            ['canEnableNewDestinations'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -127,7 +126,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                     return values.hogFunctions.filter((x) => x.id !== hogFunction.id)
                 },
                 toggleEnabled: async ({ hogFunction, enabled }) => {
-                    if (enabled && !values.canEnableNewDestinations) {
+                    if (enabled && !values.canEnableHogFunction(hogFunction)) {
                         lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
                         return values.hogFunctions
                     }
@@ -161,13 +160,13 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             },
         ],
         enabledHogFunctions: [
-            (s) => [s.hogFunctions],
+            (s) => [s.sortedHogFunctions],
             (hogFunctions): HogFunctionType[] => {
                 return hogFunctions.filter((hogFunction) => hogFunction.enabled)
             },
         ],
         hogFunctionsFuse: [
-            (s) => [s.hogFunctions],
+            (s) => [s.sortedHogFunctions],
             (hogFunctions): Fuse => {
                 return new FuseClass(hogFunctions || [], {
                     keys: ['name', 'description'],
@@ -195,10 +194,10 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         ],
 
         canEnableHogFunction: [
-            (s) => [s.canEnableNewDestinations],
-            (canEnableNewDestinations): ((hogFunction: HogFunctionType) => boolean) => {
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature): ((hogFunction: HogFunctionType) => boolean) => {
                 return (hogFunction: HogFunctionType) => {
-                    return hogFunction?.template?.free || canEnableNewDestinations
+                    return hogFunction?.template?.free || hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
                 }
             },
         ],

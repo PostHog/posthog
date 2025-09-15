@@ -1,9 +1,12 @@
 import '~/styles'
+
 import '~/toolbar/styles.scss'
 
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { useEffect } from 'react'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
@@ -17,7 +20,6 @@ import { listWebVitalsAPIResponse } from './__mocks__/list-web-vitals-response'
 import { MenuState, toolbarLogic } from './bar/toolbarLogic'
 import { toolbarConfigLogic } from './toolbarConfigLogic'
 import { TOOLBAR_ID } from './utils'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 function useToolbarStyles(): void {
     useOnMountEffect(() => {

@@ -1,7 +1,10 @@
+import { useActions } from 'kea'
+
 import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
+
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
+
 export interface FixedField {
     column: string
     type: string

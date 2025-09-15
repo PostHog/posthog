@@ -2,7 +2,7 @@ import { ErrorEventType } from 'lib/components/Errors/types'
 
 import { EventsQuery } from '~/queries/schema/schema-general'
 
-import { createDataSourceLogic, DataSourceLogicProps } from '../DataSourceTable'
+import { DataSourceLogicProps, createDataSourceLogic } from '../DataSourceTable'
 
 export interface EventsSourceProps {
     queryKey: string
@@ -19,6 +19,6 @@ function rowToRecord(row: any): ErrorEventType {
 }
 
 export const eventsSourceLogic = createDataSourceLogic<DataSourceLogicProps<EventsQuery>, ErrorEventType>(
-    () => ['scene', 'error-tracking', 'events-source'],
+    () => ['products', 'error_tracking', 'components', 'EventsTable', 'eventsSourceLogic'],
     rowToRecord
 )

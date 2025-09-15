@@ -330,6 +330,7 @@ export async function createUserTeamAndOrganization(
         access_control: false,
         base_currency: 'USD',
         cookieless_server_hash_mode: CookielessServerHashMode.Stateful,
+        session_recording_retention_period: '30d',
         ...otherTeamOverrides,
     }
 
@@ -484,6 +485,7 @@ export const createTeam = async (
         person_display_name_properties: [],
         access_control: false,
         base_currency: 'USD',
+        session_recording_retention_period: '30d',
         ...teamSettings,
     })
     return id
@@ -567,5 +569,14 @@ export async function fetchPostgresDistinctIdsForPerson(db: DB, personId: string
     const query = `SELECT distinct_id FROM posthog_persondistinctid WHERE person_id = ${personId} ORDER BY id`
     return (await db.postgres.query(PostgresUse.PERSONS_READ, query, undefined, 'distinctIds')).rows.map(
         (row: { distinct_id: string }) => row.distinct_id
+    )
+}
+
+export async function resetCountersDatabase(db: PostgresRouter): Promise<void> {
+    await db.query(
+        PostgresUse.COUNTERS_RW,
+        'TRUNCATE TABLE person_performed_events, behavioural_filter_matched_events',
+        undefined,
+        'reset-counters-db'
     )
 }

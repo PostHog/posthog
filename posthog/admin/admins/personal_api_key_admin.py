@@ -1,11 +1,11 @@
 from django.contrib import admin
-from django.utils.html import format_html
-from django.urls import reverse, path
 from django.http import HttpResponseNotAllowed
 from django.shortcuts import redirect
+from django.urls import path, reverse
+from django.utils.html import format_html
 
-from posthog.models import PersonalAPIKey
 from posthog.api.personal_api_key import PersonalAPIKeySerializer
+from posthog.models import PersonalAPIKey
 from posthog.tasks.email import send_personal_api_key_exposed
 
 
@@ -31,7 +31,7 @@ class PersonalAPIKeyAdmin(admin.ModelAdmin):
         "user",
         "roll_action",
     )
-    list_display = ("id", "label", "mask_value", "user_link", "created_at", "last_used_at", "scopes", "roll_action")
+    list_display = ("id", "label", "mask_value", "user_link", "created_at", "last_used_at", "scopes")
     list_display_links = ("id", "label")
     list_select_related = ("user",)
     search_fields = ("id", "user__email", "scopes")

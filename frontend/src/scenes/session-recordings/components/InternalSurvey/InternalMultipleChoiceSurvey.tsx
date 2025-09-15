@@ -1,18 +1,19 @@
 /**
  * @fileoverview A component that displays an interactive survey within a session recording. It handles survey display, user responses, and submission
  */
-import { LemonButton, LemonCheckbox, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { maxThreadLogic } from 'scenes/max/maxThreadLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
+import { LemonButton, LemonCheckbox, LemonTextArea, Link } from '@posthog/lemon-ui'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { maxLogic } from 'scenes/max/maxLogic'
+import { maxThreadLogic } from 'scenes/max/maxThreadLogic'
+
+import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { SidePanelTab, SurveyQuestion, SurveyQuestionType } from '~/types'
 
 import { internalMultipleChoiceSurveyLogic } from './internalMultipleChoiceSurveyLogic'
-import { maxLogic } from 'scenes/max/maxLogic'
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
-
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 interface InternalSurveyProps {
     surveyId: string

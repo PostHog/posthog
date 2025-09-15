@@ -60,12 +60,6 @@
             );
         }
     }
-
-    &.BillingGaugeItem--addon {
-        .BillingGaugeItem__info {
-            background-color: var(--color-bg-primary);
-        }
-    }
 }
 
 @keyframes BillingGaugeItem__expand {

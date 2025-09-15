@@ -34,3 +34,13 @@ export type BillingUsageInteractionProps = {
     has_team_breakdown: boolean
     interval: BillingFilters['interval']
 }
+
+export type BillingSeriesForCsv = {
+    id: number
+    label: string
+    data: number[]
+}
+
+export interface BuildBillingCsvOptions {
+    decimals?: number
+}

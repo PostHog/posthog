@@ -1,4 +1,6 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { BindLogic } from 'kea'
+
 import { now } from 'lib/dayjs'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import {
@@ -11,11 +13,10 @@ import {
     InspectorListItemNotebookComment,
     RecordingComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 import { CommentType } from '~/types'
-import { BindLogic } from 'kea'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 type Story = StoryObj<typeof ItemAnyComment>
 const meta: Meta<typeof ItemAnyComment> = {

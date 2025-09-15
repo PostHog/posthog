@@ -1,20 +1,16 @@
 from dataclasses import dataclass
 from typing import Optional, Union
-from unittest.mock import MagicMock, patch
-from django.test import override_settings
 
 from freezegun import freeze_time
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.hogql.constants import LimitContext
-from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
-from posthog.hogql_queries.query_runner import get_query_runner
-from posthog.models.action.action import Action
-from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.property_definition import PropertyDefinition
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
+
 from posthog.schema import (
     ActionsNode,
     CohortPropertyFilter,
+    CompareFilter,
     DateRange,
     ElementPropertyFilter,
     EmptyPropertyFilter,
@@ -24,23 +20,31 @@ from posthog.schema import (
     GroupPropertyFilter,
     HogQLPropertyFilter,
     IntervalType,
+    LogEntryPropertyFilter,
     MathGroupTypeIndex,
     PersonPropertyFilter,
     PropertyGroupFilter,
     PropertyOperator,
     RecordingPropertyFilter,
-    LogEntryPropertyFilter,
     SessionPropertyFilter,
+    StickinessActorsQuery,
+    StickinessComputationMode,
     StickinessFilter,
     StickinessQuery,
     StickinessQueryResponse,
-    CompareFilter,
-    StickinessActorsQuery,
-    StickinessComputationMode,
 )
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
-from posthog.test.base import APIBaseTest, _create_event, _create_person, ClickhouseTestMixin, flush_persons_and_events
+
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
+from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.models.action.action import Action
+from posthog.models.group.util import create_group
+from posthog.models.property_definition import PropertyDefinition
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 @dataclass
@@ -124,7 +128,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         return person_result
 
     def _create_test_groups(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 

@@ -11,6 +11,7 @@ import {
     MOCK_PERSON_PROPERTIES,
     MOCK_SECOND_ORGANIZATION_MEMBER,
 } from 'lib/api.mock'
+
 import { ResponseComposition, RestContext, RestRequest } from 'msw'
 
 import { SharingConfigurationType } from '~/types'
@@ -20,7 +21,7 @@ import { billingJson } from './fixtures/_billing'
 import _hogFunctionTemplatesDestinations from './fixtures/_hogFunctionTemplatesDestinations.json'
 import _hogFunctionTemplatesTransformations from './fixtures/_hogFunctionTemplatesTransformations.json'
 import * as statusPageAllOK from './fixtures/_status_page_all_ok.json'
-import { Mocks, MockSignature, mocksToHandlers } from './utils'
+import { MockSignature, Mocks, mocksToHandlers } from './utils'
 
 export const EMPTY_PAGINATED_RESPONSE = { count: 0, results: [] as any[], next: null, previous: null }
 export const toPaginatedResponse = (results: any[]): typeof EMPTY_PAGINATED_RESPONSE => ({
@@ -41,12 +42,13 @@ const hogFunctionTemplateRetrieveMock: MockSignature = (req, res, ctx) => {
 }
 
 const hogFunctionTemplatesMock: MockSignature = (req, res, ctx) => {
-    const results =
-        req.url.searchParams.get('types') === 'transformation'
-            ? _hogFunctionTemplatesTransformations
-            : _hogFunctionTemplatesDestinations
+    const results = req.url.searchParams.get('types')?.includes('transformation')
+        ? _hogFunctionTemplatesTransformations
+        : req.url.searchParams.get('types')?.includes('destination')
+          ? _hogFunctionTemplatesDestinations
+          : []
 
-    return res(ctx.json({ ...results }))
+    return res(ctx.json(results))
 }
 
 // this really returns MaybePromise<ResponseFunction<any>>
@@ -210,8 +212,9 @@ export const defaultMocks: Mocks = {
         'api/environments/:team_id/error_tracking/grouping_rules': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/error_tracking/suppression_rules': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/error_tracking/symbol_sets': EMPTY_PAGINATED_RESPONSE,
-        'api/projects/@current/global_access_controls': EMPTY_PAGINATED_RESPONSE,
+        'api/projects/@current/resource_access_controls': EMPTY_PAGINATED_RESPONSE,
         'api/projects/@current/access_controls': EMPTY_PAGINATED_RESPONSE,
+        'api/projects/:team_id/notebooks/recording_comments': EMPTY_PAGINATED_RESPONSE,
     },
     post: {
         'https://us.i.posthog.com/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),

@@ -1,7 +1,8 @@
 import { Meta } from '@storybook/react'
+import { useRef, useState } from 'react'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { uuid } from 'lib/utils'
-import { useRef, useState } from 'react'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'

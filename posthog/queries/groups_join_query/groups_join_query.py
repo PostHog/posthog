@@ -1,12 +1,13 @@
 from typing import Optional, Union
 
+from posthog.schema import PersonsOnEventsMode
+
 from posthog.models import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.util import alias_poe_mode_for_legacy
-from posthog.schema import PersonsOnEventsMode
 
 
 class GroupsJoinQuery:

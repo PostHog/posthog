@@ -1,29 +1,28 @@
-from typing import Union, cast, Optional, Any, Literal
+from typing import Any, Literal, Optional, Union, cast
+
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from posthog.constants import PropertyOperatorType, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from posthog.schema import EmptyPropertyFilter, HogQLPropertyFilter, RetentionEntity
+
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import (
+    entity_to_expr,
     has_aggregation,
+    map_virtual_properties,
     property_to_expr,
     selector_to_expr,
     tag_name_to_expr,
-    entity_to_expr,
-    map_virtual_properties,
 )
 from posthog.hogql.visitor import clear_locations
-from posthog.models import (
-    Cohort,
-    Property,
-    PropertyDefinition,
-    Team,
-)
+
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, PropertyOperatorType
+from posthog.models import Cohort, Property, PropertyDefinition, Team
 from posthog.models.property import PropertyGroup
 from posthog.models.property_definition import PropertyType
-from posthog.schema import HogQLPropertyFilter, RetentionEntity, EmptyPropertyFilter
-from posthog.test.base import BaseTest
-from posthog.warehouse.models import DataWarehouseTable, DataWarehouseJoin, DataWarehouseCredential
+from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseJoin, DataWarehouseTable
 
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
 elements_chain_imatch = lambda x: parse_expr("elements_chain =~* {regex}", {"regex": ast.Constant(value=str(x))})
@@ -40,8 +39,11 @@ class TestProperty(BaseTest):
         scope: Optional[
             Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"]
         ] = None,
+        strict: bool = True,
     ):
-        return clear_locations(property_to_expr(property, team=team or self.team, scope=scope or "event"))
+        return clear_locations(
+            property_to_expr(property, team=team or self.team, scope=scope or "event", strict=strict)
+        )
 
     def _selector_to_expr(self, selector: str):
         return clear_locations(selector_to_expr(selector))
@@ -87,7 +89,10 @@ class TestProperty(BaseTest):
             self._parse_expr("group_0.properties.a in ('b', 'c')"),
         )
 
-        self.assertEqual(self._property_to_expr({"type": "group", "key": "a", "value": "b"}), self._parse_expr("1"))
+        # Missing group_type_index
+        self.assertEqual(
+            self._property_to_expr({"type": "group", "key": "a", "value": "b"}, strict=False), self._parse_expr("1")
+        )
 
     def test_property_to_expr_group_scope(self):
         self.assertEqual(
@@ -187,11 +192,13 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._parse_expr("1"),
-            self._property_to_expr({"type": "event", "key": "a", "operator": "icontains"}),  # value missing
+            self._property_to_expr(
+                {"type": "event", "key": "a", "operator": "icontains"}, strict=False
+            ),  # value missing
         )
         self.assertEqual(
             self._parse_expr("1"),
-            self._property_to_expr({}),  # incomplete event
+            self._property_to_expr({}, strict=False),  # incomplete event
         )
         self.assertEqual(
             self._parse_expr("1"),
@@ -820,7 +827,12 @@ class TestProperty(BaseTest):
     def test_revenue_analytics_property(self):
         self.assertEqual(
             self._property_to_expr(
-                {"type": "revenue_analytics", "key": "product", "value": ["Product A"], "operator": "exact"},
+                {
+                    "type": "revenue_analytics",
+                    "key": "revenue_analytics_product.name",
+                    "value": ["Product A"],
+                    "operator": "exact",
+                },
                 scope="revenue_analytics",
             ),
             self._parse_expr("revenue_analytics_product.name = 'Product A'"),
@@ -831,7 +843,7 @@ class TestProperty(BaseTest):
             self._property_to_expr(
                 {
                     "type": "revenue_analytics",
-                    "key": "product",
+                    "key": "revenue_analytics_product.name",
                     "value": ["Product A", "Product C"],
                     "operator": "exact",
                 },
@@ -876,6 +888,18 @@ class TestProperty(BaseTest):
             {"type": "person", "key": "$virt_revenue_last_30_days", "value": 100, "operator": "exact"}, scope="person"
         ) == self._parse_expr("$virt_revenue_last_30_days = 100")
 
+    def test_virtual_group_properties_on_group_scope(self):
+        assert self._property_to_expr(
+            {
+                "type": "group",
+                "key": "$virt_revenue_last_30_days",
+                "value": 100,
+                "operator": "exact",
+                "group_type_index": 0,
+            },
+            scope="group",
+        ) == self._parse_expr("$virt_revenue_last_30_days = 100")
+
     def test_virtual_person_properties_on_event_scope(self):
         assert self._property_to_expr(
             {"type": "person", "key": "$virt_initial_channel_type", "value": "Organic Search"}, scope="event"
@@ -884,15 +908,25 @@ class TestProperty(BaseTest):
             {"type": "person", "key": "$virt_revenue", "value": 100, "operator": "exact"}, scope="event"
         ) == self._parse_expr("person.$virt_revenue = 100")
 
+    def test_virtual_group_properties_on_event_scope(self):
+        assert self._property_to_expr(
+            {"type": "group", "key": "$virt_revenue", "value": 100, "operator": "exact", "group_type_index": 0},
+            scope="event",
+        ) == self._parse_expr("group_0.$virt_revenue = 100")
+
     def test_map_virtual_properties(self):
         assert map_virtual_properties(
             ast.Field(chain=["person", "properties", "$virt_initial_channel_type"])
         ) == ast.Field(chain=["person", "$virt_initial_channel_type"])
+        assert map_virtual_properties(ast.Field(chain=["person", "properties", "$virt_revenue"])) == ast.Field(
+            chain=["person", "$virt_revenue"]
+        )
+
         assert map_virtual_properties(ast.Field(chain=["properties", "$virt_initial_channel_type"])) == ast.Field(
             chain=["$virt_initial_channel_type"]
         )
-        assert map_virtual_properties(ast.Field(chain=["person", "properties", "$virt_revenue"])) == ast.Field(
-            chain=["person", "$virt_revenue"]
+        assert map_virtual_properties(ast.Field(chain=["properties", "$virt_revenue"])) == ast.Field(
+            chain=["$virt_revenue"]
         )
 
         assert map_virtual_properties(ast.Field(chain=["person", "properties", "other property"])) == ast.Field(
@@ -905,3 +939,31 @@ class TestProperty(BaseTest):
             chain=["person", "properties", 42]
         )
         assert map_virtual_properties(ast.Field(chain=["properties", 42])) == ast.Field(chain=["properties", 42])
+
+    def test_property_to_expr_event_metadata_group_scope_basic(self):
+        assert self._property_to_expr(
+            {"type": "event_metadata", "key": "$group_0", "operator": "exact", "value": "1234-abcd"},
+            scope="group",
+        ) == self._parse_expr("key = '1234-abcd' and index = 0")
+
+    def test_property_to_expr_event_metadata_group_scope_list_single_value(self):
+        assert self._property_to_expr(
+            {"type": "event_metadata", "key": "$group_2", "operator": "exact", "value": ["1"]},
+            scope="group",
+        ) == self._parse_expr("key = '1' and index = 2")
+
+    def test_property_to_expr_event_metadata_group_scope_invalid_key(self):
+        with self.assertRaisesMessage(
+            QueryError, "The 'event_metadata' property filter does not work in 'group' scope"
+        ):
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "$group_invalid", "operator": "exact", "value": "test"}, scope="group"
+            )
+
+    def test_property_to_expr_event_metadata_group_scope_multiple_values(self):
+        with self.assertRaisesMessage(
+            QueryError, "The '$group_3' property filter only supports one value in 'group' scope"
+        ):
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "$group_3", "operator": "exact", "value": ["1", "2"]}, scope="group"
+            )

@@ -1,5 +1,6 @@
-import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 import React from 'react'
+
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 
 export type RecentItemRowProps = Pick<LemonButtonProps, 'onClick' | 'to'> & {
     title: string

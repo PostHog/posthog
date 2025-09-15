@@ -1,14 +1,16 @@
-import { useState } from 'react'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP, POSTHOG_EVENT_PROMOTED_PROPERTIES } from '~/taxonomy/taxonomy'
-import { EventType, RecordingEventType } from '~/types'
-import { LemonTab, LemonTabs, LemonTabsProps } from 'lib/lemon-ui/LemonTabs'
-import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/autocapture-previews'
-import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { useValues } from 'kea'
+import { useState } from 'react'
+
+import { INTERNAL_EXCEPTION_PROPERTY_KEYS } from '@posthog/products-error-tracking/frontend/utils'
 
 import { eventPropertyFilteringLogic } from 'lib/components/EventPropertyTabs/eventPropertyFilteringLogic'
-import { INTERNAL_EXCEPTION_PROPERTY_KEYS } from '@posthog/products-error-tracking/frontend/utils'
+import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { dayjs } from 'lib/dayjs'
+import { LemonTab, LemonTabs, LemonTabsProps } from 'lib/lemon-ui/LemonTabs'
+import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/autocapture-previews'
+
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, POSTHOG_EVENT_PROMOTED_PROPERTIES } from '~/taxonomy/taxonomy'
+import { EventType, RecordingEventType } from '~/types'
 
 export interface TabContentComponentFnProps {
     event: EventType | RecordingEventType

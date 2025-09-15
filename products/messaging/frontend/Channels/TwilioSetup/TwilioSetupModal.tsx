@@ -1,10 +1,12 @@
-import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { twilioSetupModalLogic, TwilioSetupModalLogicProps } from './twilioSetupModalLogic'
+import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { IconTwilio } from 'lib/lemon-ui/icons'
+
+import { TwilioSetupModalLogicProps, twilioSetupModalLogic } from './twilioSetupModalLogic'
 
 export const TwilioSetupModal = (props: TwilioSetupModalLogicProps): JSX.Element => {
     const { isTwilioIntegrationSubmitting } = useValues(twilioSetupModalLogic(props))

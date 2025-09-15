@@ -1,5 +1,6 @@
-import { cn } from 'lib/utils/css-classes'
 import './WrappingLoadingSkeleton.scss'
+
+import { cn } from 'lib/utils/css-classes'
 
 interface WrappingLoadingSkeletonProps {
     fullWidth?: boolean
@@ -15,7 +16,7 @@ export function WrappingLoadingSkeleton({ children, fullWidth = false }: Wrappin
             aria-hidden
             data-attr="wrapping-loading-skeleton"
         >
-            {children}
+            <span>{children}</span>
         </div>
     )
 }

@@ -5,22 +5,24 @@ import net from 'node:net'
 import { Counter } from 'prom-client'
 // eslint-disable-next-line no-restricted-imports
 import {
-    type HeadersInit,
     Agent,
-    errors,
-    fetch as undiciFetch,
-    request,
+    Dispatcher,
+    type HeadersInit,
     RequestInfo,
     RequestInit,
     Response,
+    errors,
+    request,
+    fetch as undiciFetch,
 } from 'undici'
-// eslint-disable-next-line no-restricted-imports
-export { Response } from 'undici'
 import { URL } from 'url'
 
 import { defaultConfig } from '../config/config'
 import { isProdEnv } from './env-utils'
 import { parseJSON } from './json-parse'
+
+// eslint-disable-next-line no-restricted-imports
+export { Response } from 'undici'
 
 const unsafeRequestCounter = new Counter({
     name: 'node_request_unsafe',
@@ -169,9 +171,23 @@ class SecureAgent extends Agent {
     }
 }
 
-const sharedSecureAgent = new SecureAgent()
+// Safe way to use the same helpers for talking to internal endpoints such as other services
+class InsecureAgent extends Agent {
+    constructor() {
+        super({
+            keepAliveTimeout: 10_000,
+            connections: 500,
+            connect: {
+                timeout: defaultConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
+            },
+        })
+    }
+}
 
-export async function fetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
+const sharedSecureAgent = new SecureAgent()
+const sharedInsecureAgent = new InsecureAgent()
+
+export async function _fetch(url: string, options: FetchOptions = {}, dispatcher: Dispatcher): Promise<FetchResponse> {
     let parsed: URL
     try {
         parsed = new URL(url)
@@ -189,7 +205,7 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
         method: options.method ?? 'GET',
         headers: options.headers,
         body: options.body,
-        dispatcher: sharedSecureAgent,
+        dispatcher,
         maxRedirections: 0, // No redirects allowed by default
         signal: options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined,
     })
@@ -208,6 +224,14 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
         json: async () => parseJSON(await result.body.text()),
         text: async () => await result.body.text(),
     }
+}
+
+export async function internalFetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
+    return await _fetch(url, options, sharedInsecureAgent)
+}
+
+export async function fetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
+    return await _fetch(url, options, sharedSecureAgent)
 }
 
 // Legacy fetch implementation that exposes the entire fetch implementation

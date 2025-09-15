@@ -1,8 +1,9 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import * as React from 'react'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import * as React from 'react'
 
 import * as icons from '../icons'
 

@@ -1,30 +1,33 @@
+import { ExperimentMetric } from '~/queries/schema/schema-general'
+
+import { generateViolinPath } from '../legacy/violinUtils'
 import { useChartColors } from '../shared/colors'
 import {
     type ExperimentVariantResult,
-    getVariantInterval,
-    getIntervalBounds,
     getDelta,
-    isBayesianResult,
+    getIntervalBounds,
     getNiceTickValues,
+    getVariantInterval,
+    isBayesianResult,
 } from '../shared/utils'
-import { generateViolinPath } from '../legacy/violinUtils'
+import { ChartGradients } from './ChartGradients'
+import { GridLines } from './GridLines'
 import {
+    CELL_HEIGHT,
+    CHART_BAR_OPACITY,
+    CHART_CELL_BAR_HEIGHT_PERCENT,
+    CHART_CELL_VIEW_BOX_HEIGHT,
+    GRID_LINES_OPACITY,
     SVG_EDGE_MARGIN,
     VIEW_BOX_WIDTH,
-    CHART_CELL_VIEW_BOX_HEIGHT,
-    CHART_CELL_BAR_HEIGHT_PERCENT,
-    CHART_BAR_OPACITY,
-    GRID_LINES_OPACITY,
-    CELL_HEIGHT,
 } from './constants'
-import { GridLines } from './GridLines'
 import { useAxisScale } from './useAxisScale'
-import { ChartGradients } from './ChartGradients'
 
 interface ChartCellProps {
     variantResult: ExperimentVariantResult
+    metric: ExperimentMetric
     axisRange: number
-    metricIndex: number
+    metricUuid?: string
     showGridLines?: boolean
     isAlternatingRow?: boolean
     isLastRow?: boolean
@@ -33,8 +36,9 @@ interface ChartCellProps {
 
 export function ChartCell({
     variantResult,
+    metric,
     axisRange,
-    metricIndex,
+    metricUuid,
     showGridLines = true,
     isAlternatingRow = false,
     isLastRow = false,
@@ -58,6 +62,7 @@ export function ChartCell({
 
     return (
         <td
+            data-table-cell="chart"
             className={`p-0 align-top text-center relative overflow-hidden ${
                 isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
             } ${isLastRow ? 'border-b' : ''}`}
@@ -92,7 +97,8 @@ export function ChartCell({
                             <ChartGradients
                                 lower={lower}
                                 upper={upper}
-                                gradientId={`gradient-${isSecondary ? 'secondary' : 'primary'}-${metricIndex}-${
+                                metric={metric}
+                                gradientId={`gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${
                                     variantResult.key
                                 }`}
                             />
@@ -101,7 +107,7 @@ export function ChartCell({
                             {isBayesianResult(variantResult) ? (
                                 <path
                                     d={generateViolinPath(x1, x2, y, barHeightPercent, deltaX)}
-                                    fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricIndex}-${
+                                    fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${
                                         variantResult.key
                                     })`}
                                     opacity={CHART_BAR_OPACITY}
@@ -112,7 +118,7 @@ export function ChartCell({
                                     y={y}
                                     width={x2 - x1}
                                     height={barHeightPercent}
-                                    fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricIndex}-${
+                                    fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${
                                         variantResult.key
                                     })`}
                                     opacity={CHART_BAR_OPACITY}

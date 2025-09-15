@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconCheck, IconGear, IconPlusSmall } from '@posthog/icons'
 import { LemonSnack, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconBlank } from 'lib/lemon-ui/icons'
@@ -16,12 +18,14 @@ import {
 } from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
 import { cn } from 'lib/utils/css-classes'
 import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+
 import { globalModalsLogic } from '~/layout/GlobalModals'
 import { AvailableFeature, TeamBasicType } from '~/types'
+
 import { EnvironmentSwitcherOverlay } from '../navigation/EnvironmentSwitcher'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
@@ -35,7 +39,9 @@ export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
 
 export function ProjectDropdownMenu({
     buttonProps = { className: 'font-semibold' },
+    iconOnly = false,
 }: {
+    iconOnly?: boolean
     buttonProps?: ButtonPrimitiveProps
 }): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
@@ -46,7 +52,7 @@ export function ProjectDropdownMenu({
     const { featureFlags } = useValues(featureFlagLogic)
 
     if (featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
-        return <EnvironmentSwitcherOverlay buttonProps={buttonProps} />
+        return <EnvironmentSwitcherOverlay buttonProps={buttonProps} iconOnly={iconOnly} />
     }
 
     return isAuthenticatedTeam(currentTeam) ? (
@@ -54,12 +60,19 @@ export function ProjectDropdownMenu({
             <PopoverPrimitiveTrigger asChild>
                 <ButtonPrimitive
                     data-attr="tree-navbar-project-dropdown-button"
-                    size="sm"
+                    size={iconOnly ? 'base' : 'sm'}
+                    iconOnly={iconOnly}
                     {...buttonProps}
-                    className={cn('flex-1 max-w-fit min-w-[40px]', buttonProps.className)}
+                    className={cn('flex-1 max-w-fit min-w-[40px]', iconOnly ? 'min-w-auto' : '', buttonProps.className)}
                 >
-                    <span className="truncate">{currentTeam.name ?? 'Project'}</span>
-                    <DropdownMenuOpenIndicator />
+                    {iconOnly ? (
+                        <div className="Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] w-5 h-5 ">
+                            {currentTeam.name.slice(0, 1).toLocaleUpperCase()}
+                        </div>
+                    ) : (
+                        <span className="truncate">{currentTeam.name ?? 'Project'}</span>
+                    )}
+                    {!iconOnly && <DropdownMenuOpenIndicator />}
                 </ButtonPrimitive>
             </PopoverPrimitiveTrigger>
             <PopoverPrimitiveContent
@@ -102,7 +115,7 @@ export function ProjectDropdownMenu({
 
                         <Combobox.Empty>No projects found</Combobox.Empty>
 
-                        <Combobox.Group>
+                        <Combobox.Group value={[currentTeam.name]}>
                             <ButtonGroupPrimitive fullWidth>
                                 <Combobox.Item asChild>
                                     <ButtonPrimitive
@@ -136,10 +149,15 @@ export function ProjectDropdownMenu({
                             </ButtonGroupPrimitive>
                         </Combobox.Group>
 
-                        <Label intent="menu" className="px-2 mt-2">
-                            Other projects
-                        </Label>
-                        <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                        {currentOrganization &&
+                            currentOrganization?.teams?.filter((team) => team.id !== currentTeam?.id).length > 0 && (
+                                <>
+                                    <Label intent="menu" className="px-2 mt-2">
+                                        Other projects
+                                    </Label>
+                                    <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                                </>
+                            )}
 
                         {currentOrganization?.teams
                             .filter((team) => team.id !== currentTeam?.id)

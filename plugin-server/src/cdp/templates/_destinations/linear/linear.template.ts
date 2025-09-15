@@ -1,7 +1,7 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
-    status: 'hidden',
+    status: 'stable',
     free: false,
     type: 'destination',
     id: 'template-linear',
@@ -10,28 +10,33 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/services/linear.png',
     category: ['Error tracking'],
     code_language: 'hog',
-    code: `
-let description :=f'{event.properties.description}
+    code: `fun query(mutation) {
+    return fetch('https://api.linear.app/graphql', {
+        'body': {
+            'query': mutation,
+        },
+        'method': 'POST',
+        'headers': {
+            'Authorization': f'Bearer {inputs.linear_workspace.access_token}',
+            'Content-Type': 'application/json'
+        }
+    })
+}
 
-[View Person in PostHog]({person.url})
-[Message source]({source.url})'
+let issue_mutation := f'mutation IssueCreate \\{ issueCreate(input: \\{ title: "{inputs.title}" description: "{inputs.description}" teamId: "{inputs.team}" }) \\{ success issue \\{ identifier } } }';
 
-let mutation := f'mutation IssueCreate \{ issueCreate(input: \{ title: "{inputs.title}" description: "{description}" teamId: "{inputs.team}" }) \{ success issue \{ id } } }';
+let issue_response := query(issue_mutation);
 
-let res := fetch('https://api.linear.app/graphql', {
-  'body': {
-    'query': mutation,
-  },
-  'method': 'POST',
-  'headers': {
-    'Authorization': f'Bearer {inputs.linear_workspace.access_token}',
-    'Content-Type': 'application/json'
-  }
-});
+if (issue_response.status != 200) {
+  throw Error(f'Failed to post create issue in Linear: {issue_response.status}: {issue_response.body}');
+}
 
-if (res.status != 200 or res.body.success == false) {
-  throw Error(f'Failed to create Linear issue: {res.status}: {res.body}');
-}`,
+let linear_issue_id := issue_response.body.data.issueCreate.issue.identifier;
+
+let attachment_url := f'{project.url}/error_tracking/{inputs.posthog_issue_id}';
+let attachment_mutation := f'mutation AttachmentCreate \\{ attachmentCreate(input: \\{ issueId: "{linear_issue_id}", title: "PostHog issue", url: "{attachment_url}" }) \\{ success } }';
+
+query(attachment_mutation);`,
     inputs_schema: [
         {
             key: 'linear_workspace',
@@ -56,19 +61,28 @@ if (res.status != 200 or res.body.success == false) {
             key: 'title',
             type: 'string',
             label: 'Title',
-            default: '[PostHog Issue] {event.properties.name}',
             secret: false,
+            hidden: false,
             required: true,
-            hidden: true,
+            default: '{event.properties.$exception_types[1]}',
         },
         {
             key: 'description',
             type: 'string',
             label: 'Description',
-            default: '{event.properties.description}',
             secret: false,
+            hidden: false,
             required: true,
+            default: '{event.properties.$exception_values[1]}',
+        },
+        {
+            key: 'posthog_issue_id',
+            type: 'string',
+            label: 'PostHog issue ID',
+            secret: false,
             hidden: true,
+            required: true,
+            default: '{event.properties.$exception_issue_id}',
         },
     ],
 }

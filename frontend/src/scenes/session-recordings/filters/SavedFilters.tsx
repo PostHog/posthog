@@ -1,12 +1,21 @@
-import { IconCopy, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+
+import { IconShare, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
+
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 
-import { RecordingUniversalFilters, ReplayTabs, SessionRecordingPlaylistType } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    RecordingUniversalFilters,
+    ReplayTabs,
+    SessionRecordingPlaylistType,
+} from '~/types'
 
 import { playlistLogic } from '../playlist/playlistLogic'
 import { countColumn } from '../saved-playlists/SavedSessionRecordingPlaylists'
@@ -67,34 +76,49 @@ export function SavedFilters({
         >,
         nameColumn() as LemonTableColumn<SessionRecordingPlaylistType, keyof SessionRecordingPlaylistType | undefined>,
         {
-            width: 0,
+            title: 'Share',
+            width: 40,
             render: function Render(_, playlist) {
                 return (
-                    <div className="flex flex-row gap-1">
-                        <LemonButton
-                            onClick={() => {
-                                const combinedURL = urls.absolute(
-                                    combineUrl(urls.replay(ReplayTabs.Home), { savedFilterId: playlist.short_id }).url
-                                )
-                                void copyToClipboard(combinedURL, 'link to ' + (playlist.name || playlist.derived_name))
-                            }}
-                            title="Copy link to saved filter"
-                            tooltip="Copy link to saved filter"
-                            icon={<IconCopy />}
-                        />
-                        <LemonButton
-                            status="danger"
-                            onClick={() => {
-                                deletePlaylist(playlist)
-                                if (savedFilters.results?.length === 1) {
-                                    setActiveFilterTab('filters')
-                                }
-                            }}
-                            title="Delete saved filter"
-                            tooltip="Delete saved filter"
-                            icon={<IconTrash />}
-                        />
-                    </div>
+                    <LemonButton
+                        onClick={() => {
+                            const combinedURL = urls.absolute(
+                                combineUrl(urls.replay(ReplayTabs.Home), { savedFilterId: playlist.short_id }).url
+                            )
+                            void copyToClipboard(combinedURL, 'link to ' + (playlist.name || playlist.derived_name))
+                        }}
+                        title="Copy link to saved filter"
+                        tooltip="Copy link to saved filter"
+                        icon={<IconShare />}
+                        size="small"
+                    />
+                )
+            },
+        },
+        {
+            title: 'Delete',
+            width: 40,
+            render: function Render(_, playlist) {
+                return (
+                    <LemonButton
+                        status="danger"
+                        onClick={() => {
+                            deletePlaylist(playlist)
+                            if (savedFilters.results?.length === 1) {
+                                setActiveFilterTab('filters')
+                            }
+                        }}
+                        title="Delete saved filter"
+                        tooltip="Delete saved filter"
+                        icon={<IconTrash />}
+                        size="small"
+                        accessControl={{
+                            resourceType: AccessControlResourceType.SessionRecording,
+                            minAccessLevel: AccessControlLevel.Editor,
+                            userAccessLevel:
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                        }}
+                    />
                 )
             },
         },

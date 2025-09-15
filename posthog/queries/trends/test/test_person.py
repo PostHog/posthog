@@ -1,17 +1,6 @@
 from uuid import UUID
 
-from dateutil.relativedelta import relativedelta
-from django.utils import timezone
 from freezegun.api import freeze_time
-
-from posthog.models.entity import Entity
-from posthog.models.filters import Filter
-from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.queries.trends.trends_actors import TrendsActors
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -19,6 +8,17 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
+
+from django.utils import timezone
+
+from dateutil.relativedelta import relativedelta
+
+from posthog.models.entity import Entity
+from posthog.models.filters import Filter
+from posthog.models.group.util import create_group
+from posthog.queries.trends.trends_actors import TrendsActors
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 class TestPerson(ClickhouseTestMixin, APIBaseTest):
@@ -115,7 +115,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_group_query_includes_recording_events(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
         create_group(team_id=self.team.pk, group_type_index=0, group_key="bla", properties={})

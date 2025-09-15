@@ -1,27 +1,86 @@
 import equal from 'fast-deep-equal'
 import { LogicWrapper } from 'kea'
 import { routerType } from 'kea-router/lib/routerType'
+import Papa from 'papaparse'
+
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils'
+import { compactNumber, dateStringToDayJs } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
 import { OrganizationType } from '~/types'
-import { BillingPeriod, BillingProductV2Type, BillingTierType, BillingType, BillingProductV2AddonType } from '~/types'
+import { BillingPeriod, BillingProductV2AddonType, BillingProductV2Type, BillingTierType, BillingType } from '~/types'
 
 import { USAGE_TYPES } from './constants'
-import type { BillingFilters, BillingUsageInteractionProps } from './types'
+import type { BillingFilters, BillingSeriesForCsv, BillingUsageInteractionProps, BuildBillingCsvOptions } from './types'
+import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
+
+export const isProductVariantPrimary = (productType: string): boolean =>
+    ['session_replay', 'realtime_destinations'].includes(productType)
+
+export const isProductVariantSecondary = (productType: string): boolean =>
+    ['mobile_replay', 'batch_exports'].includes(productType)
+
+export const calculateFreeTier = (product: BillingProductV2Type | BillingProductV2AddonType): number =>
+    (product.subscribed && product.tiered
+        ? product.tiers?.[0]?.unit_amount_usd === '0'
+            ? product.tiers?.[0]?.up_to
+            : 0
+        : product.free_allocation) || 0
+
+export const createGaugeItems = (
+    product: BillingProductV2Type | BillingProductV2AddonType,
+    options: {
+        billing?: BillingType | null
+        billingLimitAsUsage?: number
+    } = {}
+): BillingGaugeItemType[] => {
+    const freeTier = calculateFreeTier(product)
+
+    return [
+        // Billing limit (only for main products, excl. product variants setup)
+        options.billingLimitAsUsage &&
+        options.billing?.discount_percent !== 100 &&
+        !isProductVariantPrimary(product.type)
+            ? {
+                  type: BillingGaugeItemKind.BillingLimit,
+                  text: 'Billing limit',
+                  value: options.billingLimitAsUsage || 0,
+              }
+            : undefined,
+
+        // Free tier
+        freeTier
+            ? {
+                  type: BillingGaugeItemKind.FreeTier,
+                  text: 'Free tier limit',
+                  value: freeTier,
+              }
+            : undefined,
+
+        // Projected usage
+        product.projected_usage && product.projected_usage > (product.current_usage || 0)
+            ? {
+                  type: BillingGaugeItemKind.ProjectedUsage,
+                  text: 'Projected',
+                  value: product.projected_usage || 0,
+              }
+            : undefined,
+
+        // Current usage
+        {
+            type: BillingGaugeItemKind.CurrentUsage,
+            text: 'Current',
+            value: product.current_usage || 0,
+        },
+    ].filter(Boolean) as BillingGaugeItemType[]
+}
 
 export const summarizeUsage = (usage: number | null): string => {
     if (usage === null) {
         return ''
-    } else if (usage < 1000) {
-        return `${usage}`
-    } else if (Math.round(usage / 1000) < 1000) {
-        const thousands = usage / 1000
-        return `${Number.isInteger(thousands) ? thousands : thousands.toFixed(1)} thousand`
     }
-    return `${Math.round(usage / 1000000)} million`
+    return compactNumber(usage)
 }
 
 export const projectUsage = (usage: number | undefined, period: BillingType['billing_period']): number | undefined => {
@@ -430,4 +489,49 @@ export function calculateBillingPeriodMarkers(
     }
 
     return markers
+}
+
+const sumSeries = (values: number[]): number => values.reduce((sum, v) => sum + v, 0)
+
+/**
+ * Keep up to N decimals without trailing zeros.
+ * Falls back to 10 decimals for very small numbers if not specified.
+ */
+export const formatWithDecimals = (value: number, decimals?: number): string => {
+    const needsFixedFormat = typeof decimals === 'number' || (Math.abs(value) < 1e-6 && value !== 0)
+
+    return needsFixedFormat
+        ? value
+              .toFixed(decimals ?? 10)
+              .replace(/0+$/, '')
+              .replace(/\.$/, '')
+        : String(value)
+}
+
+/**
+ * Build CSV from the billing usage and spend data:
+ * - columns are [Series, Total, ...dates]
+ * - rows are visible series (products and/or projects)
+ * - sorted by total desc
+ * Values can be clamped to N decimals via options.decimals.
+ */
+export function buildBillingCsv(params: {
+    series: BillingSeriesForCsv[]
+    dates: string[]
+    hiddenSeries?: number[]
+    options?: BuildBillingCsvOptions
+}): string {
+    const { series, dates, hiddenSeries = [], options } = params
+
+    const visible = series.filter((s) => !hiddenSeries.includes(s.id))
+    const withTotalSorted = visible.map((s) => ({ ...s, total: sumSeries(s.data) })).sort((a, b) => b.total - a.total)
+
+    const header = ['Series', 'Total', ...dates]
+    const rows = withTotalSorted.map((s) => [
+        s.label,
+        formatWithDecimals(s.total, options?.decimals),
+        ...s.data.map((v) => formatWithDecimals(v, options?.decimals)),
+    ])
+
+    return Papa.unparse([header, ...rows])
 }

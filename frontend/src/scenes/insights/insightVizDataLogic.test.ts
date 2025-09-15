@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { FunnelLayout } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelInvalidExclusionError, funnelResult } from 'scenes/funnels/__mocks__/funnelDataLogicMocks'
@@ -58,6 +59,7 @@ describe('insightVizDataLogic', () => {
                     source: {
                         ...trendsQueryDefault,
                         filterTestAccounts: true,
+                        version: 2,
                     },
                 },
             })
@@ -74,6 +76,7 @@ describe('insightVizDataLogic', () => {
                         ...trendsQueryDefault,
                         filterTestAccounts: true,
                         samplingFactor: 0.1,
+                        version: 2,
                     },
                 },
             })
@@ -82,6 +85,7 @@ describe('insightVizDataLogic', () => {
                 ...trendsQueryDefault,
                 filterTestAccounts: true,
                 samplingFactor: 0.1,
+                version: 2,
             })
         })
 
@@ -114,6 +118,7 @@ describe('insightVizDataLogic', () => {
                             funnelToStep: 1,
                         },
                         trendsFilter: {}, // we currently don't remove insight filters of previous query kinds
+                        version: 2,
                     },
                 },
             })
@@ -140,6 +145,7 @@ describe('insightVizDataLogic', () => {
                                 date_from: '-7d',
                                 date_to: null,
                             },
+                            version: 2,
                         },
                     },
                 })
@@ -166,6 +172,7 @@ describe('insightVizDataLogic', () => {
                                 date_from: '-7d',
                                 date_to: '-3d',
                             },
+                            version: 2,
                         },
                     },
                 })
@@ -196,6 +203,7 @@ describe('insightVizDataLogic', () => {
                                 breakdown_type: 'event',
                                 breakdown: '$current_url',
                             },
+                            version: 2,
                         },
                     },
                 })
@@ -221,6 +229,7 @@ describe('insightVizDataLogic', () => {
                                 breakdown_type: 'event',
                                 breakdown: '$browser',
                             },
+                            version: 2,
                         },
                     },
                 })
@@ -247,6 +256,7 @@ describe('insightVizDataLogic', () => {
                             trendsFilter: {
                                 display: 'ActionsAreaGraph',
                             },
+                            version: 2,
                         },
                     },
                 })
@@ -269,6 +279,7 @@ describe('insightVizDataLogic', () => {
                                 display: 'ActionsAreaGraph',
                                 showValuesOnSeries: true,
                             },
+                            version: 2,
                         },
                     },
                 })
@@ -298,6 +309,7 @@ describe('insightVizDataLogic', () => {
                                 layout: FunnelLayout.horizontal,
                             },
                             trendsFilter: {}, // we currently don't remove insight filters of previous query kinds
+                            version: 2,
                         },
                     },
                 })
@@ -434,6 +446,7 @@ describe('insightVizDataLogic', () => {
                                 date_to: undefined,
                             },
                             trendsFilter: { smoothingIntervals: undefined },
+                            version: 2,
                         },
                     },
                 })

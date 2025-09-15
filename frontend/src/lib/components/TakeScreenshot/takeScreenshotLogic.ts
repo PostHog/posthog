@@ -1,7 +1,8 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { toBlob } from 'html-to-image'
 import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import type { takeScreenshotLogicType } from './takeScreenshotLogicType'
 

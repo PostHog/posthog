@@ -1,8 +1,9 @@
 import { DiffEditor } from '@monaco-editor/react'
+
 import {
     ActivityLogItem,
-    defaultDescriber,
     HumanizedChange,
+    defaultDescriber,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'

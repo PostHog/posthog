@@ -1,9 +1,12 @@
+import { useActions, useValues } from 'kea'
+
 import { IconWarning } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { pluralize } from 'lib/utils'
 import { EnvironmentConfigOption, preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -13,7 +16,6 @@ import { InstanceConfigSaveModal } from './InstanceConfigSaveModal'
 import { MetricValue, RenderMetricValue } from './RenderMetricValue'
 import { RenderMetricValueEdit } from './RenderMetricValueEdit'
 import { ConfigMode, systemStatusLogic } from './systemStatusLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export function InstanceConfigTab(): JSX.Element {
     const { configOptions, preflightLoading } = useValues(preflightLogic)

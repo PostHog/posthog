@@ -1,15 +1,18 @@
-import { IconPlus } from '@posthog/icons'
-import { Link, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+
+import { IconPlus } from '@posthog/icons'
+import { Link, ProfilePicture, Spinner } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { LemonTreeSelectMode, TreeDataItem, TreeMode, TreeTableViewKeys } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { PAGINATION_LIMIT, projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { ProjectTreeRef } from '~/types'
@@ -1233,5 +1236,5 @@ export function deleteFromTree(type: string, ref: string): void {
 }
 
 export function getLastNewFolder(): string | undefined {
-    return projectTreeLogic.findMounted()?.values.lastNewFolder ?? undefined
+    return projectTreeLogic.findMounted({ key: PROJECT_TREE_KEY })?.values.lastNewFolder ?? undefined
 }

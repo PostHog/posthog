@@ -5,24 +5,6 @@ from typing import Any, Optional, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.clickhouse.materialized_columns import ColumnName
-from posthog.hogql import ast
-from posthog.hogql.constants import get_breakdown_limit_for_context
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import action_to_expr, property_to_expr
-from posthog.hogql_queries.insights.funnels.funnel_aggregation_operations import FirstTimeForUserAggregationQuery
-from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
-from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.utils import (
-    funnel_window_interval_unit_to_sql,
-    get_breakdown_expr,
-)
-from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
-from posthog.models.action.action import Action
-from posthog.models.cohort.cohort import Cohort
-from posthog.models.property.property import PropertyName
-from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID, get_breakdown_cohort_name
-from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
     ActionsNode,
     BreakdownAttributionType,
@@ -30,12 +12,29 @@ from posthog.schema import (
     DataWarehouseNode,
     EventsNode,
     FunnelExclusionActionsNode,
-    FunnelTimeToConvertResults,
-    FunnelVizType,
     FunnelExclusionEventsNode,
     FunnelMathType,
+    FunnelTimeToConvertResults,
+    FunnelVizType,
     StepOrderValue,
 )
+
+from posthog.hogql import ast
+from posthog.hogql.constants import get_breakdown_limit_for_context
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property import action_to_expr, property_to_expr
+
+from posthog.clickhouse.materialized_columns import ColumnName
+from posthog.hogql_queries.insights.funnels.funnel_aggregation_operations import FirstTimeForUserAggregationQuery
+from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
+from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql, get_breakdown_expr
+from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
+from posthog.models.action.action import Action
+from posthog.models.cohort.cohort import Cohort
+from posthog.models.property.property import PropertyName
+from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID, get_breakdown_cohort_name
+from posthog.queries.util import correct_result_for_sampling
 from posthog.types import EntityNode, ExclusionEntityNode
 
 JOIN_ALGOS = "auto"

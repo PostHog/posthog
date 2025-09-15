@@ -18,7 +18,7 @@ impl FolderSource {
 
     pub async fn assert_valid_path(&self, key: &str) -> Result<(), Error> {
         if !self.keys().await?.into_iter().any(|k| k == key) {
-            return Err(Error::msg(format!("Key not found: {}", key)));
+            return Err(Error::msg(format!("Key not found: {key}")));
         }
         Ok(())
     }

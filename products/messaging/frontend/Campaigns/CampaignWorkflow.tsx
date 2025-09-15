@@ -1,7 +1,8 @@
-import { SpinnerOverlay } from '@posthog/lemon-ui'
 import { BindLogic, useValues } from 'kea'
 
-import { campaignLogic, CampaignLogicProps } from './campaignLogic'
+import { SpinnerOverlay } from '@posthog/lemon-ui'
+
+import { CampaignLogicProps, campaignLogic } from './campaignLogic'
 import { HogFlowEditor } from './hogflows/HogFlowEditor'
 
 export function CampaignWorkflow(props: CampaignLogicProps): JSX.Element {

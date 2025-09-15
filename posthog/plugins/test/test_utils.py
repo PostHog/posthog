@@ -1,8 +1,10 @@
-import base64
 import io
+import base64
 from typing import cast
-from unittest import mock
 from zipfile import ZipFile
+
+from posthog.test.base import BaseTest
+from unittest import mock
 
 from posthog.plugins.utils import (
     download_plugin_archive,
@@ -11,7 +13,6 @@ from posthog.plugins.utils import (
     parse_url,
     put_json_into_zip_archive,
 )
-from posthog.test.base import BaseTest
 
 from .mock import mocked_plugin_requests_get
 from .plugin_archives import (

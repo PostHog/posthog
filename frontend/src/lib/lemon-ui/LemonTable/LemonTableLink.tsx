@@ -1,6 +1,7 @@
+import { ReactNode } from 'react'
+
 import { LemonMarkdown } from '../LemonMarkdown'
 import { Link, LinkProps } from '../Link'
-import { ReactNode } from 'react'
 
 export function LemonTableLink({
     title,

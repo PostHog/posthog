@@ -2,6 +2,7 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
+
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AutoplayDirection, SessionRecordingSidebarStacking } from '~/types'

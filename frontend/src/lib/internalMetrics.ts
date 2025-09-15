@@ -1,5 +1,6 @@
-import api, { getJSONOrNull } from 'lib/api'
 import posthog from 'posthog-js'
+
+import api, { getJSONOrNull } from 'lib/api'
 import { getResponseBytes } from 'scenes/insights/utils'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'

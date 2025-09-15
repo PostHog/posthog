@@ -2,13 +2,16 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional, Any, TypeVar, Generic
+from typing import Any, Generic, Optional, TypeVar
+
 import structlog
 
+from posthog.schema import MarketingAnalyticsColumnsSchemaNames, SourceMap
+
 from posthog.hogql import ast
+
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
-from posthog.schema import MarketingAnalyticsColumnsSchemaNames, SourceMap
 from posthog.warehouse.models import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
@@ -36,6 +39,15 @@ class ExternalConfig(BaseMarketingConfig):
 @dataclass
 class GoogleAdsConfig(BaseMarketingConfig):
     """Configuration for Google Ads marketing sources"""
+
+    campaign_table: DataWarehouseTable
+    stats_table: DataWarehouseTable
+    source_id: str
+
+
+@dataclass
+class LinkedinAdsConfig(BaseMarketingConfig):
+    """Configuration for LinkedIn Ads marketing sources"""
 
     campaign_table: DataWarehouseTable
     stats_table: DataWarehouseTable

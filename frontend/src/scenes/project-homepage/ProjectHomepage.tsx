@@ -1,25 +1,28 @@
 import './ProjectHomepage.scss'
 
+import { useActions, useValues } from 'kea'
+
 import { IconHome } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
-import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { SceneDashboardChoiceRequired } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceRequired'
+import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
-import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 
 import { PosthogStoriesContainer } from '~/layout/navigation/PosthogStories/PosthogStoriesContainer'
+import { SceneActions } from '~/layout/scenes/SceneActions'
 import { DashboardPlacement } from '~/types'
 
 export const scene: SceneExport = {
@@ -90,7 +93,10 @@ function HomeDashboard({ dashboardLogicProps }: { dashboardLogicProps: Dashboard
     return (
         <>
             {featureFlags[FEATURE_FLAGS.POSTHOG_STORIES] && <PosthogStoriesContainer />}
-            <div className="ProjectHomepage__dashboardheader">
+            <div
+                className="ProjectHomepage__dashboardheader"
+                style={featureFlags[FEATURE_FLAGS.SCENE_TABS] ? { marginTop: 0 } : {}}
+            >
                 <div className="ProjectHomepage__dashboardheader__title">
                     {!dashboard && <LemonSkeleton className="w-20 h-4" />}
                     {dashboard?.name && (
@@ -102,6 +108,7 @@ function HomeDashboard({ dashboardLogicProps }: { dashboardLogicProps: Dashboard
                         </>
                     )}
                 </div>
+                {featureFlags[FEATURE_FLAGS.SCENE_TABS] ? <SceneActions /> : null}
             </div>
             <LemonDivider className="mt-3 mb-4" />
             <Dashboard id={dashboardLogicProps.id.toString()} placement={DashboardPlacement.ProjectHomepage} />

@@ -1,10 +1,11 @@
-import sys
-from typing import Optional, Any
+# ruff: noqa: T201 allow print statements
 
-import lxml
-import toronado
+import sys
 import html
-from celery import shared_task
+import uuid
+from decimal import Decimal
+from typing import Any, Optional
+
 from django.conf import settings
 from django.core import exceptions, mail
 from django.core.mail.backends.smtp import EmailBackend
@@ -12,14 +13,16 @@ from django.db import transaction
 from django.template.loader import get_template
 from django.utils import timezone
 from django.utils.module_loading import import_string
-from decimal import Decimal
-import requests
-import uuid
 
+import lxml
+import requests
+import toronado
+from celery import shared_task
+
+from posthog.exceptions_capture import capture_exception
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord
 from posthog.tasks.utils import CeleryQueue
-from posthog.exceptions_capture import capture_exception
 
 
 def inline_css(value: str) -> str:
@@ -91,6 +94,7 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "email_change_old_address": "36",
     "email_change_new_address": "37",
     "password_changed": "42",
+    "login_notification": "44",
     "personal_api_key_exposed": "45",
 }
 

@@ -1,25 +1,24 @@
 from functools import cached_property
 from typing import TYPE_CHECKING, Optional
 
-
-from posthog.exceptions_capture import capture_exception
-import structlog
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
+from django.db.models import QuerySet
 from django.utils import timezone
+
+import structlog
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
-from django.db.models import QuerySet
-from django.contrib.postgres.indexes import GinIndex
 
+from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed
 from posthog.models.dashboard import Dashboard
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
-from posthog.models.filters.utils import get_filter
-from posthog.models.utils import sane_repr
-from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.utils import RootTeamMixin, RootTeamManager
+from posthog.models.filters.utils import get_filter
+from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
+from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 
 logger = structlog.get_logger(__name__)
 
@@ -122,6 +121,29 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
 
     def __str__(self):
         return self.name or self.derived_name or self.short_id
+
+    def save(self, *args, **kwargs) -> None:
+        # generate query metadata if needed
+        if self._state.adding or self.query != self._original_query or self.query_metadata is None:
+            try:
+                self.generate_query_metadata()
+                if "update_fields" in kwargs:
+                    kwargs["update_fields"].append("query_metadata")
+            except Exception as e:
+                # log and ignore the error, as this is not critical
+                logger.exception(
+                    "Failed to generate query metadata for insight",
+                    insight_id=self.id or "new",
+                    team_id=self.team_id,
+                    query=self.query,
+                    error=str(e),
+                )
+                capture_exception(e)
+        super().save(*args, **kwargs)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._original_query = self.query
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Insight"]:
@@ -240,8 +262,10 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
         dashboard_filters_override: Optional[dict] = None,
         dashboard_variables_override: Optional[dict[str, dict]] = None,
     ) -> Optional[dict]:
-        from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
-        from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_variables_to_dict
+        from posthog.hogql_queries.apply_dashboard_filters import (
+            apply_dashboard_filters_to_dict,
+            apply_dashboard_variables_to_dict,
+        )
 
         if self.query and dashboard_variables_override:
             self.query = apply_dashboard_variables_to_dict(self.query, dashboard_variables_override or {}, self.team)
@@ -267,6 +291,9 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
 
     def generate_query_metadata(self):
         from posthog.hogql_queries.query_metadata import extract_query_metadata
+
+        if self.query is None:
+            return
 
         query_metadata = extract_query_metadata(
             query=self.query,

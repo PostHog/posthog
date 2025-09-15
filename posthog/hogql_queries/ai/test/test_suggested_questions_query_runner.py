@@ -1,16 +1,14 @@
 from datetime import timedelta
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 from unittest.mock import patch
 
 from django.test import override_settings
 from django.utils import timezone
 
-from posthog.hogql_queries.ai.suggested_questions_query_runner import SuggestedQuestionsQueryRunner
 from posthog.schema import SuggestedQuestionsQuery
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    snapshot_clickhouse_queries,
-)
+
+from posthog.hogql_queries.ai.suggested_questions_query_runner import SuggestedQuestionsQueryRunner
 
 
 @override_settings(IN_UNIT_TESTING=True)

@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import * as libUtils from 'lib/utils'
 

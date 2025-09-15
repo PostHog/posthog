@@ -1,12 +1,15 @@
-import { IconInfo } from '@posthog/icons'
-import { LemonDropdown, LemonButton, Link, LemonBanner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { useRef } from 'react'
+
+import { IconInfo } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDropdown, Link } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import MaxTool from 'scenes/max/MaxTool'
+
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
-import { useValues, useActions } from 'kea'
-import { useRef } from 'react'
 import { HogFunctionTemplateOptions } from './HogFunctionTemplateOptions'
 
 export function HogFunctionCode(): JSX.Element {
@@ -160,9 +163,7 @@ export function HogFunctionCode(): JSX.Element {
 
     return (
         <MaxTool
-            name="create_hog_transformation_function"
-            displayName="Write and tweak Hog code"
-            description="Max can write and tweak Hog code for you"
+            identifier="create_hog_transformation_function"
             context={{
                 current_hog_code: configuration.hog ?? '',
             }}

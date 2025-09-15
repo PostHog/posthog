@@ -1,29 +1,34 @@
-from functools import cached_property
 from datetime import datetime
+from functools import cached_property
+from typing import Literal, cast
+
 import structlog
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.models.team.team import DEFAULT_CURRENCY
 from posthog.schema import (
+    CachedMarketingAnalyticsTableQueryResponse,
     ConversionGoalFilter1,
     ConversionGoalFilter2,
     ConversionGoalFilter3,
     DateRange,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsHelperForColumnNames,
+    MarketingAnalyticsItem,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsTableQueryResponse,
-    CachedMarketingAnalyticsTableQueryResponse,
 )
-from typing import cast, Literal
-from .conversion_goal_processor import ConversionGoalProcessor
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+from posthog.models.team.team import DEFAULT_CURRENCY
+
+from .adapters.base import MarketingSourceAdapter, QueryContext
+from .adapters.factory import MarketingSourceFactory
 from .constants import (
     BASE_COLUMN_MAPPING,
     CAMPAIGN_COST_CTE_NAME,
@@ -32,19 +37,16 @@ from .constants import (
     TOTAL_CLICKS_FIELD,
     TOTAL_COST_FIELD,
     TOTAL_IMPRESSIONS_FIELD,
+    to_marketing_analytics_data,
 )
-from .utils import (
-    convert_team_conversion_goals_to_objects,
-)
-from .adapters.factory import MarketingSourceFactory
-from .adapters.base import QueryContext, MarketingSourceAdapter
+from .conversion_goal_processor import ConversionGoalProcessor
+from .utils import convert_team_conversion_goals_to_objects
 
 logger = structlog.get_logger(__name__)
 
 
-class MarketingAnalyticsTableQueryRunner(QueryRunner):
+class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalyticsTableQueryResponse]):
     query: MarketingAnalyticsTableQuery
-    response: MarketingAnalyticsTableQueryResponse
     cached_response: CachedMarketingAnalyticsTableQueryResponse
 
     def __init__(self, *args, **kwargs):
@@ -143,7 +145,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
 
         return main_query
 
-    def calculate(self) -> MarketingAnalyticsTableQueryResponse:
+    def _calculate(self) -> MarketingAnalyticsTableQueryResponse:
         """Execute the query and return results with pagination support"""
         from posthog.hogql.query import execute_hogql_query
 
@@ -176,6 +178,11 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         # Trim results to the requested limit if we got extra
         if has_more:
             results = results[:requested_limit]
+
+        has_comparison = bool(self.query.compareFilter is not None and self.query.compareFilter.compare)
+
+        # Transform results to MarketingAnalyticsItem objects
+        results = self._transform_results_to_marketing_analytics_items(results, columns, has_comparison)
 
         return MarketingAnalyticsTableQueryResponse(
             results=results,
@@ -441,9 +448,9 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
                         )
                     )
         else:
-            if MarketingAnalyticsBaseColumns.TOTAL_COST.value in select_columns:
+            if MarketingAnalyticsBaseColumns.COST.value in select_columns:
                 # Build default order by: Total Cost DESC
-                default_field = ast.Field(chain=[MarketingAnalyticsBaseColumns.TOTAL_COST.value])
+                default_field = ast.Field(chain=[MarketingAnalyticsBaseColumns.COST.value])
                 order_by_exprs.append(ast.OrderExpr(expr=default_field, order="DESC"))
 
         return order_by_exprs
@@ -552,3 +559,56 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
                 conditions.extend([gte_condition, lte_condition])
 
         return conditions
+
+    def _transform_results_to_marketing_analytics_items(
+        self, results: list, columns: list, has_comparison: bool
+    ) -> list:
+        """Transform raw query results to MarketingAnalyticsItem objects."""
+        logger.debug(
+            "transforming_results_to_marketing_analytics",
+            row_count=len(results),
+            column_count=len(columns),
+            has_comparison=has_comparison,
+        )
+
+        transformed_results = []
+        for row in results:
+            transformed_row = []
+            for i, column_name in enumerate(columns):
+                transformed_item = self._transform_cell_to_marketing_analytics_item(row, i, column_name, has_comparison)
+                transformed_row.append(transformed_item)
+            transformed_results.append(transformed_row)
+        return transformed_results
+
+    def _transform_cell_to_marketing_analytics_item(
+        self, row: list, column_index: int, column_name: str, has_comparison: bool
+    ) -> MarketingAnalyticsItem:
+        """Transform a single cell value to a MarketingAnalyticsItem object."""
+        if column_index < len(row):
+            cell_value = row[column_index]
+
+            if has_comparison and isinstance(cell_value, list | tuple) and len(cell_value) >= 2:
+                # This is a tuple from compare query: (current, previous)
+                current_value, previous_value = cell_value[0], cell_value[1]
+                return to_marketing_analytics_data(
+                    key=str(column_name),
+                    value=current_value,
+                    previous=previous_value,
+                    has_comparison=has_comparison,
+                )
+            else:
+                # Single value, create object with no previous data
+                return to_marketing_analytics_data(
+                    key=str(column_name),
+                    value=cell_value,
+                    previous=None,
+                    has_comparison=has_comparison,
+                )
+        else:
+            # Missing column data
+            return to_marketing_analytics_data(
+                key=str(column_name),
+                value=None,
+                previous=None,
+                has_comparison=has_comparison,
+            )

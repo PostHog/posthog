@@ -1,8 +1,10 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { useLayoutEffect, useRef } from 'react'
+
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
+import { capitalizeFirstLetter } from 'lib/utils'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
@@ -10,10 +12,10 @@ import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { getQueryFromInsightLike } from '~/queries/nodes/InsightViz/utils'
 
+import { JSONContent } from '../RichContentEditor/types'
 import { tabToName } from './constants'
 import { searchBarLogic } from './searchBarLogic'
 import { SearchResult as ResultType } from './types'
-import { JSONContent } from '../RichContentEditor/types'
 
 type SearchResultProps = {
     result: ResultType

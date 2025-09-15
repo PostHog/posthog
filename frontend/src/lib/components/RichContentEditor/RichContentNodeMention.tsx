@@ -1,9 +1,12 @@
-import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
+import { Node, NodeViewProps, mergeAttributes } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import clsx from 'clsx'
-import { LemonButton, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonButton, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+
 import { membersLogic } from 'scenes/organization/membersLogic'
+
 import { RichContentNodeType } from './types'
 
 export interface RichContentNodeMentionAttrs {

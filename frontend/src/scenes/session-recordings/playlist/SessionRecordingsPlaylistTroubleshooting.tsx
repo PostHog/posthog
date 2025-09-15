@@ -1,5 +1,6 @@
-import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'

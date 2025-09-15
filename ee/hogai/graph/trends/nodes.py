@@ -1,8 +1,9 @@
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import AssistantTrendsQuery
+
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 from ..schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
 from ..schema_generator.utils import SchemaGeneratorOutput
@@ -13,6 +14,7 @@ TrendsSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantTrendsQuery]
 
 
 class TrendsGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
+    REASONING_MESSAGE = "Creating trends query"
     INSIGHT_NAME = "Trends"
     OUTPUT_MODEL = TrendsSchemaGeneratorOutput
     OUTPUT_SCHEMA = TRENDS_SCHEMA

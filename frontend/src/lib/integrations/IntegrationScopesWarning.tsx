@@ -1,7 +1,8 @@
+import { useMemo } from 'react'
+
 import api from 'lib/api'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
-import { useMemo } from 'react'
 
 import { CyclotronJobInputSchemaType, IntegrationType } from '~/types'
 

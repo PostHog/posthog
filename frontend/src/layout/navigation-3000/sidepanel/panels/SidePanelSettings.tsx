@@ -1,8 +1,10 @@
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { IconExternal } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { capitalizeFirstLetter } from 'lib/utils'
-import { useEffect } from 'react'
 import { Settings } from 'scenes/settings/Settings'
 import { settingsLogic } from 'scenes/settings/settingsLogic'
 import { SettingsLogicProps } from 'scenes/settings/types'

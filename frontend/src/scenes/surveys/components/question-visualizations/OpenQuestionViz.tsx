@@ -1,8 +1,7 @@
 import { ResponseSummariesDisplay } from 'scenes/surveys/components/question-visualizations/OpenQuestionSummarizer'
 import { ResponseCard, ScrollToSurveyResultsCard } from 'scenes/surveys/components/question-visualizations/ResponseCard'
-import { OpenQuestionResponseData } from 'scenes/surveys/surveyLogic'
 
-import { BasicSurveyQuestion } from '~/types'
+import { BasicSurveyQuestion, OpenQuestionResponseData } from '~/types'
 
 interface Props {
     question: BasicSurveyQuestion

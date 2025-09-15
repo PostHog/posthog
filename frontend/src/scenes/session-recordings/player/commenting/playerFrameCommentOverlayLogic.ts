@@ -1,17 +1,18 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
+
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { colonDelimitedDuration } from 'lib/utils'
+import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
+import { isSingleEmoji } from 'scenes/session-recordings/utils'
 
 import { CommentType } from '~/types'
 
+import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import type { playerCommentOverlayLogicType } from './playerFrameCommentOverlayLogicType'
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { isSingleEmoji } from 'scenes/session-recordings/utils'
-import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 
 export interface RecordingCommentForm {
     // formatted time in recording, e.g. 00:00:00, 00:00:01, 00:00:02, etc.

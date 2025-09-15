@@ -24,8 +24,7 @@ pub fn main() {
             .iter()
             .enumerate()
             .fold(String::new(), |acc, (i, value)| format!(
-                "{}({}){:?}\n",
-                acc, i, value
+                "{acc}({i}){value:?}\n"
             ))
     );
 
@@ -54,11 +53,11 @@ pub fn main() {
         let step_result = vm.step().unwrap();
         match step_result {
             StepOutcome::Finished(Value::Bool(b)) => {
-                println!("OK: Rule finished with outcome: {:?}", b);
+                println!("OK: Rule finished with outcome: {b:?}");
                 return;
             }
             StepOutcome::Finished(res) => {
-                panic!("ERR: Rule finished with unexpected result: {:?}", res);
+                panic!("ERR: Rule finished with unexpected result: {res:?}");
             }
             StepOutcome::NativeCall(name, args) => context
                 .execute_native_function_call(&mut vm, &name, args)

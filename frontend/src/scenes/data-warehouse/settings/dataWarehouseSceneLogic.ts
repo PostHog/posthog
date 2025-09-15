@@ -1,10 +1,12 @@
 import { Monaco } from '@monaco-editor/react'
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
-import api from 'lib/api'
 import { editor } from 'monaco-editor'
 import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
@@ -179,7 +181,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             (s) => [s.views, s.dataWarehouseSavedQueryMapById],
             (views, dataWarehouseSavedQueryMapById): DatabaseSchemaTable[] => {
                 return views
-                    .filter((view) => !dataWarehouseSavedQueryMapById[view.id]?.status)
+                    .filter((view) => !dataWarehouseSavedQueryMapById[view.id]?.is_materialized)
                     .map((view) => ({
                         ...view,
                         type: 'view',
@@ -190,7 +192,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             (s) => [s.views, s.dataWarehouseSavedQueryMapById],
             (views, dataWarehouseSavedQueryMapById): DatabaseSchemaMaterializedViewTable[] => {
                 return views
-                    .filter((view) => dataWarehouseSavedQueryMapById[view.id]?.status)
+                    .filter((view) => dataWarehouseSavedQueryMapById[view.id]?.is_materialized)
                     .map((view) => ({
                         ...view,
                         type: 'materialized_view',

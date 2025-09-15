@@ -1,8 +1,10 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import { GoalLine, HogQLQueryModifiers, TrendsQuery } from '~/queries/schema/schema-general'
+import { FunnelsQuery, GoalLine, HogQLQueryModifiers, TrendsQuery } from '~/queries/schema/schema-general'
+import { isFunnelsQuery, isTrendsQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import { insightVizDataLogic } from '../insightVizDataLogic'
@@ -59,14 +61,23 @@ export const goalLinesLogic = kea<goalLinesLogicType>([
     }),
     listeners(({ actions, values }) => {
         const updateQuerySource = (): void => {
-            const querySource = values.querySource as TrendsQuery
+            const querySource = values.querySource
 
-            actions.updateQuerySource({
-                trendsFilter: {
-                    ...querySource?.trendsFilter,
-                    goalLines: values.goalLines,
-                },
-            } as Partial<TrendsQuery>)
+            if (isTrendsQuery(querySource)) {
+                actions.updateQuerySource({
+                    trendsFilter: {
+                        ...querySource?.trendsFilter,
+                        goalLines: values.goalLines,
+                    },
+                } as Partial<TrendsQuery>)
+            } else if (isFunnelsQuery(querySource)) {
+                actions.updateQuerySource({
+                    funnelsFilter: {
+                        ...querySource?.funnelsFilter,
+                        goalLines: values.goalLines,
+                    },
+                } as Partial<FunnelsQuery>)
+            }
         }
 
         return {

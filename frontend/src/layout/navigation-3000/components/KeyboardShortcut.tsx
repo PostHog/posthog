@@ -1,6 +1,7 @@
 import './KeyboardShortcut.scss'
 
 import clsx from 'clsx'
+
 import { isMac, isMobile } from 'lib/utils'
 
 import { HotKeyOrModifier } from '~/types'

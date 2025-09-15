@@ -46,4 +46,8 @@ var (
 		Name: "livestream_unsub_queue_use_ratio",
 		Help: "How much of unsub queue is used (disconnecting removes subscription)",
 	})
+	SubTotal = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "livestream_active_event_subscriptions_total",
+		Help: "How many active event subscriptions we have",
+	})
 )

@@ -1,7 +1,8 @@
-import { RetryError } from '@posthog/plugin-scaffold'
 import { randomBytes } from 'crypto'
 import { Summary } from 'prom-client'
 import { VM } from 'vm2'
+
+import { RetryError } from '@posthog/plugin-scaffold'
 
 import { Hub, PluginConfig, PluginConfigVMResponse } from '../../types'
 import { createCache } from './extensions/cache'

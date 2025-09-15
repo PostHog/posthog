@@ -1,23 +1,24 @@
 import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import api from 'lib/api'
-import {
-    authorizedUrlListLogic,
-    AuthorizedUrlListType,
-    defaultAuthorizedUrlProperties,
-} from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
-import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
-import {
-    calculateViewportRange,
-    DEFAULT_HEATMAP_FILTERS,
-    PostHogAppToolbarEvent,
-} from 'lib/components/IframedToolbarBrowser/utils'
-import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
-import { objectsEqual } from 'lib/utils'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
+
+import api from 'lib/api'
+import {
+    AuthorizedUrlListType,
+    authorizedUrlListLogic,
+    defaultAuthorizedUrlProperties,
+} from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import {
+    DEFAULT_HEATMAP_FILTERS,
+    PostHogAppToolbarEvent,
+    calculateViewportRange,
+} from 'lib/components/IframedToolbarBrowser/utils'
+import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
+import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
+import { objectsEqual } from 'lib/utils'
 import { removeReplayIframeDataFromLocalStorage } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { hogql } from '~/queries/utils'

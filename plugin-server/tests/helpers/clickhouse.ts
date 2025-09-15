@@ -1,12 +1,13 @@
-import { ClickHouseClient, createClient as createClickhouseClient, ExecResult } from '@clickhouse/client'
+import { ClickHouseClient, ExecResult, createClient as createClickhouseClient } from '@clickhouse/client'
 import { performance } from 'perf_hooks'
 import { Readable } from 'stream'
 
+import { withSpan } from '~/common/tracing/tracing-utils'
 import {
     ClickHouseEvent,
-    ClickhouseGroup,
     ClickHousePerson,
     ClickHousePersonDistinctId2,
+    ClickhouseGroup,
     DeadLetterQueueEvent,
     InternalPerson,
     RawClickHouseEvent,
@@ -16,7 +17,6 @@ import { timeoutGuard } from '~/utils/db/utils'
 import { isTestEnv } from '~/utils/env-utils'
 import { parseRawClickHouseEvent } from '~/utils/event'
 import { parseJSON } from '~/utils/json-parse'
-import { instrumentQuery } from '~/utils/metrics'
 import { fetch } from '~/utils/request'
 
 import { logger } from '../../src/utils/logger'
@@ -160,7 +160,7 @@ export class Clickhouse {
     }
 
     query<T>(query: string): Promise<T[]> {
-        return instrumentQuery('query.clickhouse', undefined, async () => {
+        return withSpan('clickhouse', 'query.clickhouse', { tag: 'unknown' }, async () => {
             const timeout = timeoutGuard('ClickHouse slow query warning after 30 sec', { query })
             try {
                 const queryResult = await this.client.query({

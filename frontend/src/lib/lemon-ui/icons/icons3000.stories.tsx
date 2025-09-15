@@ -1,5 +1,7 @@
-import * as packageIcons from '@posthog/icons'
 import { Meta, StoryObj } from '@storybook/react'
+
+import * as packageIcons from '@posthog/icons'
+
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { LemonCollapse } from '../LemonCollapse'

@@ -1,18 +1,14 @@
-import json
 import os
+import json
 from contextlib import suppress
 from typing import Optional
 from urllib.parse import urlparse
 
-import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 
-from posthog.settings.base_variables import (
-    DEBUG,
-    IN_EVAL_TESTING,
-    IS_COLLECT_STATIC,
-    TEST,
-)
+import dj_database_url
+
+from posthog.settings.base_variables import DEBUG, IN_EVAL_TESTING, IS_COLLECT_STATIC, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
@@ -169,6 +165,7 @@ CLICKHOUSE_TEST_DB: str = "posthog" + SUFFIX
 
 CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST", "localhost")
 CLICKHOUSE_OFFLINE_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None)
+CLICKHOUSE_MIGRATIONS_HOST: str = os.getenv("CLICKHOUSE_MIGRATIONS_HOST", CLICKHOUSE_HOST)
 CLICKHOUSE_USER: str = os.getenv("CLICKHOUSE_USER", "default")
 CLICKHOUSE_PASSWORD: str = os.getenv("CLICKHOUSE_PASSWORD", "")
 CLICKHOUSE_DATABASE: str = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")
@@ -357,9 +354,8 @@ if not REDIS_URL:
         "https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
     )
 
-# Controls whether the TolerantZlibCompressor is used for Redis compression when writing to Redis.
-# The TolerantZlibCompressor is a drop-in replacement for the standard Django ZlibCompressor that
-# can cope with compressed and uncompressed reading at the same time
+# Controls whether the ZstdCompressor is used for Redis compression when writing to Redis.
+# The ZstdCompressor uses zstd compression and can cope with compressed and uncompressed reading at the same time
 USE_REDIS_COMPRESSION = get_from_env("USE_REDIS_COMPRESSION", True, type_cast=str_to_bool)
 
 # AWS ElastiCache supports "reader" endpoints.
@@ -390,7 +386,7 @@ CACHES = {
         "LOCATION": REDIS_URL if not REDIS_READER_URL else [REDIS_URL, REDIS_READER_URL],
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
-            "COMPRESSOR": "posthog.caching.tolerant_zlib_compressor.TolerantZlibCompressor",
+            "COMPRESSOR": "posthog.caching.zstd_compressor.ZstdCompressor",
         },
         "KEY_PREFIX": "posthog",
     }

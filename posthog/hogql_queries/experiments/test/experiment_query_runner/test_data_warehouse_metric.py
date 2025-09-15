@@ -1,31 +1,20 @@
 from datetime import datetime
 
-from django.test import override_settings
 from freezegun import freeze_time
+from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
+
+from django.test import override_settings
+
 from parameterized import parameterized
 
-from posthog.hogql_queries.experiments.experiment_query_runner import (
-    ExperimentQueryRunner,
-)
-from posthog.hogql_queries.experiments.test.experiment_query_runner.base import (
-    ExperimentQueryRunnerBaseTest,
-)
+from posthog.schema import ExperimentDataWarehouseNode, ExperimentMeanMetric, ExperimentMetricMathType, ExperimentQuery
+
+from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
+from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
+from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.schema import (
-    ExperimentDataWarehouseNode,
-    ExperimentMeanMetric,
-    ExperimentMetricMathType,
-    ExperimentQuery,
-)
-from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties
-from posthog.test.base import (
-    _create_event,
-    _create_person,
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-)
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -63,7 +52,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team,
             project_id=self.team.project_id,
             group_type="organization",
@@ -400,7 +389,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             )
             filter["value"] = cohort.pk
         elif name == "group":
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
             )
             create_group(
@@ -520,10 +509,19 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         # Handle cases where filters result in no exposures
         if filter_expected["control_absolute_exposure"] == 0 and filter_expected["test_absolute_exposure"] == 0:
-            with self.assertRaises(ValueError) as context:
-                query_runner.calculate()
+            result = query_runner.calculate()
 
-            self.assertEqual(str(context.exception), "No control variant found")
+            assert result.variant_results is not None
+            self.assertEqual(len(result.variant_results), 1)
+
+            control_result = result.baseline
+            assert control_result is not None
+            test_result = result.variant_results[0]
+            assert test_result is not None
+
+            self.assertEqual(control_result.number_of_samples, filter_expected["control_absolute_exposure"])
+            self.assertEqual(test_result.number_of_samples, filter_expected["test_absolute_exposure"])
+
         else:
             with freeze_time("2023-01-07"):
                 result = query_runner.calculate()

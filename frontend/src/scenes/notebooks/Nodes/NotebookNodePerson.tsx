@@ -1,21 +1,25 @@
-import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { PropertyDefinitionType } from '~/types'
-import { useActions, useValues } from 'kea'
-import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
-import { PersonIcon } from 'scenes/persons/PersonDisplay'
-import { TZLabel } from 'lib/components/TZLabel'
-import { personLogic } from 'scenes/persons/personLogic'
-import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { notebookNodeLogic } from './notebookNodeLogic'
-import { asDisplay } from 'scenes/persons/person-utils'
-import { useEffect } from 'react'
-import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import clsx from 'clsx'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
+import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
+
 import { NotFound } from 'lib/components/NotFound'
+import { PropertiesTable } from 'lib/components/PropertiesTable'
+import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
+import { TZLabel } from 'lib/components/TZLabel'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { PersonIcon } from 'scenes/persons/PersonDisplay'
+import { asDisplay } from 'scenes/persons/person-utils'
+import { personLogic } from 'scenes/persons/personLogic'
+import { urls } from 'scenes/urls'
+
+import { NodeKind } from '~/queries/schema/schema-general'
+import { PropertyDefinitionType } from '~/types'
+
 import { NotebookNodeProps, NotebookNodeType } from '../types'
+import { notebookNodeLogic } from './notebookNodeLogic'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttributes>): JSX.Element => {
     const { id } = attributes

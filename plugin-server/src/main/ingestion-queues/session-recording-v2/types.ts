@@ -1,6 +1,7 @@
 // This is the incoming message from Kafka
-
 import { Message } from 'node-rdkafka'
+
+import { ValidRetentionPeriods } from './constants'
 
 export type PersistedRecordingMessage = {
     window_id?: string
@@ -24,3 +25,5 @@ export type CaptureIngestionWarningFn = (
 export interface BatchMessageProcessor<TInput, TOutput> {
     parseBatch(messages: TInput[]): Promise<TOutput[]>
 }
+
+export type RetentionPeriod = (typeof ValidRetentionPeriods)[number]

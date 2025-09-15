@@ -1,11 +1,14 @@
-import { LemonButton, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { TZLabel } from 'lib/components/TZLabel'
 
-import { ExternalDataJob, ExternalDataJobStatus } from '~/types'
+import { LemonButton, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
+
+import { TZLabel } from 'lib/components/TZLabel'
+import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
+import { userLogic } from 'scenes/userLogic'
+
+import { ExternalDataJob, ExternalDataJobStatus, LogEntryLevel } from '~/types'
 
 import { dataWarehouseSourceSettingsLogic } from './dataWarehouseSourceSettingsLogic'
-import { LogsView } from './Logs'
 
 const StatusTagSetting: Record<ExternalDataJob['status'], LemonTagType> = {
     Running: 'primary',
@@ -19,9 +22,15 @@ interface SyncsProps {
     id: string
 }
 
+const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
+
 export const Syncs = ({ id }: SyncsProps): JSX.Element => {
-    const { jobs, jobsLoading, canLoadMoreJobs } = useValues(dataWarehouseSourceSettingsLogic({ id }))
-    const { loadMoreJobs } = useActions(dataWarehouseSourceSettingsLogic({ id }))
+    const { user } = useValues(userLogic)
+    const { jobs, jobsLoading, canLoadMoreJobs } = useValues(
+        dataWarehouseSourceSettingsLogic({ id, availableSources: {} })
+    )
+    const { loadMoreJobs } = useActions(dataWarehouseSourceSettingsLogic({ id, availableSources: {} }))
+    const showDebugLogs = user?.is_staff || user?.is_impersonated
 
     return (
         <LemonTable
@@ -67,7 +76,20 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
                     ? {
                           expandedRowRender: (job) => (
                               <div className="p-4">
-                                  <LogsView job={job} />
+                                  <LogsViewer
+                                      sourceType="external_data_jobs"
+                                      sourceId={job.schema.id}
+                                      groupByInstanceId={false}
+                                      hideDateFilter={true}
+                                      hideLevelsFilter={true}
+                                      hideInstanceIdColumn={true}
+                                      defaultFilters={{
+                                          instanceId: job.workflow_run_id,
+                                          dateFrom: job.created_at,
+                                          dateTo: job.finished_at,
+                                          levels: showDebugLogs ? ['DEBUG', ...LOG_LEVELS] : LOG_LEVELS,
+                                      }}
+                                  />
                               </div>
                           ),
                           rowExpandable: () => true,

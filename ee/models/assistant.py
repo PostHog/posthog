@@ -5,10 +5,10 @@ from django.utils import timezone
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UUIDTModel
 
 
-class Conversation(UUIDModel):
+class Conversation(UUIDTModel):
     TITLE_MAX_LENGTH = 250
 
     class Meta:
@@ -24,6 +24,7 @@ class Conversation(UUIDModel):
     class Type(models.TextChoices):
         ASSISTANT = "assistant", "Assistant"
         TOOL_CALL = "tool_call", "Tool call"
+        DEEP_RESEARCH = "deep_research", "Deep research"
 
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
@@ -34,7 +35,7 @@ class Conversation(UUIDModel):
     title = models.CharField(null=True, blank=True, help_text="Title of the conversation.", max_length=TITLE_MAX_LENGTH)
 
 
-class ConversationCheckpoint(UUIDModel):
+class ConversationCheckpoint(UUIDTModel):
     thread = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name="checkpoints")
     checkpoint_ns = models.TextField(
         default="",
@@ -55,7 +56,7 @@ class ConversationCheckpoint(UUIDModel):
         ]
 
 
-class ConversationCheckpointBlob(UUIDModel):
+class ConversationCheckpointBlob(UUIDTModel):
     checkpoint = models.ForeignKey(ConversationCheckpoint, on_delete=models.CASCADE, related_name="blobs")
     """
     The checkpoint that created the blob. Do not use this field to query blobs.
@@ -81,7 +82,7 @@ class ConversationCheckpointBlob(UUIDModel):
         ]
 
 
-class ConversationCheckpointWrite(UUIDModel):
+class ConversationCheckpointWrite(UUIDTModel):
     checkpoint = models.ForeignKey(ConversationCheckpoint, on_delete=models.CASCADE, related_name="writes")
     task_id = models.UUIDField(help_text="Identifier for the task creating the checkpoint write.")
     idx = models.IntegerField(
@@ -106,7 +107,7 @@ MAX_ONBOARDING_QUESTIONS = 3
 ONBOARDING_TIMEOUT_MINUTES = 10
 
 
-class CoreMemory(UUIDModel):
+class CoreMemory(UUIDTModel):
     class ScrapingStatus(models.TextChoices):
         PENDING = "pending", "Pending"
         COMPLETED = "completed", "Completed"
@@ -170,7 +171,11 @@ class CoreMemory(UUIDModel):
 
     @property
     def formatted_text(self) -> str:
-        return self.text[0:5000]
+        if len(self.text) > 5000:
+            # If memory text exceeds 5000 characters, truncate it. For the user, the most important bits are at the start
+            # (i.e. foundational /init info) and at the end (i.e. freshest memories)
+            return self.text[:2500] + "…" + self.text[-2500:]
+        return self.text
 
     @property
     def answers_left(self) -> int:

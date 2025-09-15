@@ -1,13 +1,15 @@
-import { LemonBanner, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonBanner, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import {
-    getThresholdColor,
-    getValueWithUnit,
     METRIC_DESCRIPTION,
     WEB_VITALS_THRESHOLDS,
+    getThresholdColor,
+    getValueWithUnit,
 } from '~/queries/nodes/WebVitals/definitions'
 import { WebVitalsMetric } from '~/queries/schema/schema-general'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'

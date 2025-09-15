@@ -1,12 +1,14 @@
+import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconFilter } from '@posthog/icons'
 import { Popover } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isEventPersonOrSessionPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { useState } from 'react'
+import { IconWithCount } from 'lib/lemon-ui/icons'
 
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
@@ -37,6 +39,8 @@ export const WebPropertyFilters = (): JSX.Element => {
                   '$geoip_subdivision_1_name',
                   '$geoip_time_zone',
                   '$pathname',
+                  'metadata.loggedIn',
+                  'metadata.backend',
               ],
               [TaxonomicFilterGroupType.SessionProperties]: [
                   '$entry_pathname',

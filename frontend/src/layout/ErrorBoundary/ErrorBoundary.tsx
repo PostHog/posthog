@@ -2,9 +2,10 @@ import './ErrorBoundary.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { supportLogic } from 'lib/components/Support/supportLogic'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PostHogErrorBoundary, type PostHogErrorBoundaryFallbackProps } from 'posthog-js/react'
+
+import { SupportTicketExceptionEvent, supportLogic } from 'lib/components/Support/supportLogic'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { teamLogic } from 'scenes/teamLogic'
 
 interface ErrorBoundaryProps {
@@ -33,6 +34,9 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                         ? rawError
                         : new Error(typeof rawError === 'string' ? rawError : 'Unknown error')
                 const { stack, name, message } = normalizedError
+
+                const exceptionEvent = props.exceptionEvent as SupportTicketExceptionEvent
+
                 return (
                     <div className={clsx('ErrorBoundary', className)}>
                         <h2>An error has occurred</h2>
@@ -52,7 +56,13 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                             type="primary"
                             fullWidth
                             center
-                            onClick={() => openSupportForm({ kind: 'bug', isEmailFormOpen: true })}
+                            onClick={() => {
+                                openSupportForm({
+                                    kind: 'bug',
+                                    isEmailFormOpen: true,
+                                    exception_event: exceptionEvent ?? null,
+                                })
+                            }}
                             targetBlank
                             className="mt-2"
                         >

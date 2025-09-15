@@ -1,27 +1,29 @@
 from typing import cast
-import pytest
 
-from posthog.management.commands.generate_source_configs import SourceConfigGenerator
+import pytest
+from posthog.test.base import ClickhouseTestMixin
+
 from posthog.schema import (
-    ExternalDataSourceType,
+    ExternalDataSourceType as SchemaExternalDataSourceType,
+    Option,
     SourceConfig,
+    SourceFieldFileUploadConfig,
     SourceFieldFileUploadJsonFormatConfig,
     SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
-    Type4,
-    SourceFieldSelectConfig,
-    Option,
-    SourceFieldOauthConfig,
-    SourceFieldFileUploadConfig,
 )
+
+from posthog.management.commands.generate_source_configs import SourceConfigGenerator
 from posthog.temporal.data_imports.sources.common.base import FieldType
-from posthog.test.base import ClickhouseTestMixin
-from posthog.warehouse.models import ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 class TestSourceConfigGenerator(ClickhouseTestMixin):
-    def _run(self, sources: dict[ExternalDataSource.Type, SourceConfig]) -> str:
+    def _run(self, sources: dict[ExternalDataSourceType, SourceConfig]) -> str:
         generator = SourceConfigGenerator()
         for name, config in sources.items():
             generator.generate_source_config(name, config)
@@ -30,15 +32,16 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_source_config_types(self):
         config = SourceConfig(
-            name=ExternalDataSourceType.STRIPE,
+            name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
                         name="input_field",
                         label="input label",
-                        type=Type4.TEXT,
+                        type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="input placeholder",
                     ),
@@ -53,14 +56,14 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                 SourceFieldInputConfig(
                                     name="input_field_1",
                                     label="input label",
-                                    type=Type4.TEXT,
+                                    type=SourceFieldInputConfigType.TEXT,
                                     required=False,
                                     placeholder="input placeholder",
                                 ),
                                 SourceFieldInputConfig(
                                     name="input_field_2",
                                     label="input label",
-                                    type=Type4.TEXT,
+                                    type=SourceFieldInputConfigType.TEXT,
                                     required=False,
                                     placeholder="input placeholder",
                                 ),
@@ -89,7 +92,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                         SourceFieldInputConfig(
                                             name="option_1_input",
                                             label="option_1 label",
-                                            type=Type4.TEXT,
+                                            type=SourceFieldInputConfigType.TEXT,
                                             required=True,
                                             placeholder="option_1 placeholder",
                                         ),
@@ -105,7 +108,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                         SourceFieldInputConfig(
                                             name="option_2_input",
                                             label="option_2 label",
-                                            type=Type4.TEXT,
+                                            type=SourceFieldInputConfigType.TEXT,
                                             required=True,
                                             placeholder="option_2 placeholder",
                                         ),
@@ -128,19 +131,20 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
             ),
         )
 
-        assert self._run({ExternalDataSource.Type.STRIPE: config}) == self.snapshot
+        assert self._run({ExternalDataSourceType.STRIPE: config}) == self.snapshot
 
     def test_source_config_required(self):
         config = SourceConfig(
-            name=ExternalDataSourceType.STRIPE,
+            name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
                         name="input_field",
                         label="input label",
-                        type=Type4.TEXT,
+                        type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="input placeholder",
                     ),
@@ -148,21 +152,22 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
             ),
         )
 
-        output = self._run({ExternalDataSource.Type.STRIPE: config})
+        output = self._run({ExternalDataSourceType.STRIPE: config})
         assert "input_field: str" in output
         assert "input_field: str | None = None" not in output
 
     def test_source_config_not_required(self):
         config = SourceConfig(
-            name=ExternalDataSourceType.STRIPE,
+            name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
                         name="input_field",
                         label="input label",
-                        type=Type4.TEXT,
+                        type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="input placeholder",
                     ),
@@ -170,20 +175,21 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
             ),
         )
 
-        output = self._run({ExternalDataSource.Type.STRIPE: config})
+        output = self._run({ExternalDataSourceType.STRIPE: config})
         assert "input_field: str | None = None" in output
 
     def test_source_config_input_non_python_identifier(self):
         config = SourceConfig(
-            name=ExternalDataSourceType.STRIPE,
+            name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
                         name="input-field",  # dashes are not allowed in python identifiers
                         label="input label",
-                        type=Type4.TEXT,
+                        type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="input placeholder",
                     ),
@@ -191,13 +197,14 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
             ),
         )
 
-        output = self._run({ExternalDataSource.Type.STRIPE: config})
+        output = self._run({ExternalDataSourceType.STRIPE: config})
         assert 'input_field: str = config.value(alias="input-field")' in output
 
     def test_source_config_switch_group_non_python_identifier(self):
         config = SourceConfig(
-            name=ExternalDataSourceType.STRIPE,
+            name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -212,7 +219,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                 SourceFieldInputConfig(
                                     name="input-field-1",  # dashes are not allowed in python identifiers
                                     label="input label",
-                                    type=Type4.TEXT,
+                                    type=SourceFieldInputConfigType.TEXT,
                                     required=False,
                                     placeholder="input placeholder",
                                 ),
@@ -223,7 +230,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
             ),
         )
 
-        output = self._run({ExternalDataSource.Type.STRIPE: config})
+        output = self._run({ExternalDataSourceType.STRIPE: config})
         assert (
             'switch_group: StripeSwitchGroupConfig | None = config.value(alias="switch-group", default_factory=lambda: None)'
             in output
@@ -232,8 +239,9 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
 
     def test_source_config_file_upload_non_python_identifier(self):
         config = SourceConfig(
-            name=ExternalDataSourceType.STRIPE,
+            name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -247,7 +255,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
             ),
         )
 
-        output = self._run({ExternalDataSource.Type.STRIPE: config})
+        output = self._run({ExternalDataSourceType.STRIPE: config})
         assert 'file_upload: StripeFileUploadConfig = config.value(alias="file-upload")' in output
         assert "class StripeFileUploadConfig" in output
         assert "key_1: str" in output
@@ -255,8 +263,9 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
 
     def test_source_config_oauth_non_python_identifier(self):
         config = SourceConfig(
-            name=ExternalDataSourceType.STRIPE,
+            name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -270,7 +279,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
             ),
         )
 
-        output = self._run({ExternalDataSource.Type.STRIPE: config})
+        output = self._run({ExternalDataSourceType.STRIPE: config})
         assert (
             'oauth_integration_id: int = config.value(alias="oauth-integration-id", converter=config.str_to_int)'
             in output
@@ -278,8 +287,9 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
 
     def test_source_config_ssh_tunnel_non_python_identifier(self):
         config = SourceConfig(
-            name=ExternalDataSourceType.STRIPE,
+            name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -291,7 +301,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
             ),
         )
 
-        output = self._run({ExternalDataSource.Type.STRIPE: config})
+        output = self._run({ExternalDataSourceType.STRIPE: config})
         assert (
             'ssh_tunnel: SSHTunnelConfig | None = config.value(alias="ssh-tunnel", default_factory=lambda: None)'
             in output
@@ -299,8 +309,9 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
 
     def test_source_config_complex_select_non_python_identifier(self):
         config = SourceConfig(
-            name=ExternalDataSourceType.STRIPE,
+            name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -319,7 +330,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                         SourceFieldInputConfig(
                                             name="option-1-input",  # dashes are not allowed in python identifiers
                                             label="option_1 label",
-                                            type=Type4.TEXT,
+                                            type=SourceFieldInputConfigType.TEXT,
                                             required=True,
                                             placeholder="option_1 placeholder",
                                         ),
@@ -335,7 +346,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                         SourceFieldInputConfig(
                                             name="option-2-input",  # dashes are not allowed in python identifiers
                                             label="option_2 label",
-                                            type=Type4.TEXT,
+                                            type=SourceFieldInputConfigType.TEXT,
                                             required=True,
                                             placeholder="option_2 placeholder",
                                         ),
@@ -348,7 +359,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
             ),
         )
 
-        output = self._run({ExternalDataSource.Type.STRIPE: config})
+        output = self._run({ExternalDataSourceType.STRIPE: config})
         assert 'select_with_fields: StripeSelectWithFieldsConfig = config.value(alias="select-with-fields")' in output
         assert "class StripeSelectWithFieldsConfig(config.Config)" in output
         assert 'selection: Literal["option_1", "option_2"] = "option_1' in output
@@ -357,8 +368,9 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
 
     def test_source_config_simple_select_non_python_identifier(self):
         config = SourceConfig(
-            name=ExternalDataSourceType.STRIPE,
+            name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -373,15 +385,16 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
             ),
         )
 
-        output = self._run({ExternalDataSource.Type.STRIPE: config})
+        output = self._run({ExternalDataSourceType.STRIPE: config})
         assert (
             'select_with_options: Literal["1", "0"] = config.value(default="1", alias="select-with-options")' in output
         )
 
     def test_source_config_ssh_tunnel_reference(self):
         config = SourceConfig(
-            name=ExternalDataSourceType.STRIPE,
+            name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -390,31 +403,37 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
             ),
         )
 
-        output = self._run({ExternalDataSource.Type.STRIPE: config})
+        output = self._run({ExternalDataSourceType.STRIPE: config})
         assert "from posthog.warehouse.models.ssh_tunnel import SSHTunnelConfig" in output
         assert "ssh_tunnel: SSHTunnelConfig" in output
 
     def test_source_config_type_conversion(self):
         config = SourceConfig(
-            name=ExternalDataSourceType.STRIPE,
+            name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
-                        name="int_value", label="int", type=Type4.NUMBER, required=True, placeholder="12345"
+                        name="int_value",
+                        label="int",
+                        type=SourceFieldInputConfigType.NUMBER,
+                        required=True,
+                        placeholder="12345",
                     ),
                 ],
             ),
         )
 
-        output = self._run({ExternalDataSource.Type.STRIPE: config})
+        output = self._run({ExternalDataSourceType.STRIPE: config})
         assert "int_value: int = config.value(converter=int)" in output
 
     def test_source_config_nested_class(self):
         config = SourceConfig(
-            name=ExternalDataSourceType.STRIPE,
+            name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -429,14 +448,14 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                 SourceFieldInputConfig(
                                     name="input_field_1",
                                     label="input label",
-                                    type=Type4.TEXT,
+                                    type=SourceFieldInputConfigType.TEXT,
                                     required=False,
                                     placeholder="input placeholder",
                                 ),
                                 SourceFieldInputConfig(
                                     name="input_field_2",
                                     label="input label",
-                                    type=Type4.TEXT,
+                                    type=SourceFieldInputConfigType.TEXT,
                                     required=False,
                                     placeholder="input placeholder",
                                 ),
@@ -447,6 +466,6 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
             ),
         )
 
-        output = self._run({ExternalDataSource.Type.STRIPE: config})
+        output = self._run({ExternalDataSourceType.STRIPE: config})
         assert "class StripeSwitchGroupConfig(config.Config):" in output
         assert "switch_group: StripeSwitchGroupConfig" in output

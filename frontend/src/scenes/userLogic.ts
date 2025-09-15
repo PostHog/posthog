@@ -1,11 +1,12 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
+
 import api from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getAppContext } from 'lib/utils/getAppContext'
-import posthog from 'posthog-js'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AvailableFeature, OrganizationBasicType, ProductKey, UserRole, UserTheme, UserType } from '~/types'
@@ -30,7 +31,7 @@ export const userLogic = kea<userLogicType>([
         }),
         cancelEmailChangeRequest: true,
         setUserScenePersonalisation: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
-        updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean) => ({ productKey, value }),
+        updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean = true) => ({ productKey, value }),
         switchTeam: (teamId: string | number, destination?: string) => ({ teamId, destination }),
         deleteUser: true,
     })),

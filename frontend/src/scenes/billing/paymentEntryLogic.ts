@@ -1,7 +1,8 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import api from 'lib/api'
 import posthog from 'posthog-js'
+
+import api from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 

@@ -15,7 +15,7 @@ export class TeamManager {
     constructor(private postgres: PostgresRouter) {
         this.lazyLoader = new LazyLoader({
             name: 'TeamManager',
-            refreshAge: 2 * 60 * 1000, // 2 minute
+            refreshAgeMs: 2 * 60 * 1000, // 2 minute
             refreshJitterMs: 30 * 1000, // 30 seconds
             loader: async (teamIdOrTokens: string[]) => {
                 return await this.fetchTeams(teamIdOrTokens)

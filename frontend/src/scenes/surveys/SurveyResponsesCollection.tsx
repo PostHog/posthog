@@ -1,5 +1,7 @@
-import { LemonBanner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonBanner } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'

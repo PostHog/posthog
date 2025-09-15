@@ -1,3 +1,5 @@
+import { useActions, useValues } from 'kea'
+
 import {
     LemonBanner,
     LemonButton,
@@ -11,7 +13,7 @@ import {
     LemonTag,
     LemonTagType,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -21,9 +23,9 @@ import { hasFormErrors } from 'lib/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { ScheduledChangeOperationType, ScheduledChangeType } from '~/types'
 
-import { featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import { groupFilters } from './FeatureFlags'
+import { featureFlagLogic } from './featureFlagLogic'
 
 export const DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 

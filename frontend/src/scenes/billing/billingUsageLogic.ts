@@ -1,19 +1,22 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import difference from 'lodash.difference'
+import sortBy from 'lodash.sortby'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import difference from 'lodash.difference'
-import sortBy from 'lodash.sortby'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { Params } from 'scenes/sceneTypes'
 
 import { DateMappingOption, OrganizationType } from '~/types'
 
+import type { BillingPeriodMarker } from './BillingLineGraph'
 import {
     buildTrackingProperties,
     calculateBillingPeriodMarkers,
@@ -24,7 +27,6 @@ import {
 import { billingLogic } from './billingLogic'
 import type { billingUsageLogicType } from './billingUsageLogicType'
 import type { BillingFilters } from './types'
-import type { BillingPeriodMarker } from './BillingLineGraph'
 
 // These date filters return correct data but there's an issue with filter label after selecting it, showing 'No date range override' instead
 const TEMPORARILY_EXCLUDED_DATE_FILTER_OPTIONS = ['This month', 'Year to date', 'All time']

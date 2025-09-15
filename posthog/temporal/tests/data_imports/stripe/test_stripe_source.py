@@ -1,8 +1,8 @@
 import uuid
-from unittest import mock
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from unittest import mock
 
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow

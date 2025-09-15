@@ -1,16 +1,17 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { MutableRefObject, memo, useEffect, useRef, useState } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
+
 import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { colonDelimitedDuration } from 'lib/utils'
-import { memo, MutableRefObject, useEffect, useRef, useState } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
 
 import { PlayerFrame } from '../PlayerFrame'
 import { TimestampFormat } from '../playerSettingsLogic'
 import {
-    sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
     SessionRecordingPlayerMode,
+    sessionRecordingPlayerLogic,
 } from '../sessionRecordingPlayerLogic'
 
 const TWENTY_MINUTES_IN_MS = 20 * 60 * 1000

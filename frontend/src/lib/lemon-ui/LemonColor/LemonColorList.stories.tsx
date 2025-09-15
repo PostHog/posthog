@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+
 import { DataColorToken } from 'lib/colors'
 
 import { LemonColorList } from './LemonColorList'

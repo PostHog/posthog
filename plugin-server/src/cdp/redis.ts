@@ -1,5 +1,4 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
-
 import { createPool } from 'generic-pool'
 import { Pipeline, Redis } from 'ioredis'
 
@@ -149,4 +148,15 @@ export const createCdpRedisPool = (config: PluginsServerConfig): CdpRedis => {
         useClient,
         usePipeline,
     }
+}
+
+export type RedisPipelineResults = [Error | null, any][]
+
+export const getRedisPipelineResults = (
+    res: RedisPipelineResults,
+    index: number,
+    numOperations: number
+): RedisPipelineResults => {
+    // pipeline results are just a big array of operation results so we need to slice out the correct parts
+    return res.slice(index * numOperations, index * numOperations + numOperations)
 }

@@ -1,11 +1,13 @@
+import React from 'react'
+
 import { IconAI, IconWarning } from '@posthog/icons'
+
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
-import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { IconLink } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import React from 'react'
 import { createActionFromEvent } from 'scenes/activity/explore/createActionFromEvent'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -48,7 +50,7 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                         sessionId={event.properties.$session_id}
                         recordingStatus={event.properties.$recording_status}
                         timestamp={event.timestamp}
-                        data-attr="events-table-usage"
+                        data-attr="events-table-view-recordings"
                     />
                     {event.event === '$exception' && '$exception_issue_id' in event.properties ? (
                         <LemonButton
@@ -68,9 +70,9 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             fullWidth
                             sideIcon={<IconAI />}
                             data-attr="events-table-trace-link"
-                            to={urls.llmObservabilityTrace(event.properties.$ai_trace_id, {
+                            to={urls.llmAnalyticsTrace(event.properties.$ai_trace_id, {
                                 event: event.id,
-                                timestamp: event.timestamp,
+                                exception_ts: event.timestamp,
                             })}
                         >
                             View LLM Trace

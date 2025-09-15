@@ -1,15 +1,15 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { dayjs } from 'lib/dayjs'
+import * as billingUtils from 'scenes/billing/billing-utils'
+import { BillingSpendResponse, BillingSpendResponseBreakdownType } from 'scenes/billing/billingSpendLogic'
+import { BillingUsageResponse, BillingUsageResponseBreakdownType } from 'scenes/billing/billingUsageLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { BillingPlan, BillingType, StartupProgramLabel, TeamType } from '~/types'
-import { Destination } from 'scenes/pipeline/types'
+import { BillingPlan, BillingType, HogFunctionType, StartupProgramLabel, TeamType } from '~/types'
 
-import { maxBillingContextLogic, billingToMaxContext } from './maxBillingContextLogic'
-import { BillingUsageResponse, BillingUsageResponseBreakdownType } from 'scenes/billing/billingUsageLogic'
-import { BillingSpendResponse, BillingSpendResponseBreakdownType } from 'scenes/billing/billingSpendLogic'
-import * as billingUtils from 'scenes/billing/billing-utils'
+import { billingToMaxContext, maxBillingContextLogic } from './maxBillingContextLogic'
 
 const mockBilling: BillingType = {
     customer_id: '123',
@@ -242,9 +242,9 @@ const mockBillingSpendResponse: BillingSpendResponse = {
     customer_id: '123',
 }
 
-const mockDestinations: Destination[] = [
-    { id: '1', name: 'Destination 1', enabled: true } as Destination,
-    { id: '2', name: 'Destination 2', enabled: true } as Destination,
+const mockDestinations: HogFunctionType[] = [
+    { id: '1', name: 'Destination 1', enabled: true } as HogFunctionType,
+    { id: '2', name: 'Destination 2', enabled: true } as HogFunctionType,
 ]
 
 describe('maxBillingContextLogic', () => {

@@ -1,17 +1,19 @@
-import { IconCopy, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconOpenInApp } from 'lib/lemon-ui/icons'
+
+import { IconCopy, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconOpenInApp } from 'lib/lemon-ui/icons'
 
 import { ExperimentIdType } from '~/types'
 
 import { AuthorizedUrlForm } from './AuthorizedUrlForm'
-import { authorizedUrlListLogic, AuthorizedUrlListType } from './authorizedUrlListLogic'
 import { EmptyState } from './EmptyState'
+import { AuthorizedUrlListType, authorizedUrlListLogic } from './authorizedUrlListLogic'
 
 export interface AuthorizedUrlListProps {
     type: AuthorizedUrlListType
@@ -121,16 +123,18 @@ export function AuthorizedUrlList({
                                     <LemonButton
                                         icon={<IconOpenInApp />}
                                         to={
-                                            // toolbar urls are sent through the backend to be validated
+                                            // toolbar urls and web analytics urls are sent through the backend to be validated
                                             // and have toolbar auth information added
-                                            type === AuthorizedUrlListType.TOOLBAR_URLS
+                                            type === AuthorizedUrlListType.TOOLBAR_URLS ||
+                                            type === AuthorizedUrlListType.WEB_ANALYTICS
                                                 ? launchUrl(keyedURL.url)
                                                 : // other urls are simply opened directly
                                                   `${keyedURL.url}${query ?? ''}`
                                         }
                                         targetBlank
                                         tooltip={
-                                            type === AuthorizedUrlListType.TOOLBAR_URLS
+                                            type === AuthorizedUrlListType.TOOLBAR_URLS ||
+                                            type === AuthorizedUrlListType.WEB_ANALYTICS
                                                 ? 'Launch toolbar'
                                                 : 'Launch url'
                                         }

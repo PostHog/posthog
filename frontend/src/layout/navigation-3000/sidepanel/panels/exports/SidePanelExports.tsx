@@ -1,6 +1,8 @@
-import { IconDownload, IconPencil, IconWarning } from '@posthog/icons'
-import { LemonButton, lemonToast, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { IconDownload, IconPencil, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonSelect, Spinner, lemonToast } from '@posthog/lemon-ui'
+
 import { downloadExportedAsset, exportedAssetBlob } from 'lib/components/ExportButton/exporter'
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
@@ -24,8 +26,8 @@ export const SidePanelExportsIcon = (): JSX.Element => {
 }
 
 const ExportsContent = (): JSX.Element => {
-    const { exports, freshUndownloadedExports } = useValues(sidePanelExportsLogic)
-    const { loadExports, removeFresh } = useActions(sidePanelExportsLogic)
+    const { exports, freshUndownloadedExports, assetFormat } = useValues(sidePanelExportsLogic)
+    const { loadExports, removeFresh, setAssetFormat } = useActions(sidePanelExportsLogic)
     const { setBlob } = useActions(takeScreenshotLogic({ screenshotKey: 'exports' }))
 
     const handleEdit = async (asset: ExportedAssetType): Promise<void> => {
@@ -40,7 +42,22 @@ const ExportsContent = (): JSX.Element => {
     return (
         <div className="flex flex-col flex-1 overflow-hidden">
             <div className="flex-1 overflow-y-auto p-2">
-                <div className="flex justify-end">
+                <div className="flex justify-between items-center">
+                    <LemonSelect
+                        size="small"
+                        options={[
+                            {
+                                label: 'All',
+                                value: null,
+                            },
+                            ...Object.entries(ExporterFormat).map(([key, value]) => ({
+                                label: key,
+                                value: value,
+                            })),
+                        ]}
+                        value={assetFormat}
+                        onChange={setAssetFormat}
+                    />
                     <LemonButton onClick={loadExports} type="tertiary" size="small" icon={<IconRefresh />}>
                         Refresh
                     </LemonButton>

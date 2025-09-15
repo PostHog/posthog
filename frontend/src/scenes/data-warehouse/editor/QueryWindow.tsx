@@ -1,30 +1,34 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconBook, IconDownload, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
-import { LemonDivider, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { IconCancel } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Link } from 'lib/lemon-ui/Link'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useMemo } from 'react'
+
+import { IconBook, IconDownload, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { LemonDivider, Spinner } from '@posthog/lemon-ui'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Link } from 'lib/lemon-ui/Link'
+import { IconCancel } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { NodeKind } from '~/queries/schema/schema-general'
 
-import { FixErrorButton } from './components/FixErrorButton'
-import { editorSizingLogic } from './editorSizingLogic'
-import { multitabEditorLogic } from './multitabEditorLogic'
+import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { OutputPane } from './OutputPane'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryPane } from './QueryPane'
 import { QueryTabs } from './QueryTabs'
+import { FixErrorButton } from './components/FixErrorButton'
 import { draftsLogic } from './draftsLogic'
-import { NodeKind } from '~/queries/schema/schema-general'
-import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { editorSizingLogic } from './editorSizingLogic'
+import { multitabEditorLogic } from './multitabEditorLogic'
 
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
@@ -49,7 +53,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         activeTab,
     } = useValues(multitabEditorLogic)
 
-    const { activePanelIdentifier } = useValues(panelLayoutLogic)
+    const { activePanelIdentifier, isLayoutPanelVisible } = useValues(panelLayoutLogic)
     const { setActivePanelIdentifier } = useActions(panelLayoutLogic)
 
     const {
@@ -74,7 +78,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     const { sidebarWidth } = useValues(editorSizingLogic)
     const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {
             return ['Saving...', Spinner]
@@ -91,7 +95,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         return [undefined, IconDownload]
     }, [updatingDataWarehouseSavedQuery, changesToSave, response])
 
-    const isMaterializedView = !!editingView?.last_run_at || !!editingView?.sync_frequency
+    const isMaterializedView = editingView?.is_materialized === true
 
     const renderSidebarButton = (): JSX.Element => {
         if (activePanelIdentifier !== 'Database') {
@@ -123,7 +127,12 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
 
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
-            <div className="flex flex-row overflow-x-auto">
+            <div
+                className={cn(
+                    'flex flex-row overflow-x-auto z-[var(--z-top-navigation)]',
+                    newSceneLayout && activePanelIdentifier !== 'Database' && !isLayoutPanelVisible && 'rounded-tl'
+                )}
+            >
                 {renderSidebarButton()}
                 <QueryTabs
                     models={allTabs}

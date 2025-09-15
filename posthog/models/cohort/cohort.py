@@ -1,30 +1,37 @@
 import time
 from datetime import datetime
-from typing import Any, Literal, Optional, Union, cast, TYPE_CHECKING
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
-import structlog
 from django.conf import settings
 from django.db import connection, models
 from django.db.models import Q, QuerySet
 from django.db.models.expressions import F
-
 from django.utils import timezone
-from posthog.exceptions_capture import capture_exception
+
+import structlog
 
 from posthog.constants import PropertyOperatorType
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.batch_iterators import ArrayBatchIterator, BatchIterator, FunctionBatchIterator
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.filters.filter import Filter
-from posthog.models.person import Person
+from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.person import READ_DB_FOR_PERSONS
-from posthog.models.property import BehavioralPropertyType, Property, PropertyGroup
+from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.settings.base_variables import TEST
-from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.person import PersonDistinctId
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
+
+
+class CohortType(StrEnum):
+    STATIC = "static"
+    PERSON_PROPERTY = "person_property"
+    BEHAVIORAL = "behavioral"
+    ANALYTICAL = "analytical"
 
 
 # The empty string literal helps us determine when the cohort is invalid/deleted, when
@@ -164,6 +171,14 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     is_static = models.BooleanField(default=False)
 
+    cohort_type = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+        choices=[(cohort_type.value, cohort_type.value) for cohort_type in CohortType],
+        help_text="Type of cohort based on filter complexity",
+    )
+
     # deprecated in favor of filters
     groups = models.JSONField(default=list)
 
@@ -255,19 +270,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             return PropertyGroup(PropertyOperatorType.OR, property_groups)
 
         return PropertyGroup(PropertyOperatorType.AND, cast(list[Property], []))
-
-    @property
-    def has_complex_behavioral_filter(self) -> bool:
-        for prop in self.properties.flat:
-            if prop.type == "behavioral" and prop.value in [
-                BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME,
-                BehavioralPropertyType.PERFORMED_EVENT_REGULARLY,
-                BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE,
-                BehavioralPropertyType.STOPPED_PERFORMING_EVENT,
-                BehavioralPropertyType.RESTARTED_PERFORMING_EVENT,
-            ]:
-                return True
-        return False
 
     def get_analytics_metadata(self):
         return {
@@ -402,23 +404,40 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     def insert_users_list_by_uuid(
         self,
         items: list[str],
-        insert_in_clickhouse: bool = False,
         batchsize=DEFAULT_COHORT_INSERT_BATCH_SIZE,
         *,
         team_id: int,
-    ) -> None:
+    ) -> int:
         """
         Insert a list of users identified by their UUID into the cohort, for the given team.
 
         Args:
             items: List of user UUIDs to be inserted into the cohort.
-            insert_in_clickhouse: Whether the data should also be inserted into ClickHouse.
             batchsize: Number of UUIDs to process in each batch.
             team_id: The ID of the team to which the cohort belongs.
+
+        Returns:
+            The number of batches processed.
         """
 
         batch_iterator = ArrayBatchIterator(items, batch_size=batchsize)
-        self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse, team_id=team_id)
+        return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
+
+    def insert_users_list_by_uuid_into_pg_only(
+        self,
+        items: list[str],
+        team_id: int,
+    ) -> int:
+        """
+        Insert users into Postgres cohortpeople table ONLY (not ClickHouse).
+        This method exists solely to support syncing from ClickHouse to Postgres
+        after cohort calculations. Do not use for normal cohort operations.
+
+        Used by: insert_cohort_people_into_pg
+        """
+
+        batch_iterator = ArrayBatchIterator(items, batch_size=DEFAULT_COHORT_INSERT_BATCH_SIZE)
+        return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=False, team_id=team_id)
 
     def _insert_users_list_with_batching(
         self, batch_iterator: BatchIterator[str], insert_in_clickhouse: bool = False, *, team_id: int
@@ -438,6 +457,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         from posthog.models.cohort.util import get_static_cohort_size, insert_static_cohort
 
         current_batch_index = -1
+        processing_error = None
         try:
             cursor = connection.cursor()
             for batch_index, batch in batch_iterator:
@@ -465,27 +485,29 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 )
                 cursor.execute(query, params)
 
-            count = get_static_cohort_size(cohort_id=self.id, team_id=self.team_id)
-            self.count = count
-
-            self.is_calculating = False
-            self.last_calculation = timezone.now()
-            self.errors_calculating = 0
-            self.save()
-
-            return current_batch_index + 1
         except Exception as err:
+            processing_error = err
             if settings.DEBUG:
                 raise
-            self.is_calculating = False
-            self.errors_calculating = F("errors_calculating") + 1
-            self.last_error_at = timezone.now()
-
-            self.save()
             # Add batch index context to the exception
-            capture_exception(err, additional_properties={"batch_index": current_batch_index})
+            capture_exception(
+                err,
+                additional_properties={"cohort_id": self.id, "team_id": team_id, "batch_index": current_batch_index},
+            )
+        finally:
+            # Always update the count and cohort state, even if processing failed
+            try:
+                count = get_static_cohort_size(cohort_id=self.id, team_id=self.team_id)
+                self.count = count
+            except Exception as count_err:
+                # If count calculation fails, log the error but don't override the processing error
+                logger.exception("Failed to calculate static cohort size", cohort_id=self.id, team_id=team_id)
+                capture_exception(count_err, additional_properties={"cohort_id": self.id, "team_id": team_id})
+                # Leave existing count unchanged - it's better than None
 
-            return current_batch_index + 1
+            self._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
+
+        return current_batch_index + 1
 
     def to_dict(self) -> dict:
         people_data = [
@@ -497,7 +519,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             for person in self.people.all()
         ]
 
-        from posthog.models.activity_logging.activity_log import field_exclusions, common_field_exclusions
+        from posthog.models.activity_logging.activity_log import common_field_exclusions, field_exclusions
 
         excluded_fields = field_exclusions.get("Cohort", []) + common_field_exclusions
         base_dict = {
@@ -510,12 +532,45 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "query": self.query,
             "groups": self.groups,
             "is_static": self.is_static,
+            "cohort_type": self.cohort_type,
             "created_by_id": self.created_by_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_error_at": self.last_error_at.isoformat() if self.last_error_at else None,
             "people": people_data,
         }
         return {k: v for k, v in base_dict.items() if k not in excluded_fields}
+
+    def _safe_save_cohort_state(self, *, team_id: int, processing_error=None) -> None:
+        """
+        Safely save cohort state with fallback to save only critical fields.
+
+        This prevents cohorts from getting stuck in calculating state when
+        database issues occur during cleanup operations.
+
+        Args:
+            team_id: Team ID for logging context
+            processing_error: Error from processing, if any. Used to update error state.
+        """
+        self.is_calculating = False
+
+        if processing_error is None:
+            self.last_calculation = timezone.now()
+            self.errors_calculating = 0
+        else:
+            self.errors_calculating = F("errors_calculating") + 1
+            self.last_error_at = timezone.now()
+        try:
+            self.save()
+        except Exception as save_err:
+            logger.exception("Failed to save cohort state", cohort_id=self.id, team_id=team_id)
+            capture_exception(save_err, additional_properties={"cohort_id": self.id, "team_id": team_id})
+
+            # Single retry for transient issues
+            try:
+                self.save()
+            except Exception:
+                logger.exception("Failed to save cohort state on retry", cohort_id=self.id, team_id=team_id)
+                # If both attempts fail, the cohort may remain in an inconsistent state
 
     __repr__ = sane_repr("id", "name", "last_calculation")
 

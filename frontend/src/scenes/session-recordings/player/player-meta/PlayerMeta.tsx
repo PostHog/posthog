@@ -1,8 +1,10 @@
 import './PlayerMeta.scss'
 
-import { LemonSelect, LemonSelectOption, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
+import { LemonSelect, LemonSelectOption, Link } from '@posthog/lemon-ui'
+
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -10,20 +12,20 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { isObject } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
-import { PlayerMetaBottomSettings } from 'scenes/session-recordings/player/player-meta/PlayerMetaBottomSettings'
 import { PlayerMetaLinks } from 'scenes/session-recordings/player/player-meta/PlayerMetaLinks'
+import { PlayerMetaTopSettings } from 'scenes/session-recordings/player/player-meta/PlayerMetaTopSettings'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
-    sessionRecordingPlayerLogic,
     SessionRecordingPlayerMode,
+    sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Logo } from '~/toolbar/assets/Logo'
 
-import { playerMetaLogic } from './playerMetaLogic'
 import { PlayerPersonMeta } from './PlayerPersonMeta'
+import { playerMetaLogic } from './playerMetaLogic'
 
 export function parseUrl(lastUrl: unknown): { urlToUse: string | undefined; isValidUrl: boolean } {
     let urlToUse: string | undefined = typeof lastUrl === 'string' ? lastUrl : undefined
@@ -207,7 +209,7 @@ export function PlayerMeta(): JSX.Element {
                     {!isCinemaMode && <ResolutionView size={size} />}
                     <PlayerPersonMeta />
                 </div>
-                {!isCinemaMode && <PlayerMetaBottomSettings size={size} />}
+                {!isCinemaMode && <PlayerMetaTopSettings size={size} />}
             </div>
         </DraggableToNotebook>
     )

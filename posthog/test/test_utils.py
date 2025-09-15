@@ -1,21 +1,23 @@
+import json
 import base64
 from datetime import datetime
-import json
-from unittest.mock import patch, call
 from zoneinfo import ZoneInfo
 
 import pytest
+from freezegun import freeze_time
+from posthog.test.base import BaseTest
+from unittest.mock import call, patch
+
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpRequest
 from django.test import TestCase
 from django.test.client import RequestFactory
-from freezegun import freeze_time
+
 from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
-from posthog.models import EventDefinition
+from posthog.models import EventDefinition, GroupTypeMapping
 from posthog.settings.utils import get_from_env
-from posthog.test.base import BaseTest
 from posthog.utils import (
     PotentialSecurityProblemException,
     absolute_uri,
@@ -25,6 +27,7 @@ from posthog.utils import (
     get_available_timezones_with_offsets,
     get_compare_period_dates,
     get_default_event_name,
+    get_short_user_agent,
     load_data_from_request,
     refresh_requested_by_client,
     relative_date_parse,
@@ -497,6 +500,75 @@ class TestUtilities(TestCase):
         self.assertEqual(decoded_json["groups"], {})
 
 
+class TestGetShortUserAgent(TestCase):
+    def test_chrome_windows(self):
+        request = HttpRequest()
+        request.META = {
+            "HTTP_USER_AGENT": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
+        }
+
+        result = get_short_user_agent(request)
+        self.assertEqual(result, "Chrome 135.0.0 on Windows 10")
+
+    def test_firefox_macos(self):
+        request = HttpRequest()
+        request.META = {"HTTP_USER_AGENT": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15) Gecko/20100101 Firefox/131.0"}
+
+        result = get_short_user_agent(request)
+        self.assertEqual(result, "Firefox 131.0 on Mac OS X 10.15")
+
+    def test_safari_macos(self):
+        request = HttpRequest()
+        request.META = {
+            "HTTP_USER_AGENT": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15"
+        }
+
+        result = get_short_user_agent(request)
+        self.assertEqual(result, "Safari 17.2 on Mac OS X 10.15")
+
+    def test_mobile_chrome_android(self):
+        request = HttpRequest()
+        request.META = {
+            "HTTP_USER_AGENT": "Mozilla/5.0 (Linux; Android 14; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Mobile Safari/537.36"
+        }
+
+        result = get_short_user_agent(request)
+        self.assertEqual(result, "Chrome Mobile 134.0.0 on Android 14")
+
+    def test_edge_windows(self):
+        request = HttpRequest()
+        request.META = {
+            "HTTP_USER_AGENT": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.1847.76"
+        }
+
+        result = get_short_user_agent(request)
+        self.assertEqual(result, "Edge 134.0.1847 on Windows 10")
+
+    def test_missing_user_agent_header(self):
+        request = HttpRequest()
+        request.META = {}
+
+        result = get_short_user_agent(request)
+        self.assertEqual(result, "")
+
+    def test_empty_user_agent_header(self):
+        request = HttpRequest()
+        request.META = {"HTTP_USER_AGENT": ""}
+
+        result = get_short_user_agent(request)
+        self.assertEqual(result, "")
+
+    def test_version_truncation(self):
+        request = HttpRequest()
+        request.META = {
+            "HTTP_USER_AGENT": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.6789.1234 Safari/537.36"
+        }
+
+        result = get_short_user_agent(request)
+        self.assertIn("Chrome 135.0.6789", result)
+        self.assertNotIn("1234", result)
+
+
 class TestFlatten(TestCase):
     def test_flatten_lots_of_depth(self):
         assert list(flatten([1, [2, 3], [[4], [5, [6, 7]]]])) == [1, 2, 3, 4, 5, 6, 7]
@@ -509,3 +581,10 @@ class TestFlatten(TestCase):
             [4],
             [5, [6, 7]],
         ]
+
+
+def create_group_type_mapping_without_created_at(**kwargs) -> "GroupTypeMapping":
+    instance = GroupTypeMapping.objects.create(**kwargs)
+    GroupTypeMapping.objects.filter(id=instance.id).update(created_at=None)
+    instance.refresh_from_db()
+    return instance

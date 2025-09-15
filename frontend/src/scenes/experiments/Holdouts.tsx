@@ -1,3 +1,6 @@
+import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconPencil, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
@@ -10,13 +13,12 @@ import {
     LemonTable,
     LemonTableColumns,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
-import { useState } from 'react'
 
 import { ExperimentHoldoutType } from '~/types'
 
-import { holdoutsLogic, NEW_HOLDOUT } from './holdoutsLogic'
+import { NEW_HOLDOUT, holdoutsLogic } from './holdoutsLogic'
 
 export function Holdouts(): JSX.Element {
     const { holdouts, holdoutsLoading, holdout } = useValues(holdoutsLogic)

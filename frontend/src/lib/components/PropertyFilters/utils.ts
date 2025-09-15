@@ -25,6 +25,7 @@ import {
     EventPropertyFilter,
     FeaturePropertyFilter,
     FilterLogicalOperator,
+    FlagPropertyFilter,
     GroupPropertyFilter,
     HogQLPropertyFilter,
     LogEntryPropertyFilter,
@@ -40,7 +41,6 @@ import {
     RecordingPropertyFilter,
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
-    FlagPropertyFilter,
 } from '~/types'
 
 export function isPropertyGroup(
@@ -77,7 +77,7 @@ function flattenPropertyGroup(
 }
 
 export function convertPropertiesToPropertyGroup(
-    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined
+    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined | null
 ): PropertyGroupFilter {
     if (isPropertyGroup(properties)) {
         return properties
@@ -307,7 +307,8 @@ export function isPropertyFilterWithOperator(
             isGroupPropertyFilter(filter) ||
             isCohortPropertyFilter(filter) ||
             isDataWarehousePropertyFilter(filter) ||
-            isDataWarehousePersonPropertyFilter(filter))
+            isDataWarehousePersonPropertyFilter(filter) ||
+            isErrorTrackingIssuePropertyFilter(filter))
     )
 }
 

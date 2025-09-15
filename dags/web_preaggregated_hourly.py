@@ -1,25 +1,24 @@
-from datetime import datetime, UTC, timedelta
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 
 import dagster
 from dagster import Field
-from dags.common import JobOwners, dagster_tags
-from dags.web_preaggregated_utils import (
-    INTRA_DAY_HOURLY_CRON_SCHEDULE,
-    CLICKHOUSE_SETTINGS_HOURLY,
-    merge_clickhouse_settings,
-    WEB_ANALYTICS_CONFIG_SCHEMA,
-    web_analytics_retry_policy_def,
-)
+
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
-
-from posthog.models.web_preaggregated.sql import (
-    WEB_BOUNCES_INSERT_SQL,
-    WEB_STATS_INSERT_SQL,
-)
 from posthog.clickhouse.cluster import ClickhouseCluster
+from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
 
+from dags.common import JobOwners, dagster_tags
+from dags.web_preaggregated_utils import (
+    DAGSTER_WEB_JOB_TIMEOUT,
+    INTRA_DAY_HOURLY_CRON_SCHEDULE,
+    WEB_ANALYTICS_CONFIG_SCHEMA,
+    WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS,
+    check_for_concurrent_runs,
+    merge_clickhouse_settings,
+    web_analytics_retry_policy_def,
+)
 
 WEB_ANALYTICS_HOURLY_CONFIG_SCHEMA = {
     **WEB_ANALYTICS_CONFIG_SCHEMA,
@@ -47,7 +46,7 @@ def pre_aggregate_web_analytics_hourly_data(
 
     extra_settings = config.get("extra_clickhouse_settings", "")
     hours_back = config["hours_back"]
-    clickhouse_settings = merge_clickhouse_settings(CLICKHOUSE_SETTINGS_HOURLY, extra_settings)
+    clickhouse_settings = merge_clickhouse_settings(WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS, extra_settings)
 
     # Process the last N hours to handle any late-arriving data
     # Align with hour boundaries to match toStartOfHour() used in SQL, where we convert this to UTC,
@@ -138,7 +137,11 @@ web_pre_aggregate_current_day_hourly_job = dagster.define_asset_job(
         "web_analytics_bounces_hourly",
         "web_analytics_stats_table_hourly",
     ),
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={
+        "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
+        "dagster/max_runtime": str(DAGSTER_WEB_JOB_TIMEOUT),
+    },
+    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 1}),
 )
 
 
@@ -152,6 +155,11 @@ def web_pre_aggregate_current_day_hourly_schedule(context: dagster.ScheduleEvalu
     """
     Creates real-time web analytics pre-aggregated data with 24h TTL for real-time analytics.
     """
+
+    # Check for existing runs of the same job to prevent concurrent execution
+    skip_reason = check_for_concurrent_runs(context)
+    if skip_reason:
+        return skip_reason
 
     return dagster.RunRequest(
         run_config={

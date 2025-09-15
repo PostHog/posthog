@@ -1,11 +1,6 @@
 import pytest
 
-from posthog.clickhouse.client.connection import (
-    Workload,
-    get_pool,
-    make_ch_pool,
-    set_default_clickhouse_workload_type,
-)
+from posthog.clickhouse.client.connection import Workload, get_pool, make_ch_pool, set_default_clickhouse_workload_type
 
 
 def test_connection_pool_creation_without_offline_cluster(settings):

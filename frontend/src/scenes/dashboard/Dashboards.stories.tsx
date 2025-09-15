@@ -1,4 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
+
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { App } from 'scenes/App'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -10,7 +12,6 @@ import { useAvailableFeatures } from '~/mocks/features'
 import { BaseMathType, DashboardMode, EntityTypes } from '~/types'
 
 import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const dashboardRaw = require('./__mocks__/dashboard1.json')
 

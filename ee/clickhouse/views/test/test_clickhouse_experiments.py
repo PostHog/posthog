@@ -1,27 +1,23 @@
 from datetime import UTC, datetime, timedelta
 
-from dateutil import parser
-from django.core.cache import cache
 from freezegun import freeze_time
+from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
+
+from django.core.cache import cache
+
+from dateutil import parser
 from rest_framework import status
 
-from ee.api.test.base import APILicensedTest
-from ee.clickhouse.views.experiment_saved_metrics import (
-    ExperimentToSavedMetricSerializer,
-)
 from posthog.models import WebExperiment
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.experiment import Experiment, ExperimentSavedMetric
 from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
-from posthog.test.base import (
-    ClickhouseTestMixin,
-    FuzzyInt,
-    _create_event,
-    _create_person,
-    flush_persons_and_events,
-)
 from posthog.test.test_journeys import journeys_for
+
+from ee.api.test.base import APILicensedTest
+from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 
 class TestExperimentCRUD(APILicensedTest):
@@ -1715,7 +1711,8 @@ class TestExperimentCRUD(APILicensedTest):
                 [("flag_0", []), (ff_key, [created_experiment])],
             )
 
-    def test_create_experiment_updates_feature_flag_cache(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_create_experiment_updates_feature_flag_cache(self, mock_on_commit):
         cache.clear()
 
         initial_cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)

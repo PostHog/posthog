@@ -1,8 +1,11 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -77,8 +80,15 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
          */
         loadSharedMetricSuccess: () => {
             if (props.action === 'duplicate' && values.sharedMetric) {
+                // Generate a new UUID for the duplicated metric's query
+                const duplicatedQuery = {
+                    ...values.sharedMetric.query,
+                    uuid: crypto.randomUUID(),
+                }
+
                 actions.setSharedMetric({
                     ...values.sharedMetric,
+                    query: duplicatedQuery,
                     name: `${values.sharedMetric.name} (duplicate)`,
                     id: undefined,
                 })
@@ -90,7 +100,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
                 lemonToast.success('Shared metric created successfully')
                 actions.reportExperimentSharedMetricCreated(response as SharedMetric)
                 actions.loadSharedMetrics()
-                router.actions.push('/experiments/shared-metrics')
+                router.actions.push(`/experiments/shared-metrics/${response.id}`)
             }
         },
         updateSharedMetric: async () => {
@@ -101,7 +111,11 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             if (response.id) {
                 lemonToast.success('Shared metric updated successfully')
                 actions.loadSharedMetrics()
-                router.actions.push('/experiments/shared-metrics')
+                if (values.featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]) {
+                    router.actions.push('/experiments?tab=shared-metrics')
+                } else {
+                    router.actions.push('/experiments/shared-metrics')
+                }
             }
         },
         deleteSharedMetric: async () => {
@@ -109,7 +123,11 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
                 await api.delete(`api/projects/@current/experiment_saved_metrics/${values.sharedMetricId}`)
                 lemonToast.success('Shared metric deleted successfully')
                 actions.loadSharedMetrics()
-                router.actions.push('/experiments/shared-metrics')
+                if (values.featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]) {
+                    router.actions.push('/experiments?tab=shared-metrics')
+                } else {
+                    router.actions.push('/experiments/shared-metrics')
+                }
             } catch (error) {
                 lemonToast.error('Failed to delete shared metric')
                 console.error(error)
@@ -131,7 +149,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             () => [(_, props) => props.sharedMetricId ?? 'new'],
             (sharedMetricId): string | number => sharedMetricId,
         ],
-        action: [() => [(_, props) => props.action], (action: 'create' | 'update' | 'duplicate') => action],
+        action: [(_, p) => [p.action], (action) => action],
         newSharedMetric: [
             () => [],
             () => ({
@@ -148,7 +166,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             if (id && didPathChange) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 if (parsedId === 'new') {
-                    actions.setSharedMetric({ ...values.newSharedMetric })
+                    actions.setSharedMetric({ ...values.newSharedMetric, query: getDefaultFunnelMetric() })
                 }
 
                 if (parsedId !== 'new' && parsedId === values.sharedMetricId) {

@@ -1,5 +1,6 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import { KAFKA_GROUPS } from '../../../../config/kafka-topics'
 import { KafkaProducerWrapper } from '../../../../kafka/producer'

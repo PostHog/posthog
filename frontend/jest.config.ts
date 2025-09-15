@@ -1,5 +1,5 @@
-import type { Config } from 'jest'
 import fs from 'fs'
+import type { Config } from 'jest'
 
 process.env.TZ = process.env.TZ || 'UTC'
 

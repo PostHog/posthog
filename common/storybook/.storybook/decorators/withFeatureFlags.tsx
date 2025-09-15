@@ -1,5 +1,6 @@
-import { setFeatureFlags } from '~/mocks/browser'
 import type { Decorator } from '@storybook/react'
+
+import { setFeatureFlags } from '~/mocks/browser'
 
 declare module '@storybook/types' {
     interface Parameters {

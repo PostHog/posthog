@@ -2,33 +2,23 @@ from typing import Optional, cast
 
 from django.conf import settings
 
-from posthog.clickhouse.explain import execute_explain_get_index_use
+from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse, HogQLNotice, QueryIndexUsage
+
 from posthog.hogql import ast
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
-from posthog.hogql.parser import (
-    parse_expr,
-    parse_program,
-    parse_select,
-    parse_string_template,
-)
+from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.variables import replace_variables
-from posthog.hogql.visitor import clone_expr
+from posthog.hogql.visitor import TraversingVisitor, clone_expr
+
+from posthog.clickhouse.explain import execute_explain_get_index_use
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
-from posthog.schema import (
-    HogLanguage,
-    HogQLMetadata,
-    HogQLMetadataResponse,
-    HogQLNotice,
-    QueryIndexUsage,
-)
-from posthog.hogql.visitor import TraversingVisitor
 
 
 def get_hogql_metadata(
@@ -106,8 +96,11 @@ def get_hogql_metadata(
                 response.errors.append(HogQLNotice(message=error, start=e.end, end=e.start))
             else:
                 response.errors.append(HogQLNotice(message=error, start=e.start, end=e.end))
-        elif not settings.DEBUG:
-            # We don't want to accidentally expose too much data via errors
+        elif (
+            settings.DEBUG
+        ):  # We don't want to accidentally expose too much data via errors, so expose only when debug is enabled
+            response.errors.append(HogQLNotice(message=f"Unexpected {e.__class__.__name__}: {str(e)}"))
+        else:
             response.errors.append(HogQLNotice(message=f"Unexpected {e.__class__.__name__}"))
 
     # We add a magic "F'" start prefix to get Antlr into the right parsing mode, subtract it now

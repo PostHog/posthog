@@ -1,12 +1,8 @@
-import { IconFolderMove, IconFolderOpen, IconShortcut } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconFolderMove, IconFolderOpen, IconShortcut } from '@posthog/icons'
+
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
-import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
-import { moveToLogic } from '../FileSystem/MoveTo/moveToLogic'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -15,7 +11,14 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 
+import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
+
+import { moveToLogic } from '../FileSystem/MoveTo/moveToLogic'
 
 export function SceneFile({ dataAttrKey }: { dataAttrKey: string }): JSX.Element | null {
     const { assureVisibility } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
