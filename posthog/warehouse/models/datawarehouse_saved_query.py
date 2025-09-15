@@ -81,6 +81,15 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     # The name of the view at the time of soft deletion
     deleted_name = models.CharField(max_length=128, default=None, null=True, blank=True)
 
+    snapshot_enabled = models.BooleanField(default=False)
+
+    # Fields
+    # mode: "check" | "timestamp"
+    # timestamp_field: string
+    # frequency: "5min" | "30min" | "1hour" | "6hour" | "12hour" | "24hour" | "7day" | "30day" or "never"
+    # fields: list[str]
+    snapshot_config = models.JSONField(default=dict, null=True, blank=True)
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -162,6 +171,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         return f"team_{self.team.pk}_model_{self.id.hex}/modeling"
 
     @property
+    def snapshot_folder_path(self):
+        return f"team_{self.team.pk}_snapshot_{self.id.hex}/snapshots"
+
+    @property
     def normalized_name(self):
         return NamingConvention().normalize_identifier(self.name)
 
@@ -176,14 +189,25 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
 
     @property
+    def snapshot_url_pattern(self):
+        if settings.USE_LOCAL_SETUP:
+            parsed = urlparse(settings.BUCKET_URL)
+            bucket_name = parsed.netloc
+
+            return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_snapshot_{self.id.hex}/snapshots/{self.normalized_name}"
+        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_snapshot_{self.id.hex}/snapshots/{self.normalized_name}"
+
+    @property
     def is_materialized(self):
         return self.table is not None and (
             self.status == DataWarehouseSavedQuery.Status.COMPLETED or self.last_run_at is not None
         )
 
-    def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> Union[SavedQuery, S3Table]:
+    def hogql_definition(
+        self, modifiers: Optional[HogQLQueryModifiers] = None, url_override: str | None = None
+    ) -> Union[SavedQuery, S3Table]:
         if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
-            return self.table.hogql_definition(modifiers)
+            return self.table.hogql_definition(modifiers, url_override)
 
         columns = self.columns or {}
         fields: dict[str, FieldOrTable] = {}

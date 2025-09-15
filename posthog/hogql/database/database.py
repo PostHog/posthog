@@ -562,6 +562,10 @@ def create_hogql_database(
         for saved_query in saved_queries:
             with timings.measure(f"saved_query_{saved_query.name}"):
                 views[saved_query.name] = saved_query.hogql_definition(modifiers)
+                if saved_query.snapshot_enabled:
+                    views[f"{saved_query.name}_snapshot"] = saved_query.hogql_definition(
+                        modifiers, url_override=saved_query.snapshot_url_pattern
+                    )
 
     with timings.measure("revenue_analytics_views"):
         revenue_views = []
@@ -604,7 +608,7 @@ def create_hogql_database(
         for table in tables:
             # Skip adding data warehouse tables that are materialized from views
             # We can detect that because they have the exact same name as the view
-            if views.get(table.name, None) is not None:
+            if views.get(table.name, None) is not None or views.get(f"{table.name}_snapshot", None) is not None:
                 continue
 
             with timings.measure(f"table_{table.name}"):

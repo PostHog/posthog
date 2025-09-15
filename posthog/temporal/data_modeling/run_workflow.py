@@ -44,6 +44,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
+from posthog.temporal.data_snapshots.delta_snapshot import DeltaSnapshot
 from posthog.warehouse.data_load.create_table import create_table_from_saved_query
 from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery, DataWarehouseTable, get_s3_client
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
@@ -488,6 +489,15 @@ async def materialize_model(
             row_count = row_count + batch.num_rows
             job.rows_materialized = row_count
             await database_sync_to_async(job.save)()
+
+            # placeholder to test
+            if saved_query.snapshot_enabled:
+                delta_snapshot = DeltaSnapshot(saved_query)
+                delta_snapshot.snapshot(batch)
+                snapshot_table_uri = delta_snapshot.get_delta_table()
+                file_uris = snapshot_table_uri.file_uris()
+
+                prepare_s3_files_for_querying(saved_query.snapshot_folder_path, saved_query.normalized_name, file_uris)
 
             shutdown_monitor.raise_if_is_worker_shutdown()
 

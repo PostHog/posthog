@@ -85,6 +85,8 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "edited_history_id",
             "latest_history_id",
             "soft_update",
+            "snapshot_enabled",
+            "snapshot_config",
         ]
         read_only_fields = [
             "id",

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRevert, IconTarget, IconX } from '@posthog/icons'
-import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonDialog, LemonSwitch, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -284,6 +284,56 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 >
                                     {editingView ? 'Materialize' : 'Save and materialize'}
                                 </LemonButton>
+                            </div>
+                        )}
+                    </div>
+                </div>
+                <div>
+                    <div className="flex flex-row items-center gap-2">
+                        <h3 className="mb-0">Snapshots</h3>
+                        <LemonTag type="warning">BETA</LemonTag>
+                    </div>
+                    <div>
+                        <LemonSwitch
+                            checked={savedQuery?.snapshot_enabled || false}
+                            onChange={(checked) => {
+                                if (editingView) {
+                                    updateDataWarehouseSavedQuery({
+                                        id: editingView.id,
+                                        snapshot_enabled: checked,
+                                        types: [[]],
+                                        lifecycle: 'update',
+                                    })
+                                }
+                            }}
+                            label="Enabled"
+                        />
+                    </div>
+                    <div>
+                        {editingView && editingView.columns && (
+                            <div className="my-2">
+                                <LemonSelect
+                                    placeholder="Select columns..."
+                                    options={editingView.columns.map((field) => ({
+                                        value: field.name,
+                                        label: field.name,
+                                    }))}
+                                    onChange={(newValue) => {
+                                        if (editingView) {
+                                            updateDataWarehouseSavedQuery({
+                                                id: editingView.id,
+                                                snapshot_config: {
+                                                    mode: 'check',
+                                                    fields: [newValue],
+                                                    timestamp_field: null,
+                                                    frequency: 'never',
+                                                },
+                                                types: [[]],
+                                                lifecycle: 'update',
+                                            })
+                                        }
+                                    }}
+                                />
                             </div>
                         )}
                     </div>

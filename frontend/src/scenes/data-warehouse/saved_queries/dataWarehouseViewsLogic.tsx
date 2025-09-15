@@ -92,6 +92,8 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                         lifecycle?: string
                         shouldRematerialize?: boolean
                         edited_history_id?: string
+                        snapshot_enabled?: boolean
+                        snapshot_config?: Record<string, any>
                     }
                 ) => {
                     const newView = await api.dataWarehouseSavedQueries.update(view.id, view)
