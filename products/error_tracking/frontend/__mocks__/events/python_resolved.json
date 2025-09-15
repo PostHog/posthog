@@ -170,7 +170,7 @@
         "$exception_issue_id": "2845fb04-dbc7-4945-bb58-48d6f77d2015",
         "$exception_personURL": "http://localhost:8010/project/phc_ngf62dtzXeNsSZNWJ8eB5Je1l7FQoSybCZHEOggcXv7/person/b071a20d-361d-4378-af15-fddf17badd18",
         "$geoip_disable": true,
-        "$python_version": "3.11.13",
+        "$python_version": "3.12.11",
         "$os": "Mac OS X",
         "$lib_version": "3.21.0",
         "$exception_type": "Exception",
