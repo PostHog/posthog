@@ -118,7 +118,7 @@ class TestDashboardInsightSearchTaskExecutorNode(TestCase):
         self.assertIsInstance(result, PartialDashboardInsightSearchTaskExecutionState)
         self.assertEqual(len(result.messages), 2)
         self.assertIsInstance(result.messages[0], TaskExecutionMessage)
-        self.assertIsInstance(result.messages[1], AssistantToolCallMessage)
+        assert isinstance(result.messages[1], AssistantToolCallMessage)
         self.assertEqual(result.messages[1].tool_call_id, tool_call_id)
         self.assertIn("Completed 1 insight search tasks successfully", result.messages[1].content)
         self.assertEqual(result.task_results, task_results)
@@ -131,7 +131,8 @@ class TestDashboardInsightSearchTaskExecutorNode(TestCase):
 
         self.assertIsInstance(result, PartialDashboardInsightSearchTaskExecutionState)
         self.assertEqual(len(result.messages), 1)
-        self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
+        assert isinstance(result.messages[0], AssistantToolCallMessage)
+
         self.assertEqual(result.messages[0].tool_call_id, tool_call_id)
         self.assertEqual(result.messages[0].content, "No tasks to execute")
 
@@ -215,7 +216,7 @@ class TestDashboardInsightCreationTaskExecutorNode(TestCase):
         self.assertIsInstance(result, PartialDashboardInsightCreationTaskExecutionState)
         self.assertEqual(len(result.messages), 2)
         self.assertIsInstance(result.messages[0], TaskExecutionMessage)
-        self.assertIsInstance(result.messages[1], AssistantToolCallMessage)
+        assert isinstance(result.messages[1], AssistantToolCallMessage)
         self.assertEqual(result.messages[1].tool_call_id, tool_call_id)
         self.assertIn("Completed 2 insight creation tasks successfully", result.messages[1].content)
         self.assertEqual(result.task_results, task_results)
@@ -228,7 +229,7 @@ class TestDashboardInsightCreationTaskExecutorNode(TestCase):
 
         self.assertIsInstance(result, PartialDashboardInsightCreationTaskExecutionState)
         self.assertEqual(len(result.messages), 1)
-        self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
+        assert isinstance(result.messages[0], AssistantToolCallMessage)
         self.assertEqual(result.messages[0].tool_call_id, tool_call_id)
         self.assertEqual(result.messages[0].content, "No tasks to execute")
 
@@ -334,7 +335,7 @@ class TestDashboardCreatorNode(TestCase):
 
         self.assertIsInstance(result, PartialAssistantState)
         self.assertEqual(len(result.messages), 1)
-        self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
+        assert isinstance(result.messages[0], AssistantToolCallMessage)
         self.assertIn("Dashboard creation query is required", result.messages[0].content)
 
     @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")
@@ -354,7 +355,7 @@ class TestDashboardCreatorNode(TestCase):
 
         self.assertIsInstance(result, PartialAssistantState)
         self.assertEqual(len(result.messages), 1)
-        self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
+        assert isinstance(result.messages[0], AssistantToolCallMessage)
         self.assertIn("Search insights queries are required", result.messages[0].content)
 
     @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")
@@ -411,7 +412,7 @@ class TestDashboardCreatorNode(TestCase):
 
         self.assertIsInstance(result, PartialAssistantState)
         self.assertEqual(len(result.messages), 1)
-        self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
+        assert isinstance(result.messages[0], AssistantToolCallMessage)
         self.assertIn("Dashboard Created", result.messages[0].content)
         self.assertIn("Test Dashboard", result.messages[0].content)
 
@@ -449,7 +450,7 @@ class TestDashboardCreatorNode(TestCase):
 
         self.assertIsInstance(result, PartialAssistantState)
         self.assertEqual(len(result.messages), 1)
-        self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
+        assert isinstance(result.messages[0], AssistantToolCallMessage)
         self.assertIn("No existing insights matched", result.messages[0].content)
 
     @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")
@@ -472,7 +473,7 @@ class TestDashboardCreatorNode(TestCase):
 
         self.assertIsInstance(result, PartialAssistantState)
         self.assertEqual(len(result.messages), 1)
-        self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
+        assert isinstance(result.messages[0], AssistantToolCallMessage)
         self.assertIn("I encountered an issue while creating the dashboard", result.messages[0].content)
         mock_logger.exception.assert_called_once()
 
@@ -489,12 +490,15 @@ class TestDashboardCreatorNode(TestCase):
         mock_insights[1].name = "Insight 2"
 
         result = self.node._create_success_response(
-            mock_dashboard, mock_insights, "test_call", ["Query without insights"]
+            mock_dashboard,
+            mock_insights,
+            "test_call",
+            ["Query without insights"],  # type: ignore[arg-type]
         )
 
         self.assertIsInstance(result, PartialAssistantState)
         self.assertEqual(len(result.messages), 1)
-        self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
+        assert isinstance(result.messages[0], AssistantToolCallMessage)
         self.assertIn("Dashboard Created", result.messages[0].content)
         self.assertIn("Test Dashboard", result.messages[0].content)
         self.assertIn("2 insights", result.messages[0].content)
@@ -506,7 +510,7 @@ class TestDashboardCreatorNode(TestCase):
 
         self.assertIsInstance(result, PartialAssistantState)
         self.assertEqual(len(result.messages), 1)
-        self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
+        assert isinstance(result.messages[0], AssistantToolCallMessage)
         self.assertIn("No existing insights matched", result.messages[0].content)
         self.assertIn("No insights found", result.messages[0].content)
 
@@ -517,8 +521,9 @@ class TestDashboardCreatorNode(TestCase):
 
             self.assertIsInstance(result, PartialAssistantState)
             self.assertEqual(len(result.messages), 1)
-            self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
+            assert isinstance(result.messages[0], AssistantToolCallMessage)
             self.assertEqual(result.messages[0].content, "Test error")
+            assert isinstance(result.messages[0], AssistantToolCallMessage)
             self.assertEqual(result.messages[0].tool_call_id, "test_call")
             mock_capture.assert_called_once()
 
@@ -613,8 +618,13 @@ class TestDashboardCreatorNodeAsyncMethods(TestCase):
         mock_task_result = InsightSearchTaskExecutionResult(
             id="task_1",
             description="Test task",
-            artifacts=[InsightSearchArtifact(id="art_1", insight_ids={1, 2}, selection_reason="Test reason")],
+            artifacts=[
+                InsightSearchArtifact(
+                    id="art_1", insight_ids={1, 2}, selection_reason="Test reason", description="Test task"
+                )
+            ],
             status=TaskExecutionStatus.COMPLETED,
+            result="Task completed successfully",
         )
         mock_executor_node.arun.return_value = PartialDashboardInsightSearchTaskExecutionState(
             task_results=[mock_task_result]
