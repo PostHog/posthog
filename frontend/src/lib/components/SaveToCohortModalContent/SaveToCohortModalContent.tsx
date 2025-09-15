@@ -9,7 +9,11 @@ import { CohortType } from '~/types'
 
 import { saveToCohortModalContentLogic } from './saveToCohortModalContentLogic'
 
-export function SaveToCohortModalContent(): JSX.Element {
+interface SaveToCohortModalContentProps {
+    closeModal: () => void
+}
+
+export function SaveToCohortModalContent({ closeModal }: SaveToCohortModalContentProps): JSX.Element {
     const { cohorts, cohortsLoading, pagination, cohortFilters } = useValues(saveToCohortModalContentLogic)
     const { setCohortFilters } = useActions(saveToCohortModalContentLogic)
 
@@ -34,7 +38,13 @@ export function SaveToCohortModalContent(): JSX.Element {
             title: null,
             render: function RenderActions(_, cohort) {
                 return (
-                    <LemonButton size="xsmall" type="primary" onClick={() => {}}>
+                    <LemonButton
+                        size="xsmall"
+                        type="primary"
+                        onClick={() => {
+                            closeModal()
+                        }}
+                    >
                         Select
                     </LemonButton>
                 )
@@ -62,6 +72,7 @@ export function SaveToCohortModalContent(): JSX.Element {
                 dataSource={cohorts.results}
                 nouns={['cohort', 'cohorts']}
                 data-attr="static-cohorts-table"
+                useURLForSorting={false}
             />
         </div>
     )
