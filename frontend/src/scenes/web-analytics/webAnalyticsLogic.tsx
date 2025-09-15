@@ -482,46 +482,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.productTab, s.featureFlags],
-            (productTab: ProductTab, featureFlags): Breadcrumb[] => {
-                const breadcrumbs: Breadcrumb[] = [
+            () => [],
+            (): Breadcrumb[] => {
+                return [
                     {
                         key: Scene.WebAnalytics,
                         name: `Web analytics`,
                         path: urls.webAnalytics(),
                     },
                 ]
-
-                if (featureFlags[FEATURE_FLAGS.SCENE_TABS]) {
-                    // These pages are tabs on a scene, so no need for a back button
-                    return breadcrumbs
-                }
-
-                if (productTab === ProductTab.WEB_VITALS) {
-                    breadcrumbs.push({
-                        key: Scene.WebAnalyticsWebVitals,
-                        name: `Web vitals`,
-                        path: urls.webAnalyticsWebVitals(),
-                    })
-                }
-
-                if (productTab === ProductTab.PAGE_REPORTS) {
-                    breadcrumbs.push({
-                        key: Scene.WebAnalyticsPageReports,
-                        name: `Page reports`,
-                        path: urls.webAnalyticsPageReports(),
-                    })
-                }
-
-                if (productTab === ProductTab.MARKETING) {
-                    breadcrumbs.push({
-                        key: Scene.WebAnalyticsMarketing,
-                        name: `Marketing`,
-                        path: urls.webAnalyticsMarketing(),
-                    })
-                }
-
-                return breadcrumbs
             },
         ],
         graphsTab: [(s) => [s._graphsTab], (graphsTab: string | null) => graphsTab || GraphsTab.UNIQUE_USERS],

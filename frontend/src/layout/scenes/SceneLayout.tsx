@@ -95,7 +95,7 @@ export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren
 export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.Element {
     const { registerScenePanelElement, setScenePanelOpen, setForceScenePanelClosedWhenRelative, setSceneLayoutConfig } =
         useActions(sceneLayoutLogic)
-    const { useSceneTabs, forceScenePanelClosedWhenRelative } = useValues(sceneLayoutLogic)
+    const { forceScenePanelClosedWhenRelative } = useValues(sceneLayoutLogic)
 
     const { scenePanelIsPresent, scenePanelOpen, scenePanelIsRelative } = useValues(sceneLayoutLogic)
 
@@ -116,7 +116,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
                     }
                 )}
             >
-                {useSceneTabs ? <SceneTabs /> : null}
+                <SceneTabs />
             </div>
 
             <div

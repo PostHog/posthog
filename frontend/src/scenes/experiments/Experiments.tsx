@@ -11,7 +11,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -19,7 +18,6 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { Link } from 'lib/lemon-ui/Link'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { useMaxTool } from 'scenes/max/useMaxTool'
@@ -391,7 +389,6 @@ const ExperimentsTable = ({
 export function Experiments(): JSX.Element {
     const { tab } = useValues(experimentsLogic)
     const { setExperimentsTab } = useActions(experimentsLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const [duplicateModalExperiment, setDuplicateModalExperiment] = useState<Experiment | null>(null)
 
@@ -402,20 +399,6 @@ export function Experiments(): JSX.Element {
                     <LemonButton type="primary" data-attr="create-experiment" to={urls.experiment('new')}>
                         New experiment
                     </LemonButton>
-                }
-                caption={
-                    !newSceneLayout && (
-                        <>
-                            <Link
-                                data-attr="experiment-help"
-                                to="https://posthog.com/docs/experiments/installation?utm_medium=in-product&utm_campaign=new-experiment"
-                                target="_blank"
-                            >
-                                &nbsp; Visit the guide
-                            </Link>
-                            &nbsp; to learn more.
-                        </>
-                    )
                 }
                 tabbedPage={true}
             />
@@ -430,7 +413,7 @@ export function Experiments(): JSX.Element {
             <LemonTabs
                 activeKey={tab}
                 onChange={(newKey) => setExperimentsTab(newKey)}
-                sceneInset={newSceneLayout}
+                sceneInset
                 tabs={[
                     {
                         key: ExperimentsTabs.All,

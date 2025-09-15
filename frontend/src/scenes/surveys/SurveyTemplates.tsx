@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { PageHeader } from 'lib/components/PageHeader'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
@@ -106,8 +105,6 @@ export function SurveyTemplates(): JSX.Element {
     const surveyAppearance = {
         ...currentTeam?.survey_config?.appearance,
     }
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-
     return (
         <>
             <PageHeader
@@ -120,17 +117,15 @@ export function SurveyTemplates(): JSX.Element {
                     </>
                 }
             />
-            {newSceneLayout && (
-                <div className="mb-2 -ml-[var(--button-padding-x-lg)]">
-                    <SceneBreadcrumbBackButton
-                        forceBackTo={{
-                            key: Scene.Surveys,
-                            name: 'Surveys',
-                            path: urls.surveys(),
-                        }}
-                    />
-                </div>
-            )}
+            <div className="mb-2 -ml-[var(--button-padding-x-lg)]">
+                <SceneBreadcrumbBackButton
+                    forceBackTo={{
+                        key: Scene.Surveys,
+                        name: 'Surveys',
+                        path: urls.surveys(),
+                    }}
+                />
+            </div>
             <div className="space-y-4">
                 <p className="text-center text-base">
                     Choose a template based on your goal, or{' '}

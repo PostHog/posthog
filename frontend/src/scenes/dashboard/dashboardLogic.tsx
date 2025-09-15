@@ -1181,9 +1181,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.dashboard, s.error404, s.dashboardFailedToLoad, s.canEditDashboard, s.featureFlags],
-            (dashboard, error404, dashboardFailedToLoad, canEditDashboard, featureFlags): Breadcrumb[] => {
-                const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+            (s) => [s.dashboard, s.error404, s.dashboardFailedToLoad],
+            (dashboard, error404, dashboardFailedToLoad): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.Dashboards,
@@ -1199,18 +1198,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                               : error404
                                 ? 'Not found'
                                 : '...',
-                        onRename:
-                            canEditDashboard && !newSceneLayout
-                                ? async (name) => {
-                                      if (dashboard) {
-                                          await dashboardsModel.asyncActions.updateDashboard({
-                                              id: dashboard.id,
-                                              name,
-                                              allowUndo: true,
-                                          })
-                                      }
-                                  }
-                                : undefined,
                     },
                 ]
             },

@@ -14,7 +14,6 @@ import {
 import { linkToLogic } from 'lib/components/FileSystem/LinkTo/linkToLogic'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, LemonTreeSize, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -137,9 +136,7 @@ export function ProjectTree({
     const treeRef = useRef<LemonTreeRef>(null)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
-    const { featureFlags } = useValues(featureFlagLogic)
 
-    const canOpenInPostHogTab = !!featureFlags[FEATURE_FLAGS.SCENE_TABS]
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
 
@@ -290,7 +287,6 @@ export function ProjectTree({
                         <BrowserLikeMenuItems
                             href={item.record?.href}
                             MenuItem={MenuItem}
-                            canOpenInPostHogTab={canOpenInPostHogTab}
                             resetPanelLayout={resetPanelLayout}
                         />
                         <MenuSeparator />

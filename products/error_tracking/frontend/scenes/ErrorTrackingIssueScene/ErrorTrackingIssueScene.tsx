@@ -17,8 +17,6 @@ import {
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
-
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { ErrorFilters } from '../../components/IssueFilters'
@@ -39,7 +37,6 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
     const tagRenderer = useErrorTagRenderer()
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     return (
         <ErrorTrackingSetupPrompt>
             {hasIssueSplitting && (
@@ -68,11 +65,6 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                         </DropdownMenu>
                     }
                 />
-            )}
-            {newSceneLayout && (
-                <div className="mb-2 -ml-[var(--button-padding-x-lg)]">
-                    <SceneBreadcrumbBackButton />
-                </div>
             )}
 
             <div className="ErrorTrackingIssue grid grid-cols-4 gap-4">

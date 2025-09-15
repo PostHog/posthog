@@ -5,7 +5,6 @@ import { useDebouncedCallback } from 'use-debounce'
 import { IconPencil } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
@@ -85,11 +84,7 @@ export function SceneTitleSection({
     actions = true,
     forceBackTo,
 }: SceneMainTitleProps): JSX.Element | null {
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     const { breadcrumbs } = useValues(breadcrumbsLogic)
-    if (!newSceneLayout) {
-        return null
-    }
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
 
     const icon = resourceType.forceIcon ? (
