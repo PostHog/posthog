@@ -155,7 +155,8 @@ def load_patterns_from_llm_content(raw_content: str, sessions_identifier: str) -
             f"No LLM content found when extracting patterns for sessions {sessions_identifier}"
         )
     try:
-        json_content = load_yaml_from_raw_llm_content(raw_content)
+        # Patterns aren't streamed, so the initial state is the final one
+        json_content = load_yaml_from_raw_llm_content(raw_content=raw_content, final_validation=True)
         if not isinstance(json_content, dict):
             raise Exception(f"LLM output is not a dictionary: {raw_content}")
     except Exception as err:
@@ -181,7 +182,8 @@ def load_pattern_assignments_from_llm_content(
             f"No LLM content found when extracting pattern assignments for sessions {sessions_identifier}"
         )
     try:
-        json_content = load_yaml_from_raw_llm_content(raw_content)
+        # Patterns aren't streamed, so the initial state is the final one
+        json_content = load_yaml_from_raw_llm_content(raw_content=raw_content, final_validation=True)
         if not isinstance(json_content, dict):
             raise Exception(f"LLM output is not a dictionary: {raw_content}")
     except Exception as err:

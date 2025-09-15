@@ -201,7 +201,7 @@ def load_raw_session_summary_from_llm_content(
     if not raw_content:
         raise SummaryValidationError(f"No LLM content found when summarizing session_id {session_id}")
     try:
-        json_content = load_yaml_from_raw_llm_content(raw_content)
+        json_content = load_yaml_from_raw_llm_content(raw_content=raw_content, final_validation=final_validation)
         if not isinstance(json_content, dict):
             raise Exception(f"LLM output is not a dictionary: {raw_content}")
     except Exception as err:
