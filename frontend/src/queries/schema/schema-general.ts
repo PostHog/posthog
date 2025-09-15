@@ -152,6 +152,7 @@ export enum NodeKind {
     EventTaxonomyQuery = 'EventTaxonomyQuery',
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
+    TraceQuery = 'TraceQuery',
     VectorSearchQuery = 'VectorSearchQuery',
 }
 
@@ -195,6 +196,7 @@ export type AnyDataNode =
     | CalendarHeatmapQuery
     | RecordingsQuery
     | TracesQuery
+    | TraceQuery
     | VectorSearchQuery
 
 /**
@@ -272,6 +274,7 @@ export type QuerySchema =
     | EventTaxonomyQuery
     | ActorsPropertyTaxonomyQuery
     | TracesQuery
+    | TraceQuery
     | VectorSearchQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
@@ -3295,12 +3298,20 @@ export interface TracesQueryResponse extends AnalyticsQueryResponseBase {
 
 export interface TracesQuery extends DataNode<TracesQueryResponse> {
     kind: NodeKind.TracesQuery
-    traceId?: string
     dateRange?: DateRange
     limit?: integer
     offset?: integer
     filterTestAccounts?: boolean
     showColumnConfigurator?: boolean
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
+}
+
+export interface TraceQuery extends DataNode<TracesQueryResponse> {
+    kind: NodeKind.TraceQuery
+    traceId: string
+    dateRange?: DateRange
+    filterTestAccounts?: boolean
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
 }

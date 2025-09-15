@@ -13,7 +13,7 @@ from posthog.schema import (
     LLMTraceEvent,
     LLMTracePerson,
     NodeKind,
-    TracesQuery,
+    TraceQuery,
     TracesQueryResponse,
 )
 
@@ -29,7 +29,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 logger = structlog.get_logger(__name__)
 
 
-class TracesQueryDateRange(QueryDateRange):
+class TraceQueryDateRange(QueryDateRange):
     """
     Extends the QueryDateRange to include a capture range of 10 minutes before and after the date range.
     It's a naive assumption that a trace finishes generating within 10 minutes of the first event so we can apply the date filters.
@@ -50,8 +50,8 @@ class TracesQueryDateRange(QueryDateRange):
         return super().date_to() + timedelta(minutes=self.CAPTURE_RANGE_MINUTES)
 
 
-class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
-    query: TracesQuery
+class TraceQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
+    query: TraceQuery
     cached_response: CachedTracesQueryResponse
     paginator: HogQLHasMorePaginator
 
@@ -59,16 +59,14 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         super().__init__(*args, **kwargs)
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY,
-            limit=self.query.limit if self.query.limit else None,
-            offset=self.query.offset,
+            limit=1,  # Always return single trace for detail view
+            offset=0,
         )
 
     def _calculate(self):
-        with self.timings.measure("traces_query_hogql_execute"):
-            # Calculate max number of events needed with current offset and limit
-            limit_value = self.query.limit if self.query.limit else 100
-            offset_value = self.query.offset if self.query.offset else 0
-            pagination_limit = limit_value + offset_value + 1
+        with self.timings.measure("trace_query_hogql_execute"):
+            # For single trace detail, we only need 1 trace
+            pagination_limit = 1
 
             query_result = self.paginator.execute_hogql_query(
                 query=self.to_query(),
@@ -78,7 +76,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                     "pagination_limit": ast.Constant(value=pagination_limit),
                 },
                 team=self.team,
-                query_type=NodeKind.TRACES_QUERY,
+                query_type=NodeKind.TRACE_QUERY,
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
@@ -146,10 +144,11 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                     ), 4
                 ) AS total_cost,
                 arrayDistinct(
-                    arraySort(x -> x.3,
+                    arraySort(
+                        x -> x.3,
                         groupArrayIf(
                             tuple(uuid, event, timestamp, properties),
-                            event IN ('$ai_metric', '$ai_feedback') OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
+                            event != '$ai_trace'
                         )
                     )
                 ) AS events,
@@ -192,7 +191,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
     @cached_property
     def _date_range(self):
         # Minute-level precision for 10m capture range
-        return TracesQueryDateRange(self.query.dateRange, self.team, IntervalType.MINUTE, datetime.now())
+        return TraceQueryDateRange(self.query.dateRange, self.team, IntervalType.MINUTE, datetime.now())
 
     def _map_results(self, columns: list[str], query_results: list):
         mapped_results = [dict(zip(columns, value)) for value in query_results]
@@ -308,6 +307,15 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             with self.timings.measure("test_account_filters"):
                 for prop in self.team.test_account_filters or []:
                     where_exprs.append(property_to_expr(prop, self.team))
+
+        # traceId is always required for detail view
+        where_exprs.append(
+            ast.CompareOperation(
+                left=ast.Field(chain=["properties", "$ai_trace_id"]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value=self.query.traceId),
+            ),
+        )
 
         return ast.And(exprs=where_exprs)
 

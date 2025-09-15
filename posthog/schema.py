@@ -1930,6 +1930,7 @@ class NodeKind(StrEnum):
     EVENT_TAXONOMY_QUERY = "EventTaxonomyQuery"
     ACTORS_PROPERTY_TAXONOMY_QUERY = "ActorsPropertyTaxonomyQuery"
     TRACES_QUERY = "TracesQuery"
+    TRACE_QUERY = "TraceQuery"
     VECTOR_SEARCH_QUERY = "VectorSearchQuery"
 
 
@@ -10697,6 +10698,46 @@ class TeamTaxonomyQueryResponse(BaseModel):
     )
 
 
+class TraceQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    filterTestAccounts: Optional[bool] = None
+    kind: Literal["TraceQuery"] = "TraceQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = Field(default=None, description="Properties configurable in the interface")
+    response: Optional[TracesQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    traceId: str = Field(..., description="ID of the trace to retrieve details for")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class TracesQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10736,7 +10777,6 @@ class TracesQuery(BaseModel):
     response: Optional[TracesQueryResponse] = None
     showColumnConfigurator: Optional[bool] = None
     tags: Optional[QueryLogTags] = None
-    traceId: Optional[str] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -14080,6 +14120,7 @@ class HogQLAutocomplete(BaseModel):
             CalendarHeatmapQuery,
             RecordingsQuery,
             TracesQuery,
+            TraceQuery,
             VectorSearchQuery,
         ]
     ] = Field(default=None, description="Query in whose context to validate.")
@@ -14145,6 +14186,7 @@ class HogQLMetadata(BaseModel):
             CalendarHeatmapQuery,
             RecordingsQuery,
             TracesQuery,
+            TraceQuery,
             VectorSearchQuery,
         ]
     ] = Field(
@@ -14245,6 +14287,7 @@ class MaxInsightContext(BaseModel):
         EventTaxonomyQuery,
         ActorsPropertyTaxonomyQuery,
         TracesQuery,
+        TraceQuery,
         VectorSearchQuery,
     ] = Field(..., discriminator="kind")
     type: Literal["insight"] = "insight"
@@ -14333,6 +14376,7 @@ class QueryRequest(BaseModel):
         EventTaxonomyQuery,
         ActorsPropertyTaxonomyQuery,
         TracesQuery,
+        TraceQuery,
         VectorSearchQuery,
     ] = Field(
         ...,
@@ -14420,6 +14464,7 @@ class QuerySchemaRoot(
             EventTaxonomyQuery,
             ActorsPropertyTaxonomyQuery,
             TracesQuery,
+            TraceQuery,
             VectorSearchQuery,
         ]
     ]
@@ -14481,6 +14526,7 @@ class QuerySchemaRoot(
         EventTaxonomyQuery,
         ActorsPropertyTaxonomyQuery,
         TracesQuery,
+        TraceQuery,
         VectorSearchQuery,
     ] = Field(..., discriminator="kind")
 
@@ -14546,6 +14592,7 @@ class QueryUpgradeRequest(BaseModel):
         EventTaxonomyQuery,
         ActorsPropertyTaxonomyQuery,
         TracesQuery,
+        TraceQuery,
         VectorSearchQuery,
     ] = Field(..., discriminator="kind")
 
@@ -14611,6 +14658,7 @@ class QueryUpgradeResponse(BaseModel):
         EventTaxonomyQuery,
         ActorsPropertyTaxonomyQuery,
         TracesQuery,
+        TraceQuery,
         VectorSearchQuery,
     ] = Field(..., discriminator="kind")
 
