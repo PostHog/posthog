@@ -5391,6 +5391,8 @@ export type HogFunctionTemplateType = Pick<
     description?: string | JSX.Element
     code: string
     code_language: 'javascript' | 'hog'
+    /** Whether the template should be conditionally rendered based on a feature flag */
+    flag?: string
 }
 
 export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {
