@@ -36,6 +36,7 @@ import { DuplicateExperimentModal } from './DuplicateExperimentModal'
 import { StatusTag, createMaxToolExperimentSurveyConfig } from './ExperimentView/components'
 import { ExperimentsSettings } from './ExperimentsSettings'
 import { Holdouts } from './Holdouts'
+import { SharedMetrics } from './SharedMetrics/SharedMetrics'
 import { EXPERIMENTS_PER_PAGE, ExperimentsFilters, experimentsLogic, getExperimentStatus } from './experimentsLogic'
 import { isLegacyExperiment } from './utils'
 
@@ -445,7 +446,7 @@ export function Experiments(): JSX.Element {
                     {
                         key: ExperimentsTabs.SharedMetrics,
                         label: 'Shared metrics',
-                        link: urls.experimentsSharedMetrics(),
+                        content: <SharedMetrics />,
                     },
                     {
                         key: ExperimentsTabs.History,

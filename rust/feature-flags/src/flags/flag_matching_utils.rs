@@ -274,10 +274,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
 
     // Always add distinct_id to person properties to match Python implementation
     // This allows flags to filter on distinct_id even when no other person properties exist
-    all_person_properties.insert(
-        "distinct_id".to_string(),
-        Value::String(distinct_id.clone()),
-    );
+    all_person_properties.insert("distinct_id".to_string(), Value::String(distinct_id));
 
     flag_evaluation_state.set_person_properties(all_person_properties);
     person_processing_timer.fin();
@@ -296,7 +293,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         "#;
 
         let group_type_indexes_vec: Vec<GroupTypeIndex> =
-            group_type_indexes.iter().cloned().collect();
+            group_type_indexes.iter().copied().collect();
         let group_keys_vec: Vec<String> = group_keys.iter().cloned().collect();
 
         let group_query_start = Instant::now();
