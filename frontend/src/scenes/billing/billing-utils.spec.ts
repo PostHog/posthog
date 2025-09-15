@@ -293,20 +293,22 @@ describe('getProration', () => {
 describe('formatWithDecimals', () => {
     it('should format very small numbers without scientific notation', () => {
         // Test various small decimal places
-        expect(formatWithDecimals(0.000000625)).toEqual('0.000000625') // The exact bug case
         expect(formatWithDecimals(0.0000001)).toEqual('0.0000001') // 7 decimal places
         expect(formatWithDecimals(0.00000001)).toEqual('0.00000001') // 8 decimal places
         expect(formatWithDecimals(0.000000001)).toEqual('0.000000001') // 9 decimal places
+        expect(formatWithDecimals(0.0000000001)).toEqual('0.0000000001') // 10 decimal places
+        expect(formatWithDecimals(0.00000000001)).toEqual('0') // 11 decimal places - falls back to 10 decimals if not specified, which would be 0.0000000000 so we return 0
 
-        // Edge case at the threshold (1e-6)
+        // Edge case at the scientific notation threshold (1e-6)
         expect(formatWithDecimals(0.000001)).toEqual('0.000001') // Exactly 1e-6
         expect(formatWithDecimals(0.0000009)).toEqual('0.0000009') // Just below 1e-6
     })
 
     it('should remove trailing zeros', () => {
-        expect(formatWithDecimals(0.0000001)).toEqual('0.0000001') // No trailing zeros
-        expect(formatWithDecimals(0.0000001)).toEqual('0.0000001') // One trailing zero
-        expect(formatWithDecimals(0.0000001)).toEqual('0.0000001') // Two trailing zeros
+        // These numbers naturally produce trailing zeros when using toFixed(10), which is the default
+        expect(formatWithDecimals(1 / 8000000)).toEqual('0.000000125') // 0.000000125 -> toFixed(10) = 0.0000001250
+        expect(formatWithDecimals(5 / 4000000)).toEqual('0.00000125') // 0.00000125 -> toFixed(10) = 0.0000012500
+        expect(formatWithDecimals(1 / 2000000)).toEqual('0.0000005') // 0.0000005 -> toFixed(10) = 0.0000005000
     })
 
     it('should handle normal numbers', () => {
