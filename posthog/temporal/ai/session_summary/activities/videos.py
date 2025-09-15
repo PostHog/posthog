@@ -1,6 +1,6 @@
 import asyncio
 from math import ceil
-from typing import cast
+from typing import cast, Optional
 
 import temporalio
 from langgraph.types import RetryPolicy
@@ -14,14 +14,15 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
+from posthog.storage import object_storage
 
 from ee.hogai.session_summaries.constants import SECONDS_BEFORE_EVENT_FOR_VALIDATION_VIDEO, VALIDATION_VIDEO_DURATION
 from ee.hogai.session_summaries.session.output_data import EnrichedKeyActionSerializer, SessionSummarySerializer
 from ee.models.session_summaries import SingleSessionSummary
 
 
-async def _generate_video_for_event(event: EnrichedKeyActionSerializer, inputs: SingleSessionSummaryInputs) -> None:
-    """Generate a video for an event"""
+async def _generate_video_for_event(event: EnrichedKeyActionSerializer, inputs: SingleSessionSummaryInputs) -> int:
+    """Generate a video for an event and return the asset ID"""
     # Create ExportedAsset record for this moment
     ms_from_start = event.data.get("milliseconds_since_start")
     if ms_from_start is None:
@@ -48,10 +49,9 @@ async def _generate_video_for_event(event: EnrichedKeyActionSerializer, inputs: 
         },
         created_by=inputs.user_id,
     )
-    # Get the Temporal client from the activity context
+    # Generate a video
     client = await async_connect()
-    # Start the video export workflow
-    await client.start_workflow(
+    await client.execute_workflow(
         VideoExportWorkflow.run,
         VideoExportInputs(exported_asset_id=exported_asset.id),
         id=f"export-video-summary_{inputs.session_id}_{event.data['event_uuid']}",
@@ -59,19 +59,71 @@ async def _generate_video_for_event(event: EnrichedKeyActionSerializer, inputs: 
         retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
     )
-    # TODO: Load v
+    # Return the asset ID for later retrieval
+    return exported_asset.id
 
 
 async def _generate_videos_for_events(
     events: list[EnrichedKeyActionSerializer], inputs: SingleSessionSummaryInputs
-) -> None:
-    """Generate videos for events"""
+) -> dict[str, int]:
+    """Generate videos for events and return mapping of event_uuid to asset_id"""
     tasks = {}
     async with asyncio.TaskGroup() as tg:
         for event in events:
             tasks[event.data["event_uuid"]] = tg.create_task(_generate_video_for_event(event, inputs))
-    for task in tasks.items():
-        await task
+    # Collect results - asset IDs
+    asset_ids = {}
+    for event_uuid, task in tasks.items():
+        asset_ids[event_uuid] = await task
+    return asset_ids
+
+
+async def get_video_bytes(asset_id: int) -> Optional[bytes]:
+    """Retrieve video content as bytes for an ExportedAsset ID"""
+    try:
+        # Fetch the asset from the database
+        asset = await database_sync_to_async(ExportedAsset.objects.get)(id=asset_id)
+
+        # Get content from either database or object storage
+        if asset.content:
+            # Content stored directly in database
+            return bytes(asset.content)
+        elif asset.content_location:
+            # Content stored in object storage
+            return await database_sync_to_async(object_storage.read_bytes)(asset.content_location)
+        else:
+            return None
+    except ExportedAsset.DoesNotExist:
+        return None
+
+
+async def send_videos_to_llm(asset_ids: dict[str, int], inputs: SingleSessionSummaryInputs) -> dict[str, str]:
+    """Send videos to LLM for validation and get analysis results"""
+    # Example implementation - adjust based on your LLM client
+    results = {}
+
+    for event_uuid, asset_id in asset_ids.items():
+        video_bytes = await get_video_bytes(asset_id)
+        if video_bytes and len(video_bytes) < 20 * 1024 * 1024:  # 20MB limit
+            # Send to your LLM here
+            # Example with Gemini (adjust for your LLM client):
+            # response = client.models.generate_content(
+            #     model='models/gemini-2.5-flash',
+            #     contents=types.Content(
+            #         parts=[
+            #             types.Part(
+            #                 inline_data=types.Blob(data=video_bytes, mime_type='video/mp4')
+            #             ),
+            #             types.Part(text='Analyze this video and confirm if an error/exception is visible.')
+            #         ]
+            #     )
+            # )
+            # results[event_uuid] = response.text
+
+            # For now, just store that we have the video
+            results[event_uuid] = f"Video ready: {len(video_bytes)} bytes"
+
+    return results
 
 
 @temporalio.activity.defn
@@ -99,5 +151,10 @@ async def validate_llm_single_session_summary_with_videos_activity(
                 continue
             # Keep only blocking exceptions
             events_to_validate.append(cast(EnrichedKeyActionSerializer, event))
-    # Generate videos for events
-    await _generate_videos_for_events(events_to_validate, inputs)
+    # Generate videos for events and get asset IDs
+    asset_ids = await _generate_videos_for_events(events_to_validate, inputs)
+    # Send videos to LLM for validation
+    validation_results = await send_videos_to_llm(asset_ids, inputs)
+    # TODO: Process validation results and update summary if needed
+    for event_uuid, result in validation_results.items():
+        print(f"Event {event_uuid}: {result}")
