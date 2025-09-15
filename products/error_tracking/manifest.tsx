@@ -10,37 +10,31 @@ export const manifest: ProductManifest = {
     name: 'Error tracking',
     scenes: {
         ErrorTracking: {
-            import: () => import('./frontend/ErrorTrackingScene'),
+            import: () => import('./frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
             projectBased: true,
             name: 'Error tracking',
             defaultDocsPath: '/docs/error-tracking',
         },
         ErrorTrackingIssue: {
-            import: () => import('./frontend/ErrorTrackingIssueScene'),
+            import: () => import('./frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
             projectBased: true,
             name: 'Error tracking issue',
         },
         ErrorTrackingIssueFingerprints: {
-            import: () => import('./frontend/ErrorTrackingIssueFingerprintsScene'),
+            import: () =>
+                import('./frontend/scenes/ErrorTrackingFingerprintsScene/ErrorTrackingIssueFingerprintsScene'),
             projectBased: true,
             name: 'Error tracking issue fingerprints',
         },
         ErrorTrackingConfiguration: {
-            import: () => import('./frontend/configuration/ErrorTrackingConfigurationScene'),
+            import: () => import('./frontend/scenes/ErrorTrackingConfigurationScene/ErrorTrackingConfigurationScene'),
             projectBased: true,
             name: 'Error tracking configuration',
-        },
-        ErrorTrackingImpact: {
-            import: () => import('./frontend/impact/ErrorTrackingImpactScene'),
-            projectBased: true,
-            name: 'Error tracking impact',
-            layout: 'app-raw',
         },
     },
     routes: {
         '/error_tracking': ['ErrorTracking', 'errorTracking'],
         '/error_tracking/configuration': ['ErrorTrackingConfiguration', 'errorTrackingConfiguration'],
-        '/error_tracking/impact': ['ErrorTrackingImpact', 'errorTrackingImpact'],
         '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
         '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
         '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
@@ -50,7 +44,6 @@ export const manifest: ProductManifest = {
     urls: {
         errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
         errorTrackingConfiguration: (params = {}): string => combineUrl('/error_tracking/configuration', params).url,
-        errorTrackingImpact: (): string => '/error_tracking/impact',
         /** @param id A UUID or 'new'. ':id' for routing. */
         errorTrackingIssue: (id: string, params: { timestamp?: string; fingerprint?: string } = {}): string =>
             combineUrl(`/error_tracking/${id}`, params).url,

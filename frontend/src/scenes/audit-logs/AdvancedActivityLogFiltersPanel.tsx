@@ -14,9 +14,8 @@ export function AdvancedActivityLogFiltersPanel(): JSX.Element {
     const [activeTab, setActiveTab] = useState<'basic' | 'advanced' | 'hogql'>('basic')
 
     return (
-        <div className="border rounded-lg p-4 bg-bg-light">
-            <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold">Filters</h3>
+        <div className="border rounded-md p-4 bg-bg-light">
+            <div className="flex items-center justify-end">
                 <div className="flex gap-2">
                     <LemonDropdown
                         overlay={
@@ -72,7 +71,7 @@ export function AdvancedActivityLogFiltersPanel(): JSX.Element {
                 tabs={[
                     {
                         key: 'basic',
-                        label: 'Basic filters',
+                        label: 'Filters',
                         content: <BasicFiltersTab />,
                     },
                     {

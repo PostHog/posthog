@@ -2,6 +2,7 @@ import Fuse from 'fuse.js'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
 import { Scene } from 'scenes/sceneTypes'
@@ -74,14 +75,18 @@ export const actionsLogic = kea<actionsLogicType>([
             },
         ],
         breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => {
+            (s) => [s.featureFlags],
+            (featureFlags): Breadcrumb[] => {
                 return [
-                    {
-                        key: Scene.DataManagement,
-                        name: `Data management`,
-                        path: urls.eventDefinitions(),
-                    },
+                    ...(!featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+                        ? [
+                              {
+                                  key: Scene.DataManagement,
+                                  name: `Data management`,
+                                  path: urls.eventDefinitions(),
+                              },
+                          ]
+                        : []),
                     {
                         key: DataManagementTab.Actions,
                         name: 'Actions',

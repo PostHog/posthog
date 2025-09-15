@@ -1,6 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -16,7 +15,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS],
         pageUrl: urls.revenueAnalytics(),
         testOptions: {
             waitForLoadersToDisappear: true,
@@ -41,5 +39,5 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<typeof meta>
-export const Onboarding: Story = {}
-export const OnboardingAddSource: Story = { args: { initialSetupView: 'add-source' } }
+export const Onboarding: Story = { args: { closeOnboarding: () => {} } }
+export const OnboardingAddSource: Story = { args: { initialSetupView: 'add-source', closeOnboarding: () => {} } }
