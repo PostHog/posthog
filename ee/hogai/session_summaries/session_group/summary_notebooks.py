@@ -249,7 +249,7 @@ def generate_notebook_content_from_summary(
     project_name: str,
     team_id: int,
     tasks_available: bool = False,
-    summary_title: str | None,
+    summary_title: str | None = None,
 ) -> TipTapNode:
     """Convert summary data to notebook structure."""
     patterns = summary.patterns
