@@ -1330,12 +1330,12 @@ class FileSystemIconType(StrEnum):
     COHORT = "cohort"
     GROUP = "group"
     INSIGHT_FUNNEL = "insight_funnel"
-    INSIGHT_TREND = "insight_trend"
+    INSIGHT_TRENDS = "insight_trends"
     INSIGHT_RETENTION = "insight_retention"
-    INSIGHT_USER_PATH = "insight_user_path"
+    INSIGHT_PATHS = "insight_paths"
     INSIGHT_LIFECYCLE = "insight_lifecycle"
     INSIGHT_STICKINESS = "insight_stickiness"
-    INSIGHT_HOGQL = "insight_hogql"
+    INSIGHT_HOG = "insight_hog"
 
 
 class FileSystemImport(BaseModel):
