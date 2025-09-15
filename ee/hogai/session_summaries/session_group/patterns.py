@@ -3,16 +3,16 @@ from enum import Enum
 from math import floor
 from typing import Any
 
-import yaml
 import structlog
 from pydantic import BaseModel, Field, ValidationError, field_serializer, field_validator
 from temporalio.exceptions import ApplicationError
 
+from ee.hogai.graph.session_summaries.parsers import load_yaml_from_raw_llm_content
 from ee.hogai.session_summaries import SummaryValidationError
 from ee.hogai.session_summaries.constants import FAILED_PATTERNS_ENRICHMENT_MIN_RATIO
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
-from ee.hogai.session_summaries.utils import logging_session_ids, strip_raw_llm_content
+from ee.hogai.session_summaries.utils import logging_session_ids
 
 logger = structlog.get_logger(__name__)
 
@@ -155,7 +155,9 @@ def load_patterns_from_llm_content(raw_content: str, sessions_identifier: str) -
             f"No LLM content found when extracting patterns for sessions {sessions_identifier}"
         )
     try:
-        json_content: dict = yaml.safe_load(strip_raw_llm_content(raw_content))
+        json_content = load_yaml_from_raw_llm_content(raw_content)
+        if not isinstance(json_content, dict):
+            raise Exception(f"LLM output is not a dictionary: {raw_content}")
     except Exception as err:
         raise SummaryValidationError(
             f"Error loading YAML content into JSON when extracting patterns for sessions {sessions_identifier}: {err}"
@@ -179,7 +181,9 @@ def load_pattern_assignments_from_llm_content(
             f"No LLM content found when extracting pattern assignments for sessions {sessions_identifier}"
         )
     try:
-        json_content: dict = yaml.safe_load(strip_raw_llm_content(raw_content))
+        json_content = load_yaml_from_raw_llm_content(raw_content)
+        if not isinstance(json_content, dict):
+            raise Exception(f"LLM output is not a dictionary: {raw_content}")
     except Exception as err:
         raise SummaryValidationError(
             f"Error loading YAML content into JSON when extracting pattern assignments for sessions {sessions_identifier}: {err}"
