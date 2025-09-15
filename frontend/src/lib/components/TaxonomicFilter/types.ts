@@ -103,6 +103,8 @@ export interface TaxonomicFilterGroup {
     /** If present, will be used instead of "endpoint" until the user presses "expand results". */
     scopedEndpoint?: string
     expandLabel?: (props: { count: number; expandedCount: number }) => ReactNode
+    /** Static message shown at the bottom of the list */
+    footerMessage?: ReactNode
     options?: Record<string, any>[]
     logic?: LogicWrapper
     value?: string
