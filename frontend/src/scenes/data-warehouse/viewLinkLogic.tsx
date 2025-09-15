@@ -6,7 +6,9 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
+import { hogqlQuery } from '~/queries/query'
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
+import { hogql } from '~/queries/utils'
 import { DataWarehouseViewLink } from '~/types'
 
 import { ViewLinkKeyLabel } from './ViewLinkModal'
@@ -61,6 +63,12 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         setExperimentsOptimized: (experimentsOptimized: boolean) => ({ experimentsOptimized }),
         selectExperimentsTimestampKey: (experimentsTimestampKey: string | null) => ({ experimentsTimestampKey }),
         clearModalFields: true,
+        loadSourceTablePreview: (tableName: string) => ({ tableName }),
+        loadJoiningTablePreview: (tableName: string) => ({ tableName }),
+        setSourceTablePreviewData: (data: Record<string, any>[]) => ({ data }),
+        setJoiningTablePreviewData: (data: Record<string, any>[]) => ({ data }),
+        setSourceTablePreviewLoading: (loading: boolean) => ({ loading }),
+        setJoiningTablePreviewLoading: (loading: boolean) => ({ loading }),
     })),
     reducers({
         joinToEdit: [
@@ -159,6 +167,34 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 clearModalFields: () => null,
             },
         ],
+        sourceTablePreviewData: [
+            [] as Record<string, any>[],
+            {
+                setSourceTablePreviewData: (_, { data }) => data,
+                clearModalFields: () => [],
+            },
+        ],
+        joiningTablePreviewData: [
+            [] as Record<string, any>[],
+            {
+                setJoiningTablePreviewData: (_, { data }) => data,
+                clearModalFields: () => [],
+            },
+        ],
+        sourceTablePreviewLoading: [
+            false as boolean,
+            {
+                setSourceTablePreviewLoading: (_, { loading }) => loading,
+                loadSourceTablePreview: () => true,
+            },
+        ],
+        joiningTablePreviewLoading: [
+            false as boolean,
+            {
+                setJoiningTablePreviewLoading: (_, { loading }) => loading,
+                loadJoiningTablePreview: () => true,
+            },
+        ],
     }),
     forms(({ actions, values }) => ({
         viewLink: {
@@ -240,6 +276,30 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             if (experimentsTimestampKey) {
                 actions.setExperimentsOptimized(true)
             }
+        },
+        selectSourceTable: async ({ selectedTableName }) => {
+            if (selectedTableName) {
+                actions.loadSourceTablePreview(selectedTableName)
+            }
+        },
+        selectJoiningTable: async ({ selectedTableName }) => {
+            if (selectedTableName) {
+                actions.loadJoiningTablePreview(selectedTableName)
+            }
+        },
+        loadSourceTablePreview: async ({ tableName }) => {
+            await loadTablePreviewData(
+                tableName,
+                actions.setSourceTablePreviewData,
+                actions.setSourceTablePreviewLoading
+            )
+        },
+        loadJoiningTablePreview: async ({ tableName }) => {
+            await loadTablePreviewData(
+                tableName,
+                actions.setJoiningTablePreviewData,
+                actions.setJoiningTablePreviewLoading
+            )
         },
     })),
     selectors({
@@ -330,3 +390,22 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         },
     })),
 ])
+
+async function loadTablePreviewData(
+    tableName: string,
+    setDataAction: (data: Record<string, any>[]) => void,
+    setLoadingAction: (loading: boolean) => void
+): Promise<void> {
+    try {
+        const response = await hogqlQuery(hogql`SELECT * FROM ${hogql.identifier(tableName)} LIMIT 10`)
+        const transformedData = (response.results || []).map((row: any[]) =>
+            Object.fromEntries((response.columns || []).map((column: string, index: number) => [column, row[index]]))
+        )
+        setDataAction(transformedData)
+    } catch (error) {
+        posthog.captureException(error)
+        setDataAction([])
+    } finally {
+        setLoadingAction(false)
+    }
+}
