@@ -21,7 +21,7 @@
 #
 # ---------------------------------------------------------
 #
-FROM node:22.17.1-bookworm-slim AS frontend-build
+FROM node:22.18.0-bookworm-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -48,7 +48,7 @@ RUN cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.88-node_22.17.1 AS plugin-server-build
+FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.88-node_22.18.0 AS plugin-server-build
 
 # Compile and install system dependencies
 RUN apt-get update && \
@@ -182,7 +182,7 @@ RUN apt-get update && \
     "libxmlsec1-dev" \
     "libxml2" \
     "gettext-base" \
-    "ffmpeg"
+    "ffmpeg=7:5.1.7-0+deb12u1"
 
 # Install MS SQL dependencies
 RUN curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/trusted.gpg.d/microsoft.asc

@@ -9,6 +9,7 @@ import {
     ProductIconWrapper,
     getDefaultTreeData,
     getDefaultTreeNew,
+    getDefaultTreePersons,
     getDefaultTreeProducts,
     iconForType,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -110,7 +111,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
-                const products = getDefaultTreeProducts()
+                const products = [...getDefaultTreeProducts(), ...getDefaultTreePersons()]
                     .map((fs) => ({
                         href: fs.href,
                         name: fs.path,
@@ -118,6 +119,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         flag: fs.flag,
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
+                    .toSorted((a, b) => a.name.localeCompare(b.name))
 
                 const data = getDefaultTreeData()
                     .map((fs) => ({

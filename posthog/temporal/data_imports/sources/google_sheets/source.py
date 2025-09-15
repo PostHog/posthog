@@ -81,6 +81,7 @@ class GoogleSheetsSource(BaseSource[GoogleSheetsSourceConfig]):
             label="Google Sheets",
             caption="Ensure you have granted PostHog access to your Google Sheet as instructed in the [documentation](https://posthog.com/docs/cdp/sources/google-sheets)",
             betaSource=True,
+            iconPath="/static/services/Google_Sheets.svg",
             fields=cast(
                 list[FieldType],
                 [
