@@ -23,11 +23,14 @@ import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { getFilterLabel } from '~/taxonomy/helpers'
 import { FilterLogicalOperator, PropertyDefinition, PropertyDefinitionVerificationStatus, ReplayTabs } from '~/types'
+
+import { getEventDefinitionIcon } from '../events/DefinitionHeader'
 
 export const scene: SceneExport<DefinitionLogicProps> = {
     component: DefinitionView,
@@ -208,6 +211,22 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                         )}
                     </>
                 }
+            />
+
+            <SceneTitleSection
+                name={definition.name}
+                description={definition.description}
+                resourceType={{
+                    type: 'definition',
+                    forceIcon: getEventDefinitionIcon(definition),
+                    // icon: definition,
+                }}
+                actions
+                forceBackTo={{
+                    path: urls.eventDefinitions(),
+                    name: 'Events definitions',
+                    key: 'events',
+                }}
             />
 
             <div className="deprecated-space-y-2">
