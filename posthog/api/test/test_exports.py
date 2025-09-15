@@ -280,8 +280,8 @@ class TestExports(APIBaseTest):
             response.json(),
             {
                 "attr": "export_format",
-                "code": "invalid_input",
-                "detail": "Export format image/jpeg is not supported.",
+                "code": "invalid_choice",
+                "detail": '"image/jpeg" is not a valid choice.',
                 "type": "validation_error",
             },
         )
@@ -622,7 +622,7 @@ class TestExports(APIBaseTest):
         assert results[0]["export_format"] == "text/csv"
 
         # Unsupported format should return all exports since filter is ignored
-        response = self.client.get(f"/api/projects/{self.team.id}/exports?export_format=blahblah")
+        response = self.client.get(f"/api/projects/{self.team.id}/exports?export_format=image/jpeg")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
         assert len(results) == 3
