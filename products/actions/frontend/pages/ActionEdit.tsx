@@ -231,7 +231,8 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                                     type="primary"
                                     htmlType="submit"
                                     loading={actionLoading}
-                                    onClick={() => {
+                                    onClick={(e) => {
+                                        e.preventDefault()
                                         if (id) {
                                             submitAction()
                                         } else {
@@ -326,8 +327,6 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                     resourceType={{
                         to: urls.actions(),
                         type: RESOURCE_TYPE,
-                        tooltip: 'Go to all actions',
-                        typePlural: 'actions',
                     }}
                     markdown={true}
                     isLoading={actionLoading}
@@ -337,7 +336,6 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                     onDescriptionChange={(value) => {
                         setActionValue('description', value)
                     }}
-                    docsURL="https://posthog.com/docs/data/actions"
                     canEdit
                     forceEdit={!id}
                 />

@@ -22,9 +22,10 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { useMaxTool } from 'scenes/max/useMaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
@@ -32,9 +33,10 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ActivityScope, Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types'
 
 import { DuplicateExperimentModal } from './DuplicateExperimentModal'
-import { StatusTag } from './ExperimentView/components'
+import { StatusTag, createMaxToolExperimentSurveyConfig } from './ExperimentView/components'
 import { ExperimentsSettings } from './ExperimentsSettings'
 import { Holdouts } from './Holdouts'
+import { SharedMetrics } from './SharedMetrics/SharedMetrics'
 import { EXPERIMENTS_PER_PAGE, ExperimentsFilters, experimentsLogic, getExperimentStatus } from './experimentsLogic'
 import { isLegacyExperiment } from './utils'
 
@@ -43,8 +45,31 @@ export const scene: SceneExport = {
     logic: experimentsLogic,
 }
 
-const EXPERIMENTS_PRODUCT_DESCRIPTION =
+export const EXPERIMENTS_PRODUCT_DESCRIPTION =
     'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.'
+
+// Component for the survey button using MaxTool
+const ExperimentSurveyButton = ({ experiment }: { experiment: Experiment }): JSX.Element => {
+    const { user } = useValues(userLogic)
+    const { openMax } = useMaxTool(createMaxToolExperimentSurveyConfig(experiment, user))
+
+    // Don't show the button if there's no feature flag associated with the experiment
+    if (!experiment.feature_flag) {
+        return <></>
+    }
+
+    return (
+        <LemonButton
+            onClick={openMax || undefined}
+            size="small"
+            fullWidth
+            data-attr="create-survey"
+            disabled={!openMax}
+        >
+            Create survey
+        </LemonButton>
+    )
+}
 
 const getExperimentDuration = (experiment: Experiment): number | undefined => {
     return experiment.end_date
@@ -220,20 +245,7 @@ const ExperimentsTable = ({
                                 <LemonButton onClick={() => openDuplicateModal(experiment)} size="small" fullWidth>
                                     Duplicate
                                 </LemonButton>
-                                <LemonButton
-                                    onClick={() => {
-                                        if (experiment.feature_flag?.id) {
-                                            featureFlagLogic({ id: experiment.feature_flag.id }).mount()
-                                            featureFlagLogic({ id: experiment.feature_flag.id }).actions.createSurvey()
-                                        }
-                                    }}
-                                    size="small"
-                                    fullWidth
-                                    data-attr="create-survey"
-                                    disabled={!experiment.feature_flag?.id}
-                                >
-                                    Create survey
-                                </LemonButton>
+                                <ExperimentSurveyButton experiment={experiment} />
                                 {!experiment.archived &&
                                     experiment?.end_date &&
                                     dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') && (
@@ -410,10 +422,8 @@ export function Experiments(): JSX.Element {
             <SceneTitleSection
                 name="Experiments"
                 description={EXPERIMENTS_PRODUCT_DESCRIPTION}
-                docsURL="https://posthog.com/docs/experiments/installation?utm_medium=in-product&utm_campaign=new-experiment"
                 resourceType={{
                     type: 'experiment',
-                    typePlural: 'experiments',
                 }}
             />
             <SceneDivider />
@@ -436,7 +446,7 @@ export function Experiments(): JSX.Element {
                     {
                         key: ExperimentsTabs.SharedMetrics,
                         label: 'Shared metrics',
-                        link: urls.experimentsSharedMetrics(),
+                        content: <SharedMetrics />,
                     },
                     {
                         key: ExperimentsTabs.History,

@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconArrowLeft, IconTrash } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonTab, LemonTabs, Tooltip } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonDivider, LemonTab, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter } from 'lib/utils'
 
@@ -14,7 +14,6 @@ import { HogFlowEditorPanelBuild } from './HogFlowEditorPanelBuild'
 import { HogFlowEditorPanelBuildDetail } from './HogFlowEditorPanelBuildDetail'
 import { HogFlowEditorPanelLogs } from './HogFlowEditorPanelLogs'
 import { HogFlowEditorPanelMetrics } from './HogFlowEditorPanelMetrics'
-import { HogFlowEditorPanelNodeRequired } from './components/HogFlowEditorPanelNodeRequired'
 import { HogFlowEditorPanelTest } from './testing/HogFlowEditorPanelTest'
 
 export function HogFlowEditorPanel(): JSX.Element | null {
@@ -73,6 +72,7 @@ export function HogFlowEditorPanel(): JSX.Element | null {
                         <span className="flex gap-1 items-center font-medium rounded-md mr-3">
                             <span className="text-lg">{Step?.icon}</span>
                             <span className="font-semibold">{selectedNode.data.name}</span> step
+                            <LemonDivider vertical />
                             {validationResult?.valid === false && (
                                 <Tooltip title="Some fields need attention">
                                     <div>
@@ -101,11 +101,7 @@ export function HogFlowEditorPanel(): JSX.Element | null {
                 {mode === 'build' && (
                     <>{!selectedNode ? <HogFlowEditorPanelBuild /> : <HogFlowEditorPanelBuildDetail />}</>
                 )}
-                {mode === 'test' && (
-                    <HogFlowEditorPanelNodeRequired>
-                        <HogFlowEditorPanelTest />
-                    </HogFlowEditorPanelNodeRequired>
-                )}
+                {mode === 'test' && <HogFlowEditorPanelTest />}
                 {mode === 'metrics' && <HogFlowEditorPanelMetrics />}
                 {mode === 'logs' && <HogFlowEditorPanelLogs />}
             </div>

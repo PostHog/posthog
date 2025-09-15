@@ -215,6 +215,9 @@ export function PropertyValue({
         return <>{formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType, groupTypeIndex)}</>
     }
 
+    // Disable comma splitting for user agent properties that contain commas in their values
+    const isUserAgentProperty = ['$raw_user_agent', '$initial_raw_user_agent', '$user_agent'].includes(propertyKey)
+
     return (
         <LemonInputSelect
             className={inputClassName}
@@ -227,6 +230,7 @@ export function PropertyValue({
             onInputChange={onSearchTextChange}
             placeholder={placeholder}
             size={size}
+            disableCommaSplitting={isUserAgentProperty}
             title={
                 PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
                     ? 'Suggested values (last 7 days)'

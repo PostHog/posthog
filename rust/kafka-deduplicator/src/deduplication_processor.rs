@@ -8,11 +8,12 @@ use rdkafka::{ClientConfig, Message};
 use serde_json;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
 use crate::kafka::message::{AckableMessage, MessageProcessor};
-use crate::rocksdb::deduplication_store::{DeduplicationStore, DeduplicationStoreConfig};
+use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
 use crate::store_manager::StoreManager;
+use crate::utils::timestamp;
 
 /// Context for a Kafka message being processed
 struct MessageContext<'a> {
@@ -39,7 +40,7 @@ pub struct DeduplicationProcessor {
     config: DeduplicationConfig,
 
     /// Kafka producer for publishing non-duplicate events
-    producer: Option<FutureProducer>,
+    producer: Option<Arc<FutureProducer>>,
 
     /// Store manager that handles concurrent store creation and access
     store_manager: Arc<StoreManager>,
@@ -48,10 +49,10 @@ pub struct DeduplicationProcessor {
 impl DeduplicationProcessor {
     /// Create a new deduplication processor with a store manager
     pub fn new(config: DeduplicationConfig, store_manager: Arc<StoreManager>) -> Result<Self> {
-        let producer: Option<FutureProducer> = match &config.output_topic {
-            Some(topic) => Some(config.producer_config.create().with_context(|| {
-                format!("Failed to create Kafka producer for output topic '{topic}'")
-            })?),
+        let producer: Option<Arc<FutureProducer>> = match &config.output_topic {
+            Some(topic) => Some(Arc::new(config.producer_config.create().with_context(
+                || format!("Failed to create Kafka producer for output topic '{topic}'"),
+            )?)),
             None => None,
         };
 
@@ -175,7 +176,7 @@ impl MessageProcessor for DeduplicationProcessor {
         let partition = message.kafka_message().partition();
         let offset = message.kafka_message().offset();
 
-        info!(
+        debug!(
             "Processing message from topic {} partition {} offset {}",
             topic, partition, offset
         );
@@ -196,9 +197,32 @@ impl MessageProcessor for DeduplicationProcessor {
         // Parse the captured event and extract the raw event from it
         let raw_event = match serde_json::from_slice::<CapturedEvent>(payload) {
             Ok(captured_event) => {
+                let now = captured_event.now.clone();
                 // The RawEvent is serialized in the data field
                 match serde_json::from_str::<RawEvent>(&captured_event.data) {
-                    Ok(raw_event) => raw_event,
+                    Ok(mut raw_event) => {
+                        // Validate timestamp: if it's None or unparseable, use CapturedEvent.now
+                        // This ensures we always have a valid timestamp for deduplication
+                        match raw_event.timestamp {
+                            None => {
+                                debug!("No timestamp in RawEvent, using CapturedEvent.now");
+                                raw_event.timestamp = Some(now);
+                            }
+                            Some(ref ts) if !timestamp::is_valid_timestamp(ts) => {
+                                // Don't log the invalid timestamp directly as it may contain
+                                // non-ASCII characters that could cause issues with logging
+                                debug!(
+                                    "Invalid timestamp detected at {}:{} offset {}, replacing with CapturedEvent.now",
+                                    topic, partition, offset
+                                );
+                                raw_event.timestamp = Some(now);
+                            }
+                            _ => {
+                                // Timestamp exists and is valid, keep it
+                            }
+                        }
+                        raw_event
+                    }
                     Err(e) => {
                         error!(
                             "Failed to parse RawEvent from data field at {}:{} offset {}: {}",

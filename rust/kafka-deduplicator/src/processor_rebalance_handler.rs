@@ -89,7 +89,7 @@ mod tests {
 
     fn create_test_config() -> (DeduplicationConfig, TempDir) {
         let temp_dir = TempDir::new().unwrap();
-        let store_config = crate::rocksdb::deduplication_store::DeduplicationStoreConfig {
+        let store_config = crate::store::DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };

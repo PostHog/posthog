@@ -112,6 +112,8 @@ class InsightSearchNode(AssistantNode):
     INSIGHTS_CUTOFF_DAYS = 180
     MAX_SERIES_TO_PROCESS = 3
 
+    REASONING_MESSAGE = "Searching for insights"
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._current_page = 0
@@ -601,7 +603,7 @@ class InsightSearchNode(AssistantNode):
             if query_obj is None:
                 return None, "Query type not supported for execution"
 
-            formatted_results = await self._execute_and_format_query(query_obj)
+            formatted_results = await self._execute_and_format_query(query_obj, insight["id"])
             return query_obj, formatted_results
 
         except Exception as e:
@@ -618,11 +620,11 @@ class InsightSearchNode(AssistantNode):
         return AssistantQueryModel.model_validate(query_source, strict=False)
 
     @timing_logger("InsightSearchNode._execute_and_format_query")
-    async def _execute_and_format_query(self, query_obj: SupportedQueryTypes) -> str:
-        """Execute query and format results."""
+    async def _execute_and_format_query(self, query_obj: SupportedQueryTypes, insight_id: int) -> str:
+        """Execute query and format results with timing instrumentation."""
         try:
             query_executor = AssistantQueryExecutor(team=self._team, utc_now_datetime=self._utc_now_datetime)
-            results, _ = await query_executor.arun_and_format_query(query_obj)
+            results, _ = await query_executor.arun_and_format_query(query_obj, debug_timing=True)
             return results
         except Exception as e:
             capture_exception(e)
@@ -748,6 +750,7 @@ class InsightSearchNode(AssistantNode):
                 plan=f"Showing existing insight: {insight_name}",
                 answer=query_obj,
                 id=str(uuid4()),
+                short_id=insight["short_id"],
             )
 
             return visualization_message

@@ -46,7 +46,7 @@ describe('server', () => {
     it('should not error on startup - replay', async () => {
         pluginsServer = new PluginServer({
             LOG_LEVEL: LogLevel.Debug,
-            PLUGIN_SERVER_MODE: PluginServerMode.recordings_blob_ingestion,
+            PLUGIN_SERVER_MODE: PluginServerMode.recordings_blob_ingestion_v2,
         })
         await pluginsServer.start()
     })

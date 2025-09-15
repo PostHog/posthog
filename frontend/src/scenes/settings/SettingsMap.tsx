@@ -1,9 +1,9 @@
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
-import { ExceptionAutocaptureSettings } from '@posthog/products-error-tracking/frontend/configuration/ExceptionAutocaptureSettings'
-import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/configuration/alerting/ErrorTrackingAlerting'
-import { ErrorTrackingAutoAssignment } from '@posthog/products-error-tracking/frontend/configuration/rules/ErrorTrackingAutoAssignment'
-import { ErrorTrackingCustomGrouping } from '@posthog/products-error-tracking/frontend/configuration/rules/ErrorTrackingCustomGrouping'
-import { ErrorTrackingSymbolSets } from '@posthog/products-error-tracking/frontend/configuration/symbol-sets/ErrorTrackingSymbolSets'
+import { ExceptionAutocaptureSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/ExceptionAutocaptureSettings'
+import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
+import { AutoAssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/AutoAssignmentRules'
+import { CustomGroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/CustomGroupingRules'
+import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
 import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
 import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/ExternalDataSourceConfiguration'
 import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/FilterTestAccountsConfiguration'
@@ -251,7 +251,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-revenue-analytics',
         title: 'Revenue analytics',
-        flag: 'REVENUE_ANALYTICS',
         settings: [
             {
                 id: 'revenue-base-currency',
@@ -289,7 +288,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'marketing-settings',
                 title: 'Marketing settings',
-                component: <MarketingAnalyticsSettings />,
+                component: <MarketingAnalyticsSettings hideTitle />,
             },
         ],
     },
@@ -444,12 +443,12 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'error-tracking-auto-assignment',
                 title: 'Auto assignment rules',
-                component: <ErrorTrackingAutoAssignment />,
+                component: <AutoAssignmentRules />,
             },
             {
                 id: 'error-tracking-custom-grouping',
                 title: 'Custom grouping rules',
-                component: <ErrorTrackingCustomGrouping />,
+                component: <CustomGroupingRules />,
             },
             {
                 id: 'error-tracking-integrations',
@@ -459,7 +458,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'error-tracking-symbol-sets',
                 title: 'Symbol sets',
-                component: <ErrorTrackingSymbolSets />,
+                component: <SymbolSets />,
             },
         ],
     },

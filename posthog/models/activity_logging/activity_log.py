@@ -1,11 +1,10 @@
 import json
 import dataclasses
-from datetime import datetime, time, timedelta
-from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 from uuid import UUID
 
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
 from django.core.paginator import Paginator
 from django.db import models, transaction
@@ -16,7 +15,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.utils import UUIDT, UUIDTModel
+from posthog.models.utils import ActivityDetailEncoder, UUIDTModel
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -110,65 +109,6 @@ class Detail:
     context: Optional[ActivityContextBase] = None
 
 
-class ActivityDetailEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, Detail | Change | Trigger | ActivityContextBase):
-            return obj.__dict__
-        if isinstance(obj, datetime):
-            return obj.isoformat()
-        if isinstance(obj, time):
-            return obj.isoformat()
-        if isinstance(obj, timedelta):
-            return str(obj)
-        if isinstance(obj, UUIDT):
-            return str(obj)
-        if isinstance(obj, UUID):
-            return str(obj)
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "User":
-            return {"first_name": obj.first_name, "email": obj.email}
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "DataWarehouseTable":
-            return obj.name
-        if isinstance(obj, float):
-            # more precision than we'll need but avoids rounding too unnecessarily
-            return format(obj, ".6f").rstrip("0").rstrip(".")
-        if isinstance(obj, Decimal):
-            # more precision than we'll need but avoids rounding too unnecessarily
-            return format(obj, ".6f").rstrip("0").rstrip(".")
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "FeatureFlag":
-            return {
-                "id": obj.id,
-                "key": obj.key,
-                "name": obj.name,
-                "filters": obj.filters,
-                "team_id": obj.team_id,
-                "deleted": obj.deleted,
-                "active": obj.active,
-            }
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Insight":
-            return {
-                "id": obj.id,
-                "short_id": obj.short_id,
-            }
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Tag":
-            return {
-                "id": obj.id,
-                "name": obj.name,
-                "team_id": obj.team_id,
-            }
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "UploadedMedia":
-            return {
-                "id": obj.id,
-                "media_location": obj.media_location,
-            }
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Role":
-            return {
-                "id": obj.id,
-                "name": obj.name,
-            }
-
-        return json.JSONEncoder.default(self, obj)
-
-
 class ActivityLog(UUIDTModel):
     class Meta:
         constraints = [
@@ -177,7 +117,32 @@ class ActivityLog(UUIDTModel):
                 check=models.Q(team_id__isnull=False) | models.Q(organization_id__isnull=False),
             ),
         ]
-        indexes = [models.Index(fields=["team_id", "scope", "item_id"])]
+        indexes = [
+            models.Index(fields=["team_id", "scope", "item_id"]),
+            models.Index(
+                fields=["organization_id", "scope", "-created_at"],
+                name="idx_alog_org_scope_created_at",
+                condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
+            ),
+            models.Index(
+                fields=["organization_id"],
+                name="idx_alog_org_detail_exists",
+                condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
+            ),
+            # Used for searching on the detail field, e.g. containing a specific value
+            GinIndex(
+                name="activitylog_detail_gin",
+                fields=["detail"],
+                opclasses=["jsonb_ops"],
+            ),
+            # Used primarily for available_filters queries
+            GinIndex(
+                name="idx_alog_detail_gin_path_ops",
+                fields=["detail"],
+                opclasses=["jsonb_path_ops"],
+                condition=models.Q(detail__isnull=False),
+            ),
+        ]
 
     team_id = models.PositiveIntegerField(null=True)
     organization_id = models.UUIDField(null=True)
@@ -261,15 +226,16 @@ field_name_overrides: dict[ActivityScope, dict[str, str]] = {
 
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
-    "PersonalAPIKey": [
-        "last_used_at",
-    ],
     "AlertConfiguration": [
         "last_checked_at",
         "next_check_at",
         "is_calculating",
         "last_notified_at",
         "last_error_at",
+    ],
+    "Dashboard": ["last_accessed_at"],
+    "PersonalAPIKey": [
+        "last_used_at",
     ],
 }
 
@@ -369,6 +335,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "id",
         "secret_api_token",
         "secret_api_token_backup",
+        "_old_api_token",
     ],
     "Project": ["id", "created_at"],
     "DataWarehouseSavedQuery": [

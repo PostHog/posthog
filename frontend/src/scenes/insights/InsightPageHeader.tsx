@@ -5,7 +5,6 @@ import { useState } from 'react'
 import { IconInfo, IconPencil, IconShare, IconTrash, IconWarning } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { AlertsButton } from 'lib/components/Alerts/AlertsButton'
@@ -89,6 +88,8 @@ import {
     ItemMode,
     QueryBasedInsightModel,
 } from '~/types'
+
+import { getInsightIconTypeFromQuery } from './utils'
 
 const RESOURCE_TYPE = 'insight'
 
@@ -254,10 +255,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
                         {insightMode !== ItemMode.Edit ? (
                             canEditInsight && (
-                                <AccessControlledLemonButton
-                                    userAccessLevel={insight.user_access_level}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    resourceType={AccessControlResourceType.Insight}
+                                <LemonButton
+                                    accessControl={{
+                                        resourceType: AccessControlResourceType.Insight,
+                                        minAccessLevel: AccessControlLevel.Editor,
+                                        userAccessLevel: insight.user_access_level,
+                                    }}
                                     type="primary"
                                     icon={dashboardOverridesExist ? <IconWarning /> : undefined}
                                     tooltip={
@@ -278,7 +281,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     data-attr="insight-edit-button"
                                 >
                                     Edit
-                                </AccessControlledLemonButton>
+                                </LemonButton>
                             )
                         ) : (
                             <InsightSaveButton
@@ -501,10 +504,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         {hasDashboardItemId && (
                                             <>
                                                 <LemonDivider />
-                                                <AccessControlledLemonButton
-                                                    userAccessLevel={insight.user_access_level}
-                                                    minAccessLevel={AccessControlLevel.Editor}
-                                                    resourceType={AccessControlResourceType.Insight}
+                                                <LemonButton
+                                                    accessControl={{
+                                                        resourceType: AccessControlResourceType.Insight,
+                                                        minAccessLevel: AccessControlLevel.Editor,
+                                                        userAccessLevel: insight.user_access_level,
+                                                    }}
                                                     status="danger"
                                                     onClick={() =>
                                                         void deleteInsightWithUndo({
@@ -519,7 +524,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                     fullWidth
                                                 >
                                                     Delete insight
-                                                </AccessControlledLemonButton>
+                                                </LemonButton>
                                             </>
                                         )}
                                     </>
@@ -856,8 +861,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 name={defaultInsightName || ''}
                 description={insight?.description || ''}
                 resourceType={{
-                    type: 'insight',
-                    typePlural: 'insights',
+                    type: getInsightIconTypeFromQuery(query),
                 }}
                 onNameChange={(name) => {
                     setInsightMetadata({ name })

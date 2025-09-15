@@ -1237,6 +1237,7 @@ class ExternalDataSourceType(StrEnum):
     TEMPORAL_IO = "TemporalIO"
     DO_IT = "DoIt"
     LINKEDIN_ADS = "LinkedinAds"
+    REDDIT_ADS = "RedditAds"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1294,30 +1295,47 @@ class FileSystemEntry(BaseModel):
 
 
 class FileSystemIconType(StrEnum):
-    PLUG = "plug"
-    COHORT = "cohort"
-    INSIGHT = "insight"
-    DEFINITIONS = "definitions"
-    WARNING = "warning"
-    ERROR_TRACKING = "errorTracking"
-    AI = "ai"
-    CURSOR = "cursor"
+    DASHBOARD = "dashboard"
+    LLM_ANALYTICS = "llm_analytics"
+    PRODUCT_ANALYTICS = "product_analytics"
+    REVENUE_ANALYTICS = "revenue_analytics"
+    REVENUE_ANALYTICS_METADATA = "revenue_analytics_metadata"
+    MARKETING_SETTINGS = "marketing_settings"
+    EMBEDDED_ANALYTICS = "embedded_analytics"
+    SQL_EDITOR = "sql_editor"
+    WEB_ANALYTICS = "web_analytics"
+    ERROR_TRACKING = "error_tracking"
     HEATMAP = "heatmap"
-    DATABASE = "database"
-    FOLDER = "folder"
-    HAND_MONEY = "handMoney"
-    LIVE = "live"
-    NOTIFICATION = "notification"
-    PIE_CHART = "pieChart"
-    PIGGY_BANK = "piggyBank"
-    SQL = "sql"
-    INSIGHT_FUNNEL = "insightFunnel"
-    INSIGHT_TRENDS = "insightTrends"
-    INSIGHT_RETENTION = "insightRetention"
-    INSIGHT_USER_PATHS = "insightUserPaths"
-    INSIGHT_LIFECYCLE = "insightLifecycle"
-    INSIGHT_STICKINESS = "insightStickiness"
-    INSIGHT_HOG_QL = "insightHogQL"
+    SESSION_REPLAY = "session_replay"
+    SURVEY = "survey"
+    USER_INTERVIEW = "user_interview"
+    EARLY_ACCESS_FEATURE = "early_access_feature"
+    EXPERIMENT = "experiment"
+    FEATURE_FLAG = "feature_flag"
+    DATA_PIPELINE = "data_pipeline"
+    DATA_PIPELINE_METADATA = "data_pipeline_metadata"
+    DATA_WAREHOUSE = "data_warehouse"
+    TASK = "task"
+    LINK = "link"
+    LOGS = "logs"
+    MESSAGING = "messaging"
+    NOTEBOOK = "notebook"
+    ACTION = "action"
+    COMMENT = "comment"
+    ANNOTATION = "annotation"
+    EVENT_DEFINITION = "event_definition"
+    PROPERTY_DEFINITION = "property_definition"
+    INGESTION_WARNING = "ingestion_warning"
+    PERSON = "person"
+    COHORT = "cohort"
+    GROUP = "group"
+    INSIGHT_FUNNELS = "insight/funnels"
+    INSIGHT_TRENDS = "insight/trends"
+    INSIGHT_RETENTION = "insight/retention"
+    INSIGHT_PATHS = "insight/paths"
+    INSIGHT_LIFECYCLE = "insight/lifecycle"
+    INSIGHT_STICKINESS = "insight/stickiness"
+    INSIGHT_HOG = "insight/hog"
 
 
 class FileSystemImport(BaseModel):
@@ -1333,6 +1351,7 @@ class FileSystemImport(BaseModel):
     )
     flag: Optional[str] = None
     href: Optional[str] = Field(default=None, description="Object's URL")
+    iconColor: Optional[list[str]] = Field(default=None, description="Color of the icon")
     iconType: Optional[FileSystemIconType] = None
     id: Optional[str] = None
     meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
@@ -1616,6 +1635,7 @@ class IntegrationKind(StrEnum):
     GITHUB = "github"
     META_ADS = "meta-ads"
     CLICKUP = "clickup"
+    REDDIT_ADS = "reddit-ads"
 
 
 class IntervalType(StrEnum):
@@ -2264,12 +2284,18 @@ class RevenueAnalyticsBreakdown(BaseModel):
     type: Literal["revenue_analytics"] = "revenue_analytics"
 
 
+class MrrOrGross(StrEnum):
+    MRR = "mrr"
+    GROSS = "gross"
+
+
 class RevenueAnalyticsGoal(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     due_date: str
     goal: float
+    mrr_or_gross: Optional[MrrOrGross] = MrrOrGross.GROSS
     name: str
 
 
@@ -3909,6 +3935,10 @@ class HogQLQueryModifiers(BaseModel):
     sessionsV2JoinMode: Optional[SessionsV2JoinMode] = None
     timings: Optional[bool] = None
     useMaterializedViews: Optional[bool] = None
+    usePreaggregatedTableTransforms: Optional[bool] = Field(
+        default=None,
+        description="Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
+    )
     usePresortedEventsTable: Optional[bool] = None
     useWebAnalyticsPreAggregatedTables: Optional[bool] = None
 
@@ -4507,6 +4537,9 @@ class SavedInsightNode(BaseModel):
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResults: Optional[bool] = None
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
+    showSavedFilters: Optional[bool] = Field(
+        default=None, description="Show saved filters feature for this table (requires uniqueKey)"
+    )
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
     showTable: Optional[bool] = None
@@ -4620,6 +4653,7 @@ class SessionRecordingType(BaseModel):
     )
     person: Optional[PersonType] = None
     recording_duration: float = Field(..., description="Length of recording in seconds.")
+    retention_period_days: Optional[float] = Field(default=None, description="retention period for this recording")
     snapshot_source: SnapshotSource
     start_time: str = Field(..., description="When the recording starts in ISO format.")
     start_url: Optional[str] = None
@@ -11511,6 +11545,7 @@ class FunnelsFilter(BaseModel):
     resultCustomizations: Optional[dict[str, ResultCustomizationByValue]] = Field(
         default=None, description="Customizations for the appearance of result datasets."
     )
+    showValuesOnSeries: Optional[bool] = False
     useUdf: Optional[bool] = None
 
 
@@ -13460,6 +13495,7 @@ class VisualizationMessage(BaseModel):
     initiator: Optional[str] = None
     plan: Optional[str] = None
     query: Optional[str] = ""
+    short_id: Optional[str] = None
     type: Literal["ai/viz"] = "ai/viz"
 
 
@@ -13951,6 +13987,9 @@ class DataTableNode(BaseModel):
     )
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
+    showSavedFilters: Optional[bool] = Field(
+        default=None, description="Show saved filters feature for this table (requires uniqueKey)"
+    )
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
     showTestAccountFilters: Optional[bool] = Field(default=None, description="Show filter to exclude test accounts")
@@ -14231,6 +14270,12 @@ class QueryRequest(BaseModel):
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
     )
     filters_override: Optional[DashboardFilter] = None
+    name: Optional[str] = Field(
+        default=None,
+        description=(
+            "Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name."
+        ),
+    )
     query: Union[
         EventsNode,
         ActionsNode,
@@ -14608,6 +14653,7 @@ class SourceConfig(BaseModel):
     caption: Union[str, Any]
     disabledReason: Optional[str] = None
     existingSource: Optional[bool] = None
+    featureFlag: Optional[str] = None
     fields: list[
         Union[
             SourceFieldInputConfig,
@@ -14618,6 +14664,7 @@ class SourceConfig(BaseModel):
             SourceFieldSSHTunnelConfig,
         ]
     ]
+    iconPath: str
     label: Optional[str] = None
     name: ExternalDataSourceType
     unreleasedSource: Optional[bool] = None

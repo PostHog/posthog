@@ -5,6 +5,7 @@ import { LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
+import { FeatureFlagFiltersSection } from 'scenes/feature-flags/FeatureFlagFilters'
 import { urls } from 'scenes/urls'
 
 import { Experiment, FeatureFlagType } from '~/types'
@@ -18,16 +19,27 @@ interface DuplicateExperimentModalProps {
 }
 
 export function DuplicateExperimentModal({ isOpen, onClose, experiment }: DuplicateExperimentModalProps): JSX.Element {
-    const { featureFlags } = useValues(experimentsLogic)
-    const { duplicateExperiment } = useActions(experimentsLogic)
+    const {
+        featureFlagModalFeatureFlags,
+        featureFlagModalFeatureFlagsLoading,
+        featureFlagModalFilters,
+        featureFlagModalPagination,
+    } = useValues(experimentsLogic)
+    const { duplicateExperiment, setFeatureFlagModalFilters, resetFeatureFlagModalFilters } =
+        useActions(experimentsLogic)
 
     const handleDuplicate = (featureFlagKey?: string): void => {
         duplicateExperiment({ id: experiment.id as number, featureFlagKey })
         onClose()
     }
 
+    const handleClose = (): void => {
+        resetFeatureFlagModalFilters()
+        onClose()
+    }
+
     return (
-        <LemonModal isOpen={isOpen} onClose={onClose} title="Duplicate experiment" width="max-content">
+        <LemonModal isOpen={isOpen} onClose={handleClose} title="Duplicate experiment" width="max-content">
             <div className="space-y-4">
                 <div className="text-muted max-w-xl">
                     Select a feature flag for the duplicated experiment. You can reuse the original flag or choose a
@@ -55,8 +67,18 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
 
                 <div>
                     <div className="font-semibold mb-2">Choose an existing flag</div>
+                    <div className="mb-4">
+                        <FeatureFlagFiltersSection
+                            filters={featureFlagModalFilters}
+                            setFeatureFlagsFilters={setFeatureFlagModalFilters}
+                            searchPlaceholder="Search for feature flags"
+                            filtersConfig={{ search: true, type: true }}
+                        />
+                    </div>
                     <LemonTable
-                        dataSource={featureFlags.results}
+                        id="ff"
+                        dataSource={featureFlagModalFeatureFlags.results}
+                        loading={featureFlagModalFeatureFlagsLoading}
                         useURLForSorting={false}
                         columns={[
                             {
@@ -108,6 +130,16 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
                                 },
                             },
                         ]}
+                        emptyState="No feature flags match these filters."
+                        pagination={featureFlagModalPagination}
+                        onSort={(newSorting) =>
+                            setFeatureFlagModalFilters({
+                                order: newSorting
+                                    ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                    : undefined,
+                                page: 1,
+                            })
+                        }
                     />
                 </div>
             </div>

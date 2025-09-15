@@ -1135,7 +1135,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (dashboard) => {
                 return dashboard?.user_access_level
                     ? accessLevelSatisfied(AccessControlResourceType.Dashboard, dashboard.user_access_level, 'editor')
-                    : true
+                    : false
             },
         ],
         canRestrictDashboard: [
@@ -1520,7 +1520,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 values.urlFilters,
                                 values.urlVariables,
                                 Math.floor(performance.now() - insightRefreshStartTime),
-                                true
+                                false
                             )
                         } else {
                             actions.setRefreshError(insight.short_id)

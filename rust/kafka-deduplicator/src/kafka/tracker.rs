@@ -12,10 +12,10 @@ use tracing::{debug, info, warn};
 
 use crate::kafka::message::{AckableMessage, MessageResult};
 use crate::kafka::metrics_consts::{
-    KAFKA_CONSUMER_IN_FLIGHT_MEMORY_BYTES, KAFKA_CONSUMER_IN_FLIGHT_MESSAGES,
-    MESSAGE_COMPLETION_DURATION, OUT_OF_ORDER_COMPLETIONS, PARTITION_LAST_COMMITTED_OFFSET,
-    PARTITION_OFFSET_GAP_DETECTED, PARTITION_OFFSET_GAP_SIZE, PARTITION_PENDING_COMPLETIONS,
-    PARTITION_SECONDS_SINCE_LAST_COMMIT,
+    COMPLETION_CHANNEL_FAILURES, KAFKA_CONSUMER_IN_FLIGHT_MEMORY_BYTES,
+    KAFKA_CONSUMER_IN_FLIGHT_MESSAGES, MESSAGES_FORCE_CLEARED, MESSAGE_COMPLETION_DURATION,
+    OUT_OF_ORDER_COMPLETIONS, PARTITION_LAST_COMMITTED_OFFSET, PARTITION_OFFSET_GAP_DETECTED,
+    PARTITION_OFFSET_GAP_SIZE, PARTITION_PENDING_COMPLETIONS, PARTITION_SECONDS_SINCE_LAST_COMMIT,
 };
 use crate::kafka::types::{Partition, PartitionOffset, PartitionState};
 
@@ -70,6 +70,7 @@ pub struct MessageCompletion {
     pub offset: i64,
     pub result: MessageResult,
     pub memory_size: usize,
+    pub processing_duration_ms: u64,
 }
 
 /// Per-partition tracker that manages its own completion processing
@@ -84,20 +85,27 @@ struct PartitionTracker {
     in_flight_count: Arc<AtomicU64>,
     /// Handle to the completion processing task
     _processor_handle: JoinHandle<()>,
+    /// Shutdown signal for graceful cleanup
+    shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 impl Drop for PartitionTracker {
     fn drop(&mut self) {
-        // The JoinHandle will be dropped, which aborts the task
+        // Send shutdown signal if available
+        if let Some(shutdown_tx) = self.shutdown_tx.take() {
+            let _ = shutdown_tx.send(());
+            debug!("Sent shutdown signal to PartitionTracker completion processor");
+        }
+        // The JoinHandle will be dropped, which will wait for task completion
         // The channel will be closed when completion_tx is dropped
-        // Log for debugging
-        debug!("Dropping PartitionTracker - completion processor task will be aborted");
+        debug!("Dropping PartitionTracker - waiting for completion processor to finish");
     }
 }
 
 impl PartitionTracker {
     fn new(topic: String, partition: i32, global_stats: Arc<GlobalStats>) -> Self {
         let (completion_tx, mut completion_rx) = mpsc::unbounded_channel::<MessageCompletion>();
+        let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel();
 
         let last_committed_offset = Arc::new(RwLock::new(-1));
         let initial_offset = Arc::new(RwLock::new(None));
@@ -118,8 +126,13 @@ impl PartitionTracker {
                 topic, partition
             );
 
-            while let Some(completion) = completion_rx.recv().await {
-                let processing_start = Instant::now();
+            loop {
+                tokio::select! {
+                    // Process completions
+                    Some(completion) = completion_rx.recv() => {
+                // Save the processing duration before moving completion
+                let processing_duration_ms = completion.processing_duration_ms;
+
                 // Update global statistics
                 global_stats.message_processed(&completion.result, completion.memory_size);
 
@@ -224,12 +237,28 @@ impl PartitionTracker {
                     "topic" => topic.clone(),
                     "partition" => partition.to_string()
                 )
-                .record(processing_start.elapsed().as_secs_f64());
+                .record(processing_duration_ms as f64);
+                    }
+                    // Handle shutdown signal
+                    _ = &mut shutdown_rx => {
+                        info!("Received shutdown signal for partition {}-{} completion processor", topic, partition);
+
+                        // Process any remaining completions in the channel
+                        while let Ok(completion) = completion_rx.try_recv() {
+                            global_stats.message_processed(&completion.result, completion.memory_size);
+                            in_flight_clone.fetch_sub(1, Ordering::SeqCst);
+                            warn!("Processed remaining completion during shutdown: offset={}", completion.offset);
+                        }
+                        break;
+                    }
+                }
             }
 
             info!(
-                "Completion processor for partition {}-{} stopped",
-                topic, partition
+                "Completion processor for partition {}-{} stopped, in_flight={}",
+                topic,
+                partition,
+                in_flight_clone.load(Ordering::SeqCst)
             );
         });
 
@@ -239,12 +268,26 @@ impl PartitionTracker {
             initial_offset,
             in_flight_count,
             _processor_handle: processor_handle,
+            shutdown_tx: Some(shutdown_tx),
         }
     }
 
     /// Get the number of in-flight messages for this partition
     fn get_in_flight_count(&self) -> usize {
         self.in_flight_count.load(Ordering::SeqCst) as usize
+    }
+
+    /// Force clear all in-flight messages for this partition
+    /// This should only be called when the partition is being revoked
+    fn force_clear_inflight(&self) {
+        let count = self.in_flight_count.swap(0, Ordering::SeqCst);
+        if count > 0 {
+            warn!(
+                "Force cleared {} in-flight messages during partition revocation",
+                count
+            );
+            metrics::counter!(MESSAGES_FORCE_CLEARED).increment(count);
+        }
     }
 }
 
@@ -255,6 +298,7 @@ pub struct MessageHandle {
     pub partition: i32,
     pub offset: i64,
     pub memory_size: usize,
+    pub created_at: Instant,
     pub(crate) completion_tx: mpsc::UnboundedSender<MessageCompletion>,
 }
 
@@ -271,6 +315,7 @@ impl MessageHandle {
             partition,
             offset,
             memory_size,
+            created_at: Instant::now(),
             completion_tx,
         }
     }
@@ -281,6 +326,7 @@ impl MessageHandle {
             offset: self.offset,
             result,
             memory_size: self.memory_size,
+            processing_duration_ms: self.created_at.elapsed().as_millis() as u64,
         };
 
         if self.completion_tx.send(completion).is_err() {
@@ -288,6 +334,7 @@ impl MessageHandle {
                 "Failed to send completion signal for message at offset {}",
                 self.offset
             );
+            metrics::counter!(COMPLETION_CHANNEL_FAILURES).increment(1);
         }
     }
 }
@@ -305,11 +352,17 @@ impl PartitionTrackingInfo {
             // Valid transitions
             (PartitionState::Active, PartitionState::Fenced) => {}
             (PartitionState::Fenced, PartitionState::Revoked) => {
-                // Clean up tracker when revoking
+                // Force clear any in-flight messages and clean up tracker when revoking
+                if let Some(tracker) = &self.tracker {
+                    tracker.force_clear_inflight();
+                }
                 self.tracker = None;
             }
             (PartitionState::Fenced, PartitionState::Active) => {
                 // Unfencing - clean tracker for fresh start
+                if let Some(tracker) = &self.tracker {
+                    tracker.force_clear_inflight();
+                }
                 self.tracker = None;
             }
             (PartitionState::Revoked, PartitionState::Active) => {
