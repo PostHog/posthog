@@ -77,14 +77,13 @@ export function StepRandomCohortBranchConfiguration({
         setCohorts(cohorts.map((cohort, i) => (i === index ? { percentage } : cohort)))
     }
 
-    // Normalize variant rollout percentages
     const normalizePercentages = (): void => {
         const count = cohorts.length
         if (count === 0) {
             return
         }
         const base = Math.floor(100 / count)
-        let remainder = 100 - base * count
+        const remainder = 100 - base * count
         const normalized = cohorts.map((_, i) => {
             // Distribute remainder to the first cohorts
             return { percentage: base + (i < remainder ? 1 : 0) }
