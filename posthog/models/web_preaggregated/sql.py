@@ -294,8 +294,12 @@ def get_dimension_columns(dimensions):
     for d in dimensions:
         if d in ["viewport_width", "viewport_height"]:
             column_definitions.append(f"{d} Int64")
-        elif d in ["has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_loggedIn"]:
+        elif d in ["has_gclid", "has_gad_source_paid_search", "has_fbclid"]:
             column_definitions.append(f"{d} Bool")
+        elif d == "mat_metadata_loggedIn":
+            column_definitions.append(f"{d} Nullable(Bool)")
+        elif d == "mat_metadata_backend":
+            column_definitions.append(f"{d} Nullable(String)")
         else:
             column_definitions.append(f"{d} String")
     return ",\n".join(column_definitions)
