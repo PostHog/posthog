@@ -57,6 +57,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         filters: null,
                         masking: null,
                         free: true,
+                        flag: connector.featureFlag,
                     })
                 )
 

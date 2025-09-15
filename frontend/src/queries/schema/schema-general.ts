@@ -3867,6 +3867,7 @@ export interface SourceConfig {
     existingSource?: boolean
     unreleasedSource?: boolean
     betaSource?: boolean
+    featureFlag?: string
 }
 
 export const externalDataSources = [
