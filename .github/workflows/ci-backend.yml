@@ -137,7 +137,7 @@ jobs:
 
             - name: Install python dependencies for master
               run: |
-                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+                  UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev
 
             - name: Wait for services to be available
               run: |
@@ -146,7 +146,7 @@ jobs:
 
             - name: Run migrations up to master
               run: |
-                  python manage.py migrate
+                  .venv-master/bin/python manage.py migrate
 
             # Now we can consider this PR's migrations
             - name: Checkout this PR
