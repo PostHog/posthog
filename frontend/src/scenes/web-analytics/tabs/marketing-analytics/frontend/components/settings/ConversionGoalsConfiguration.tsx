@@ -82,21 +82,13 @@ export function ConversionGoalsConfiguration({
         <SceneSection
             hideTitleAndDescription
             title={!hideTitle ? 'Conversion goals' : undefined}
-            description="Define conversion goals by selecting events or data warehouse tables. These goals can be used to track and analyze user conversions in your marketing analytics."
+            description={
+                !hideDescription
+                    ? 'Define conversion goals by selecting events or data warehouse tables. These goals can be used to track and analyze user conversions in your marketing analytics.'
+                    : undefined
+            }
             className={cn('gap-y-4')}
         >
-            {(!hideTitle || !hideDescription) && (
-                <div>
-                    {!hideTitle && <h3 className="mb-2">Conversion goals</h3>}
-                    {!hideDescription && (
-                        <p className="mb-0">
-                            Define conversion goals by selecting events or data warehouse tables. These goals can be
-                            used to track and analyze user conversions in your marketing analytics.
-                        </p>
-                    )}
-                </div>
-            )}
-
             {/* Add New Conversion Goal Form */}
             <div className="border rounded p-4 space-y-4">
                 <h4 className="font-medium">Add new conversion goal</h4>
