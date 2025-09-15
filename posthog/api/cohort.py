@@ -586,6 +586,7 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
         cohort.filters = validated_data.get("filters", cohort.filters)
         cohort.cohort_type = validated_data.get("cohort_type", cohort.cohort_type)
+        cohort.query = validated_data.get("query", cohort.query)
 
         deleted_state = validated_data.get("deleted", None)
 
@@ -627,6 +628,12 @@ class CohortSerializer(serializers.ModelSerializer):
             if cohort.is_static and request.FILES.get("csv"):
                 # You can't update a static cohort using the trend/stickiness thing
                 self._calculate_static_by_csv(request.FILES["csv"], cohort)
+                if request.FILES.get("csv"):
+                    self._calculate_static_by_csv(request.FILES["csv"], cohort)
+                elif validated_data.get("query"):
+                    insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
+                else:
+                    increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
             else:
                 cohort.enqueue_calculation(initiating_user=request.user)
 
