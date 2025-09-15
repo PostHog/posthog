@@ -357,24 +357,6 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
             )
         }
 
-        // Check if this row should be the footer message:
-        // - !item: No actual item data exists at this index
-        // - rowIndex === totalListCount - 1: This is the last row in the visible list
-        // - group.footerMessage: A footer message is configured
-        // - !isExpandable: No expand functionality needed
-        const isFooterMessageRow = !item && rowIndex === totalListCount - 1 && group.footerMessage && !isExpandable
-        if (isFooterMessageRow) {
-            return (
-                <div
-                    {...commonDivProps}
-                    className={clsx(commonDivProps.className, 'footer-message')}
-                    data-attr={`footer-message-${listGroupType}`}
-                >
-                    {group.footerMessage}
-                </div>
-            )
-        }
-
         // Otherwise show a skeleton loader
         return (
             <div
