@@ -2,11 +2,15 @@ import { actions, kea, listeners, path, props, reducers, selectors, useActions, 
 import { router, urlToAction } from 'kea-router'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ActivityScope, Breadcrumb } from '~/types'
 
 import { DataPipelinesHogFunctions } from './DataPipelinesHogFunctions'
@@ -51,6 +55,7 @@ export const dataPipelinesSceneLogic = kea<dataPipelinesSceneLogicType>([
                     {
                         key: Scene.DataPipelines,
                         name: 'Data pipelines',
+                        path: urls.dataPipelines(),
                     },
                     {
                         key: [Scene.DataPipelines, kind],
@@ -68,7 +73,7 @@ export const dataPipelinesSceneLogic = kea<dataPipelinesSceneLogicType>([
     urlToAction(({ actions, values }) => {
         return {
             // All possible routes for this scene need to be listed here
-            [urls.dataPipelines(':kind')]: ({ kind }) => {
+            [urls.dataPipelines(':kind' as any)]: ({ kind }) => {
                 const possibleTab: DataPipelinesSceneTab = (kind as DataPipelinesSceneTab) ?? 'overview'
 
                 const tab = DATA_PIPELINES_SCENE_TABS.includes(possibleTab) ? possibleTab : 'overview'
@@ -91,6 +96,7 @@ export const scene: SceneExport = {
 export function DataPipelinesScene(): JSX.Element {
     const { currentTab } = useValues(dataPipelinesSceneLogic)
     const { setCurrentTab } = useActions(dataPipelinesSceneLogic)
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const tabs: LemonTab<DataPipelinesSceneTab>[] = [
         {
@@ -125,5 +131,17 @@ export function DataPipelinesScene(): JSX.Element {
         },
     ]
 
-    return <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} />
+    return (
+        <SceneContent forceNewSpacing>
+            <SceneTitleSection
+                name="Data pipelines"
+                description="Ingest, transform, and send data between hundreds of tools."
+                resourceType={{
+                    type: 'data_pipeline',
+                }}
+            />
+            <SceneDivider />
+            <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset={newSceneLayout} />
+        </SceneContent>
+    )
 }
