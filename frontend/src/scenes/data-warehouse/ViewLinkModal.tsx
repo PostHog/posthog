@@ -6,6 +6,7 @@ import { useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonButtonProps,
     LemonCard,
@@ -413,6 +414,7 @@ export function ViewLinkFormWithPreview({ mode }: ViewLinkModalProps): JSX.Eleme
         joiningTablePreviewLoading,
         isJoinValidating,
         isJoinValid,
+        validationError,
     } = useValues(viewLinkLogic)
     const {
         selectJoiningTable,
@@ -668,6 +670,31 @@ export function ViewLinkFormWithPreview({ mode }: ViewLinkModalProps): JSX.Eleme
                     </div>
                 )}
             </div>
+            {validationError && (
+                <LemonBanner
+                    className="mt-2"
+                    type="error"
+                    children={
+                        <div className="flex flex-row items-center">
+                            <div>
+                                Validation error:
+                                <br />
+                                {validationError}
+                            </div>
+                            <LemonButton
+                                children="Get help"
+                                type="secondary"
+                                onClick={() => {
+                                    window.open(
+                                        'https://posthog.com/support?utm_medium=in-product&utm_campaign=join-modal-validation-error',
+                                        '_blank'
+                                    )
+                                }}
+                            />
+                        </div>
+                    }
+                />
+            )}
             <LemonDivider className="mt-4 mb-4" />
             <div className="flex flex-row gap-2 justify-end w-full">
                 {isJoinValid ? (
@@ -679,10 +706,15 @@ export function ViewLinkFormWithPreview({ mode }: ViewLinkModalProps): JSX.Eleme
                     </>
                 ) : (
                     <>
-                        <LemonButton htmlType="submit" loading={isViewLinkSubmitting}>
+                        <LemonButton htmlType="submit" loading={isViewLinkSubmitting} disabledReason={validationError}>
                             Save join without validating
                         </LemonButton>
-                        <LemonButton type="primary" onClick={validateJoin} loading={isJoinValidating}>
+                        <LemonButton
+                            type="primary"
+                            onClick={validateJoin}
+                            loading={isJoinValidating}
+                            disabledReason={validationError}
+                        >
                             Validate join
                         </LemonButton>
                     </>

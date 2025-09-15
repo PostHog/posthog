@@ -68,6 +68,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         setSourceTablePreviewData: (data: Record<string, any>[]) => ({ data }),
         setJoiningTablePreviewData: (data: Record<string, any>[]) => ({ data }),
         setIsJoinValid: (isValid: boolean) => ({ isValid }),
+        setValidationError: (errorMessage: string) => ({ errorMessage }),
         validateJoin: () => {},
     })),
     reducers({
@@ -180,6 +181,15 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             {
                 setError: (_, { error }) => error,
                 clearModalFields: () => null,
+            },
+        ],
+        validationError: [
+            null as null | string,
+            {
+                setValidationError: (_, { errorMessage }) => errorMessage,
+                clearModalFields: () => null,
+                selectSourceKey: () => null,
+                selectJoiningKey: () => null,
             },
         ],
         sourceTablePreviewData: [
@@ -340,7 +350,8 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                     LIMIT 10`
                 )
                 actions.setIsJoinValid(true)
-            } catch {
+            } catch (error) {
+                actions.setValidationError(error.detail)
                 actions.setIsJoinValid(false)
             }
         },
