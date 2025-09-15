@@ -14653,6 +14653,7 @@ class SourceConfig(BaseModel):
     caption: Union[str, Any]
     disabledReason: Optional[str] = None
     existingSource: Optional[bool] = None
+    featureFlag: Optional[str] = None
     fields: list[
         Union[
             SourceFieldInputConfig,

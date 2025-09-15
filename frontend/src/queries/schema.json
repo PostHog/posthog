@@ -23206,6 +23206,9 @@
                 "existingSource": {
                     "type": "boolean"
                 },
+                "featureFlag": {
+                    "type": "string"
+                },
                 "fields": {
                     "items": {
                         "$ref": "#/definitions/SourceFieldConfig"
