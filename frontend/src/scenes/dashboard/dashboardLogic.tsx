@@ -51,7 +51,6 @@ import {
     HogQLVariable,
     NodeKind,
     RefreshType,
-    TileFilters,
 } from '~/queries/schema/schema-general'
 import {
     AccessControlResourceType,
@@ -265,7 +264,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         }),
         setTextTileId: (textTileId: number | 'new' | null) => ({ textTileId }),
         setTileOverride: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
-        setPendingTileOverrides: (overrides: any) => ({ overrides }),
 
         /**
          * Usage tracking.
@@ -793,13 +791,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             null as number | 'new' | null,
             {
                 setTextTileId: (_, { textTileId }) => textTileId,
-            },
-        ],
-
-        pendingTileOverrides: [
-            null as TileFilters | null,
-            {
-                setPendingTileOverrides: (_, { overrides }) => overrides,
             },
         ],
 
