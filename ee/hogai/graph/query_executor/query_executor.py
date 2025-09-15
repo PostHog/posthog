@@ -76,7 +76,7 @@ class AssistantQueryExecutor:
         _utc_now_datetime: Current UTC datetime for time-based calculations
     """
 
-    WAIT_TIME_S = 0.2
+    WAIT_TIME_S = 0.5
 
     def __init__(self, team: Team, utc_now_datetime: datetime):
         self._team = team
