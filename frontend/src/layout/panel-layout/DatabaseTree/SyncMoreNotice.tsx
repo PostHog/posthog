@@ -10,7 +10,7 @@ import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWare
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { PipelineStage, ProductKey } from '~/types'
+import { ProductKey } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
 
@@ -57,7 +57,7 @@ export const SyncMoreNotice = (): JSX.Element | null => {
                         toggleLayoutPanelPinned(false)
                         showLayoutPanel(false)
                         clearActivePanelIdentifier()
-                        router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
+                        router.actions.push(urls.dataWarehouseSourceNew())
                     }}
                     center
                     size="small"

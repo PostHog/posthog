@@ -17,7 +17,7 @@ use crate::{
     processor_pool::ProcessorPool,
     processor_rebalance_handler::ProcessorRebalanceHandler,
     store::DeduplicationStoreConfig,
-    store_manager::StoreManager,
+    store_manager::{CleanupTaskHandle, StoreManager},
 };
 
 /// The main Kafka Deduplicator service that encapsulates all components
@@ -26,6 +26,7 @@ pub struct KafkaDeduplicatorService {
     consumer: Option<StatefulKafkaConsumer>,
     store_manager: Arc<StoreManager>,
     checkpoint_manager: Option<CheckpointManager>,
+    cleanup_task_handle: Option<CleanupTaskHandle>,
     processor_pool_handles: Option<Vec<tokio::task::JoinHandle<()>>>,
     processor_pool_health: Option<Arc<AtomicBool>>,
     shutdown_tx: Option<oneshot::Sender<()>>,
@@ -50,12 +51,28 @@ impl KafkaDeduplicatorService {
         };
 
         // Create store manager for handling concurrent store creation
-        let store_manager = Arc::new(StoreManager::new(store_config));
+        let store_manager = Arc::new(StoreManager::new(store_config.clone()));
+
+        // Start periodic cleanup task if max_capacity is configured
+        let cleanup_task_handle = if store_config.max_capacity > 0 {
+            let cleanup_interval = config.cleanup_interval();
+            let handle = store_manager
+                .clone()
+                .start_periodic_cleanup(cleanup_interval);
+            info!(
+                "Started periodic cleanup task with interval: {:?} for max capacity: {} bytes",
+                cleanup_interval, store_config.max_capacity
+            );
+            Some(handle)
+        } else {
+            info!("Cleanup task not started - max_capacity is unlimited (0)");
+            None
+        };
 
         // Create checkpoint manager with the store manager
-        let mut checkpoint_manager =
+        let checkpoint_manager =
             CheckpointManager::new(store_manager.clone(), config.flush_interval());
-        checkpoint_manager.start();
+        // checkpoint_manager.start();
         info!(
             "Started checkpoint manager with flush interval: {:?}",
             config.flush_interval()
@@ -66,6 +83,7 @@ impl KafkaDeduplicatorService {
             consumer: None,
             store_manager,
             checkpoint_manager: Some(checkpoint_manager),
+            cleanup_task_handle,
             processor_pool_handles: None,
             processor_pool_health: None,
             shutdown_tx: None,
@@ -116,8 +134,8 @@ impl KafkaDeduplicatorService {
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
         self.shutdown_tx = Some(shutdown_tx);
 
-        // Create processor pool with one worker per CPU
-        let num_workers = num_cpus::get();
+        // Create processor pool with configured number of workers
+        let num_workers = self.config.worker_threads;
         let (message_sender, processor_pool) = ProcessorPool::new(processor, num_workers);
 
         // Start the processor pool workers and get health status
@@ -372,6 +390,12 @@ impl KafkaDeduplicatorService {
 
         if let Some(shutdown_tx) = self.shutdown_tx.take() {
             let _ = shutdown_tx.send(());
+        }
+
+        // Stop cleanup task if running
+        if let Some(handle) = self.cleanup_task_handle.take() {
+            info!("Stopping cleanup task...");
+            handle.stop().await;
         }
 
         // Give some time for graceful shutdown

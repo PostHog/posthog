@@ -23,6 +23,7 @@ class MailJetSource(BaseSource[MailjetSourceConfig]):
             name=SchemaExternalDataSourceType.MAILJET,
             label="Mailjet",
             caption="",
+            iconPath="/static/services/mailjet.png",
             fields=cast(list[FieldType], []),
             unreleasedSource=True,
         )

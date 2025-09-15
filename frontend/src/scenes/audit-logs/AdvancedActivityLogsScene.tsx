@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonDivider, LemonTabs } from '@posthog/lemon-ui'
+import { LemonTabs } from '@posthog/lemon-ui'
 
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -34,7 +34,6 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
             content: (
                 <div className="space-y-4">
                     <AdvancedActivityLogFiltersPanel />
-                    <LemonDivider />
                     <AdvancedActivityLogsList />
                 </div>
             ),

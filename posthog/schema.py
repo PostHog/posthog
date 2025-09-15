@@ -1329,13 +1329,13 @@ class FileSystemIconType(StrEnum):
     PERSON = "person"
     COHORT = "cohort"
     GROUP = "group"
-    INSIGHT_FUNNEL = "insight_funnel"
-    INSIGHT_TREND = "insight_trend"
-    INSIGHT_RETENTION = "insight_retention"
-    INSIGHT_USER_PATH = "insight_user_path"
-    INSIGHT_LIFECYCLE = "insight_lifecycle"
-    INSIGHT_STICKINESS = "insight_stickiness"
-    INSIGHT_HOGQL = "insight_hogql"
+    INSIGHT_FUNNELS = "insight/funnels"
+    INSIGHT_TRENDS = "insight/trends"
+    INSIGHT_RETENTION = "insight/retention"
+    INSIGHT_PATHS = "insight/paths"
+    INSIGHT_LIFECYCLE = "insight/lifecycle"
+    INSIGHT_STICKINESS = "insight/stickiness"
+    INSIGHT_HOG = "insight/hog"
 
 
 class FileSystemImport(BaseModel):
@@ -1635,6 +1635,7 @@ class IntegrationKind(StrEnum):
     GITHUB = "github"
     META_ADS = "meta-ads"
     CLICKUP = "clickup"
+    REDDIT_ADS = "reddit-ads"
 
 
 class IntervalType(StrEnum):
@@ -14652,6 +14653,7 @@ class SourceConfig(BaseModel):
     caption: Union[str, Any]
     disabledReason: Optional[str] = None
     existingSource: Optional[bool] = None
+    featureFlag: Optional[str] = None
     fields: list[
         Union[
             SourceFieldInputConfig,
@@ -14662,6 +14664,7 @@ class SourceConfig(BaseModel):
             SourceFieldSSHTunnelConfig,
         ]
     ]
+    iconPath: str
     label: Optional[str] = None
     name: ExternalDataSourceType
     unreleasedSource: Optional[bool] = None

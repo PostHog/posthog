@@ -1644,6 +1644,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-compression"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "flate2",
+ "thiserror 2.0.12",
+]
+
+[[package]]
 name = "common-cookieless"
 version = "0.0.1"
 dependencies = [
@@ -1948,9 +1957,9 @@ name = "cyclotron-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "common-compression",
  "common-metrics",
  "csv",
- "flate2",
  "futures",
  "hex",
  "serde",
@@ -2483,6 +2492,7 @@ dependencies = [
  "bytes",
  "chrono",
  "common-alloc",
+ "common-compression",
  "common-cookieless",
  "common-database",
  "common-geoip",
@@ -2491,7 +2501,6 @@ dependencies = [
  "common-types",
  "dateparser",
  "envconfig",
- "flate2",
  "futures",
  "health",
  "json5",
@@ -3838,6 +3847,7 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "num_cpus",
+ "once_cell",
  "opentelemetry 0.22.0",
  "opentelemetry-otlp",
  "opentelemetry_sdk 0.22.1",
@@ -4569,9 +4579,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.19.0"
+version = "1.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
+checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
 
 [[package]]
 name = "openssl"

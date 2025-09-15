@@ -25,7 +25,6 @@ export function Actions(): JSX.Element {
                 resourceType={{
                     type: 'action',
                 }}
-                docsURL="https://posthog.com/docs/data/actions"
             />
             <SceneDivider />
             <ActionsTable />

@@ -129,6 +129,14 @@ export class HogFlowExecutorService {
             return earlyExitResult
         }
 
+        const hasCurrentAction = Boolean(invocation.state.currentAction)
+        const currentAction = hasCurrentAction ? `[Action:${invocation.state.currentAction!.id}]` : 'trigger'
+        logs.push({
+            level: 'debug',
+            message: `${hasCurrentAction ? 'Resuming' : 'Starting'} workflow execution at ${currentAction}`,
+            timestamp: DateTime.now(),
+        })
+
         while (!result || !result.finished) {
             const nextInvocation: CyclotronJobInvocationHogFlow = result?.invocation ?? invocation
 
@@ -283,6 +291,11 @@ export class HogFlowExecutorService {
                 return result
             }
 
+            result.logs.push({
+                level: 'debug',
+                message: `Executing action ${actionIdForLogging(currentAction)}`,
+                timestamp: DateTime.now(),
+            })
             logger.debug('🦔', `[HogFlowActionRunner] Running action ${currentAction.type}`, {
                 action: currentAction,
                 invocation,
@@ -382,7 +395,7 @@ export class HogFlowExecutorService {
                  * TODO: Determine if we should track this as a 'succeeded' metric here or
                  * a new metric_name e.g. 'continued_after_error'
                  */
-                this.goToNextAction(result, currentAction, nextAction, 'failed')
+                this.goToNextAction(result, currentAction, nextAction, 'succeeded')
             }
         }
     }
