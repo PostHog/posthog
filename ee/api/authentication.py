@@ -398,3 +398,23 @@ class VercelAuthentication(authentication.BaseAuthentication):
             audience=settings.VERCEL_CLIENT_INTEGRATION_ID,
             leeway=10,  # account for clock skew with 10 seconds of leeway
         )
+
+
+def social_auth_allowed(backend, details, response, *args, **kwargs) -> None:
+    email = details.get("email")
+    # Check if SSO enforcement is enabled for this email address
+    sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(email)
+    if sso_enforcement is None or sso_enforcement == backend.name:
+        return
+
+    if sso_enforcement == "saml":
+        raise AuthFailed(backend, "saml_sso_enforced")
+    elif sso_enforcement == "google-oauth2":
+        raise AuthFailed(backend, "google_sso_enforced")
+    elif sso_enforcement == "github":
+        raise AuthFailed(backend, "github_sso_enforced")
+    elif sso_enforcement == "gitlab":
+        raise AuthFailed(backend, "gitlab_sso_enforced")
+    else:
+        # catch-all in case we missed a case above
+        raise AuthFailed(backend, "sso_enforced", email)

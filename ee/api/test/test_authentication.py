@@ -236,6 +236,50 @@ class TestEEAuthenticationAPI(APILicensedTest):
             second_key = self.client.session.session_key
             self.assertNotEqual(first_key, second_key)
 
+    def test_existing_session_remains_valid_when_sso_enforced(self):
+        """Test that existing password-authenticated sessions remain valid after SSO is enforced"""
+        self.client.logout()
+
+        # Step 1: User logs in with password (no SSO enforcement yet)
+        response = self.client.post(
+            "/api/login",
+            {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Step 2: Verify user can access protected endpoints
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["email"], self.CONFIG_EMAIL)
+
+        # Step 3: Admin enforces SSO for the domain
+        self.create_enforced_domain()
+
+        # Step 4: User's existing session should still work
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["email"], self.CONFIG_EMAIL)
+
+        # Step 5: User logs out
+        self.client.logout()
+
+        # Step 6: User can no longer log in with password
+        with self.settings(**GOOGLE_MOCK_SETTINGS):
+            response = self.client.post(
+                "/api/login",
+                {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "sso_enforced",
+                "detail": "You can only login with SSO for this account (google-oauth2).",
+                "attr": None,
+            },
+        )
+
 
 @pytest.mark.skip_on_multitenancy
 @override_settings(**SAML_MOCK_SETTINGS)
@@ -861,3 +905,150 @@ class TestCustomGoogleOAuth2(APILicensedTest):
             self.google_oauth.get_user_id(self.details, response)
 
         self.assertEqual(str(e.exception), "Google OAuth response missing 'sub' claim")
+
+
+class TestSSOEnforcement(APILicensedTest):
+    """Test SSO enforcement across different auth methods"""
+
+    CONFIG_AUTO_LOGIN = False
+
+    def setUp(self):
+        super().setUp()
+        # Create a user with the domain we'll be testing
+        self.test_email = "test@testdomain.com"
+        self.test_user = User.objects.create_and_join(self.organization, self.test_email, self.CONFIG_PASSWORD)
+
+    @override_settings(**SAML_MOCK_SETTINGS, **GOOGLE_MOCK_SETTINGS)
+    def test_cannot_use_social_auth_when_saml_is_required(self):
+        """Test that Google OAuth2 fails when SAML is enforced"""
+        from ee.api.authentication import social_auth_allowed
+
+        # Create domain with SAML enforcement
+        OrganizationDomain.objects.create(
+            domain="testdomain.com",
+            organization=self.organization,
+            verified_at=timezone.now(),
+            sso_enforcement="saml",
+            saml_entity_id="http://www.okta.com/test",
+            saml_acs_url="https://idp.test.io/saml",
+            saml_x509_cert="test_cert",
+        )
+
+        # Test that Google OAuth2 is blocked
+        with self.assertRaises(AuthFailed) as context:
+            social_auth_allowed(
+                backend=type("MockBackend", (), {"name": "google-oauth2"})(),
+                details={"email": self.test_email},
+                response={},
+            )
+        self.assertEqual(context.exception.args[0], "saml_sso_enforced")
+
+        # Test that GitHub is also blocked
+        with self.assertRaises(AuthFailed) as context:
+            social_auth_allowed(
+                backend=type("MockBackend", (), {"name": "github"})(), details={"email": self.test_email}, response={}
+            )
+        self.assertEqual(context.exception.args[0], "saml_sso_enforced")
+
+    @override_settings(**SAML_MOCK_SETTINGS, **GOOGLE_MOCK_SETTINGS)
+    def test_other_social_auth_blocked_with_google_enforcement(self):
+        """Test other social auth methods are blocked, including saml, when Google is enforced"""
+        from ee.api.authentication import social_auth_allowed
+
+        OrganizationDomain.objects.create(
+            domain="testdomain.com",
+            organization=self.organization,
+            verified_at=timezone.now(),
+            sso_enforcement="google-oauth2",
+        )
+
+        # Test that GitHub auth is blocked
+        with self.assertRaises(AuthFailed) as context:
+            social_auth_allowed(
+                backend=type("MockBackend", (), {"name": "github"})(), details={"email": self.test_email}, response={}
+            )
+        self.assertEqual(context.exception.args[0], "google_sso_enforced")
+
+        # Test that SAML auth is blocked
+        with self.assertRaises(AuthFailed) as context:
+            social_auth_allowed(
+                backend=type("MockBackend", (), {"name": "saml"})(),
+                details={"email": self.test_email},
+                response={},
+            )
+        self.assertEqual(context.exception.args[0], "google_sso_enforced")
+
+        # Test that Google OAuth2 is allowed
+        try:
+            social_auth_allowed(
+                backend=type("MockBackend", (), {"name": "google-oauth2"})(),
+                details={"email": self.test_email},
+                response={},
+            )
+        except AuthFailed:
+            self.fail("Google OAuth2 should be allowed when Google OAuth2 is enforced")
+
+    @freeze_time("2021-08-25T22:09:14.252Z")  # Same timestamp as other SAML tests using this fixture
+    @override_settings(**SAML_MOCK_SETTINGS, **GOOGLE_MOCK_SETTINGS)
+    def test_saml_auth_flow_blocked_when_google_oauth2_enforced(self):
+        """Integration test: Verify SAML auth flow is blocked when Google OAuth2 is enforced"""
+
+        OrganizationDomain.objects.create(
+            domain="posthog.com",
+            organization=self.organization,
+            verified_at=timezone.now(),
+            sso_enforcement="google-oauth2",
+        )
+
+        # Create SAML configuration for the same organization (needed for RelayState)
+        org_domain_saml = OrganizationDomain.objects.create(
+            domain="saml-posthog.com",  # Different domain for SAML config
+            organization=self.organization,
+            verified_at=timezone.now(),
+            saml_entity_id="http://www.okta.com/exk1ijlhixJxpyEBZ5d7",
+            saml_acs_url="https://my.posthog.app/complete/saml/",
+            saml_x509_cert="""MIIDqDCCApCgAwIBAgIGAXtoc3o9MA0GCSqGSIb3DQEBCwUAMIGUMQswCQYDVQQGEwJVUzETMBEG
+A1UECAwKQ2FsaWZvcm5pYTEWMBQGA1UEBwwNU2FuIEZyYW5jaXNjbzENMAsGA1UECgwET2t0YTEU
+MBIGA1UECwwLU1NPUHJvdmlkZXIxFTATBgNVBAMMDGRldi0xMzU1NDU1NDEcMBoGCSqGSIb3DQEJ
+ARYNaW5mb0Bva3RhLmNvbTAeFw0yMTA4MjExMTIyMjNaFw0zMTA4MjExMTIzMjNaMIGUMQswCQYD
+VQQGEwJVUzETMBEGA1UECAwKQ2FsaWZvcm5pYTEWMBQGA1UEBwwNU2FuIEZyYW5jaXNjbzENMAsG
+A1UECgwET2t0YTEUMBIGA1UECwwLU1NPUHJvdmlkZXIxFTATBgNVBAMMDGRldi0xMzU1NDU1NDEc
+MBoGCSqGSIb3DQEJARYNaW5mb0Bva3RhLmNvbTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoC
+ggEBAMb1IcGzor7mGsGR0AsyzQaT0O9S1SVvdkG3z2duEU/I/a4fvaECm9xvVH7TY+RwwXcnkMst
++ZZJVkTtnUGLn0oSbcwJ1iJwWNOctaNlaJtPDLvJTJpFB857D2tU01/zPn8UpBebX8tJSIcvnvyO
+Iblums97f9tlsI9GHqX5N1e1TxRg6FB2ba46mgb0EdzLtPxdYDVf8b5+V0EWp0fu5nbu5T4T+1Tq
+IVj2F1xwFTdsHnzh7FP92ohRRl8WQuC1BjAJTagGmgtfxQk2MW0Ti7Dl0Ejcwcjp7ezbyOgWLBmA
+fJ/Sg/MyEX11+4H+VQ8bGwIYtTM2Hc+W6gnhg4IdIfcCAwEAATANBgkqhkiG9w0BAQsFAAOCAQEA
+Ef8AeVm+rbrDqil8GwZz/6mTeSHeJgsYZhJqCsaVkRPe03+NO93fRt28vlDQoz9alzA1I1ikjmfB
+W/+x2dFPThR1/G4zGfF5pwU13gW1fse0/bO564f6LrmWYawL8SzwGbtelc9DxPN1X5g8Qk+j4DNm
+jSjV4Oxsv3ogajnnGYGv22iBgS1qccK/cg41YkpgfP36HbiwA10xjUMv5zs97Ljep4ejp6yoKrGL
+dcKmj4EG6bfcI3KY6wK46JoogXZdHDaFP+WOJNj/pJ165hYsYLcqkJktj/rEgGQmqAXWPOXHmFJb
+5FPleoJTchctnzUw+QfmSsLWQ838/lUQsN7FsQ==""",
+        )
+
+        # Set the SAML state in session (required for SAML authentication)
+        _session = self.client.session
+        _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
+        _session.save()
+
+        with open(
+            os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"),
+            encoding="utf_8",
+        ) as f:
+            saml_response = f.read()
+
+        # Attempt to complete SAML authentication
+        # The SAML response contains test@posthog.com which has google-oauth2 enforcement
+        response = self.client.post(
+            "/complete/saml/",
+            {
+                "SAMLResponse": saml_response,
+                "RelayState": str(org_domain_saml.id),
+            },
+            format="multipart",
+            follow=False,  # Don't follow redirects so we can check the redirect URL
+        )
+
+        # Should be redirected to login with SSO enforcement error
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("/login?error_code=google_sso_enforced", response.headers["Location"])
