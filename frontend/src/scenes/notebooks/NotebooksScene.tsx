@@ -12,6 +12,9 @@ import { getAppContext } from 'lib/utils/getAppContext'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { NotebooksTable } from './NotebooksTable/NotebooksTable'
@@ -22,7 +25,7 @@ export const scene: SceneExport = {
 
 export function NotebooksScene(): JSX.Element {
     return (
-        <div className="deprecated-space-y-4">
+        <SceneContent forceNewSpacing>
             <PageHeader
                 buttons={
                     <>
@@ -82,7 +85,16 @@ export function NotebooksScene(): JSX.Element {
                 }
             />
 
+            <SceneTitleSection
+                name="Notebooks"
+                description="Notebooks are a way to organize your work and share it with others."
+                resourceType={{
+                    type: 'notebook',
+                }}
+            />
+            <SceneDivider />
+
             <NotebooksTable />
-        </div>
+        </SceneContent>
     )
 }

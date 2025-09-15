@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 from uuid import UUID
 
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
 from django.core.paginator import Paginator
 from django.db import models, transaction
@@ -116,7 +117,32 @@ class ActivityLog(UUIDTModel):
                 check=models.Q(team_id__isnull=False) | models.Q(organization_id__isnull=False),
             ),
         ]
-        indexes = [models.Index(fields=["team_id", "scope", "item_id"])]
+        indexes = [
+            models.Index(fields=["team_id", "scope", "item_id"]),
+            models.Index(
+                fields=["organization_id", "scope", "-created_at"],
+                name="idx_alog_org_scope_created_at",
+                condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
+            ),
+            models.Index(
+                fields=["organization_id"],
+                name="idx_alog_org_detail_exists",
+                condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
+            ),
+            # Used for searching on the detail field, e.g. containing a specific value
+            GinIndex(
+                name="activitylog_detail_gin",
+                fields=["detail"],
+                opclasses=["jsonb_ops"],
+            ),
+            # Used primarily for available_filters queries
+            GinIndex(
+                name="idx_alog_detail_gin_path_ops",
+                fields=["detail"],
+                opclasses=["jsonb_path_ops"],
+                condition=models.Q(detail__isnull=False),
+            ),
+        ]
 
     team_id = models.PositiveIntegerField(null=True)
     organization_id = models.UUIDField(null=True)
@@ -309,6 +335,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "id",
         "secret_api_token",
         "secret_api_token_backup",
+        "_old_api_token",
     ],
     "Project": ["id", "created_at"],
     "DataWarehouseSavedQuery": [
