@@ -219,7 +219,6 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                 resourceType={{
                     type: 'definition',
                     forceIcon: getEventDefinitionIcon(definition),
-                    // icon: definition,
                 }}
                 actions
                 forceBackTo={{
