@@ -56,7 +56,7 @@ export function ErrorTrackingScene(): JSX.Element {
                         <TabsPrimitive
                             value={activeTab}
                             onValueChange={setActiveTab}
-                            className="border rounded bg-white"
+                            className="border rounded bg-surface-primary"
                         >
                             <TabsPrimitiveList className="border-b">
                                 <TabsPrimitiveTrigger value="issues" className="px-2 py-1 cursor-pointer">
