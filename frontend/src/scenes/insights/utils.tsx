@@ -6,7 +6,6 @@ import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 
@@ -715,8 +714,6 @@ export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
         nodeKind = query.kind
     }
 
-    const metadata = QUERY_TYPES_METADATA[nodeKind]
-
     // Map NodeKind to the fileSystemType color names
     const nodeKindToColor: Record<NodeKind, FileSystemIconType> = {
         [NodeKind.TrendsQuery]: 'insight_trends',
@@ -727,8 +724,8 @@ export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
         [NodeKind.LifecycleQuery]: 'insight_lifecycle',
         [NodeKind.HogQuery]: 'insight_hog',
         [NodeKind.HogQLQuery]: 'insight_hog',
-        [NodeKind.DataVisualizationNode]: 'insight_hog', // HogQL-based visualizations
-        [NodeKind.DataTableNode]: 'insight_hog', // HogQL-based tables
+        [NodeKind.DataVisualizationNode]: 'insight_hog',
+        [NodeKind.DataTableNode]: 'insight_hog',
     } as any
 
     const mappedIconType: FileSystemIconType = nodeKindToColor[nodeKind] || 'product_analytics'
