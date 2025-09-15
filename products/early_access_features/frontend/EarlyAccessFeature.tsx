@@ -284,7 +284,6 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                     description={earlyAccessFeature.description}
                     resourceType={{
                         type: 'early_access_feature',
-                        typePlural: 'Early access features',
                     }}
                     canEdit
                     onNameChange={(value) => {

@@ -8864,6 +8864,10 @@
                     "description": "Show a results table",
                     "type": "boolean"
                 },
+                "showSavedFilters": {
+                    "description": "Show saved filters feature for this table (requires uniqueKey)",
+                    "type": "boolean"
+                },
                 "showSavedQueries": {
                     "description": "Shows a list of saved queries",
                     "type": "boolean"
@@ -12073,7 +12077,8 @@
                 "MongoDB",
                 "TemporalIO",
                 "DoIt",
-                "LinkedinAds"
+                "LinkedinAds",
+                "RedditAds"
             ],
             "type": "string"
         },
@@ -12204,32 +12209,69 @@
             "required": ["id", "path"],
             "type": "object"
         },
+        "FileSystemIconColor": {
+            "anyOf": [
+                {
+                    "items": {
+                        "type": "string"
+                    },
+                    "maxItems": 1,
+                    "minItems": 1,
+                    "type": "array"
+                },
+                {
+                    "items": {
+                        "type": "string"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                }
+            ]
+        },
         "FileSystemIconType": {
             "enum": [
-                "plug",
-                "cohort",
-                "insight",
-                "definitions",
-                "warning",
-                "errorTracking",
-                "ai",
-                "cursor",
+                "dashboard",
+                "llm_analytics",
+                "product_analytics",
+                "revenue_analytics",
+                "revenue_analytics_metadata",
+                "marketing_settings",
+                "embedded_analytics",
+                "sql_editor",
+                "web_analytics",
+                "error_tracking",
                 "heatmap",
-                "database",
-                "folder",
-                "handMoney",
-                "live",
-                "notification",
-                "pieChart",
-                "piggyBank",
-                "sql",
-                "insightFunnel",
-                "insightTrends",
-                "insightRetention",
-                "insightUserPaths",
-                "insightLifecycle",
-                "insightStickiness",
-                "insightHogQL"
+                "session_replay",
+                "survey",
+                "user_interview",
+                "early_access_feature",
+                "experiment",
+                "feature_flag",
+                "data_pipeline",
+                "data_pipeline_metadata",
+                "data_warehouse",
+                "task",
+                "link",
+                "logs",
+                "messaging",
+                "notebook",
+                "action",
+                "comment",
+                "annotation",
+                "event_definition",
+                "property_definition",
+                "ingestion_warning",
+                "person",
+                "cohort",
+                "group",
+                "insight/funnels",
+                "insight/trends",
+                "insight/retention",
+                "insight/paths",
+                "insight/lifecycle",
+                "insight/stickiness",
+                "insight/hog"
             ],
             "type": "string"
         },
@@ -12254,6 +12296,10 @@
                 "href": {
                     "description": "Object's URL",
                     "type": "string"
+                },
+                "iconColor": {
+                    "$ref": "#/definitions/FileSystemIconColor",
+                    "description": "Color of the icon"
                 },
                 "iconType": {
                     "$ref": "#/definitions/FileSystemIconType"
@@ -12915,6 +12961,10 @@
                     },
                     "description": "Customizations for the appearance of result datasets.",
                     "type": "object"
+                },
+                "showValuesOnSeries": {
+                    "default": false,
+                    "type": "boolean"
                 },
                 "useUdf": {
                     "type": "boolean"
@@ -13782,6 +13832,10 @@
                     "type": "boolean"
                 },
                 "useMaterializedViews": {
+                    "type": "boolean"
+                },
+                "usePreaggregatedTableTransforms": {
+                    "description": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
                     "type": "boolean"
                 },
                 "usePresortedEventsTable": {
@@ -14798,7 +14852,8 @@
                 "linear",
                 "github",
                 "meta-ads",
-                "clickup"
+                "clickup",
+                "reddit-ads"
             ],
             "type": "string"
         },
@@ -17044,6 +17099,10 @@
                 },
                 "filters_override": {
                     "$ref": "#/definitions/DashboardFilter"
+                },
+                "name": {
+                    "description": "Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name.",
+                    "type": "string"
                 },
                 "query": {
                     "$ref": "#/definitions/QuerySchema",
@@ -21700,11 +21759,16 @@
                 "goal": {
                     "type": "number"
                 },
+                "mrr_or_gross": {
+                    "default": "gross",
+                    "enum": ["mrr", "gross"],
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 }
             },
-            "required": ["name", "due_date", "goal"],
+            "required": ["name", "due_date", "goal", "mrr_or_gross"],
             "type": "object"
         },
         "RevenueAnalyticsGrossRevenueQuery": {
@@ -22531,6 +22595,10 @@
                     "description": "Show a results table",
                     "type": "boolean"
                 },
+                "showSavedFilters": {
+                    "description": "Show saved filters feature for this table (requires uniqueKey)",
+                    "type": "boolean"
+                },
                 "showSavedQueries": {
                     "description": "Shows a list of saved queries",
                     "type": "boolean"
@@ -22972,6 +23040,10 @@
                     "description": "Length of recording in seconds.",
                     "type": "number"
                 },
+                "retention_period_days": {
+                    "description": "retention period for this recording",
+                    "type": "number"
+                },
                 "snapshot_source": {
                     "enum": ["web", "mobile", "unknown"],
                     "type": "string"
@@ -23134,11 +23206,17 @@
                 "existingSource": {
                     "type": "boolean"
                 },
+                "featureFlag": {
+                    "type": "string"
+                },
                 "fields": {
                     "items": {
                         "$ref": "#/definitions/SourceFieldConfig"
                     },
                     "type": "array"
+                },
+                "iconPath": {
+                    "type": "string"
                 },
                 "label": {
                     "type": "string"
@@ -23150,7 +23228,7 @@
                     "type": "boolean"
                 }
             },
-            "required": ["name", "caption", "fields"],
+            "required": ["name", "caption", "fields", "iconPath"],
             "type": "object"
         },
         "SourceFieldConfig": {
@@ -25012,6 +25090,9 @@
                 "query": {
                     "default": "",
                     "type": "string"
+                },
+                "short_id": {
+                    "$ref": "#/definitions/InsightShortId"
                 },
                 "type": {
                     "const": "ai/viz",

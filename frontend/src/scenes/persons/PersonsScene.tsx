@@ -80,10 +80,8 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                 description="A catalog of all the people behind your events"
                 resourceType={{
                     type: 'person',
-                    typePlural: 'persons',
                     forceIcon: <IconPeople />,
                 }}
-                docsURL="https://posthog.com/docs/data/persons"
             />
             <SceneDivider />
 

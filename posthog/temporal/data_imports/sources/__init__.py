@@ -16,6 +16,7 @@ from .mssql.source import MSSQLSource
 from .mysql.source import MySQLSource
 from .polar.source import PolarSource
 from .postgres.source import PostgresSource
+from .reddit_ads.source import RedditAdsSource
 from .redshift.source import RedshiftSource
 from .revenuecat.source import RevenueCatSource
 from .salesforce.source import SalesforceSource
@@ -40,10 +41,12 @@ __all__ = [
     "MailJetSource",
     "MetaAdsSource",
     "MongoDBSource",
+    "RedditAdsSource",
     "MSSQLSource",
     "MySQLSource",
     "PolarSource",
     "PostgresSource",
+    "RedditAdsSource",
     "RedshiftSource",
     "RevenueCatSource",
     "SalesforceSource",

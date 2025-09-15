@@ -10,6 +10,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { HogFlowFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
+import { StepSchemaErrors } from './components/StepSchemaErrors'
 
 export function StepConditionalBranchConfiguration({
     node,
@@ -19,7 +20,7 @@ export function StepConditionalBranchConfiguration({
     const action = node.data
     const { conditions } = action.config
 
-    const { edgesByActionId } = useValues(hogFlowEditorLogic)
+    const { edgesByActionId, selectedNodeCanBeDeleted } = useValues(hogFlowEditorLogic)
     const { setCampaignAction, setCampaignActionEdges } = useActions(hogFlowEditorLogic)
 
     const nodeEdges = edgesByActionId[action.id]
@@ -85,17 +86,25 @@ export function StepConditionalBranchConfiguration({
 
     return (
         <>
+            <StepSchemaErrors />
             {conditions.map((condition, index) => (
                 <div key={index} className="flex flex-col gap-2 p-2 rounded border">
                     <div className="flex justify-between items-center">
                         <LemonLabel>Condition {index + 1}</LemonLabel>
-                        <LemonButton size="xsmall" icon={<IconX />} onClick={() => removeCondition(index)} />
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconX />}
+                            onClick={() => removeCondition(index)}
+                            disabledReason={selectedNodeCanBeDeleted ? undefined : 'Clean up branching steps first'}
+                        />
                     </div>
 
                     <HogFlowFilters
                         filters={condition.filters ?? {}}
                         setFilters={(filters) =>
-                            setConditions(conditions.map((condition, i) => (i === index ? { filters } : condition)))
+                            setConditions(
+                                conditions.map((condition, i) => (i === index ? { filters: filters ?? {} } : condition))
+                            )
                         }
                         typeKey={`campaign-trigger-${index}`}
                     />

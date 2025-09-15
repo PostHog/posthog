@@ -38,6 +38,7 @@ import { normalizeMessages, truncateValue } from './utils'
 
 export const scene: SceneExport = {
     component: LLMAnalyticsScene,
+    logic: llmAnalyticsLogic,
 }
 
 const Filters = (): JSX.Element => {
@@ -72,10 +73,12 @@ const Tiles = (): JSX.Element => {
             {tiles.map(({ title, description, query, context }, i) => (
                 <QueryCard
                     key={i}
+                    attachTo={llmAnalyticsLogic}
                     title={title}
                     description={description}
                     query={{ kind: NodeKind.InsightVizNode, source: query } as InsightVizNode}
                     context={context}
+                    sceneSource="llm-analytics"
                     className={clsx(
                         'h-96',
                         /* Second row is the only one to have 2 tiles in the xl layout */
@@ -120,7 +123,10 @@ function LLMAnalyticsGenerations(): JSX.Element {
 
     return (
         <DataTable
-            query={generationsQuery}
+            query={{
+                ...generationsQuery,
+                showSavedFilters: true,
+            }}
             setQuery={(query) => {
                 if (!isEventsQuery(query.source)) {
                     throw new Error('Invalid query')
@@ -338,8 +344,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                     name="LLM Analytics"
                     description="Analyze and understand your LLM usage and performance."
                     resourceType={{
-                        type: 'ai',
-                        typePlural: 'LLM Analytics',
+                        type: 'llm_analytics',
                     }}
                 />
                 <SceneDivider />

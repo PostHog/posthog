@@ -12,6 +12,7 @@ import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { AlertType } from 'lib/components/Alerts/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import {
     BIN_COUNT_AUTO,
     DashboardPrivilegeLevel,
@@ -51,6 +52,7 @@ import type {
     ExperimentMetric,
     ExperimentTrendsQuery,
     ExternalDataSourceType,
+    FileSystemIconType,
     FileSystemImport,
     HogQLQuery,
     HogQLQueryModifiers,
@@ -111,6 +113,7 @@ export enum AvailableFeature {
     REPLAY_DOM_EXPLORER = 'replay_dom_explorer',
     WORKS_WITH_POSTHOG_JS = 'works_with_posthog_js',
     REPLAY_AUTOMATIC_PLAYLISTS = 'replay_automatic_playlists',
+    MOBILE_REPLAY = 'mobile_replay',
     GROUP_ANALYTICS = 'group_analytics',
     SURVEYS_UNLIMITED_SURVEYS = 'surveys_unlimited_surveys',
     SURVEYS_ALL_QUESTION_TYPES = 'surveys_all_question_types',
@@ -217,6 +220,7 @@ export enum ProductKey {
     PERSONS = 'persons',
     SURVEYS = 'surveys',
     SESSION_REPLAY = 'session_replay',
+    MOBILE_REPLAY = 'mobile_replay',
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
@@ -298,6 +302,7 @@ export enum AccessControlResourceType {
     Insight = 'insight',
     Dashboard = 'dashboard',
     Notebook = 'notebook',
+    SessionRecording = 'session_recording',
 }
 
 interface UserBaseType {
@@ -844,38 +849,6 @@ export enum ActivityTab {
     LiveEvents = 'live',
 }
 
-export enum PipelineTab {
-    Overview = 'overview',
-    Transformations = 'transformations',
-    Destinations = 'destinations',
-    SiteApps = 'site-apps',
-    Sources = 'sources',
-    ImportApps = 'legacy-sources',
-    AppsManagement = 'apps-management',
-    History = 'history',
-}
-
-export enum PipelineStage {
-    Transformation = 'transformation',
-    Destination = 'destination',
-    Source = 'source',
-    SiteApp = 'site-app',
-    ImportApp = 'legacy-source',
-}
-
-export enum PipelineNodeTab {
-    Backfills = 'backfills',
-    Configuration = 'configuration',
-    Testing = 'testing',
-    Runs = 'runs',
-    Logs = 'logs',
-    Metrics = 'metrics',
-    History = 'history',
-    Schemas = 'schemas',
-    Syncs = 'syncs',
-    SourceConfiguration = 'source configuration',
-}
-
 export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
@@ -1177,6 +1150,7 @@ export interface SessionPlayerData {
     end: Dayjs | null
     fullyLoaded: boolean
     sessionRecordingId: SessionRecordingId
+    sessionRetentionPeriodDays: number | null
 }
 
 export enum SessionRecordingUsageType {
@@ -1680,6 +1654,8 @@ export interface SessionRecordingType {
      * calculated on the backend so that we can sort by it, definition may change over time
      */
     activity_score?: number
+    /** retention period for this recording */
+    retention_period_days?: number
 }
 
 export interface SessionRecordingUpdateType {
@@ -1846,6 +1822,7 @@ export type BillingFeatureType = {
     } | null
     icon_key?: string | null
     entitlement_only?: boolean
+    is_plan_default?: boolean
     type?: 'primary' | 'secondary' | null
 }
 
@@ -1896,7 +1873,7 @@ export interface BillingProductV2Type {
     addons: BillingProductV2AddonType[]
     // addons-only: if this addon is included with the base product and not subscribed individually. for backwards compatibility.
     included_with_main_product?: boolean
-    trial?: BillingTrialType
+    trial?: BillingTrialType | null
     legacy_product?: boolean | null
 }
 
@@ -1926,9 +1903,14 @@ export interface BillingProductV2AddonType {
     free_allocation?: number | null
     percentage_usage?: number
     features: BillingFeatureType[]
-    included_if?: 'no_active_subscription' | 'has_subscription' | null
+    included_if?:
+        | 'no_active_subscription'
+        | 'has_subscription'
+        | 'no_active_parent_subscription'
+        | 'has_parent_subscription'
+        | null
     usage_limit?: number | null
-    trial?: BillingTrialType
+    trial?: BillingTrialType | null
     legacy_product?: boolean | null
 }
 export interface BillingType {
@@ -2002,7 +1984,12 @@ export interface BillingPlanType {
     current_plan?: boolean | null
     tiers?: BillingTierType[] | null
     unit_amount_usd: string | null
-    included_if?: 'no_active_subscription' | 'has_subscription' | null
+    included_if?:
+        | 'no_active_subscription'
+        | 'has_subscription'
+        | 'no_active_parent_subscription'
+        | 'has_parent_subscription'
+        | null
     initial_billing_limit?: number | null
     contact_support: boolean | null
 }
@@ -2438,6 +2425,7 @@ export type BreakdownType =
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 export type SimpleIntervalType = 'day' | 'month'
 export type SmoothingType = number
+export type InsightSceneSource = 'web-analytics' | 'llm-analytics'
 
 export enum InsightType {
     TRENDS = 'TRENDS',
@@ -3158,7 +3146,7 @@ export interface ConsolidatedSurveyResults {
  *   ["7", ["Tutorials", "Other"], "Good but could improve", "user456"]
  * ]
  */
-export type SurveyResponseRow = Array<string | string[]>
+export type SurveyResponseRow = Array<null | string | string[]>
 export type SurveyRawResults = SurveyResponseRow[]
 
 export interface Survey {
@@ -4305,6 +4293,7 @@ export const INTEGRATION_KINDS = [
     'github',
     'meta-ads',
     'clickup',
+    'reddit-ads',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -4348,6 +4337,7 @@ export interface SharingConfigurationType {
     enabled: boolean
     access_token: string
     created_at: string
+    password_required: boolean
     settings?: SharingConfigurationSettings
 }
 
@@ -4393,7 +4383,21 @@ export interface ReplayExportContext {
     mode?: SessionRecordingPlayerMode
 }
 
-export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext | ReplayExportContext
+export interface HeatmapExportContext {
+    heatmap_url: string
+    filename?: string
+    heatmap_filters?: HeatmapFilters
+    heatmap_color_palette?: string | null
+    heatmap_fixed_position_mode?: HeatmapFixedPositionMode
+    common_filters?: CommonFilters
+}
+
+export type ExportContext =
+    | OnlineExportContext
+    | LocalExportContext
+    | QueryExportContext
+    | ReplayExportContext
+    | HeatmapExportContext
 
 export interface ExportedAssetType {
     id: number
@@ -4679,6 +4683,7 @@ export interface DataWarehouseSavedQuery {
     latest_history_id?: string
     snapshot_enabled?: boolean
     snapshot_config?: Record<string, any>
+    is_materialized?: boolean
 }
 
 export interface DataWarehouseSavedQueryDraft {
@@ -4825,6 +4830,7 @@ export enum ExternalDataJobStatus {
 export interface ExternalDataJob {
     id: string
     created_at: string
+    finished_at: string
     status: ExternalDataJobStatus
     schema: SimpleExternalDataSourceSchema
     rows_synced: number
@@ -4939,7 +4945,6 @@ export type BatchExportServiceRedshift = {
 // When adding a new option here also add a icon for it to
 // src/scenes/pipeline/icons/
 // and update RenderBatchExportIcon
-// and update batchExportServiceNames in pipelineNodeNewLogic
 export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
     'S3',
     'Snowflake',
@@ -5388,6 +5393,8 @@ export type HogFunctionTemplateType = Pick<
     description?: string | JSX.Element
     code: string
     code_language: 'javascript' | 'hog'
+    /** Whether the template should be conditionally rendered based on a feature flag */
+    flag?: string
 }
 
 export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {
@@ -5598,15 +5605,17 @@ export interface CoreMemory {
 export type FileSystemIconColor = [string] | [string, string]
 
 export interface FileSystemType {
-    icon?: JSX.Element
     href?: (ref: string) => string
-    iconColor?: FileSystemIconColor
     // Visual name of the product
     name: string
     // Flag to determine if the product is enabled
     flag?: string
     // Used to filter the tree items by product
     filterKey?: string
+    // Icon type of the icon
+    iconType?: FileSystemIconType
+    // Color of the icon
+    iconColor?: FileSystemIconColor
 }
 
 export interface ProductManifest {

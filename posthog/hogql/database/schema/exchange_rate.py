@@ -4,18 +4,18 @@ from posthog.schema import RevenueAnalyticsEventItem
 
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
+    DANGEROUS_NoTeamIdCheckTable,
     DateDatabaseField,
     DecimalDatabaseField,
     FieldOrTable,
     StringDatabaseField,
-    Table,
 )
 
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.models.team.team import Team
 
 
-class ExchangeRateTable(Table):
+class ExchangeRateTable(DANGEROUS_NoTeamIdCheckTable):
     fields: dict[str, FieldOrTable] = {
         "currency": StringDatabaseField(name="currency", nullable=False),
         "date": DateDatabaseField(name="date", nullable=False),

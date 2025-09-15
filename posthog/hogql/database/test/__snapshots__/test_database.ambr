@@ -3,7 +3,7 @@
   '''
   
   SELECT events__some_field.key AS key 
-  FROM events GLOBAL LEFT JOIN (
+  FROM events LEFT JOIN (
   SELECT groups.key AS key, key AS events__some_field___key 
   FROM (
   SELECT groups.group_type_index AS index, groups.group_key AS key 
@@ -18,7 +18,7 @@
   '''
   
   SELECT events__some_field.key AS key 
-  FROM events GLOBAL LEFT JOIN (
+  FROM events LEFT JOIN (
   SELECT groups.key AS key, key AS events__some_field___key 
   FROM (
   SELECT groups.group_type_index AS index, groups.group_key AS key 
@@ -147,6 +147,7 @@
          "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id",
          "posthog_datawarehousesavedquery"."deleted_name",
+         "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -194,8 +195,12 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."revenue_analytics_enabled"
+         "posthog_externaldatasource"."revenue_analytics_enabled",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
   FROM "posthog_externaldatasource"
+  LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
   WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
          AND "posthog_externaldatasource"."team_id" = 99999
          AND NOT ("posthog_externaldatasource"."deleted"
@@ -320,6 +325,7 @@
          "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id",
          "posthog_datawarehousesavedquery"."deleted_name",
+         "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -367,8 +373,12 @@
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."revenue_analytics_enabled"
+         "posthog_externaldatasource"."revenue_analytics_enabled",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
   FROM "posthog_externaldatasource"
+  LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
   WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
          AND "posthog_externaldatasource"."team_id" = 99999
          AND NOT ("posthog_externaldatasource"."deleted"
@@ -1683,12 +1693,12 @@
                   "table": null,
                   "type": "integer"
               },
-              "hogql_name": {
+              "name": {
                   "chain": null,
                   "fields": null,
-                  "hogql_value": "hogql_name",
+                  "hogql_value": "name",
                   "id": null,
-                  "name": "hogql_name",
+                  "name": "name",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -3155,12 +3165,12 @@
                   "table": null,
                   "type": "integer"
               },
-              "hogql_name": {
+              "name": {
                   "chain": null,
                   "fields": null,
-                  "hogql_value": "hogql_name",
+                  "hogql_value": "name",
                   "id": null,
-                  "name": "hogql_name",
+                  "name": "name",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"

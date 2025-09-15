@@ -15,13 +15,19 @@ export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
         type: 'function_email',
         name: 'Email',
         description: 'Send an email to the user.',
-        config: { template_id: 'template-email', inputs: {} },
+        config: {
+            template_id: 'template-email',
+            inputs: {},
+        },
     },
     {
         type: 'function_sms',
         name: 'SMS',
         description: 'Send an SMS to the user.',
-        config: { template_id: 'template-twilio', inputs: {} },
+        config: {
+            template_id: 'template-twilio',
+            inputs: {},
+        },
     },
     {
         type: 'function',
@@ -66,7 +72,7 @@ export const LOGIC_NODES_TO_SHOW: CreateActionType[] = [
     {
         type: 'conditional_branch',
         name: 'Conditional branch',
-        description: 'Branch based on a condition such as the event trigger or a person property.',
+        description: 'Branch using conditions on event or person properties.',
         branchEdges: 1,
         config: {
             conditions: [

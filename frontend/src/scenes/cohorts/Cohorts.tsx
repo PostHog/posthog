@@ -173,9 +173,7 @@ export function Cohorts(): JSX.Element {
                 description="A catalog of identified persons and your created cohorts."
                 resourceType={{
                     type: RESOURCE_TYPE,
-                    typePlural: 'cohorts',
                 }}
-                docsURL="https://posthog.com/docs/data/cohorts"
             />
             <SceneDivider />
 

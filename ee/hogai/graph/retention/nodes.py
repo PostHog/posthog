@@ -14,6 +14,7 @@ RetentionSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantRetentionQuery]
 
 
 class RetentionGeneratorNode(SchemaGeneratorNode[AssistantRetentionQuery]):
+    REASONING_MESSAGE = "Creating retention query"
     INSIGHT_NAME = "Retention"
     OUTPUT_MODEL = RetentionSchemaGeneratorOutput
     OUTPUT_SCHEMA = RETENTION_SCHEMA

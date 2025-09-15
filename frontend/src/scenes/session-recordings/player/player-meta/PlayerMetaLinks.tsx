@@ -4,8 +4,10 @@ import { useMemo } from 'react'
 import { IconDownload, IconEllipsis, IconMinusSmall, IconNotebook, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems, LemonTag } from '@posthog/lemon-ui'
 
+import { AccessControlAction, getAccessControlDisabledReason } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -17,6 +19,9 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { PlayerShareMenu } from 'scenes/session-recordings/player/share/PlayerShareMenu'
 import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
+
+import { AccessControlResourceType } from '~/types'
+import { AccessControlLevel } from '~/types'
 
 import { PlayerMetaBreakpoints } from './PlayerMeta'
 
@@ -44,14 +49,23 @@ function PinToPlaylistButton(): JSX.Element {
             icon={<IconPlusSmall />}
         />
     ) : (
-        <PlaylistPopoverButton
-            tooltip={tooltip}
-            setPinnedInCurrentPlaylist={logicProps.setPinned}
-            icon={logicProps.pinned ? <IconMinusSmall /> : <IconPlusSmall />}
-            size="xsmall"
+        <AccessControlAction
+            resourceType={AccessControlResourceType.SessionRecording}
+            minAccessLevel={AccessControlLevel.Editor}
+            userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]}
         >
-            {description}
-        </PlaylistPopoverButton>
+            {({ disabledReason }) => (
+                <PlaylistPopoverButton
+                    tooltip={tooltip}
+                    setPinnedInCurrentPlaylist={logicProps.setPinned}
+                    icon={logicProps.pinned ? <IconMinusSmall /> : <IconPlusSmall />}
+                    size="xsmall"
+                    disabledReason={disabledReason}
+                >
+                    {description}
+                </PlaylistPopoverButton>
+            )}
+        </AccessControlAction>
     )
 }
 
@@ -206,6 +220,11 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                     status: 'danger',
                     onClick: onDelete,
                     icon: <IconTrash />,
+                    disabledReason: getAccessControlDisabledReason(
+                        AccessControlResourceType.SessionRecording,
+                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                        AccessControlLevel.Editor
+                    ),
                     tooltip: 'Delete recording',
                     'data-attr': 'replay-delete-recording',
                 })

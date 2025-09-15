@@ -1,12 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonInput, LemonTextArea, Spinner } from '@posthog/lemon-ui'
+import { IconCode } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonTextArea, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { EmailTemplater } from 'scenes/hog-functions/email-templater/EmailTemplater'
 import { SceneExport } from 'scenes/sceneTypes'
+
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { MessageTemplateLogicProps, messageTemplateLogic } from './messageTemplateLogic'
 
@@ -25,8 +29,8 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element 
         useValues(messageTemplateLogic)
 
     return (
-        <div className="space-y-4">
-            <Form logic={messageTemplateLogic} formKey="template">
+        <SceneContent>
+            <Form logic={messageTemplateLogic} formKey="template" className="flex flex-col gap-4">
                 <PageHeader
                     buttons={
                         <>
@@ -52,6 +56,8 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element 
                         </>
                     }
                 />
+                <SceneTitleSection name={template.name} resourceType={{ type: 'template' }} />
+
                 <div className="flex flex-wrap gap-4 items-start">
                     <div className="flex-1 self-start p-3 space-y-2 rounded border min-w-100 bg-surface-primary">
                         <LemonField name="name" label="Name">
@@ -68,19 +74,32 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element 
                     </div>
 
                     <div className="p-3 space-y-2 rounded border flex-2 min-w-100 bg-surface-primary">
-                        <h3>Email template</h3>
+                        <div className="flex justify-between items-center">
+                            <h3>Email template</h3>
+                            <Tooltip
+                                title="You can use Liquid templating in any email text field."
+                                docLink="https://liquidjs.com/filters/overview.html"
+                            >
+                                <span>
+                                    <IconCode fontSize={24} />
+                                </span>
+                            </Tooltip>
+                        </div>
                         {messageLoading ? (
                             <Spinner className="text-lg" />
                         ) : (
                             <EmailTemplater
                                 value={template?.content.email}
                                 onChange={(value) => setTemplateValue('content.email', value)}
+                                onChangeTemplating={(templating) =>
+                                    setTemplateValue('content.email.templating', templating)
+                                }
                                 type="native_email_template"
                             />
                         )}
                     </div>
                 </div>
             </Form>
-        </div>
+        </SceneContent>
     )
 }

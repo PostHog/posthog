@@ -37,6 +37,7 @@ from posthog.temporal.common.logger import get_produce_only_logger, get_write_on
 
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
+    OverBillingLimitError,
     StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
@@ -67,6 +68,7 @@ from products.batch_exports.backend.temporal.temporary_file import BatchExportTe
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
     handle_non_retryable_errors,
+    make_retryable_with_exponential_backoff,
     set_status_to_running_task,
 )
 
@@ -101,6 +103,10 @@ NON_RETRYABLE_ERROR_TYPES = (
     "InvalidPrivateKeyError",
     # Raised when a valid authentication method is not provided.
     "SnowflakeAuthenticationError",
+    # Raised when a Warehouse is suspended.
+    "SnowflakeWarehouseSuspendedError",
+    # Raised when the destination table schema is incompatible with the schema of the file we are trying to load.
+    "SnowflakeIncompatibleSchemaError",
 )
 
 
@@ -134,6 +140,12 @@ class SnowflakeRetryableConnectionError(Exception):
     pass
 
 
+class SnowflakeWarehouseSuspendedError(Exception):
+    """Raised when a Warehouse is suspended."""
+
+    pass
+
+
 class SnowflakeTableNotFoundError(Exception):
     """Raised when a table is not found in Snowflake."""
 
@@ -153,6 +165,15 @@ class InvalidPrivateKeyError(Exception):
 
     def __init__(self, message: str):
         super().__init__(message)
+
+
+class SnowflakeIncompatibleSchemaError(Exception):
+    """Raised when the destination table schema is incompatible with the schema of the file we are trying to load."""
+
+    def __init__(self, err_msg: str):
+        super().__init__(
+            f"The data being loaded into the destination table is incompatible with the schema of the destination table: {err_msg}"
+        )
 
 
 @dataclasses.dataclass
@@ -565,7 +586,7 @@ class SnowflakeClient:
                 raise TypeError(f"Expected tuple from Snowflake PUT query but got: '{result.__class__.__name__}'")
 
         status, message = result[6:8]
-        if status != "UPLOADED":
+        if status != "UPLOADED" and status != "SKIPPED":
             raise SnowflakeFileNotUploadedError(table_name, status, message)
 
     async def copy_loaded_files_to_snowflake_table(
@@ -611,11 +632,33 @@ class SnowflakeClient:
             PURGE = TRUE
             """
 
-        # We need to explicitly catch the exception here because otherwise it seems to be swallowed
+        # Handle cases where the Warehouse is suspended (sometimes we can recover from this)
+        max_attempts = 3
+        execute_copy_into = make_retryable_with_exponential_backoff(
+            self.execute_async_query,
+            max_attempts=max_attempts,
+            retryable_exceptions=(snowflake.connector.errors.ProgrammingError,),
+            # 608 = Warehouse suspended error
+            is_exception_retryable=lambda e: isinstance(e, snowflake.connector.errors.ProgrammingError)
+            and e.errno == 608,
+        )
+
+        # We need to explicitly catch exceptions here because otherwise they seem to be swallowed
         try:
-            result = await self.execute_async_query(query, poll_interval=1.0)
+            result = await execute_copy_into(query, poll_interval=1.0)
         except snowflake.connector.errors.ProgrammingError as e:
             self.logger.exception(f"Error executing COPY INTO query: {e}")
+
+            if e.errno == 608:
+                err_msg = (
+                    f"Failed to execute COPY INTO query after {max_attempts} attempts due to warehouse being suspended"
+                )
+                if e.msg is not None:
+                    err_msg += f": {e.msg}"
+                raise SnowflakeWarehouseSuspendedError(err_msg)
+            elif e.errno == 904 and e.msg is not None and "invalid identifier" in e.msg:
+                raise SnowflakeIncompatibleSchemaError(e.msg)
+
             raise SnowflakeFileNotLoadedError(
                 table_name,
                 "NO STATUS",
@@ -1330,17 +1373,20 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
         )
-        run_id = await workflow.execute_activity(
-            start_batch_export_run,
-            start_batch_export_run_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=0,
-                non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-            ),
-        )
+        try:
+            run_id = await workflow.execute_activity(
+                start_batch_export_run,
+                start_batch_export_run_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                ),
+            )
+        except OverBillingLimitError:
+            return
 
         finish_inputs = FinishBatchExportRunInputs(
             id=run_id,
