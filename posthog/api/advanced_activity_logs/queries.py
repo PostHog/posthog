@@ -80,32 +80,62 @@ class PathBuilder:
             raise ValueError("Invalid array positions or depth")
 
         # Build the path components and lateral joins
-        lateral_joins = ", LATERAL jsonb_object_keys(detail) AS k1"
+        lateral_joins = ""
         type_conditions = []
         field_path_parts = []
         current_path = "detail"
+        keys_defined = set()
 
         for i in range(1, total_depth + 1):
             if i in array_positions:
-                # Array position
-                lateral_joins += f", LATERAL jsonb_array_elements({current_path}->k{i}) AS elem{i}"
-                type_conditions.append(f"jsonb_typeof({current_path}->k{i}) = 'array'")
+                # Array position - need key first, then array elements
+                if i not in keys_defined:
+                    if i == 1:
+                        lateral_joins += f", LATERAL jsonb_object_keys(detail) AS k{i}"
+                    elif (i - 1) in array_positions:
+                        # Previous was array, get keys from array elements
+                        lateral_joins += f", LATERAL jsonb_object_keys(elem{i-1}.value) AS k{i}"
+                        type_conditions.append(f"jsonb_typeof(elem{i-1}.value) = 'object'")
+                    else:
+                        # Previous was object
+                        lateral_joins += f", LATERAL jsonb_object_keys({current_path}) AS k{i}"
+                        type_conditions.append(f"jsonb_typeof({current_path}) = 'object'")
+                    keys_defined.add(i)
+
+                # Now add the array elements
+                if i == 1:
+                    lateral_joins += f", LATERAL jsonb_array_elements(detail->k{i}) AS elem{i}"
+                    type_conditions.append(f"jsonb_typeof(detail->k{i}) = 'array'")
+                elif (i - 1) in array_positions:
+                    lateral_joins += f", LATERAL jsonb_array_elements(elem{i-1}.value->k{i}) AS elem{i}"
+                    type_conditions.append(f"jsonb_typeof(elem{i-1}.value->k{i}) = 'array'")
+                else:
+                    lateral_joins += f", LATERAL jsonb_array_elements({current_path}->k{i}) AS elem{i}"
+                    type_conditions.append(f"jsonb_typeof({current_path}->k{i}) = 'array'")
+
                 current_path = f"elem{i}.value"
                 field_path_parts.append(f"k{i} || '[]'")
-
-                if i < total_depth:
-                    # More keys after array
-                    lateral_joins += f", LATERAL jsonb_object_keys(elem{i}.value) AS k{i+1}"
-                    type_conditions.append(f"jsonb_typeof(elem{i}.value) = 'object'")
             else:
                 # Regular object key
-                if i > 1 and (i - 1) not in array_positions:
-                    lateral_joins += f", LATERAL jsonb_object_keys({current_path}->k{i-1}) AS k{i}"
-                    type_conditions.append(f"jsonb_typeof({current_path}->k{i-1}) = 'object'")
+                if i not in keys_defined:
+                    if i == 1:
+                        lateral_joins += f", LATERAL jsonb_object_keys(detail) AS k{i}"
+                    elif (i - 1) in array_positions:
+                        # Previous was array, get keys from array elements
+                        lateral_joins += f", LATERAL jsonb_object_keys(elem{i-1}.value) AS k{i}"
+                        type_conditions.append(f"jsonb_typeof(elem{i-1}.value) = 'object'")
+                    else:
+                        # Previous was object
+                        lateral_joins += f", LATERAL jsonb_object_keys({current_path}) AS k{i}"
+                        type_conditions.append(f"jsonb_typeof({current_path}) = 'object'")
+                    keys_defined.add(i)
 
                 field_path_parts.append(f"k{i}")
                 if i < total_depth:
-                    current_path += f"->k{i}"
+                    if (i - 1) in array_positions:
+                        current_path = f"elem{i-1}.value->k{i}"
+                    else:
+                        current_path += f"->k{i}"
 
         # Build final field value and path
         field_value = current_path + (f"->k{total_depth}" if total_depth not in array_positions else "")
