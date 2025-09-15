@@ -21,6 +21,9 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.redis import get_async_client, get_client
 from posthog.sync import database_sync_to_async
+from posthog.temporal.ai.session_summary.activities.videos import (
+    validate_llm_single_session_summary_with_videos_activity,
+)
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     decompress_redis_data,
@@ -310,6 +313,12 @@ class SummarizeSingleSessionStreamWorkflow(PostHogWorkflow):
             inputs,
             start_to_close_timeout=timedelta(minutes=5),
             heartbeat_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        await temporalio.workflow.execute_activity(
+            validate_llm_single_session_summary_with_videos_activity,
+            inputs,
+            start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         return summary
