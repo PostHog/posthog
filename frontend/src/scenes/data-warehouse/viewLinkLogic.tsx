@@ -69,7 +69,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         setJoiningTablePreviewData: (data: Record<string, any>[]) => ({ data }),
         setIsJoinValid: (isValid: boolean) => ({ isValid }),
         setValidationError: (errorMessage: string) => ({ errorMessage }),
-        setKeyTypeMismatch: (keyTypeMismatch: string | null) => ({ keyTypeMismatch }),
+        setValidationWarning: (validationWarning: string | null) => ({ validationWarning }),
         validateJoin: () => {},
         checkKeyTypeMismatch: () => {},
     })),
@@ -200,10 +200,10 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 selectJoiningTable: () => null,
             },
         ],
-        keyTypeMismatch: [
+        validationWarning: [
             null as null | string,
             {
-                setKeyTypeMismatch: (_, { keyTypeMismatch }) => keyTypeMismatch,
+                setValidationWarning: (_, { validationWarning }) => validationWarning,
                 clearModalFields: () => null,
                 selectSourceKey: () => null,
                 selectSourceTable: () => null,
@@ -343,11 +343,11 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 )
                 const sourceKeyDataType = sourceColumn?.type ?? 'unknown'
                 const joiningKeyDataType = joiningColumn?.type ?? 'unknown'
-                const keyTypeMismatch =
+                const validationWarning =
                     sourceKeyDataType !== joiningKeyDataType
                         ? `Key types don't match: Source table key is from type ${sourceKeyDataType} but joining table key is from type ${joiningKeyDataType}`
                         : null
-                actions.setKeyTypeMismatch(keyTypeMismatch)
+                actions.setValidationWarning(validationWarning)
             }
         },
         selectSourceKey: () => {
@@ -377,7 +377,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 const sourceKey = hogql.identifier(values.selectedSourceKey)
                 const joiningTable = hogql.identifier(values.selectedJoiningTableName)
                 const joiningKey = hogql.identifier(values.selectedJoiningKey)
-                await hogqlQuery(
+                const response = await hogqlQuery(
                     hogql`
                     SELECT ${sourceTable}.${sourceKey}, ${sourceTable}.${sourceKey}
                     FROM ${sourceTable}
@@ -385,8 +385,13 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                     ON ${sourceTable}.${sourceKey} = ${joiningTable}.${joiningKey}
                     LIMIT 10`
                 )
-                actions.setIsJoinValid(true)
-            } catch (error) {
+                if (response.results.length === 0) {
+                    actions.setValidationWarning('No matching data found between source and joining tables.')
+                    actions.setIsJoinValid(false)
+                } else {
+                    actions.setIsJoinValid(true)
+                }
+            } catch (error: any) {
                 actions.setValidationError(error.detail)
                 actions.setIsJoinValid(false)
             }

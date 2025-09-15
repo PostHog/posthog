@@ -415,7 +415,7 @@ export function ViewLinkFormWithPreview({ mode }: ViewLinkModalProps): JSX.Eleme
         isJoinValidating,
         isJoinValid,
         validationError,
-        keyTypeMismatch,
+        validationWarning,
     } = useValues(viewLinkLogic)
     const {
         selectJoiningTable,
@@ -696,7 +696,7 @@ export function ViewLinkFormWithPreview({ mode }: ViewLinkModalProps): JSX.Eleme
                     }
                 />
             )}
-            {keyTypeMismatch && <LemonBanner className="mt-2" type="warning" children={keyTypeMismatch} />}
+            {validationWarning && <LemonBanner className="mt-2" type="warning" children={validationWarning} />}
             <LemonDivider className="mt-4 mb-4" />
             <div className="flex flex-row gap-2 justify-end w-full">
                 {isJoinValid ? (
@@ -715,7 +715,7 @@ export function ViewLinkFormWithPreview({ mode }: ViewLinkModalProps): JSX.Eleme
                             type="primary"
                             onClick={validateJoin}
                             loading={isJoinValidating}
-                            disabledReason={validationError}
+                            disabledReason={validationError || validationWarning}
                         >
                             Validate join
                         </LemonButton>
