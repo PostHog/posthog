@@ -34,8 +34,8 @@ const EmbeddedAnalyticsTabs = (): JSX.Element => {
             activeKey={activeTab}
             onChange={setActiveTab}
             tabs={[
-                { key: EmbeddedTab.USAGE_ANALYTICS, label: 'Usage analytics' },
-                { key: EmbeddedTab.NAMED_QUERIES, label: 'Named queries' },
+                { key: EmbeddedTab.QUERY_ENDPOINTS, label: 'Query Endpoints' },
+                { key: EmbeddedTab.USAGE_ANALYTICS, label: 'API Usage' },
             ]}
         />
     )

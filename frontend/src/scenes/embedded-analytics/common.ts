@@ -11,7 +11,7 @@ export const INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED = false
 
 export enum EmbeddedTab {
     USAGE_ANALYTICS = 'usage-analytics',
-    NAMED_QUERIES = 'named-queries',
+    QUERY_ENDPOINTS = 'query-endpoints',
 }
 
 export interface EmbeddedTileLayout {

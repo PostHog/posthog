@@ -57,7 +57,7 @@ import TabScroller from './TabScroller'
 import { FixErrorButton } from './components/FixErrorButton'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
-import { NamedQuery } from './sidebar/NamedQuery'
+import { QueryEndpoint } from './sidebar/QueryEndpoint'
 import { QueryInfo } from './sidebar/QueryInfo'
 import { QueryVariables } from './sidebar/QueryVariables'
 
@@ -458,8 +458,8 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                             icon: <IconBolt />,
                         },
                         {
-                            key: OutputTab.NamedQuery,
-                            label: 'Named Query',
+                            key: OutputTab.QueryEndpoint,
+                            label: 'Query Endpoint',
                             icon: <IconBrackets />,
                             flag: FEATURE_FLAGS.EMBEDDED_ANALYTICS,
                         },
@@ -598,16 +598,16 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                             />
                         </Tooltip>
                     )}
-                    {activeTab === OutputTab.NamedQuery && (
+                    {activeTab === OutputTab.QueryEndpoint && (
                         <LemonButton
                             type="primary"
                             onClick={() => {
-                                // Make API Call to create the Named Query
-                                router.actions.push('/embedded-analytics/named-queries')
+                                // Make API Call to create the Query Endpoint
+                                router.actions.push('/embedded-analytics/query-endpoints')
                             }}
                             icon={<IconCode2 />}
                         >
-                            Create named query
+                            Create query endpoint
                         </LemonButton>
                     )}
                 </div>
@@ -829,11 +829,11 @@ const Content = ({
             </TabScroller>
         )
     }
-    if (featureFlags[FEATURE_FLAGS.EMBEDDED_ANALYTICS] && activeTab === OutputTab.NamedQuery) {
+    if (featureFlags[FEATURE_FLAGS.EMBEDDED_ANALYTICS] && activeTab === OutputTab.QueryEndpoint) {
         return (
             <TabScroller>
                 <div className="px-6 py-4 border-t">
-                    <NamedQuery />
+                    <QueryEndpoint />
                 </div>
             </TabScroller>
         )

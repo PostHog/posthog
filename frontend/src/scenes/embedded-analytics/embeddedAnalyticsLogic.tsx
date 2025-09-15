@@ -122,7 +122,7 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
         tiles: [
             (s) => [s.dateFilter, s.requestNameBreakdownEnabled, s.activeTab],
             (dateFilter, requestNameBreakdownEnabled, activeTab): EmbeddedQueryTile[] => {
-                if (activeTab === EmbeddedTab.NAMED_QUERIES) {
+                if (activeTab === EmbeddedTab.QUERY_ENDPOINTS) {
                     return []
                 }
 
@@ -363,8 +363,8 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
             }
 
             let basePath = '/embedded-analytics'
-            if (activeTab === EmbeddedTab.NAMED_QUERIES) {
-                basePath = '/embedded-analytics/named-queries'
+            if (activeTab === EmbeddedTab.QUERY_ENDPOINTS) {
+                basePath = '/embedded-analytics/query-endpoints'
                 urlParams.delete('date_from')
                 urlParams.delete('date_to')
                 urlParams.delete('interval')
@@ -387,7 +387,7 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
             { activeTab = EmbeddedTab.USAGE_ANALYTICS }: { activeTab?: EmbeddedTab },
             { date_from, date_to, interval, request_name_breakdown_enabled }: Record<string, any>
         ): void => {
-            if (![EmbeddedTab.NAMED_QUERIES, EmbeddedTab.USAGE_ANALYTICS].includes(activeTab)) {
+            if (![EmbeddedTab.QUERY_ENDPOINTS, EmbeddedTab.USAGE_ANALYTICS].includes(activeTab)) {
                 return
             }
 

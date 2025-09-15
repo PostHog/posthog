@@ -7,7 +7,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 
-import { CodeExampleTab, namedQueryLogic } from './namedQueryLogic'
+import { CodeExampleTab, queryEndpointLogic } from './queryEndpointLogic'
 
 const variablesColumns: LemonTableColumns<Variable> = [
     {
@@ -77,8 +77,8 @@ function generateVariablesJson(variables: Variable[]): string {
         .join('\n')
 }
 
-function generateTerminalExample(namedQueryName: string | null, variables: Variable[]): string {
-    return `curl -X POST https://us.posthog.com/api/projects/{project_id}/query/${namedQueryName || 'your-query-name'} \\
+function generateTerminalExample(queryEndpointName: string | null, variables: Variable[]): string {
+    return `curl -X POST https://us.posthog.com/api/projects/{project_id}/query/${queryEndpointName || 'your-query-name'} \\
   -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -88,11 +88,11 @@ ${generateVariablesJson(variables)}
   }'`
 }
 
-function generatePythonExample(namedQueryName: string | null, variables: Variable[]): string {
+function generatePythonExample(queryEndpointName: string | null, variables: Variable[]): string {
     return `import requests
 import json
 
-url = "https://us.posthog.com/api/projects/{project_id}/query/${namedQueryName || 'your-query-name'}"
+url = "https://us.posthog.com/api/projects/{project_id}/query/${queryEndpointName || 'your-query-name'}"
 
 headers = {
     'Content-Type': 'application/json',
@@ -109,10 +109,10 @@ response = requests.post(url, headers=headers, data=json.dumps(payload))
 print(response.json())`
 }
 
-function generateNodeExample(namedQueryName: string | null, variables: Variable[]): string {
+function generateNodeExample(queryEndpointName: string | null, variables: Variable[]): string {
     return `const fetch = require('node-fetch');
 
-const url = 'https://us.posthog.com/api/projects/{project_id}/query/${namedQueryName || 'your-query-name'}';
+const url = 'https://us.posthog.com/api/projects/{project_id}/query/${queryEndpointName || 'your-query-name'}';
 
 const headers = {
     'Content-Type': 'application/json',
@@ -136,24 +136,24 @@ fetch(url, {
 }
 
 interface CodeExamplesProps {
-    namedQueryName: string | null
+    queryEndpointName: string | null
     variables: Variable[]
 }
 
-function CodeExamples({ namedQueryName, variables }: CodeExamplesProps): JSX.Element {
-    const { setActiveCodeExampleTab } = useActions(namedQueryLogic)
-    const { activeCodeExampleTab } = useValues(namedQueryLogic)
+function CodeExamples({ queryEndpointName, variables }: CodeExamplesProps): JSX.Element {
+    const { setActiveCodeExampleTab } = useActions(queryEndpointLogic)
+    const { activeCodeExampleTab } = useValues(queryEndpointLogic)
 
     const getCodeExample = (tab: CodeExampleTab): string => {
         switch (tab) {
             case 'terminal':
-                return generateTerminalExample(namedQueryName, variables)
+                return generateTerminalExample(queryEndpointName, variables)
             case 'python':
-                return generatePythonExample(namedQueryName, variables)
+                return generatePythonExample(queryEndpointName, variables)
             case 'nodejs':
-                return generateNodeExample(namedQueryName, variables)
+                return generateNodeExample(queryEndpointName, variables)
             default:
-                return generateTerminalExample(namedQueryName, variables)
+                return generateTerminalExample(queryEndpointName, variables)
         }
     }
 
@@ -202,20 +202,20 @@ function CodeExamples({ namedQueryName, variables }: CodeExamplesProps): JSX.Ele
     )
 }
 
-export function NamedQuery(): JSX.Element {
-    const { setNamedQueryName } = useActions(namedQueryLogic)
-    const { namedQueryName } = useValues(namedQueryLogic)
+export function QueryEndpoint(): JSX.Element {
+    const { setQueryEndpointName } = useActions(queryEndpointLogic)
+    const { queryEndpointName } = useValues(queryEndpointLogic)
     const { variablesForInsight } = useValues(variablesLogic)
 
     return (
         <div className="space-y-4">
             <div className="flex flex-row items-center gap-2">
-                <h3 className="mb-0">Named Query</h3>
+                <h3 className="mb-0">Query Endpoint</h3>
                 <LemonTag type="completion">ALPHA</LemonTag>
             </div>
             <div className="space-y-2">
                 <p className="text-xs">
-                    Named queries are a way of pre-defining queries that you can query via the API, with additional
+                    Query endpoints are a way of pre-defining queries that you can query via the API, with additional
                     performance improvements and the benefits of monitoring cost and usage.
                     <br />
                     Once created, you will get a URL that you can make an API request to from your own code.
@@ -223,8 +223,8 @@ export function NamedQuery(): JSX.Element {
                 <LemonInput
                     type="text"
                     placeholder="Query name"
-                    onChange={setNamedQueryName}
-                    value={namedQueryName || ''}
+                    onChange={setQueryEndpointName}
+                    value={queryEndpointName || ''}
                     className="w-1/3"
                 />
             </div>
@@ -238,7 +238,7 @@ export function NamedQuery(): JSX.Element {
                 />
             </div>
 
-            <CodeExamples namedQueryName={namedQueryName} variables={variablesForInsight} />
+            <CodeExamples queryEndpointName={queryEndpointName} variables={variablesForInsight} />
         </div>
     )
 }
