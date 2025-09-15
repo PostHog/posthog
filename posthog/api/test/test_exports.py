@@ -273,7 +273,7 @@ class TestExports(APIBaseTest):
         mock_exporter_task.export_asset.delay.return_value.get.side_effect = NotImplementedError("not implemented")
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
-            {"export_format": "application/pdf", "insight": self.insight.id},
+            {"export_format": "image/jpeg", "insight": self.insight.id},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -281,7 +281,7 @@ class TestExports(APIBaseTest):
             {
                 "attr": "export_format",
                 "code": "invalid_input",
-                "detail": "Export format application/pdf is not supported.",
+                "detail": "Export format image/jpeg is not supported.",
                 "type": "validation_error",
             },
         )
