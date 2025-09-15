@@ -1,9 +1,13 @@
 import re
 
 import yaml
+import structlog
 from langchain.output_parsers import OutputFixingParser
+from langchain_core.exceptions import OutputParserException
 from langchain_core.output_parsers import BaseOutputParser
 from langchain_openai import ChatOpenAI
+
+logger = structlog.get_logger(__name__)
 
 
 class YamlOutputParser(BaseOutputParser):
@@ -12,11 +16,15 @@ class YamlOutputParser(BaseOutputParser):
     def parse(self, text: str) -> dict | list:
         """Parse YAML text into generic JSON-like structure."""
         # Strip potential markdown markers, if present
-        if "```yaml" in text:
-            cleaned_text = re.findall(r"(?:```yaml)((?:.|\n|s)*)(?:```)", text, re.DOTALL)[0]
-        else:
-            cleaned_text = text.strip()
-        return yaml.safe_load(cleaned_text)
+        try:
+            if "```yaml" in text:
+                cleaned_text = re.findall(r"(?:```yaml)((?:.|\n|s)*)(?:```)", text, re.DOTALL)[0]
+            else:
+                cleaned_text = text.strip()
+            return yaml.safe_load(cleaned_text)
+        except yaml.YAMLError as e:
+            # Catch only YAML-specific errors that makes sense to try to fix, raise other errors
+            raise OutputParserException(f"Error loading LLM-generated YAML content into JSON: {e}") from e
 
     def get_format_instructions(self) -> str:
         """Return format instructions for the parser."""
@@ -28,8 +36,7 @@ def load_yaml_from_raw_llm_content(raw_content: str) -> dict | list:
     try:
         content = yaml_parser.parse(raw_content)
         return content
-    # Catch only YAML-specific errors that makes sense to try to fix, raise other errors
-    except yaml.YAMLError:
+    except OutputParserException:
         # Try to fix with OutputFixingParser
         llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0.1)
         fixing_parser = OutputFixingParser.from_llm(parser=yaml_parser, llm=llm, max_retries=1)

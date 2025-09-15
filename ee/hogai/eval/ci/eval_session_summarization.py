@@ -13,7 +13,7 @@ from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, Assis
 from ee.models.assistant import Conversation
 
 from ..base import MaxPublicEval
-from ..scorers import SemanticSimilarity, ToolRelevance
+from ..scorers import ExactMatch, SemanticSimilarity, ToolRelevance
 
 
 @pytest.fixture
@@ -286,7 +286,6 @@ def filter_query_tester(demo_org_team_user):
     return test
 
 
-@pytest.mark.django_db
 async def eval_filter_query_generation(filter_query_tester, pytestconfig):
     """Test that filter query generation preserves search intent while removing fluff."""
 
@@ -316,6 +315,68 @@ async def eval_filter_query_generation(filter_query_tester, pytestconfig):
             EvalCase(
                 input="Max, I need you to watch replays of German desktop Linux users from 21.03.2024 till 24.03.2024, and tell me what problems did they encounter",
                 expected="replays of German desktop Linux users from 21.03.2024 till 24.03.2024",
+            ),
+        ],
+        pytestconfig=pytestconfig,
+    )
+
+
+@pytest.fixture
+def yaml_fix_tester():
+    """Test that load_yaml_from_raw_llm_content fixes malformed YAML."""
+    from ee.hogai.graph.session_summaries.parsers import load_yaml_from_raw_llm_content
+
+    def test(malformed_yaml: str) -> dict | list:
+        return load_yaml_from_raw_llm_content(malformed_yaml)
+
+    return test
+
+
+async def eval_yaml_fixing(yaml_fix_tester, pytestconfig):
+    """Test that load_yaml_from_raw_llm_content can fix slightly malformed YAML."""
+
+    await MaxPublicEval(
+        experiment_name="yaml_fixing",
+        task=yaml_fix_tester,
+        scores=[ExactMatch()],
+        data=[
+            # Missing closing quote
+            EvalCase(
+                input='key: "value with missing quote',
+                expected={"key": "value with missing quote"},
+            ),
+            # Mixed symbols in the elements
+            EvalCase(
+                input="""
+- key: value's with extra quote
+- another_key: 'quoted string'
+- one_more_key: ```some code```
+""",
+                expected=[
+                    {"key": "value's with extra quote"},
+                    {"another_key": "quoted string"},
+                    {"one_more_key": "some code"},
+                ],
+            ),
+            # Mixed indentation (tabs and spaces)
+            EvalCase(
+                input="parent:\n\tchild: value",
+                expected={"parent": {"child": "value"}},
+            ),
+            # Unquoted string with special chars that should be quoted
+            EvalCase(
+                input="url: http://example.com?param=value&other=test",
+                expected={"url": "http://example.com?param=value&other=test"},
+            ),
+            # Missing dash for list item
+            EvalCase(
+                input="- item1\nitem2",
+                expected=["item1", "item2"],
+            ),
+            # Inconsistent list/dict mixing
+            EvalCase(
+                input="- key: value\nother: data",
+                expected={"key": "value", "other": "data"},
             ),
         ],
         pytestconfig=pytestconfig,
