@@ -142,7 +142,7 @@ export function ViewLinkModal({ mode }: ViewLinkModalProps): JSX.Element {
 
 const HOGQL_EDITOR_PLACEHOLDER = 'Enter SQL expression, such as:\n- pdi.distinct_id\n- properties.email'
 const HOGQL_EDITOR_PLACEHOLDER_REVENUE_ANALYTICS =
-    "Enter SQL expression, such as:\n- JSONExtractString(metadata, 'customer_id')\n- JSONExtractString(metadata, 'organization_id')\n- concat(email, ',', customer_id)"
+    "Enter SQL expression, such as:\n- metadata.customer_id\n- metadata.organization_id\n- concat(email, ',', customer_id)"
 
 export function ViewLinkForm({ mode }: ViewLinkModalProps): JSX.Element {
     const {
@@ -155,7 +155,6 @@ export function ViewLinkForm({ mode }: ViewLinkModalProps): JSX.Element {
         error,
         fieldName,
         isNewJoin,
-        selectedSourceKey,
         selectedJoiningKey,
         sourceIsUsingHogQLExpression,
         joiningIsUsingHogQLExpression,
@@ -219,34 +218,37 @@ export function ViewLinkForm({ mode }: ViewLinkModalProps): JSX.Element {
                         <span className="l4">Source Table Key</span>
                         <div className="text-wrap break-all">
                             <Field name="source_table_key">
-                                <>
-                                    <LemonSelect
-                                        fullWidth
-                                        onSelect={selectSourceKey}
-                                        value={sourceIsUsingHogQLExpression ? '' : (selectedSourceKey ?? undefined)}
-                                        disabledReason={
-                                            selectedSourceTableName ? '' : 'Select a table to choose join key'
-                                        }
-                                        options={[
-                                            ...sourceTableKeys,
-                                            { value: '', label: <span>SQL Expression</span> },
-                                        ]}
-                                        placeholder="Select a key"
-                                    />
-                                    {sourceIsUsingHogQLExpression && (
-                                        <HogQLDropdown
-                                            className="mt-2"
-                                            hogQLValue={selectedSourceKey ?? ''}
-                                            onHogQLValueChange={selectSourceKey}
-                                            tableName={selectedSourceTableName ?? ''}
-                                            hogQLEditorPlaceholder={
-                                                mode === 'revenue_analytics'
-                                                    ? HOGQL_EDITOR_PLACEHOLDER_REVENUE_ANALYTICS
-                                                    : HOGQL_EDITOR_PLACEHOLDER
+                                {({ value, onChange }) => (
+                                    <>
+                                        <LemonSelect
+                                            fullWidth
+                                            onSelect={selectSourceKey}
+                                            onChange={onChange}
+                                            value={sourceIsUsingHogQLExpression ? '' : (value ?? undefined)}
+                                            disabledReason={
+                                                selectedSourceTableName ? '' : 'Select a table to choose join key'
                                             }
+                                            options={[
+                                                ...sourceTableKeys,
+                                                { value: '', label: <span>SQL Expression</span> },
+                                            ]}
+                                            placeholder="Select a key"
                                         />
-                                    )}
-                                </>
+                                        {sourceIsUsingHogQLExpression && (
+                                            <HogQLDropdown
+                                                className="mt-2"
+                                                hogQLValue={value}
+                                                onHogQLValueChange={onChange}
+                                                tableName={selectedSourceTableName ?? ''}
+                                                hogQLEditorPlaceholder={
+                                                    mode === 'revenue_analytics'
+                                                        ? HOGQL_EDITOR_PLACEHOLDER_REVENUE_ANALYTICS
+                                                        : HOGQL_EDITOR_PLACEHOLDER
+                                                }
+                                            />
+                                        )}
+                                    </>
+                                )}
                             </Field>
                         </div>
                     </div>
@@ -260,32 +262,33 @@ export function ViewLinkForm({ mode }: ViewLinkModalProps): JSX.Element {
                                 (selectedJoiningKey ?? '')
                             ) : (
                                 <Field name="joining_table_key">
-                                    <>
-                                        <LemonSelect
-                                            fullWidth
-                                            onSelect={selectJoiningKey}
-                                            value={
-                                                joiningIsUsingHogQLExpression ? '' : (selectedJoiningKey ?? undefined)
-                                            }
-                                            disabledReason={
-                                                selectedJoiningTableName ? '' : 'Select a table to choose join key'
-                                            }
-                                            options={[
-                                                ...joiningTableKeys,
-                                                { value: '', label: <span>SQL Expression</span> },
-                                            ]}
-                                            placeholder="Select a key"
-                                        />
-                                        {joiningIsUsingHogQLExpression && (
-                                            <HogQLDropdown
-                                                className="mt-2"
-                                                hogQLValue={selectedJoiningKey ?? ''}
-                                                onHogQLValueChange={selectJoiningKey}
-                                                tableName={selectedJoiningTableName ?? ''}
-                                                hogQLEditorPlaceholder={HOGQL_EDITOR_PLACEHOLDER}
+                                    {({ value, onChange }) => (
+                                        <>
+                                            <LemonSelect
+                                                fullWidth
+                                                onSelect={selectJoiningKey}
+                                                onChange={onChange}
+                                                value={joiningIsUsingHogQLExpression ? '' : (value ?? undefined)}
+                                                disabledReason={
+                                                    selectedJoiningTableName ? '' : 'Select a table to choose join key'
+                                                }
+                                                options={[
+                                                    ...joiningTableKeys,
+                                                    { value: '', label: <span>SQL Expression</span> },
+                                                ]}
+                                                placeholder="Select a key"
                                             />
-                                        )}
-                                    </>
+                                            {joiningIsUsingHogQLExpression && (
+                                                <HogQLDropdown
+                                                    className="mt-2"
+                                                    hogQLValue={value}
+                                                    onHogQLValueChange={onChange}
+                                                    tableName={selectedJoiningTableName ?? ''}
+                                                    hogQLEditorPlaceholder={HOGQL_EDITOR_PLACEHOLDER}
+                                                />
+                                            )}
+                                        </>
+                                    )}
                                 </Field>
                             )}
                         </div>
