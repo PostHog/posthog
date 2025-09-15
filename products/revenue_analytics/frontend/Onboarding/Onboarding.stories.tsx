@@ -32,6 +32,19 @@ const meta: Meta = {
                         },
                     ]
                 },
+                '/api/environments/:team_id/external_data_sources/wizard': () => {
+                    return [
+                        200,
+                        {
+                            Stripe: {
+                                name: 'Stripe',
+                                iconPath: '/static/services/stripe.png',
+                                fields: [],
+                                caption: '',
+                            },
+                        },
+                    ]
+                },
             },
         }),
     ],

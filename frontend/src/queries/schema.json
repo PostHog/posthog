@@ -23215,6 +23215,9 @@
                     },
                     "type": "array"
                 },
+                "iconPath": {
+                    "type": "string"
+                },
                 "label": {
                     "type": "string"
                 },
@@ -23225,7 +23228,7 @@
                     "type": "boolean"
                 }
             },
-            "required": ["name", "caption", "fields"],
+            "required": ["name", "caption", "fields", "iconPath"],
             "type": "object"
         },
         "SourceFieldConfig": {
