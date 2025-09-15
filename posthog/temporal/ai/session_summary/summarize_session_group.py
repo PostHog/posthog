@@ -34,6 +34,7 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
     get_patterns_from_redis_outside_workflow,
     split_session_summaries_into_chunks_for_patterns_extraction_activity,
 )
+from posthog.temporal.ai.session_summary.activities.videos import validate_llm_single_session_summary_with_videos_activity
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     generate_state_id_from_session_ids,
