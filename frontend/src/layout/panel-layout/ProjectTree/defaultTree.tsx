@@ -179,7 +179,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconFunnels />,
         iconColor: ['var(--color-insight-funnel-light)'],
     },
-    insight_trend: {
+    insight_trends: {
         icon: <IconTrends />,
         iconColor: ['var(--color-insight-trends-light)'],
     },
@@ -187,7 +187,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconRetention />,
         iconColor: ['var(--color-insight-retention-light)'],
     },
-    insight_user_path: {
+    insight_paths: {
         icon: <IconUserPaths />,
         iconColor: ['var(--color-insight-user-paths-light)', 'var(--color-user-paths-dark)'],
     },
@@ -199,7 +199,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconStickiness />,
         iconColor: ['var(--color-insight-stickiness-light)'],
     },
-    insight_hogql: {
+    insight_hog: {
         icon: <IconHogQL />,
         iconColor: ['var(--color-insight-sql-light)'],
     },

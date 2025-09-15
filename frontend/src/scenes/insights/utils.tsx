@@ -6,6 +6,7 @@ import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 
@@ -18,6 +19,7 @@ import {
     BreakdownFilter,
     DataWarehouseNode,
     EventsNode,
+    FileSystemIconType,
     HogQLQuery,
     InsightVizNode,
     Node,
@@ -28,7 +30,13 @@ import {
     ResultCustomizationByPosition,
     ResultCustomizationByValue,
 } from '~/queries/schema/schema-general'
-import { isDataWarehouseNode, isEventsNode } from '~/queries/utils'
+import {
+    containsHogQLQuery,
+    isDataTableNode,
+    isDataWarehouseNode,
+    isEventsNode,
+    isInsightVizNode,
+} from '~/queries/utils'
 import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
@@ -693,4 +701,37 @@ export function compareInsightTopLevelSections(obj1: any, obj2: any): string[] {
     }
 
     return Array.from(changedLabels).sort()
+}
+
+export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
+    if (!query?.kind) {
+        return 'product_analytics'
+    }
+
+    let nodeKind: NodeKind
+    if ((isDataTableNode(query) && containsHogQLQuery(query)) || isInsightVizNode(query)) {
+        nodeKind = query.source.kind
+    } else {
+        nodeKind = query.kind
+    }
+
+    const metadata = QUERY_TYPES_METADATA[nodeKind]
+
+    // Map NodeKind to the fileSystemType color names
+    const nodeKindToColor: Record<NodeKind, FileSystemIconType> = {
+        [NodeKind.TrendsQuery]: 'insight_trends',
+        [NodeKind.FunnelsQuery]: 'insight_funnel',
+        [NodeKind.RetentionQuery]: 'insight_retention',
+        [NodeKind.PathsQuery]: 'insight_paths',
+        [NodeKind.StickinessQuery]: 'insight_stickiness',
+        [NodeKind.LifecycleQuery]: 'insight_lifecycle',
+        [NodeKind.HogQuery]: 'insight_hog',
+        [NodeKind.HogQLQuery]: 'insight_hog',
+        [NodeKind.DataVisualizationNode]: 'insight_hog', // HogQL-based visualizations
+        [NodeKind.DataTableNode]: 'insight_hog', // HogQL-based tables
+    } as any
+
+    const mappedIconType: FileSystemIconType = nodeKindToColor[nodeKind] || 'product_analytics'
+
+    return mappedIconType
 }
