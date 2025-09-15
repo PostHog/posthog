@@ -127,6 +127,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 selectSourceKey: (_, { selectedKey }) => selectedKey,
                 toggleNewJoinModal: (_, { join }) => join?.source_table_key ?? null,
                 toggleEditJoinModal: (_, { join }) => join.source_table_key ?? null,
+                clearModalFields: () => null,
             },
         ],
         selectedJoiningKey: [
@@ -135,6 +136,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 selectJoiningKey: (_, { selectedKey }) => selectedKey,
                 toggleNewJoinModal: (_, { join }) => join?.joining_table_key ?? null,
                 toggleEditJoinModal: (_, { join }) => join.joining_table_key ?? null,
+                clearModalFields: () => null,
             },
         ],
         fieldName: [
@@ -291,14 +293,22 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             }
         },
         selectSourceTable: async ({ selectedTableName }) => {
+            actions.setIsJoinValid(false)
             if (selectedTableName) {
                 actions.loadSourceTablePreview(selectedTableName)
             }
         },
         selectJoiningTable: async ({ selectedTableName }) => {
+            actions.setIsJoinValid(false)
             if (selectedTableName) {
                 actions.loadJoiningTablePreview(selectedTableName)
             }
+        },
+        selectSourceKey: () => {
+            actions.setIsJoinValid(false)
+        },
+        selectJoiningKey: () => {
+            actions.setIsJoinValid(false)
         },
         loadSourceTablePreview: async ({ tableName }) => {
             await loadTablePreviewData(tableName, actions.setSourceTablePreviewData)
