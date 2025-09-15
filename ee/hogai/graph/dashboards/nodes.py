@@ -473,7 +473,7 @@ class DashboardCreatorNode(AssistantNode):
 
             # Add insights to the dashboard via DashboardTile
             for insight_id in insights:
-                insight = Insight.objects.get(id=insight_id)
+                insight = Insight.objects.get(id=insight_id, team=self._team)
                 DashboardTile.objects.create(
                     dashboard=dashboard,
                     insight=insight,
