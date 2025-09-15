@@ -538,9 +538,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     <>
                                         Persons in this cohort
                                         <span className="text-secondary ml-2">
-                                            {!cohort.is_calculating &&
-                                                cohort.count !== undefined &&
-                                                `(${cohort.count})`}
+                                            {!cohort.is_calculating && cohort.count != undefined && `(${cohort.count})`}
                                         </span>
                                     </>
                                 }

@@ -18,7 +18,7 @@ from posthog.clickhouse.query_tagging import QueryTags, update_tags
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Cohort
 from posthog.models.cohort import CohortOrEmpty
-from posthog.models.cohort.util import get_dependent_cohorts, get_static_cohort_size, sort_cohorts_topologically
+from posthog.models.cohort.util import get_dependent_cohorts, sort_cohorts_topologically
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.tasks.utils import CeleryQueue
@@ -342,14 +342,6 @@ def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> N
         if settings.DEBUG:
             raise
     finally:
-        # Always update the count and cohort state, even if processing failed
-        try:
-            cohort.count = get_static_cohort_size(cohort_id=cohort.id, team_id=cohort.team_id)
-        except Exception as count_err:
-            # If count calculation fails, log the error but don't override the processing error
-            logger.exception("Failed to calculate static cohort size", cohort_id=cohort.id, team_id=team_id)
-            capture_exception(count_err, additional_properties={"cohort_id": cohort.id, "team_id": team_id})
-
         cohort._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
 
 
