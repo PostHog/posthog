@@ -549,7 +549,7 @@ export function getTrendResultCustomization(
 ): ResultCustomization | undefined {
     const resultCustomizationKey = getTrendResultCustomizationKey(resultCustomizationBy, dataset)
     return resultCustomizations && Object.keys(resultCustomizations).includes(resultCustomizationKey)
-        ? resultCustomizations[resultCustomizationKey]
+        ? (resultCustomizations as any)[resultCustomizationKey]
         : undefined
 }
 
@@ -715,18 +715,18 @@ export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
     }
 
     // Map NodeKind to the fileSystemType color names
-    const nodeKindToColor: Record<NodeKind, FileSystemIconType> = {
-        [NodeKind.TrendsQuery]: 'insight_trends',
-        [NodeKind.FunnelsQuery]: 'insight_funnel',
-        [NodeKind.RetentionQuery]: 'insight_retention',
-        [NodeKind.PathsQuery]: 'insight_paths',
-        [NodeKind.StickinessQuery]: 'insight_stickiness',
-        [NodeKind.LifecycleQuery]: 'insight_lifecycle',
-        [NodeKind.HogQuery]: 'insight_hog',
-        [NodeKind.HogQLQuery]: 'insight_hog',
-        [NodeKind.DataVisualizationNode]: 'insight_hog',
-        [NodeKind.DataTableNode]: 'insight_hog',
-    } as any
+    const nodeKindToColor: Partial<Record<NodeKind, FileSystemIconType>> = {
+        [NodeKind.TrendsQuery]: 'insight/trends',
+        [NodeKind.FunnelsQuery]: 'insight/funnels',
+        [NodeKind.RetentionQuery]: 'insight/retention',
+        [NodeKind.PathsQuery]: 'insight/paths',
+        [NodeKind.StickinessQuery]: 'insight/stickiness',
+        [NodeKind.LifecycleQuery]: 'insight/lifecycle',
+        [NodeKind.HogQuery]: 'insight/hog',
+        [NodeKind.HogQLQuery]: 'insight/hog',
+        [NodeKind.DataVisualizationNode]: 'insight/hog',
+        [NodeKind.DataTableNode]: 'insight/hog',
+    }
 
     const mappedIconType: FileSystemIconType = nodeKindToColor[nodeKind] || 'product_analytics'
 

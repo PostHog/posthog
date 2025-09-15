@@ -2394,13 +2394,13 @@ export type FileSystemIconType =
     | 'person'
     | 'cohort'
     | 'group'
-    | 'insight_funnel'
-    | 'insight_trends'
-    | 'insight_retention'
-    | 'insight_paths'
-    | 'insight_lifecycle'
-    | 'insight_stickiness'
-    | 'insight_hog'
+    | 'insight/funnels'
+    | 'insight/trends'
+    | 'insight/retention'
+    | 'insight/paths'
+    | 'insight/lifecycle'
+    | 'insight/stickiness'
+    | 'insight/hog'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
