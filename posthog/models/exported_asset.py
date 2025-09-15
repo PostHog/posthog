@@ -51,6 +51,7 @@ class ExportedAsset(models.Model):
 
     SUPPORTED_FORMATS = [
         ExportFormat.PNG,
+        ExportFormat.PDF,
         ExportFormat.CSV,
         ExportFormat.XLSX,
         ExportFormat.WEBM,
