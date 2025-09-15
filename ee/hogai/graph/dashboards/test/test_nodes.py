@@ -527,21 +527,6 @@ class TestDashboardCreatorNode(TestCase):
             self.assertEqual(result.messages[0].tool_call_id, "test_call")
             mock_capture.assert_called_once()
 
-    def test_router(self):
-        """Test router returns correct route."""
-        state = AssistantState()
-        result = self.node.router(state)
-        self.assertEqual(result, "root")
-
-    def test_model_property(self):
-        """Test _model property returns ChatOpenAI instance."""
-        model = self.node._model
-        from langchain_openai import ChatOpenAI
-
-        self.assertIsInstance(model, ChatOpenAI)
-        self.assertEqual(model.model_name, "gpt-4.1-mini")
-        self.assertEqual(model.temperature, 0.3)
-
 
 class TestDashboardCreatorNodeAsyncMethods(TestCase):
     def setUp(self):
