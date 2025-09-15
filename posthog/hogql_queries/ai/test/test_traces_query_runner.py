@@ -278,7 +278,8 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             },
         )
         self.assertEqual(trace.person.distinct_id, "person1")
-        self.assertFalse(trace.events)
+        # Since these generation events don't have parent_id = trace_id, they are not root-level
+        self.assertEqual(len(trace.events), 0)
 
         trace = response.results[1]
         self.assertTraceEqual(
@@ -296,8 +297,8 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(trace.person.distinct_id, "person2")
         # List view only returns summary events (metrics, feedback, and root-level events)
-        # Since we only have root-level generation events, they are returned
-        self.assertEqual(len(trace.events), 1)
+        # Since these generation events don't have parent_id = trace_id, they are not root-level
+        self.assertEqual(len(trace.events), 0)
 
     # test_trace_id_filter removed - TracesQuery no longer supports traceId parameter
 
@@ -349,6 +350,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 "$ai_model": "hog-destroyer",
                 "$ai_http_status": 200,
                 "$ai_base_url": "https://us.posthog.com",
+                "$ai_parent_id": "trace1",
             },
         )
 
@@ -364,6 +366,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 "$ai_model": "hog-destroyer",
                 "$ai_http_status": 200,
                 "$ai_base_url": "https://us.posthog.com",
+                "$ai_parent_id": "trace1",
             },
             response.results[0].events[0].properties,
         )
@@ -544,7 +547,10 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             trace_id="trace1",
             team=self.team,
             timestamp=datetime(2024, 12, 1, 0, 0),
-            properties={"$ai_model_parameters": {"temperature": 0.5}},
+            properties={
+                "$ai_model_parameters": {"temperature": 0.5},
+                "$ai_parent_id": "trace1",
+            },
         )
 
         response = TracesQueryRunner(
@@ -555,6 +561,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         ).calculate()
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "trace1")
+        self.assertEqual(len(response.results[0].events), 1)
         self.assertEqual(response.results[0].events[0].properties["$ai_model_parameters"], {"temperature": 0.5})
 
     @snapshot_clickhouse_queries
@@ -710,8 +717,11 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].traceName, "bar")
+        self.assertEqual(len(response.results), 2)  # Should return both traces
+        # Find trace2 in the results
+        trace2 = next((r for r in response.results if r.id == "trace2"), None)
+        self.assertIsNotNone(trace2)
+        self.assertEqual(trace2.traceName, "bar")
 
     def test_returns_metrics_and_feedback_events(self):
         _create_person(distinct_ids=["person1"], team=self.team)
@@ -747,18 +757,8 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
         self.assertEqual(len(response.results), 1)
-        self.assertEqual(len(response.results[0].events), 3)
-        self.assertEqual(response.results[0].events[0].event, "$ai_generation")
-        self.assertEqual(response.results[0].events[1].event, "$ai_metric")
-        self.assertEqual(response.results[0].events[2].event, "$ai_feedback")
-
-        response = TracesQueryRunner(
-            team=self.team,
-            query=TracesQuery(
-                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
-            ),
-        ).calculate()
-        self.assertEqual(len(response.results), 1)
+        # List view only returns metrics, feedback, and root-level events
+        # The generation event is not root-level (no parent_id = trace_id)
         self.assertEqual(len(response.results[0].events), 2)
         self.assertEqual(response.results[0].events[0].event, "$ai_metric")
         self.assertEqual(response.results[0].events[1].event, "$ai_feedback")
@@ -847,7 +847,6 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             distinct_id="person1",
         )
 
-        # Should return total latency of 2
         response = TracesQueryRunner(
             team=self.team,
             query=TracesQuery(
@@ -855,7 +854,8 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
         self.assertEqual(len(response.results), 1)
-        self.assertEqual(len(response.results[0].events), 1)
+        # Generation events without parent_id = trace_id are not root-level, so not included
+        self.assertEqual(len(response.results[0].events), 0)
 
     def test_trace_name_from_trace_event(self):
         """Test that trace_name comes from $ai_trace events when they exist."""
