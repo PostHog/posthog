@@ -220,7 +220,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "insight": self.insight["id"],
             "name": "anomaly alert",
             "subscribed_users": [self.user.id],
-            "condition": {"type": AlertConditionType.ANOMALY, "anomaly_condition": {"confidence_level": 0.95}},
+            "condition": {"type": AlertConditionType.ANOMALY, "confidence_level": 0.95},
             "calculation_interval": "daily",
             "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
         }
@@ -230,4 +230,4 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         response_json = response.json()
         assert response_json["name"] == "anomaly alert"
         assert response_json["condition"]["type"] == AlertConditionType.ANOMALY
-        assert response_json["condition"]["anomaly_condition"]["confidence_level"] == 0.95
+        assert response_json["condition"]["confidence_level"] == 0.95

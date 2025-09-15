@@ -353,14 +353,20 @@ def check_trends_anomaly_alert(
     alert: AlertConfiguration, insight: Insight, query: TrendsQuery
 ) -> AlertEvaluationResult:
     condition = AlertCondition.model_validate(alert.condition)
-    if not condition.anomaly_condition:
+    if not condition.confidence_level:
         raise ValueError("Anomaly condition not configured for alert")
 
-    confidence_level = condition.anomaly_condition.confidence_level
+    confidence_level = condition.confidence_level
 
     is_non_time_series = _is_non_time_series_trend(query)
     if is_non_time_series:
         raise ValueError("Anomaly detection is not supported for non-time series trends")
+
+    if "type" in alert.config and alert.config["type"] == "TrendsAlertConfig":
+        config = TrendsAlertConfig.model_validate(alert.config)
+    else:
+        # This case should ideally not be hit if validation is correct
+        raise ValueError(f"Unsupported alert config type: {alert.config}")
 
     # Determine historical data range based on the insight interval to ensure enough data for Prophet
     interval = query.interval or "day"
@@ -383,14 +389,11 @@ def check_trends_anomaly_alert(
     )
 
     if not calculation_result.result:
-        raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
+        raise ValueError("Insight query returned no results")
 
-    # For now, let's just check the first series. We can extend to breakdowns later.
-    # TODO: Handle breakdowns
-    series_result = cast(list[TrendResult], calculation_result.result)[0]
+    series_result = _pick_series_result(config, calculation_result)
     series_label = series_result["label"]
-
-    dates = series_result["dates"]
+    dates = series_result["days"]
     values = series_result["data"]
 
     if len(values) < 2:
@@ -456,7 +459,9 @@ def _date_range_override_for_intervals(query: TrendsQuery, last_x_intervals: int
 
 
 def _pick_series_result(config: TrendsAlertConfig, results: InsightResult) -> TrendResult:
-    series_index = config.series_index
+    series_index = config.series_index or 0
+    if len(results.result) <= series_index:
+        raise ValueError("Insight query returned no results for the specified series")
     result = cast(list[TrendResult], results.result)[series_index]
 
     return result

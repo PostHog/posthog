@@ -3078,11 +3078,8 @@ export enum AlertConditionType {
 
 export interface AlertCondition {
     // Conditions in addition to the separate threshold
-    // TODO: Think about things like relative thresholds, rate of change, etc.
     type: AlertConditionType
-    anomaly_condition?: {
-        confidence_level: number
-    }
+    confidence_level?: number
 }
 
 export enum AlertState {

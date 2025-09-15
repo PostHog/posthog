@@ -351,15 +351,8 @@
         "AlertCondition": {
             "additionalProperties": false,
             "properties": {
-                "anomaly_condition": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "confidence_level": {
-                            "type": "number"
-                        }
-                    },
-                    "required": ["confidence_level"],
-                    "type": "object"
+                "confidence_level": {
+                    "type": "number"
                 },
                 "type": {
                     "$ref": "#/definitions/AlertConditionType"

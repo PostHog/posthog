@@ -35,7 +35,7 @@ import {
 import { InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { SnoozeButton } from '../SnoozeButton'
-import { alertFormLogic, canCheckOngoingInterval } from '../alertFormLogic'
+import { DEFAULT_CONFIDENCE_LEVEL, alertFormLogic, canCheckOngoingInterval } from '../alertFormLogic'
 import { alertLogic } from '../alertLogic'
 import { AlertType } from '../types'
 import { AlertDestinationSelector } from './AlertDestinationSelector'
@@ -279,13 +279,13 @@ export function EditAlertModal({
                                     {alertForm.condition?.type === AlertConditionType.ANOMALY ? (
                                         <div className="flex gap-4 items-center">
                                             <div>with confidence level</div>
-                                            <LemonField name={['condition', 'anomaly_condition', 'confidence_level']}>
+                                            <LemonField name={['condition', 'confidence_level']}>
                                                 {({ value, onChange }) => (
                                                     <LemonInput
                                                         type="number"
                                                         className="w-25"
                                                         data-attr="alertForm-confidence-level"
-                                                        value={value ? value * 100 : 90}
+                                                        value={value ? value * 100 : DEFAULT_CONFIDENCE_LEVEL * 100}
                                                         onChange={(newValue) => {
                                                             const numericValue =
                                                                 typeof newValue === 'string'

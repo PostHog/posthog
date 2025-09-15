@@ -689,7 +689,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             f"/api/projects/{self.team.id}/alerts/{self.alert['id']}",
             data={
                 "insight": timeseries_insight["id"],
-                "condition": {"type": "anomaly", "anomaly_condition": {"confidence_level": 0.95}},
+                "condition": {"type": "anomaly", "confidence_level": 0.95},
                 "threshold": {"configuration": {"type": "absolute", "bounds": {}}},
             },
         )
@@ -699,7 +699,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             dates = [f"2024-05-{i:02d}" for i in range(1, 21)]
             data = [10.0] * 19 + [100.0]  # Normal values, then a spike
             mock_insight_result = InsightResult(
-                result=[{"dates": dates, "data": data, "label": "$pageview"}],
+                result=[{"days": dates, "data": data, "label": "$pageview"}],
                 last_refresh=None,
                 cache_key="",
                 is_cached=False,
@@ -731,7 +731,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             f"/api/projects/{self.team.id}/alerts/{self.alert['id']}",
             data={
                 "insight": timeseries_insight["id"],
-                "condition": {"type": "anomaly", "anomaly_condition": {"confidence_level": 0.99}},
+                "condition": {"type": "anomaly", "confidence_level": 0.99},
                 "threshold": {"configuration": {"type": "absolute", "bounds": {}}},
             },
         )
@@ -741,7 +741,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             dates = [f"2024-05-{i:02d}" for i in range(1, 21)]
             data = [10.0] * 20
             mock_insight_result = InsightResult(
-                result=[{"dates": dates, "data": data, "label": "$pageview"}],
+                result=[{"days": dates, "data": data, "label": "$pageview"}],
                 last_refresh=None,
                 cache_key="",
                 is_cached=False,
